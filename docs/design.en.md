@@ -1,33 +1,33 @@
-# Toto 設計ドキュメント v2
+# Toto Design Document v2
 
 **Version:** 2.0  
 **Date:** 2025-01-28
 
 ---
 
-## 1. 概要
+## 1. Overview
 
-Toto は宣言的な開発環境セットアップツール。Kubernetes の Spec/State reconciliation パターンを採用し、ローカル環境のツール、ランタイム、システムパッケージを管理する。
+Toto is a declarative development environment setup tool. It adopts Kubernetes' Spec/State reconciliation pattern to manage local tools, runtimes, and system packages.
 
-### 設計哲学
+### Design Philosophy
 
-- **宣言的管理**: 望む状態を定義し、toto が実現する
-- **サンドボックス不使用**: 仮想化やコンテナを使わず、実環境を直接セットアップ
-- **CUE による型安全**: スキーマ検証と柔軟な設定
-- **シンプルさ**: nix ほど複雑にせず、既存ツール (apt, go install) を活用
+- **Declarative Management**: Define desired state, toto realizes it
+- **No Sandboxing**: Directly set up the real environment without virtualization or containers
+- **Type Safety with CUE**: Schema validation and flexible configuration
+- **Simplicity**: Leverage existing tools (apt, go install) without nix-level complexity
 
 ---
 
-## 2. インストーラパターン
+## 2. Installer Patterns
 
-toto は2つのインストーラパターンをサポートする。
+Toto supports two installer patterns.
 
 ### 2.1 Delegation Pattern
 
-外部コマンドに処理を委譲するパターン。
+Delegates processing to external commands.
 
 ```
-例:
+Examples:
 ├── apt install <package>
 ├── brew install <package>
 ├── go install <package>
@@ -35,44 +35,44 @@ toto は2つのインストーラパターンをサポートする。
 └── npm install -g <package>
 ```
 
-toto は「何をインストールするか」を指示し、実際の処理は外部ツールが行う。
+Toto instructs "what to install", while external tools perform the actual processing.
 
 ### 2.2 Download Pattern
 
-toto が直接ダウンロードして配置するパターン。
+Toto directly downloads and places files.
 
 ```
-例:
-├── GitHub Release からバイナリ取得
-├── go.dev から Go tarball 取得
-└── Aqua registry 形式のツール
+Examples:
+├── Fetch binaries from GitHub Releases
+├── Fetch Go tarball from go.dev
+└── Aqua registry format tools
 ```
 
-チェックサム検証、展開、symlink 作成まで toto が担当。
+Toto handles checksum verification, extraction, and symlink creation.
 
 ---
 
-## 3. リソース定義
+## 3. Resource Definitions
 
-### 3.1 権限による分類
+### 3.1 Classification by Privilege
 
 ```
-User 権限 (toto apply):
-├── Runtime    - 言語ランタイム (Go, Rust, Node)
-├── Tool       - 単体ツール
-└── ToolSet    - 複数ツールのセット
+User Privilege (toto apply):
+├── Runtime    - Language runtimes (Go, Rust, Node)
+├── Tool       - Individual tools
+└── ToolSet    - Set of multiple tools
 
-System 権限 (sudo toto apply --system):
-├── SystemInstaller         - パッケージマネージャ定義
-├── SystemPackageRepository - サードパーティリポジトリ
-└── SystemPackageSet        - パッケージセット
+System Privilege (sudo toto apply --system):
+├── SystemInstaller         - Package manager definition
+├── SystemPackageRepository - Third-party repositories
+└── SystemPackageSet        - Package sets
 ```
 
-### 3.2 各リソースの構造
+### 3.2 Structure of Each Resource
 
 #### SystemInstaller
 
-パッケージマネージャの定義。apt は toto が builtin として CUE マニフェストを提供。
+Package manager definition. apt is provided as a builtin CUE manifest by toto.
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
@@ -92,7 +92,7 @@ spec: {
 
 #### SystemPackageRepository
 
-サードパーティリポジトリの定義。
+Third-party repository definition.
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
@@ -115,7 +115,7 @@ spec: {
 
 #### SystemPackageSet
 
-パッケージのセット。
+Set of packages.
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
@@ -130,7 +130,7 @@ spec: {
 
 #### Runtime
 
-言語ランタイム。
+Language runtimes.
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
@@ -152,7 +152,7 @@ spec: {
 }
 ```
 
-#### Tool (単体)
+#### Tool (Individual)
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
@@ -171,7 +171,7 @@ spec: {
 
 #### ToolSet
 
-複数ツールのセット。冗長さを解消。
+Set of multiple tools. Eliminates redundancy.
 
 ```cue
 // Download Pattern
@@ -203,42 +203,42 @@ spec: {
 
 ---
 
-## 4. コマンド体系
+## 4. Command System
 
-### 4.1 権限の分離
+### 4.1 Privilege Separation
 
 ```bash
-# User 権限 (Runtime, Tool)
+# User privilege (Runtime, Tool)
 toto apply
 
-# System 権限 (SystemPackage*)
+# System privilege (SystemPackage*)
 sudo toto apply --system
 ```
 
-実行順序: `sudo toto apply --system` → `toto apply`
+Execution order: `sudo toto apply --system` → `toto apply`
 
-### 4.2 コマンド一覧
+### 4.2 Command List
 
 ```bash
-toto validate    # CUE 構文 + 循環参照チェック
-toto plan        # validate + 実行計画表示
-toto apply       # plan + 実行
-toto doctor      # 未管理ツール検知、競合検知
-toto adopt       # 未管理ツールを管理下に追加
-toto version     # バージョン表示
+toto validate    # CUE syntax + circular reference check
+toto plan        # validate + show execution plan
+toto apply       # plan + execute
+toto doctor      # detect unmanaged tools, conflicts
+toto adopt       # bring unmanaged tools under management
+toto version     # show version
 ```
 
 ---
 
-## 5. State 管理
+## 5. State Management
 
-### 5.1 ファイル構成
+### 5.1 File Structure
 
 ```
 User State:
 ~/.local/share/toto/
-├── state.lock  (PID を書き込み、flock 用)
-└── state.json  (状態データ)
+├── state.lock  (write PID, for flock)
+└── state.json  (state data)
 
 System State:
 /var/lib/toto/
@@ -246,27 +246,27 @@ System State:
 └── state.json
 ```
 
-### 5.2 ロック機構
+### 5.2 Locking Mechanism
 
-- **flock (advisory lock)** を使用
-- state.lock に対して flock を取得
-- 取得成功時に自身の PID を書き込む
-- toto 同士の同時実行を防止
-- 手動編集 (vim 等) は防げない (advisory lock の性質)
+- Uses **flock (advisory lock)**
+- Acquires flock on state.lock
+- Writes own PID on successful acquisition
+- Prevents concurrent execution between toto processes
+- Cannot prevent manual editing (vim, etc.) - nature of advisory locks
 
-### 5.3 書き込みフロー
+### 5.3 Write Flow
 
 ```
-1. state.lock を flock (TryLock)
-2. 失敗 → PID を読んで「PID 12345 が実行中」エラー
-3. 成功 → 自身の PID を書き込む
-4. state.json を読む
-5. state.json.tmp に書く
-6. rename(state.json.tmp, state.json) ← アトミック
-7. state.lock を unlock
+1. flock state.lock (TryLock)
+2. Failure → Read PID, error "PID 12345 is running"
+3. Success → Write own PID
+4. Read state.json
+5. Write to state.json.tmp
+6. rename(state.json.tmp, state.json) ← atomic
+7. Unlock state.lock
 ```
 
-### 5.4 state.json 構造
+### 5.4 state.json Structure
 
 #### User State
 
@@ -359,114 +359,114 @@ System State:
 
 ---
 
-## 6. 依存グラフ
+## 6. Dependency Graph
 
-### 6.1 依存関係の種類
+### 6.1 Types of Dependencies
 
 ```
-明示的に書く:
+Explicitly specified:
 ├── runtimeRef: Tool → Runtime
 ├── repositoryRef: SystemPackage → SystemPackageRepository
-├── installerRef: 各リソース → Installer
-└── deps: Installer → パッケージ名 (best effort)
+├── installerRef: Each resource → Installer
+└── deps: Installer → package names (best effort)
 ```
 
-### 6.2 循環参照の検出
+### 6.2 Circular Reference Detection
 
-**アルゴリズム: DFS + 訪問状態管理**
-
-```
-状態:
-├── unvisited (未訪問)
-├── visiting (訪問中 = 現在のパス上)
-└── visited (訪問完了)
-
-手順:
-1. 全ノードを unvisited に
-2. 各ノードから DFS 開始
-3. visiting のノードに再度到達 → 循環検出
-4. DFS 完了 → visited に
-```
-
-`toto validate` で事前に検出し、エラーメッセージで循環パスを表示。
-
-### 6.3 実行順序の決定
-
-**アルゴリズム: トポロジカルソート**
+**Algorithm: DFS + Visit State Management**
 
 ```
-1. 全リソースからグラフ構築
-2. 入次数 (依存される数) を計算
-3. 入次数 0 のノードをキューに入れる
-4. キューから取り出し、レイヤーに追加
-5. そのノードに依存していたノードの入次数を減らす
-6. 入次数 0 になったらキューに追加
-7. 繰り返し
+States:
+├── unvisited
+├── visiting (currently on path)
+└── visited (completed)
+
+Procedure:
+1. Mark all nodes as unvisited
+2. Start DFS from each node
+3. Reaching a visiting node → cycle detected
+4. DFS complete → mark as visited
 ```
 
-**結果: レイヤー分け**
+Detected early with `toto validate`, error message shows the cycle path.
+
+### 6.3 Execution Order Determination
+
+**Algorithm: Topological Sort**
+
+```
+1. Build graph from all resources
+2. Calculate in-degree (number of dependents)
+3. Add nodes with in-degree 0 to queue
+4. Remove from queue, add to layer
+5. Decrement in-degree of dependent nodes
+6. Add to queue when in-degree becomes 0
+7. Repeat
+```
+
+**Result: Layer Assignment**
 
 ```
 Layer 0: [go, rust, ripgrep, fd]
 Layer 1: [gopls, staticcheck, rust-analyzer]
 ```
 
-同一レイヤー内は並列実行可能 (errgroup, max 5)。
+Tasks within the same layer can run in parallel (errgroup, max 5).
 
-### 6.4 実行順序
+### 6.4 Execution Order
 
 ```
-System 権限 (sudo toto apply --system):
+System Privilege (sudo toto apply --system):
   Layer 0: SystemPackageRepository
   Layer 1: SystemPackageSet
 
-User 権限 (toto apply):
-  Layer 0: Runtime, Tool (runtimeRef なし)
-  Layer 1: Tool (runtimeRef あり)
+User Privilege (toto apply):
+  Layer 0: Runtime, Tool (without runtimeRef)
+  Layer 1: Tool (with runtimeRef)
 ```
 
 ---
 
 ## 7. Taint Logic
 
-Runtime 更新時に依存する Tool を再インストールする仕組み。
+Mechanism to reinstall dependent Tools when Runtime is updated.
 
-### 7.1 フロー
-
-```
-1. Runtime (go) が 1.25.1 → 1.26.0 に更新
-2. runtimeRef: "go" を持つ Tool を検索
-3. 該当 Tool に taintReason: "runtime_upgraded" をセット
-4. 次の apply で再インストール
-```
-
-### 7.2 対象
+### 7.1 Flow
 
 ```
-go 更新 → go install でインストールした Tool
-rust 更新 → cargo install でインストールした Tool
-node 更新 → npm install -g でインストールした Tool
+1. Runtime (go) updated from 1.25.1 → 1.26.0
+2. Search for Tools with runtimeRef: "go"
+3. Set taintReason: "runtime_upgraded" on matching Tools
+4. Reinstall on next apply
+```
+
+### 7.2 Targets
+
+```
+go update → Tools installed via go install
+rust update → Tools installed via cargo install
+node update → Tools installed via npm install -g
 ```
 
 ---
 
 ## 8. toto doctor
 
-未管理ツールの検出と競合検知。
+Detection of unmanaged tools and conflict detection.
 
-### 8.1 検知対象
+### 8.1 Detection Targets
 
 ```
-Runtime 別:
+By Runtime:
 ├── go:   ~/go/bin/ (GOBIN)
 ├── rust: ~/.cargo/bin/
 └── node: ~/.npm-global/bin/
 
-共通:
-└── ~/.local/bin/ 内の未管理ファイル
+Common:
+└── Unmanaged files in ~/.local/bin/
 ```
 
-### 8.2 出力例
+### 8.2 Example Output
 
 ```
 $ toto doctor
@@ -488,9 +488,9 @@ $ toto doctor
 
 ---
 
-## 9. CUE スキーマ設計
+## 9. CUE Schema Design
 
-### 9.1 基本構造 (K8s スタイル)
+### 9.1 Basic Structure (K8s Style)
 
 ```cue
 #Resource: {
@@ -504,20 +504,20 @@ $ toto doctor
 }
 ```
 
-### 9.2 デフォルト値と enabled フラグ
+### 9.2 Default Values and enabled Flag
 
 ```cue
 #Tool: {
     version: string
-    enabled: bool | *true  // デフォルト true
+    enabled: bool | *true  // default true
     ...
 }
 ```
 
-### 9.3 環境変数の注入
+### 9.3 Environment Variable Injection
 
 ```cue
-// toto が自動注入
+// Automatically injected by toto
 _env: {
     os: "linux" | "darwin"
     arch: "amd64" | "arm64"
@@ -525,7 +525,7 @@ _env: {
 }
 ```
 
-### 9.4 条件分岐 (方式 A)
+### 9.4 Conditional Branching (Method A)
 
 ```cue
 tools: {
@@ -541,7 +541,7 @@ tools: {
 }
 ```
 
-### 9.5 Overlay (方式 B)
+### 9.5 Overlay (Method B)
 
 ```
 base/tools.cue
@@ -549,66 +549,66 @@ overlays/darwin/tools.cue
 overlays/headless/tools.cue
 ```
 
-CUE の同一パッケージ自動マージ機能を活用。toto が環境に応じてファイルを選択してロード。
+Leverages CUE's automatic merge feature for same package. toto selects and loads files based on environment.
 
-### 9.6 除外の表現
+### 9.6 Exclusion Expression
 
 ```cue
-// enabled: false で無効化
+// Disable with enabled: false
 tools: vscode: enabled: false
 ```
 
 ---
 
-## 10. 対象環境
+## 10. Target Environments
 
 ```
 OS:
 ├── linux
 └── darwin
-(Windows は対象外)
+(Windows is out of scope)
 
 Arch:
 ├── amd64
 └── arm64
 
 Mode:
-├── headless (サーバー、CI)
-└── desktop (GUI あり)
+├── headless (server, CI)
+└── desktop (with GUI)
 ```
 
 ---
 
-## 11. 実装フェーズ
+## 11. Implementation Phases
 
-### Phase 1: 基盤
+### Phase 1: Foundation
 
 ```
 ├── internal/resource/ (types, action)
-├── internal/state/ (state.json 読み書き、flock)
-├── internal/config/ (CUE ローダー基盤)
-└── CLI 骨格 (cobra: apply, validate, version)
+├── internal/state/ (state.json read/write, flock)
+├── internal/config/ (CUE loader foundation)
+└── CLI skeleton (cobra: apply, validate, version)
 ```
 
-### Phase 2: User 権限の最小セット
+### Phase 2: Minimum User Privilege Set
 
 ```
-├── Tool (Download Pattern, aqua 形式)
-├── toto apply でツールインストール
-├── ~/.local/bin への symlink
-└── state.json の更新
+├── Tool (Download Pattern, aqua format)
+├── Install tools with toto apply
+├── Symlink to ~/.local/bin
+└── Update state.json
 ```
 
 ### Phase 3: Runtime
 
 ```
-├── Runtime (Go のみ最初)
-├── Tool の Runtime Delegation (go install)
+├── Runtime (Go only initially)
+├── Tool Runtime Delegation (go install)
 ├── Taint Logic
-└── toto doctor (未管理ツール検出)
+└── toto doctor (unmanaged tool detection)
 ```
 
-### Phase 4: System 権限
+### Phase 4: System Privilege
 
 ```
 ├── SystemInstaller (apt builtin)
@@ -617,21 +617,21 @@ Mode:
 └── toto apply --system
 ```
 
-### Phase 5: 拡張
+### Phase 5: Extensions
 
 ```
 ├── ToolSet, overlay
 ├── toto adopt
-├── 他の Runtime (Rust, Node)
-├── CUE プリセット
+├── Other Runtimes (Rust, Node)
+├── CUE presets
 ```
 
 ---
 
-## 12. ディレクトリ構成
+## 12. Directory Structure
 
 ```
-~/.config/toto/           # ユーザー設定 (CUE ファイル)
+~/.config/toto/           # User configuration (CUE files)
 ├── base/
 │   ├── tools.cue
 │   └── runtimes.cue
@@ -644,7 +644,7 @@ Mode:
     ├── repos.cue
     └── packages.cue
 
-~/.local/share/toto/      # User State & データ
+~/.local/share/toto/      # User State & data
 ├── state.lock
 ├── state.json
 ├── runtimes/
@@ -652,7 +652,7 @@ Mode:
 └── tools/
     └── ripgrep/14.0.0/
 
-~/.local/bin/             # symlink 配置先
+~/.local/bin/             # Symlink destination
 
 /var/lib/toto/            # System State
 ├── state.lock
@@ -661,10 +661,10 @@ Mode:
 
 ---
 
-## 13. セキュリティ考慮事項
+## 13. Security Considerations
 
-- ダウンロード時は必ずチェックサム検証
-- HTTPS のみ許可 (CUE スキーマで強制)
-- apt-key add は使用禁止、/etc/apt/keyrings/ + signed-by を使用
-- シェルインジェクション防止: exec.Command で明示的引数
-- アトミック書き込み: tmp → rename で破損防止
+- Always verify checksums when downloading
+- HTTPS only (enforced in CUE schema)
+- Do not use apt-key add, use /etc/apt/keyrings/ + signed-by
+- Prevent shell injection: use exec.Command with explicit arguments
+- Atomic writes: tmp → rename to prevent corruption
