@@ -58,12 +58,13 @@ Toto handles checksum verification, extraction, and symlink creation.
 
 ```
 User Privilege (toto apply):
+├── Installer  - User-level installer definition (aqua, go, cargo, npm, brew)
 ├── Runtime    - Language runtimes (Go, Rust, Node)
 ├── Tool       - Individual tools
 └── ToolSet    - Set of multiple tools
 
 System Privilege (sudo toto apply --system):
-├── SystemInstaller         - Package manager definition
+├── SystemInstaller         - Package manager definition (apt)
 ├── SystemPackageRepository - Third-party repositories
 └── SystemPackageSet        - Package sets
 ```
@@ -125,6 +126,52 @@ spec: {
     installerRef: "apt"
     repositoryRef: "docker"  // optional
     packages: ["docker-ce", "docker-ce-cli", "containerd.io"]
+}
+```
+
+#### Installer
+
+User-level installer definition. toto provides builtin installers: aqua, go, cargo, npm, brew.
+
+```cue
+// Download Pattern (aqua)
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+}
+
+// Delegation Pattern (go install)
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "go"
+spec: {
+    pattern: "delegation"
+    runtimeRef: "go"
+    commands: {
+        install: "go install {{.Package}}@{{.Version}}"
+        check: "go version -m {{.BinPath}}"
+        remove: "rm {{.BinPath}}"
+    }
+}
+
+// Delegation Pattern (brew) - No Runtime dependency, self-install via bootstrap
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "brew"
+spec: {
+    pattern: "delegation"
+    bootstrap: {
+        install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        check: "command -v brew"
+        remove: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""
+    }
+    commands: {
+        install: "brew install {{.Package}}"
+        check: "brew list {{.Package}}"
+        remove: "brew uninstall {{.Package}}"
+    }
 }
 ```
 
