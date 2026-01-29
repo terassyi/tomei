@@ -58,12 +58,13 @@ toto が直接ダウンロードして配置するパターン。
 
 ```
 User 権限 (toto apply):
+├── Installer  - ユーザー権限インストーラ定義 (aqua, go, cargo, npm, brew)
 ├── Runtime    - 言語ランタイム (Go, Rust, Node)
 ├── Tool       - 単体ツール
 └── ToolSet    - 複数ツールのセット
 
 System 権限 (sudo toto apply --system):
-├── SystemInstaller         - パッケージマネージャ定義
+├── SystemInstaller         - パッケージマネージャ定義 (apt)
 ├── SystemPackageRepository - サードパーティリポジトリ
 └── SystemPackageSet        - パッケージセット
 ```
@@ -125,6 +126,52 @@ spec: {
     installerRef: "apt"
     repositoryRef: "docker"  // optional
     packages: ["docker-ce", "docker-ce-cli", "containerd.io"]
+}
+```
+
+#### Installer
+
+ユーザー権限のインストーラ定義。toto が builtin で aqua, go, cargo, npm, brew を提供。
+
+```cue
+// Download Pattern (aqua)
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+}
+
+// Delegation Pattern (go install)
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "go"
+spec: {
+    pattern: "delegation"
+    runtimeRef: "go"
+    commands: {
+        install: "go install {{.Package}}@{{.Version}}"
+        check: "go version -m {{.BinPath}}"
+        remove: "rm {{.BinPath}}"
+    }
+}
+
+// Delegation Pattern (brew) - Runtime 不要、bootstrap で自己インストール
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "brew"
+spec: {
+    pattern: "delegation"
+    bootstrap: {
+        install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        check: "command -v brew"
+        remove: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""
+    }
+    commands: {
+        install: "brew install {{.Package}}"
+        check: "brew list {{.Package}}"
+        remove: "brew uninstall {{.Package}}"
+    }
 }
 ```
 

@@ -7,8 +7,11 @@ IMAGE_NAME := toto-dev
 build: ## Build the binary
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/toto
 
-test: ## Run all tests
+test: ## Run unit tests
 	go test -v -race ./...
+
+test-integration: ## Run integration tests
+	go test -v -race -tags=integration ./tests/...
 
 test-cover: ## Run tests with coverage
 	go test -v -race -coverprofile=coverage.out ./...

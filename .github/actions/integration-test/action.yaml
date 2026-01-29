@@ -1,0 +1,19 @@
+name: Integration Test
+description: Run integration tests
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25.6'
+        cache: true
+
+    - name: Download dependencies
+      shell: bash
+      run: go mod download
+
+    - name: Run integration tests
+      shell: bash
+      run: make test-integration
