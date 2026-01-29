@@ -34,12 +34,12 @@ func (s *ToolSpec) Validate() error {
 }
 
 // Dependencies returns the resources this tool depends on.
-func (s *ToolSpec) Dependencies() []ResourceRef {
-	deps := []ResourceRef{
+func (s *ToolSpec) Dependencies() []Ref {
+	deps := []Ref{
 		{Kind: KindInstaller, Name: s.InstallerRef},
 	}
 	if s.RuntimeRef != "" {
-		deps = append(deps, ResourceRef{Kind: KindRuntime, Name: s.RuntimeRef})
+		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
 	}
 	return deps
 }
@@ -83,12 +83,12 @@ func (s *ToolSetSpec) Validate() error {
 }
 
 // Dependencies returns the resources this toolset depends on.
-func (s *ToolSetSpec) Dependencies() []ResourceRef {
-	deps := []ResourceRef{
+func (s *ToolSetSpec) Dependencies() []Ref {
+	deps := []Ref{
 		{Kind: KindInstaller, Name: s.InstallerRef},
 	}
 	if s.RuntimeRef != "" {
-		deps = append(deps, ResourceRef{Kind: KindRuntime, Name: s.RuntimeRef})
+		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
 	}
 	return deps
 }

@@ -23,8 +23,8 @@ func (s *SystemPackageRepositorySpec) Validate() error {
 }
 
 // Dependencies returns the resources this repository depends on.
-func (s *SystemPackageRepositorySpec) Dependencies() []ResourceRef {
-	return []ResourceRef{
+func (s *SystemPackageRepositorySpec) Dependencies() []Ref {
+	return []Ref{
 		{Kind: KindSystemInstaller, Name: s.InstallerRef},
 	}
 }
@@ -68,12 +68,12 @@ func (s *SystemPackageSetSpec) Validate() error {
 }
 
 // Dependencies returns the resources this package set depends on.
-func (s *SystemPackageSetSpec) Dependencies() []ResourceRef {
-	deps := []ResourceRef{
+func (s *SystemPackageSetSpec) Dependencies() []Ref {
+	deps := []Ref{
 		{Kind: KindSystemInstaller, Name: s.InstallerRef},
 	}
 	if s.RepositoryRef != "" {
-		deps = append(deps, ResourceRef{Kind: KindSystemPackageRepository, Name: s.RepositoryRef})
+		deps = append(deps, Ref{Kind: KindSystemPackageRepository, Name: s.RepositoryRef})
 	}
 	return deps
 }

@@ -46,7 +46,7 @@ func TestStore_LoadSave(t *testing.T) {
 	if err := store.Lock(); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 
 	// Load should return empty state for new file
 	state, err := store.Load()
@@ -147,7 +147,7 @@ func TestStore_AtomicWrite(t *testing.T) {
 	if err := store.Lock(); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 
 	state := NewUserState()
 	state.Tools = map[string]*resource.ToolState{
@@ -179,7 +179,7 @@ func TestStore_SystemState(t *testing.T) {
 	if err := store.Lock(); err != nil {
 		t.Fatalf("failed to lock: %v", err)
 	}
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 
 	state := NewSystemState()
 	state.SystemInstallers = map[string]*resource.SystemInstallerState{

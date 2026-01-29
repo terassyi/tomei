@@ -19,8 +19,8 @@ const (
 // APIVersion is the current API version for toto resources.
 const APIVersion = "toto.terassyi.net/v1beta1"
 
-// ResourceRef represents a reference to another resource.
-type ResourceRef struct {
+// Ref represents a reference to another resource.
+type Ref struct {
 	Kind Kind
 	Name string
 }
@@ -28,7 +28,7 @@ type ResourceRef struct {
 // Spec is the interface that all spec types must implement.
 type Spec interface {
 	Validate() error
-	Dependencies() []ResourceRef
+	Dependencies() []Ref
 }
 
 // Resource is the interface that all toto resources must implement.

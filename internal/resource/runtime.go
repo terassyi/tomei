@@ -27,7 +27,7 @@ func (s *RuntimeSpec) Validate() error {
 }
 
 // Dependencies returns the resources this runtime depends on.
-func (s *RuntimeSpec) Dependencies() []ResourceRef {
+func (s *RuntimeSpec) Dependencies() []Ref {
 	// Runtime has no dependencies (it's a base resource)
 	return nil
 }

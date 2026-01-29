@@ -77,7 +77,7 @@ func (s *Store[T]) Lock() error {
 
 	// Write our PID to the lock file
 	if err := s.writeLockPID(); err != nil {
-		s.fileLock.Unlock()
+		_ = s.fileLock.Unlock()
 		return fmt.Errorf("failed to write PID to lock file: %w", err)
 	}
 

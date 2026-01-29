@@ -36,9 +36,9 @@ func (s *InstallerSpec) Validate() error {
 }
 
 // Dependencies returns the resources this installer depends on.
-func (s *InstallerSpec) Dependencies() []ResourceRef {
+func (s *InstallerSpec) Dependencies() []Ref {
 	if s.RuntimeRef != "" {
-		return []ResourceRef{{Kind: KindRuntime, Name: s.RuntimeRef}}
+		return []Ref{{Kind: KindRuntime, Name: s.RuntimeRef}}
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 module github.com/terassyi/toto
 
-go 1.25.1
+go 1.25.6
 
 require (
 	cuelang.org/go v0.15.4

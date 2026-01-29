@@ -21,7 +21,7 @@ func (s *SystemInstallerSpec) Validate() error {
 }
 
 // Dependencies returns the resources this system installer depends on.
-func (s *SystemInstallerSpec) Dependencies() []ResourceRef {
+func (s *SystemInstallerSpec) Dependencies() []Ref {
 	// SystemInstaller has no dependencies (it's a base resource)
 	return nil
 }
