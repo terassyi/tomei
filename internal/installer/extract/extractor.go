@@ -19,6 +19,29 @@ const (
 	ArchiveTypeZip   ArchiveType = "zip"
 )
 
+// DetectArchiveType detects the archive type from a URL or filename.
+// Returns empty string if the type cannot be detected.
+func DetectArchiveType(urlOrFilename string) ArchiveType {
+	lower := filepath.Base(urlOrFilename)
+
+	// Check for tar.gz first (before .gz alone)
+	if hasSuffix(lower, ".tar.gz") || hasSuffix(lower, ".tgz") {
+		return ArchiveTypeTarGz
+	}
+	if hasSuffix(lower, ".zip") {
+		return ArchiveTypeZip
+	}
+	return ""
+}
+
+// hasSuffix checks if s ends with suffix (case-insensitive).
+func hasSuffix(s, suffix string) bool {
+	if len(s) < len(suffix) {
+		return false
+	}
+	return s[len(s)-len(suffix):] == suffix
+}
+
 // Extractor defines the interface for extracting archives.
 type Extractor interface {
 	// Extract extracts an archive from the reader to the destination directory.

@@ -48,6 +48,12 @@ func (a ValidateAction) String() string {
 
 // Placer defines the interface for placing binaries and managing symlinks.
 type Placer interface {
+	// BinaryPath returns the full path where the binary would be placed.
+	BinaryPath(target PlaceTarget) string
+
+	// LinkPath returns the full path where the symlink would be created.
+	LinkPath(target PlaceTarget) string
+
 	// Validate checks the binary state and returns the required action.
 	// expectedHash is the expected SHA256 hash of the binary.
 	Validate(target PlaceTarget, expectedHash string) (ValidateAction, error)
@@ -79,20 +85,31 @@ func NewPlacer(toolsDir, binDir string) Placer {
 	}
 }
 
-// binaryPath returns the path to the binary for the target.
-func (p *filePlacer) binaryPath(target PlaceTarget) string {
+// BinaryPath returns the full path where the binary would be placed.
+func (p *filePlacer) BinaryPath(target PlaceTarget) string {
 	return filepath.Join(p.toolsDir, target.Name, target.Version, target.BinaryName)
+}
+
+// LinkPath returns the full path where the symlink would be created.
+func (p *filePlacer) LinkPath(target PlaceTarget) string {
+	return filepath.Join(p.binDir, target.BinaryName)
 }
 
 // Validate checks the binary state and returns the required action.
 func (p *filePlacer) Validate(target PlaceTarget, expectedHash string) (ValidateAction, error) {
-	path := p.binaryPath(target)
+	path := p.BinaryPath(target)
 	slog.Debug("validating binary", "path", path, "expectedHash", expectedHash)
 
 	// Check if binary exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		slog.Debug("binary does not exist", "action", ValidateActionInstall)
 		return ValidateActionInstall, nil
+	}
+
+	// If no expected hash, skip (existence check only)
+	if expectedHash == "" {
+		slog.Debug("no expected hash, skipping", "action", ValidateActionSkip)
+		return ValidateActionSkip, nil
 	}
 
 	// Calculate current hash

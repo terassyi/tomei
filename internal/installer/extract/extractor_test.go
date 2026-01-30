@@ -14,6 +14,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDetectArchiveType(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected ArchiveType
+	}{
+		{
+			name:     "tar.gz extension",
+			input:    "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_amd64.tar.gz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "tgz extension",
+			input:    "https://example.com/tool.tgz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "zip extension",
+			input:    "https://github.com/example/releases/download/v1.0.0/tool_windows_amd64.zip",
+			expected: ArchiveTypeZip,
+		},
+		{
+			name:     "simple filename tar.gz",
+			input:    "archive.tar.gz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "simple filename zip",
+			input:    "archive.zip",
+			expected: ArchiveTypeZip,
+		},
+		{
+			name:     "unknown extension",
+			input:    "https://example.com/tool.exe",
+			expected: "",
+		},
+		{
+			name:     "no extension",
+			input:    "https://example.com/download",
+			expected: "",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := DetectArchiveType(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestNewExtractor(t *testing.T) {
 	tests := []struct {
 		name        string

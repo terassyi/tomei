@@ -1,9 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/terassyi/toto/internal/installer/download"
+	"github.com/terassyi/toto/internal/installer/engine"
+	"github.com/terassyi/toto/internal/installer/place"
+	"github.com/terassyi/toto/internal/installer/tool"
+	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/toto/internal/state"
 )
 
 var applyCmd = &cobra.Command{
@@ -29,12 +36,48 @@ func runApply(cmd *cobra.Command, _ []string) error {
 
 	if systemMode {
 		cmd.Printf("Applying system-level resources from %s\n", dir)
-		// TODO: implement system apply
+		// TODO: implement system apply in Phase 4
 		cmd.Println("System apply not yet implemented")
-	} else {
-		cmd.Printf("Applying user-level resources from %s\n", dir)
-		// TODO: implement user apply
-		cmd.Println("User apply not yet implemented")
+		return nil
+	}
+
+	cmd.Printf("Applying user-level resources from %s\n", dir)
+	return runUserApply(cmd.Context(), dir)
+}
+
+func runUserApply(ctx context.Context, configDir string) error {
+	// Setup paths
+	paths, err := path.New()
+	if err != nil {
+		return fmt.Errorf("failed to initialize paths: %w", err)
+	}
+
+	// Ensure directories exist
+	if err := path.EnsureDir(paths.UserDataDir()); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+	if err := path.EnsureDir(paths.UserBinDir()); err != nil {
+		return fmt.Errorf("failed to create bin directory: %w", err)
+	}
+
+	// Create state store
+	store, err := state.NewStore[state.UserState](paths.UserDataDir())
+	if err != nil {
+		return fmt.Errorf("failed to create state store: %w", err)
+	}
+
+	// Create tool installer
+	downloader := download.NewDownloader()
+	placer := place.NewPlacer(
+		paths.UserDataDir()+"/tools",
+		paths.UserBinDir(),
+	)
+	toolInstaller := tool.NewToolInstaller(downloader, placer)
+
+	// Create and run engine
+	eng := engine.NewEngine(toolInstaller, store)
+	if err := eng.Apply(ctx, configDir); err != nil {
+		return fmt.Errorf("apply failed: %w", err)
 	}
 
 	return nil

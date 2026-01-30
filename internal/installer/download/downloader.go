@@ -1,19 +1,18 @@
 package download
 
 import (
+	"bufio"
 	"context"
-	"crypto/md5"
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
 	"fmt"
-	"hash"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/terassyi/toto/internal/checksum"
+	"github.com/terassyi/toto/internal/resource"
 )
 
 // Downloader defines the interface for downloading and verifying artifacts.
@@ -22,10 +21,9 @@ type Downloader interface {
 	// Returns the path to the downloaded file.
 	Download(ctx context.Context, url, destPath string) (string, error)
 
-	// Verify verifies the checksum of a file by fetching the checksum file from URL.
-	// It tries to fetch <originalURL>.sha256 and verifies against the downloaded file.
-	// If the checksum file is not found, verification is skipped.
-	Verify(ctx context.Context, filePath, originalURL string) error
+	// Verify verifies the checksum of a downloaded file.
+	// checksum can be nil (skip verification), have a direct value, or a URL to fetch.
+	Verify(ctx context.Context, filePath string, checksum *resource.Checksum) error
 }
 
 // httpDownloader implements Downloader using HTTP.
@@ -98,130 +96,117 @@ func (d *httpDownloader) Download(ctx context.Context, url, destPath string) (st
 	return destPath, nil
 }
 
-// HashAlgorithm represents a checksum hash algorithm.
-type HashAlgorithm string
-
-const (
-	HashAlgorithmSHA256 HashAlgorithm = "sha256"
-	HashAlgorithmSHA512 HashAlgorithm = "sha512"
-	HashAlgorithmMD5    HashAlgorithm = "md5"
-)
-
-// checksumAlgorithm defines a checksum algorithm with its suffix and hash constructor.
-type checksumAlgorithm struct {
-	algorithm HashAlgorithm
-	suffix    string
-	newHash   func() hash.Hash
-}
-
-// supportedAlgorithms defines the checksum algorithms to try, in order of preference.
-var supportedAlgorithms = []checksumAlgorithm{
-	{algorithm: HashAlgorithmSHA256, suffix: ".sha256", newHash: sha256.New},
-	{algorithm: HashAlgorithmSHA512, suffix: ".sha512", newHash: sha512.New},
-	{algorithm: HashAlgorithmMD5, suffix: ".md5", newHash: md5.New},
-}
-
-// Verify verifies the checksum of a file by fetching the checksum file from URL.
-// It tries to fetch <originalURL>.sha256, .sha512, .md5 in order of preference.
-// If no checksum file is found, verification is skipped.
-func (d *httpDownloader) Verify(ctx context.Context, filePath, originalURL string) error {
-	slog.Debug("verifying checksum", "file", filePath)
-
-	// Try each algorithm in order
-	for _, alg := range supportedAlgorithms {
-		checksumURL := originalURL + alg.suffix
-		expectedHash, err := d.fetchChecksum(ctx, checksumURL)
-		if err != nil {
-			// Try next algorithm
-			continue
-		}
-
-		// Check if hash was parsed successfully
-		if expectedHash == "" {
-			slog.Warn("checksum file found but could not parse hash", "algorithm", alg.algorithm, "url", checksumURL)
-			continue
-		}
-
-		slog.Debug("found checksum file", "algorithm", alg.algorithm, "url", checksumURL)
-
-		// Found a checksum file, verify
-		if err := d.verifyWithHash(filePath, expectedHash, alg.newHash); err != nil {
-			return err
-		}
-
-		slog.Debug("checksum verified", "algorithm", alg.algorithm)
+// Verify verifies the checksum of a downloaded file.
+// checksum can be nil (skip verification), have a direct value, or a URL to fetch.
+func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resource.Checksum) error {
+	if cs == nil {
+		slog.Debug("no checksum specified, skipping verification")
 		return nil
 	}
 
-	// No checksum file found, skip verification
-	slog.Debug("no checksum file found, skipping verification")
+	slog.Debug("verifying checksum", "file", filePath)
+
+	var expectedHash string
+	var algorithm checksum.Algorithm
+
+	if cs.Value != "" {
+		// Direct value: "sha256:abc123..." or "sha512:abc123..."
+		alg, hash, err := checksum.Parse(cs.Value)
+		if err != nil {
+			return err
+		}
+		algorithm = alg
+		expectedHash = hash
+	} else if cs.URL != "" {
+		// Fetch from URL
+		filename := filepath.Base(filePath)
+		if cs.FilePattern != "" {
+			filename = cs.FilePattern
+		}
+
+		alg, hash, err := d.fetchChecksumFromURL(ctx, cs.URL, filename)
+		if err != nil {
+			return err
+		}
+		algorithm = alg
+		expectedHash = hash
+	} else {
+		slog.Debug("no checksum value or URL specified, skipping verification")
+		return nil
+	}
+
+	// Verify
+	if err := checksum.Verify(filePath, algorithm, expectedHash); err != nil {
+		return err
+	}
+
+	slog.Debug("checksum verified", "algorithm", algorithm)
 	return nil
 }
 
-// verifyWithHash verifies a file's checksum using the given hash function.
-func (d *httpDownloader) verifyWithHash(filePath, expectedHash string, newHash func() hash.Hash) error {
-	// Open file
-	f, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
-	}
-	defer f.Close()
+// fetchChecksumFromURL fetches a checksums file from URL and extracts the hash for the given filename.
+func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, string, error) {
+	slog.Debug("fetching checksum file", "url", url, "filename", filename)
 
-	// Calculate checksum
-	h := newHash()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
-	}
-	actualHash := hex.EncodeToString(h.Sum(nil))
-
-	// Compare
-	if actualHash != expectedHash {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
-	}
-
-	return nil
-}
-
-// fetchChecksum fetches and parses a checksum file.
-// Returns the hash string or error if not found.
-func (d *httpDownloader) fetchChecksum(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("failed to fetch checksum file: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("checksum file not found: HTTP %d", resp.StatusCode)
+		return "", "", fmt.Errorf("failed to fetch checksum file: HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	// Parse checksums file
+	// Format: "<hash>  <filename>" or "<hash> *<filename>"
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		hash, file := parseChecksumLine(line)
+		if file == filename || filepath.Base(file) == filename {
+			// Determine algorithm from hash length
+			algorithm := checksum.DetectAlgorithm(hash)
+			if algorithm == "" {
+				return "", "", fmt.Errorf("could not determine hash algorithm for %q", hash)
+			}
+			slog.Debug("found checksum for file", "file", file, "algorithm", algorithm)
+			return algorithm, hash, nil
+		}
 	}
 
-	return parseChecksumFile(string(body)), nil
+	if err := scanner.Err(); err != nil {
+		return "", "", fmt.Errorf("failed to read checksum file: %w", err)
+	}
+
+	return "", "", fmt.Errorf("checksum for %q not found in checksums file", filename)
 }
 
-// parseChecksumFile parses a checksum file content.
+// parseChecksumLine parses a line from a checksums file.
 // Supports formats:
-// - "<hash>"
 // - "<hash>  <filename>"
 // - "<hash> *<filename>"
-func parseChecksumFile(content string) string {
-	content = strings.TrimSpace(content)
-
-	// Split by whitespace
-	parts := strings.Fields(content)
-	if len(parts) == 0 {
-		return ""
+// - "<hash>  *<filename>"
+func parseChecksumLine(line string) (hash, filename string) {
+	parts := strings.Fields(line)
+	if len(parts) < 2 {
+		return "", ""
 	}
 
-	// First field is the hash
-	return parts[0]
+	hash = parts[0]
+	filename = parts[1]
+
+	// Remove leading * from filename (BSD-style)
+	filename = strings.TrimPrefix(filename, "*")
+
+	return hash, filename
 }

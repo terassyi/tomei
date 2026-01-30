@@ -1,13 +1,24 @@
 package installer
 
-import (
-	"context"
+// InstallOption configures the installation.
+type InstallOption func(*InstallConfig)
 
-	"github.com/terassyi/toto/internal/resource"
-)
+// InstallConfig holds installation configuration.
+type InstallConfig struct {
+	BinaryName string // Binary name to look for in archive (defaults to tool name)
+	Force      bool   // Replace existing binary even if hash differs
+}
 
-// Installer defines the interface for tool installation.
-type Installer interface {
-	// Install installs a tool according to the spec and returns its state.
-	Install(ctx context.Context, spec *resource.ToolSpec, name string) (*resource.ToolState, error)
+// WithBinaryName sets the binary name to look for in the archive.
+func WithBinaryName(name string) InstallOption {
+	return func(c *InstallConfig) {
+		c.BinaryName = name
+	}
+}
+
+// WithForce allows replacing existing binary with different hash.
+func WithForce(force bool) InstallOption {
+	return func(c *InstallConfig) {
+		c.Force = force
+	}
 }
