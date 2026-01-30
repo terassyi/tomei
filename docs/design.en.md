@@ -715,3 +715,128 @@ Mode:
 - Do not use apt-key add, use /etc/apt/keyrings/ + signed-by
 - Prevent shell injection: use exec.Command with explicit arguments
 - Atomic writes: tmp → rename to prevent corruption
+
+---
+
+## 13.1 Logging
+
+Use `log/slog` for structured logging with human-readable output.
+
+### Log Levels
+
+| Level | Purpose | Example |
+|-------|---------|---------|
+| Debug | Detailed debug information | HTTP response status, file size |
+| Info | Normal operation start/completion | Download started, checksum verified |
+| Warn | Recoverable issues, skipped operations | Checksum file not found |
+| Error | Failures affecting functionality | Download failed, verification failed |
+
+### Implementation Example
+
+```go
+import "log/slog"
+
+// Debug: detailed debug information
+slog.Debug("http response received", "status", resp.StatusCode, "contentLength", resp.ContentLength)
+slog.Debug("trying checksum algorithm", "algorithm", alg, "url", checksumURL)
+
+// Info: operation start/completion
+slog.Info("downloading file", "url", url, "dest", destPath)
+slog.Info("checksum verified", "algorithm", alg)
+
+// Warn: recoverable issues
+slog.Warn("checksum file not found, skipping verification", "url", checksumURL)
+
+// Error: failures (usually also return error)
+slog.Error("failed to download", "url", url, "error", err)
+```
+
+### Guidelines
+
+- Use structured key-value pairs for context
+- Keep messages concise and human-readable
+- Debug: detailed information useful for development and troubleshooting
+- Info: log both start and completion of operations as pairs
+- Warn: important decisions or skipped operations
+- Error: failures affecting functionality (usually also return error)
+
+---
+
+## 14. Future Design Considerations
+
+### 14.1 InstallerRepository
+
+A repository that provides tool metadata (URL patterns, architecture-specific filenames, etc.) like aqua registry. Similar role to SystemPackageRepository.
+
+```cue
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "aqua-registry"
+spec: {
+    installerRef: "aqua"
+    source: {
+        type: "git"  // or "local"
+        url: "https://github.com/aquaproj/aqua-registry"
+        // branch: "main"
+        // localPath: "/path/to/local/registry"
+    }
+}
+```
+
+This simplifies Tool definitions:
+
+```cue
+// With InstallerRepository, source is not needed
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "aqua"
+    repositoryRef: "aqua-registry"  // optional, can be omitted if using default
+    version: "14.1.1"
+    // source not needed - auto-resolved from registry
+}
+```
+
+### 14.2 Authentication & Tokens
+
+For GitHub API rate limit mitigation, private repository access, and authenticated registry support.
+
+**Option A: Include in Installer**
+
+```cue
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    auth: {
+        tokenEnvVar: "GITHUB_TOKEN"  // get from environment variable
+        // or tokenFile: "~/.config/toto/github-token"
+    }
+}
+```
+
+**Option B: Separate Resource (Credential)**
+
+```cue
+kind: "Credential"
+metadata: name: "github"
+spec: {
+    type: "token"
+    envVar: "GITHUB_TOKEN"
+    // or file: "~/.config/toto/github-token"
+    // or secretRef: "..." (integration with external secret management)
+}
+
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    credentialRef: "github"
+}
+```
+
+**Considerations:**
+- Simplicity vs reusability
+- When multiple Installers use the same authentication
+- Secret management best practices

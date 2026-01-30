@@ -715,3 +715,128 @@ Mode:
 - apt-key add は使用禁止、/etc/apt/keyrings/ + signed-by を使用
 - シェルインジェクション防止: exec.Command で明示的引数
 - アトミック書き込み: tmp → rename で破損防止
+
+---
+
+## 13.1 ロギング
+
+`log/slog` を使用した構造化ログで、人間が読みやすい形式で出力する。
+
+### ログレベル
+
+| レベル | 用途 | 例 |
+|--------|------|-----|
+| Debug | 詳細なデバッグ情報 | HTTP レスポンスステータス、ファイルサイズ |
+| Info | 正常な操作の開始/完了 | ダウンロード開始、チェックサム検証完了 |
+| Warn | 復旧可能な問題、スキップ | チェックサムファイルが見つからない |
+| Error | 機能に影響する失敗 | ダウンロード失敗、検証失敗 |
+
+### 実装例
+
+```go
+import "log/slog"
+
+// Debug: 詳細なデバッグ情報
+slog.Debug("http response received", "status", resp.StatusCode, "contentLength", resp.ContentLength)
+slog.Debug("trying checksum algorithm", "algorithm", alg, "url", checksumURL)
+
+// Info: 操作の開始/完了
+slog.Info("downloading file", "url", url, "dest", destPath)
+slog.Info("checksum verified", "algorithm", alg)
+
+// Warn: 復旧可能な問題
+slog.Warn("checksum file not found, skipping verification", "url", checksumURL)
+
+// Error: 失敗 (通常は error も返す)
+slog.Error("failed to download", "url", url, "error", err)
+```
+
+### ガイドライン
+
+- 構造化されたキー/バリューペアでコンテキストを提供
+- メッセージは簡潔で人間が読める形式に
+- Debug: 開発時やトラブルシューティングに有用な詳細情報
+- Info: 操作の開始と完了を対で記録
+- Warn: 重要な決定やスキップした処理
+- Error: 機能に影響する失敗（通常は error も返す）
+
+---
+
+## 14. 将来の設計検討事項
+
+### 14.1 InstallerRepository
+
+aqua registry のように、ツールのメタデータ（URL パターン、アーキテクチャ別ファイル名など）を提供するリポジトリ。SystemPackageRepository と同様の役割。
+
+```cue
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "aqua-registry"
+spec: {
+    installerRef: "aqua"
+    source: {
+        type: "git"  // or "local"
+        url: "https://github.com/aquaproj/aqua-registry"
+        // branch: "main"
+        // localPath: "/path/to/local/registry"
+    }
+}
+```
+
+これにより Tool 定義がシンプルになる:
+
+```cue
+// InstallerRepository があれば source 不要
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "aqua"
+    repositoryRef: "aqua-registry"  // optional, default を使う場合は省略可
+    version: "14.1.1"
+    // source 不要 - registry から自動解決
+}
+```
+
+### 14.2 認証・トークン
+
+GitHub API のレートリミット対策、プライベートリポジトリへのアクセス、認証付きレジストリ対応。
+
+**Option A: Installer に持たせる**
+
+```cue
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    auth: {
+        tokenEnvVar: "GITHUB_TOKEN"  // 環境変数から取得
+        // or tokenFile: "~/.config/toto/github-token"
+    }
+}
+```
+
+**Option B: 別リソース (Credential)**
+
+```cue
+kind: "Credential"
+metadata: name: "github"
+spec: {
+    type: "token"
+    envVar: "GITHUB_TOKEN"
+    // or file: "~/.config/toto/github-token"
+    // or secretRef: "..." (外部シークレット管理との連携)
+}
+
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    credentialRef: "github"
+}
+```
+
+**検討ポイント:**
+- シンプルさ vs 再利用性
+- 複数 Installer で同じ認証を使う場合
+- シークレット管理のベストプラクティス
