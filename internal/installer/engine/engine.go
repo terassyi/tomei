@@ -59,7 +59,7 @@ func (e *Engine) Apply(ctx context.Context, configDir string) error {
 	if err := e.store.Lock(); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
-	defer e.store.Unlock()
+	defer func() { _ = e.store.Unlock() }()
 
 	// Execute tool actions
 	for _, action := range toolActions {
@@ -93,11 +93,11 @@ func (e *Engine) Plan(ctx context.Context, configDir string) ([]ToolAction, erro
 	// Load current state
 	st, err := e.store.Load()
 	if err != nil {
-		e.store.Unlock()
+		_ = e.store.Unlock()
 		return nil, fmt.Errorf("failed to load state: %w", err)
 	}
 
-	e.store.Unlock()
+	_ = e.store.Unlock()
 
 	// Reconcile tools
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)

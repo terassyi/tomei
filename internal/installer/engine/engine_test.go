@@ -105,7 +105,7 @@ tool: {
 
 	// Verify state was updated
 	require.NoError(t, store.Lock())
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 	st, err := store.Load()
 	require.NoError(t, err)
 	assert.NotNil(t, st.Tools["test-tool"])
@@ -154,7 +154,7 @@ tool: {
 	}
 	err = store.Save(initialState)
 	require.NoError(t, err)
-	store.Unlock()
+	_ = store.Unlock()
 
 	installCalled := false
 	mock := &mockToolInstaller{

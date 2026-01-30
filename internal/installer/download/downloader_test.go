@@ -32,9 +32,9 @@ func TestDownloader_Download(t *testing.T) {
 	}{
 		{
 			name: "successful download",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write(testContent)
+				_, _ = w.Write(testContent)
 			},
 			wantErr: false,
 		},
@@ -205,47 +205,47 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 	}{
 		{
 			name: "single hash format",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				// Format: hash  filename
-				w.Write([]byte(fmt.Sprintf("%s  testfile.tar.gz\n", sha256sum)))
+				_, _ = w.Write(fmt.Appendf(nil, "%s  testfile.tar.gz\n", sha256sum))
 			},
 			wantErr: false,
 		},
 		{
 			name: "BSD style format with asterisk",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 				// Format: hash *filename
-				w.Write([]byte(fmt.Sprintf("%s *testfile.tar.gz\n", sha256sum)))
+				_, _ = w.Write(fmt.Appendf(nil, "%s *testfile.tar.gz\n", sha256sum))
 			},
 			wantErr: false,
 		},
 		{
 			name: "multiple files in checksum file",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(fmt.Sprintf(
+				_, _ = w.Write(fmt.Appendf(nil,
 					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz\n"+
 						"%s  testfile.tar.gz\n"+
 						"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  another.tar.gz\n",
 					sha256sum,
-				)))
+				))
 			},
 			wantErr: false,
 		},
 		{
 			name: "file not found in checksum file",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz\n"))
+				_, _ = w.Write([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz\n"))
 			},
 			wantErr:    true,
 			errContain: "not found in checksums file",
 		},
 		{
 			name: "checksum file fetch error",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			},
 			wantErr:    true,
@@ -253,9 +253,9 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 		},
 		{
 			name: "custom file pattern",
-			handler: func(w http.ResponseWriter, r *http.Request) {
+			handler: func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(fmt.Sprintf("%s  custom-name.tar.gz\n", sha256sum)))
+				_, _ = w.Write(fmt.Appendf(nil, "%s  custom-name.tar.gz\n", sha256sum))
 			},
 			filePattern: "custom-name.tar.gz",
 			wantErr:     false,

@@ -21,11 +21,11 @@ import (
 	"github.com/terassyi/toto/internal/resource"
 )
 
-func TestNewToolInstaller(t *testing.T) {
+func TestNewInstaller(t *testing.T) {
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer("/tools", "/bin")
 
-	installer := NewToolInstaller(downloader, placer)
+	installer := NewInstaller(downloader, placer)
 	assert.NotNil(t, installer)
 }
 
@@ -39,11 +39,11 @@ func TestToolInstaller_Install(t *testing.T) {
 		if strings.HasSuffix(r.URL.Path, ".sha256") {
 			// Return checksum file
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(archiveHash + "  ripgrep.tar.gz\n"))
+			_, _ = w.Write([]byte(archiveHash + "  ripgrep.tar.gz\n"))
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write(tarGzContent)
+		_, _ = w.Write(tarGzContent)
 	}))
 	defer server.Close()
 
@@ -99,7 +99,7 @@ func TestToolInstaller_Install(t *testing.T) {
 			downloader := download.NewDownloader()
 			placer := place.NewPlacer(toolsDir, binDir)
 
-			installer := NewToolInstaller(downloader, placer)
+			installer := NewInstaller(downloader, placer)
 
 			state, err := installer.Install(context.Background(), tt.tool, tt.tool.Name())
 
@@ -146,7 +146,7 @@ func TestToolInstaller_Install_Skip(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(toolsDir, binDir)
-	inst := NewToolInstaller(downloader, placer)
+	inst := NewInstaller(downloader, placer)
 
 	// No checksum - will skip if binary exists
 	tool := &resource.Tool{

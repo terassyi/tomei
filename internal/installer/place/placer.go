@@ -11,15 +11,15 @@ import (
 	"path/filepath"
 )
 
-// PlaceTarget contains information about the tool to be placed.
-type PlaceTarget struct {
+// Target contains information about the tool to be placed.
+type Target struct {
 	Name       string // Tool name (e.g., ripgrep)
 	Version    string // Version (e.g., 14.1.1)
 	BinaryName string // Binary name (e.g., rg)
 }
 
-// PlaceResult contains information about the placed tool.
-type PlaceResult struct {
+// Result contains information about the placed tool.
+type Result struct {
 	BinaryPath string // Path to the placed binary
 	LinkPath   string // Path to the symlink (set after Symlink)
 }
@@ -49,22 +49,22 @@ func (a ValidateAction) String() string {
 // Placer defines the interface for placing binaries and managing symlinks.
 type Placer interface {
 	// BinaryPath returns the full path where the binary would be placed.
-	BinaryPath(target PlaceTarget) string
+	BinaryPath(target Target) string
 
 	// LinkPath returns the full path where the symlink would be created.
-	LinkPath(target PlaceTarget) string
+	LinkPath(target Target) string
 
 	// Validate checks the binary state and returns the required action.
 	// expectedHash is the expected SHA256 hash of the binary.
-	Validate(target PlaceTarget, expectedHash string) (ValidateAction, error)
+	Validate(target Target, expectedHash string) (ValidateAction, error)
 
 	// Place finds and places a binary from srcDir to the tools directory.
 	// Returns the result containing the path to the placed binary.
-	Place(srcDir string, target PlaceTarget) (*PlaceResult, error)
+	Place(srcDir string, target Target) (*Result, error)
 
 	// Symlink creates a symlink in binDir pointing to the placed binary.
 	// Returns the path to the created symlink.
-	Symlink(target PlaceTarget) (string, error)
+	Symlink(target Target) (string, error)
 
 	// Cleanup removes a file or directory.
 	// Does not return error if path does not exist.
@@ -86,17 +86,17 @@ func NewPlacer(toolsDir, binDir string) Placer {
 }
 
 // BinaryPath returns the full path where the binary would be placed.
-func (p *filePlacer) BinaryPath(target PlaceTarget) string {
+func (p *filePlacer) BinaryPath(target Target) string {
 	return filepath.Join(p.toolsDir, target.Name, target.Version, target.BinaryName)
 }
 
 // LinkPath returns the full path where the symlink would be created.
-func (p *filePlacer) LinkPath(target PlaceTarget) string {
+func (p *filePlacer) LinkPath(target Target) string {
 	return filepath.Join(p.binDir, target.BinaryName)
 }
 
 // Validate checks the binary state and returns the required action.
-func (p *filePlacer) Validate(target PlaceTarget, expectedHash string) (ValidateAction, error) {
+func (p *filePlacer) Validate(target Target, expectedHash string) (ValidateAction, error) {
 	path := p.BinaryPath(target)
 	slog.Debug("validating binary", "path", path, "expectedHash", expectedHash)
 
@@ -145,7 +145,7 @@ func (p *filePlacer) calculateHash(path string) (string, error) {
 }
 
 // Place finds and places a binary from srcDir to the tools directory.
-func (p *filePlacer) Place(srcDir string, target PlaceTarget) (*PlaceResult, error) {
+func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
 	destDir := filepath.Join(p.toolsDir, target.Name, target.Version)
 	slog.Debug("placing binary", "src", srcDir, "dest", destDir, "binary", target.BinaryName)
 
@@ -168,11 +168,11 @@ func (p *filePlacer) Place(srcDir string, target PlaceTarget) (*PlaceResult, err
 	}
 
 	slog.Debug("binary placed", "path", destPath)
-	return &PlaceResult{BinaryPath: destPath}, nil
+	return &Result{BinaryPath: destPath}, nil
 }
 
 // Symlink creates a symlink in binDir pointing to the placed binary.
-func (p *filePlacer) Symlink(target PlaceTarget) (string, error) {
+func (p *filePlacer) Symlink(target Target) (string, error) {
 	srcPath := filepath.Join(p.toolsDir, target.Name, target.Version, target.BinaryName)
 	slog.Debug("creating symlink", "src", srcPath, "binDir", p.binDir, "linkName", target.BinaryName)
 

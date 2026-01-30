@@ -72,7 +72,7 @@ func runUserApply(ctx context.Context, configDir string) error {
 		paths.UserDataDir()+"/tools",
 		paths.UserBinDir(),
 	)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 
 	// Create and run engine
 	eng := engine.NewEngine(toolInstaller, store)

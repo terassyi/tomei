@@ -74,7 +74,7 @@ ripgrep: {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	err = eng.Apply(context.Background(), configDir)
@@ -95,7 +95,7 @@ ripgrep: {
 
 	// Verify state
 	require.NoError(t, store.Lock())
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 	st, err := store.Load()
 	require.NoError(t, err)
 	require.NotNil(t, st.Tools["ripgrep"])
@@ -145,7 +145,7 @@ func TestIntegration_UpgradeFlow(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	// Install v1
@@ -198,7 +198,7 @@ mytool: {
 
 	// Verify state
 	require.NoError(t, store.Lock())
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 	st, err := store.Load()
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", st.Tools["mytool"].Version)
@@ -233,7 +233,7 @@ func TestIntegration_RemoveFlow(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	// Install tool
@@ -280,7 +280,7 @@ downloadInstaller: {
 
 	// Verify state
 	require.NoError(t, store.Lock())
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 	st, err := store.Load()
 	require.NoError(t, err)
 	assert.Nil(t, st.Tools["removeme"])
@@ -329,7 +329,7 @@ func TestIntegration_MultipleTools(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	cue := `package toto
@@ -370,7 +370,7 @@ tool2: {
 	assert.FileExists(t, filepath.Join(dataDir, "tools", "tool2", "2.0.0", "tool2"))
 
 	require.NoError(t, store.Lock())
-	defer store.Unlock()
+	defer func() { _ = store.Unlock() }()
 	st, err := store.Load()
 	require.NoError(t, err)
 	assert.Len(t, st.Tools, 2)
@@ -407,7 +407,7 @@ func TestIntegration_IdempotentApply(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	cue := `package toto
@@ -466,7 +466,7 @@ func TestIntegration_Plan(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(filepath.Join(dataDir, "tools"), binDir)
-	toolInstaller := tool.NewToolInstaller(downloader, placer)
+	toolInstaller := tool.NewInstaller(downloader, placer)
 	eng := engine.NewEngine(toolInstaller, store)
 
 	cue := `package toto

@@ -16,22 +16,22 @@ import (
 	"github.com/terassyi/toto/internal/resource"
 )
 
-// ToolInstaller installs tools using the download pattern.
-type ToolInstaller struct {
+// Installer installs tools using the download pattern.
+type Installer struct {
 	downloader download.Downloader
 	placer     place.Placer
 }
 
-// NewToolInstaller creates a new ToolInstaller.
-func NewToolInstaller(downloader download.Downloader, placer place.Placer) *ToolInstaller {
-	return &ToolInstaller{
+// NewInstaller creates a new tool Installer.
+func NewInstaller(downloader download.Downloader, placer place.Placer) *Installer {
+	return &Installer{
 		downloader: downloader,
 		placer:     placer,
 	}
 }
 
 // Install installs a tool according to the resource and returns its state.
-func (i *ToolInstaller) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
 	cfg := &installer.InstallConfig{
 		BinaryName: name, // default to tool name
@@ -48,7 +48,7 @@ func (i *ToolInstaller) Install(ctx context.Context, res *resource.Tool, name st
 	expectedHash := checksum.ExtractHash(spec.Source.Checksum)
 
 	// Create place target
-	target := place.PlaceTarget{
+	target := place.Target{
 		Name:       name,
 		Version:    spec.Version,
 		BinaryName: cfg.BinaryName,
@@ -63,7 +63,7 @@ func (i *ToolInstaller) Install(ctx context.Context, res *resource.Tool, name st
 	switch action {
 	case place.ValidateActionSkip:
 		slog.Info("tool already installed, skipping", "name", name, "version", spec.Version)
-		return i.buildState(spec, name, target, expectedHash)
+		return i.buildState(spec, target, expectedHash), nil
 
 	case place.ValidateActionReplace:
 		if !cfg.Force {
@@ -137,11 +137,11 @@ func (i *ToolInstaller) Install(ctx context.Context, res *resource.Tool, name st
 
 	slog.Info("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
 
-	return i.buildState(spec, name, target, expectedHash)
+	return i.buildState(spec, target, expectedHash), nil
 }
 
 // buildState creates a ToolState from the installation result.
-func (i *ToolInstaller) buildState(spec *resource.ToolSpec, _ string, target place.PlaceTarget, digest string) (*resource.ToolState, error) {
+func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest string) *resource.ToolState {
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
@@ -152,11 +152,11 @@ func (i *ToolInstaller) buildState(spec *resource.ToolSpec, _ string, target pla
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,
 		UpdatedAt:    time.Now(),
-	}, nil
+	}
 }
 
 // Remove removes an installed tool.
-func (i *ToolInstaller) Remove(ctx context.Context, st *resource.ToolState, name string) error {
+func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name string) error {
 	slog.Info("removing tool", "name", name, "version", st.Version)
 
 	// Remove the binary

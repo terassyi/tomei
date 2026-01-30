@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -247,7 +248,7 @@ func TestExtractor_TarGz_PreservesExecutablePermission(t *testing.T) {
 	// Check executable permission
 	info, err := os.Stat(filepath.Join(destDir, "bin/tool"))
 	require.NoError(t, err)
-	assert.True(t, info.Mode()&0111 != 0, "expected executable permission")
+	assert.NotEqual(t, fs.FileMode(0), info.Mode()&0111, "expected executable permission")
 }
 
 func TestExtractor_InvalidStream(t *testing.T) {

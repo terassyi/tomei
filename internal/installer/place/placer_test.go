@@ -40,44 +40,44 @@ func TestPlacer_Validate(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		setup        func(t *testing.T, toolsDir string, target PlaceTarget)
-		target       PlaceTarget
+		setup        func(t *testing.T, toolsDir string, target Target)
+		target       Target
 		expectedHash string
 		wantAction   ValidateAction
 		wantErr      bool
 	}{
 		{
 			name:         "binary does not exist - install",
-			setup:        func(t *testing.T, toolsDir string, target PlaceTarget) {},
-			target:       PlaceTarget{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
+			setup:        func(t *testing.T, toolsDir string, target Target) {},
+			target:       Target{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
 			expectedHash: contentHash,
 			wantAction:   ValidateActionInstall,
 			wantErr:      false,
 		},
 		{
 			name: "binary exists with matching hash - skip",
-			setup: func(t *testing.T, toolsDir string, target PlaceTarget) {
+			setup: func(t *testing.T, toolsDir string, target Target) {
 				binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
 				err := os.MkdirAll(filepath.Dir(binPath), 0755)
 				require.NoError(t, err)
 				err = os.WriteFile(binPath, content, 0755)
 				require.NoError(t, err)
 			},
-			target:       PlaceTarget{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
+			target:       Target{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
 			expectedHash: contentHash,
 			wantAction:   ValidateActionSkip,
 			wantErr:      false,
 		},
 		{
 			name: "binary exists with different hash - replace",
-			setup: func(t *testing.T, toolsDir string, target PlaceTarget) {
+			setup: func(t *testing.T, toolsDir string, target Target) {
 				binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
 				err := os.MkdirAll(filepath.Dir(binPath), 0755)
 				require.NoError(t, err)
 				err = os.WriteFile(binPath, []byte("different content"), 0755)
 				require.NoError(t, err)
 			},
-			target:       PlaceTarget{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
+			target:       Target{Name: "mytool", Version: "1.0.0", BinaryName: "tool"},
 			expectedHash: contentHash,
 			wantAction:   ValidateActionReplace,
 			wantErr:      false,
@@ -110,7 +110,7 @@ func TestPlacer_Place(t *testing.T) {
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, srcDir string)
-		target     PlaceTarget
+		target     Target
 		wantErr    bool
 		errContain string
 	}{
@@ -121,7 +121,7 @@ func TestPlacer_Place(t *testing.T) {
 				err := os.WriteFile(binPath, []byte("binary content"), 0755)
 				require.NoError(t, err)
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "mytool",
 				Version:    "1.0.0",
 				BinaryName: "tool",
@@ -139,7 +139,7 @@ func TestPlacer_Place(t *testing.T) {
 				err = os.WriteFile(binPath, []byte("binary content"), 0755)
 				require.NoError(t, err)
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "ripgrep",
 				Version:    "14.0.0",
 				BinaryName: "rg",
@@ -151,7 +151,7 @@ func TestPlacer_Place(t *testing.T) {
 			setup: func(t *testing.T, srcDir string) {
 				// Empty directory
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "mytool",
 				Version:    "1.0.0",
 				BinaryName: "nonexistent",
@@ -192,7 +192,7 @@ func TestPlacer_Place(t *testing.T) {
 			// Verify binary exists and is executable
 			info, err := os.Stat(result.BinaryPath)
 			require.NoError(t, err)
-			assert.True(t, info.Mode()&0111 != 0, "expected executable permission")
+			assert.NotEqual(t, os.FileMode(0), info.Mode()&0111, "expected executable permission")
 		})
 	}
 }
@@ -200,21 +200,21 @@ func TestPlacer_Place(t *testing.T) {
 func TestPlacer_Symlink(t *testing.T) {
 	tests := []struct {
 		name       string
-		setup      func(t *testing.T, toolsDir string, target PlaceTarget)
-		target     PlaceTarget
+		setup      func(t *testing.T, toolsDir string, target Target)
+		target     Target
 		wantErr    bool
 		errContain string
 	}{
 		{
 			name: "create symlink",
-			setup: func(t *testing.T, toolsDir string, target PlaceTarget) {
+			setup: func(t *testing.T, toolsDir string, target Target) {
 				binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
 				err := os.MkdirAll(filepath.Dir(binPath), 0755)
 				require.NoError(t, err)
 				err = os.WriteFile(binPath, []byte("binary"), 0755)
 				require.NoError(t, err)
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "mytool",
 				Version:    "1.0.0",
 				BinaryName: "tool",
@@ -223,14 +223,14 @@ func TestPlacer_Symlink(t *testing.T) {
 		},
 		{
 			name: "overwrite existing symlink",
-			setup: func(t *testing.T, toolsDir string, target PlaceTarget) {
+			setup: func(t *testing.T, toolsDir string, target Target) {
 				binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
 				err := os.MkdirAll(filepath.Dir(binPath), 0755)
 				require.NoError(t, err)
 				err = os.WriteFile(binPath, []byte("binary"), 0755)
 				require.NoError(t, err)
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "mytool",
 				Version:    "1.0.0",
 				BinaryName: "tool",
@@ -239,10 +239,10 @@ func TestPlacer_Symlink(t *testing.T) {
 		},
 		{
 			name: "source binary not found",
-			setup: func(t *testing.T, toolsDir string, target PlaceTarget) {
+			setup: func(t *testing.T, toolsDir string, target Target) {
 				// Don't create the binary
 			},
-			target: PlaceTarget{
+			target: Target{
 				Name:       "mytool",
 				Version:    "1.0.0",
 				BinaryName: "tool",
