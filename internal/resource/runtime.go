@@ -55,3 +55,5 @@ type RuntimeState struct {
 	Env          map[string]string `json:"env,omitempty"`
 	UpdatedAt    time.Time         `json:"updatedAt"`
 }
+
+func (*RuntimeState) isState() {}

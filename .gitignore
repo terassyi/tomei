@@ -29,6 +29,8 @@ Thumbs.db
 
 # Build artifacts
 bin/
+/toto
+/e2e/toto
 
 # Local state (for testing)
 .toto/

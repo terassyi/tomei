@@ -98,6 +98,8 @@ type SystemPackageRepositoryState struct {
 	UpdatedAt      time.Time    `json:"updatedAt"`
 }
 
+func (*SystemPackageRepositoryState) isState() {}
+
 // SystemPackageSetState represents the state of installed system packages.
 type SystemPackageSetState struct {
 	InstallerRef      string            `json:"installerRef"`
@@ -106,3 +108,5 @@ type SystemPackageSetState struct {
 	InstalledVersions map[string]string `json:"installedVersions"`
 	UpdatedAt         time.Time         `json:"updatedAt"`
 }
+
+func (*SystemPackageSetState) isState() {}

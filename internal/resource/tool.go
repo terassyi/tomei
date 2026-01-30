@@ -7,9 +7,21 @@ import (
 
 // DownloadSource holds download configuration.
 type DownloadSource struct {
-	URL         string `json:"url"`
-	Checksum    string `json:"checksum,omitempty"`
-	ArchiveType string `json:"archiveType,omitempty"`
+	URL         string    `json:"url"`
+	Checksum    *Checksum `json:"checksum,omitempty"`
+	ArchiveType string    `json:"archiveType,omitempty"`
+}
+
+// Checksum holds checksum verification configuration.
+// Either Value or URL should be specified, not both.
+type Checksum struct {
+	// Value is the direct checksum value (e.g., "sha256:abc123...")
+	Value string `json:"value,omitempty"`
+	// URL is the URL to a checksums file (e.g., GitHub release checksums.txt)
+	URL string `json:"url,omitempty"`
+	// FilePattern is the pattern to match the target file in checksums file.
+	// If empty, uses the downloaded filename.
+	FilePattern string `json:"filePattern,omitempty"`
 }
 
 // ToolSpec defines an individual tool.
@@ -134,6 +146,8 @@ type ToolState struct {
 	TaintReason  string          `json:"taintReason,omitempty"`
 	UpdatedAt    time.Time       `json:"updatedAt"`
 }
+
+func (*ToolState) isState() {}
 
 // IsTainted returns true if the tool needs reinstallation.
 func (t *ToolState) IsTainted() bool {

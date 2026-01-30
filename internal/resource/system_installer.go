@@ -57,3 +57,5 @@ type SystemInstallerState struct {
 	Version   string    `json:"version"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+func (*SystemInstallerState) isState() {}

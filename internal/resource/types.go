@@ -16,8 +16,16 @@ const (
 	KindToolSet   Kind = "ToolSet"
 )
 
-// APIVersion is the current API version for toto resources.
-const APIVersion = "toto.terassyi.net/v1beta1"
+const (
+	// APIGroup is the API group for toto resources.
+	APIGroup = "toto.terassyi.net"
+
+	// APIVersion is the API version.
+	APIVersion = "v1beta1"
+
+	// GroupVersion is the full group/version string.
+	GroupVersion = APIGroup + "/" + APIVersion
+)
 
 // Ref represents a reference to another resource.
 type Ref struct {
@@ -29,6 +37,12 @@ type Ref struct {
 type Spec interface {
 	Validate() error
 	Dependencies() []Ref
+}
+
+// State is the interface that all state types must implement.
+// Currently a marker interface for type constraints.
+type State interface {
+	isState()
 }
 
 // Resource is the interface that all toto resources must implement.

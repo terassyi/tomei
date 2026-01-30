@@ -21,7 +21,9 @@ spec: {
     version: "14.0.0"
     source: {
         url: "https://github.com/BurntSushi/ripgrep/releases/download/14.0.0/ripgrep-14.0.0-x86_64-unknown-linux-musl.tar.gz"
-        checksum: "sha256:abc123"
+        checksum: {
+            value: "sha256:abc123"
+        }
         archiveType: "tar.gz"
     }
 }
