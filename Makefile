@@ -10,8 +10,8 @@ build: ## Build the binary
 test: ## Run unit tests
 	go test -v -race ./internal/... ./cmd/...
 
-test-integration: ## Run integration tests
-	go test -v -race ./tests/...
+test-integration: ## Run integration tests (requires network access, Linux amd64 only)
+	go test -v -race -tags=integration ./tests/...
 
 test-e2e: ## Run E2E tests (requires Docker)
 	$(MAKE) -C e2e build

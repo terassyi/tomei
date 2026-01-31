@@ -16,6 +16,9 @@ down: ## Stop and remove the test container
 test: ## Run E2E tests with Ginkgo
 	TOTO_E2E_CONTAINER=$(CONTAINER_NAME) go test -v ./... -ginkgo.v
 
+exec: ## Exec into the test container
+	docker exec -it $(CONTAINER_NAME) bash
+
 clean: down ## Clean up build artifacts and Docker image
 	rm -f toto
 	-docker rmi $(IMAGE_NAME) 2>/dev/null || true
