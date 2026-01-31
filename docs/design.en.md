@@ -267,6 +267,7 @@ Execution order: `sudo toto apply --system` → `toto apply`
 ### 4.2 Command List
 
 ```bash
+toto init        # Initialize (config.cue, directories, state.json)
 toto validate    # CUE syntax + circular reference check
 toto plan        # validate + show execution plan
 toto apply       # plan + execute
@@ -274,6 +275,30 @@ toto doctor      # detect unmanaged tools, conflicts
 toto adopt       # bring unmanaged tools under management
 toto version     # show version
 ```
+
+### 4.3 toto init
+
+Initialize the environment.
+
+```bash
+# Interactive initialization (prompts to create config.cue if missing)
+toto init
+
+# Skip prompts and initialize
+toto init --yes
+
+# Force reinitialization (resets state.json)
+toto init --force
+```
+
+Execution steps:
+1. Create `~/.config/toto/` directory
+2. If `config.cue` doesn't exist, create with default values (interactive or `--yes`)
+3. Load path settings from `config.cue`
+4. Create data directory (`dataDir`)
+5. Create `dataDir/tools/`, `dataDir/runtimes/`
+6. Create bin directory (`binDir`)
+7. Initialize `dataDir/state.json`
 
 ---
 
@@ -678,20 +703,20 @@ Mode:
 ## 12. Directory Structure
 
 ```
-~/.config/toto/           # User configuration (CUE files)
-├── base/
-│   ├── tools.cue
-│   └── runtimes.cue
-├── overlays/
+~/.config/toto/           # Config directory (fixed)
+├── config.cue            # Path settings (required)
+├── tools.cue             # Tool definitions
+├── runtimes.cue          # Runtime definitions
+├── overlays/             # Environment-specific overlays
 │   ├── darwin/
 │   ├── linux/
 │   ├── headless/
 │   └── desktop/
-└── system/
+└── system/               # System-level configuration
     ├── repos.cue
     └── packages.cue
 
-~/.local/share/toto/      # User State & data
+~/.local/share/toto/      # Data directory (configurable via config.cue)
 ├── state.lock
 ├── state.json
 ├── runtimes/
@@ -699,12 +724,34 @@ Mode:
 └── tools/
     └── ripgrep/14.0.0/
 
-~/.local/bin/             # Symlink destination
+~/.local/bin/             # Symlink destination (configurable via config.cue)
 
 /var/lib/toto/            # System State
 ├── state.lock
 └── state.json
 ```
+
+### 12.1 config.cue
+
+Path settings file. Fixed at `~/.config/toto/config.cue`.
+
+```cue
+package toto
+
+config: {
+    // Data directory (storage for tools, runtimes, state.json)
+    dataDir: "~/.local/share/toto"
+    
+    // Symlink destination
+    binDir: "~/.local/bin"
+}
+```
+
+Default values:
+- `dataDir`: `~/.local/share/toto`
+- `binDir`: `~/.local/bin`
+
+When `config.cue` doesn't exist, `toto init` will interactively create it with default values.
 
 ---
 

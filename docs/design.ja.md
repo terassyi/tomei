@@ -267,6 +267,7 @@ sudo toto apply --system
 ### 4.2 コマンド一覧
 
 ```bash
+toto init        # 初期化 (config.cue, ディレクトリ, state.json)
 toto validate    # CUE 構文 + 循環参照チェック
 toto plan        # validate + 実行計画表示
 toto apply       # plan + 実行
@@ -274,6 +275,30 @@ toto doctor      # 未管理ツール検知、競合検知
 toto adopt       # 未管理ツールを管理下に追加
 toto version     # バージョン表示
 ```
+
+### 4.3 toto init
+
+環境の初期化を行う。
+
+```bash
+# 対話的に初期化 (config.cue がなければ作成確認)
+toto init
+
+# 対話スキップで初期化
+toto init --yes
+
+# 強制的に再初期化 (state.json をリセット)
+toto init --force
+```
+
+実行内容:
+1. `~/.config/toto/` ディレクトリ作成
+2. `config.cue` が存在しない場合、デフォルト値で作成（対話確認または `--yes`）
+3. `config.cue` からパス設定を読み込み
+4. データディレクトリ (`dataDir`) 作成
+5. `dataDir/tools/`, `dataDir/runtimes/` 作成
+6. bin ディレクトリ (`binDir`) 作成
+7. `dataDir/state.json` 初期化
 
 ---
 
@@ -678,20 +703,20 @@ Mode:
 ## 12. ディレクトリ構成
 
 ```
-~/.config/toto/           # ユーザー設定 (CUE ファイル)
-├── base/
-│   ├── tools.cue
-│   └── runtimes.cue
-├── overlays/
+~/.config/toto/           # 設定ディレクトリ (固定)
+├── config.cue            # パス設定 (必須)
+├── tools.cue             # ツール定義
+├── runtimes.cue          # ランタイム定義
+├── overlays/             # 環境別オーバーレイ
 │   ├── darwin/
 │   ├── linux/
 │   ├── headless/
 │   └── desktop/
-└── system/
+└── system/               # システムレベル設定
     ├── repos.cue
     └── packages.cue
 
-~/.local/share/toto/      # User State & データ
+~/.local/share/toto/      # データディレクトリ (config.cue で変更可)
 ├── state.lock
 ├── state.json
 ├── runtimes/
@@ -699,12 +724,34 @@ Mode:
 └── tools/
     └── ripgrep/14.0.0/
 
-~/.local/bin/             # symlink 配置先
+~/.local/bin/             # symlink 配置先 (config.cue で変更可)
 
 /var/lib/toto/            # System State
 ├── state.lock
 └── state.json
 ```
+
+### 12.1 config.cue
+
+パス設定ファイル。`~/.config/toto/config.cue` に固定。
+
+```cue
+package toto
+
+config: {
+    // データディレクトリ (tools, runtimes, state.json の保存先)
+    dataDir: "~/.local/share/toto"
+    
+    // symlink 配置先
+    binDir: "~/.local/bin"
+}
+```
+
+デフォルト値:
+- `dataDir`: `~/.local/share/toto`
+- `binDir`: `~/.local/bin`
+
+`toto init` で config.cue が存在しない場合、対話的にデフォルト値で作成する。
 
 ---
 

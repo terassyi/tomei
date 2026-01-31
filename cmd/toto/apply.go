@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/place"
@@ -46,8 +47,14 @@ func runApply(cmd *cobra.Command, _ []string) error {
 }
 
 func runUserApply(ctx context.Context, configDir string) error {
-	// Setup paths
-	paths, err := path.New()
+	// Load config
+	cfg, err := config.LoadConfig(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Setup paths from config
+	paths, err := path.NewFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %w", err)
 	}
