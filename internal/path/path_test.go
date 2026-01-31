@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/toto/internal/config"
 )
 
 func TestNew(t *testing.T) {
@@ -206,6 +207,106 @@ func TestEnsureDir(t *testing.T) {
 			info, err := os.Stat(targetDir)
 			require.NoError(t, err)
 			assert.True(t, info.IsDir())
+		})
+	}
+}
+
+func TestExpand(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "expand tilde with path",
+			path: "~/.local/share/toto",
+			want: filepath.Join(home, ".local/share/toto"),
+		},
+		{
+			name: "expand tilde only",
+			path: "~",
+			want: home,
+		},
+		{
+			name: "absolute path unchanged",
+			path: "/usr/local/bin",
+			want: "/usr/local/bin",
+		},
+		{
+			name: "relative path unchanged",
+			path: "relative/path",
+			want: "relative/path",
+		},
+		{
+			name: "empty path",
+			path: "",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Expand(tt.path)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestNewFromConfig(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name            string
+		cfg             *config.Config
+		wantUserDataDir string
+		wantUserBinDir  string
+	}{
+		{
+			name: "default config",
+			cfg: &config.Config{
+				DataDir: config.DefaultDataDir,
+				BinDir:  config.DefaultBinDir,
+			},
+			wantUserDataDir: filepath.Join(home, ".local/share/toto"),
+			wantUserBinDir:  filepath.Join(home, ".local/bin"),
+		},
+		{
+			name: "custom config with tilde",
+			cfg: &config.Config{
+				DataDir: "~/my-data",
+				BinDir:  "~/my-bin",
+			},
+			wantUserDataDir: filepath.Join(home, "my-data"),
+			wantUserBinDir:  filepath.Join(home, "my-bin"),
+		},
+		{
+			name: "absolute paths",
+			cfg: &config.Config{
+				DataDir: "/opt/toto/data",
+				BinDir:  "/opt/toto/bin",
+			},
+			wantUserDataDir: "/opt/toto/data",
+			wantUserBinDir:  "/opt/toto/bin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := NewFromConfig(tt.cfg)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantUserDataDir, p.UserDataDir())
+			assert.Equal(t, tt.wantUserBinDir, p.UserBinDir())
 		})
 	}
 }

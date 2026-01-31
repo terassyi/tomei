@@ -3,6 +3,9 @@ package path
 import (
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/terassyi/toto/internal/config"
 )
 
 // Default path constants
@@ -121,4 +124,44 @@ func (p *Paths) SystemStateLockFile() string {
 // EnsureDir creates a directory if it doesn't exist.
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0755)
+}
+
+// NewFromConfig creates Paths from Config.
+func NewFromConfig(cfg *config.Config) (*Paths, error) {
+	dataDir, err := Expand(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	binDir, err := Expand(cfg.BinDir)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Paths{
+		userDataDir:   dataDir,
+		userBinDir:    binDir,
+		systemDataDir: DefaultSystemDataDir,
+	}, nil
+}
+
+// Expand expands ~ to the home directory.
+func Expand(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+
+	if path == "~" {
+		return os.UserHomeDir()
+	}
+
+	return path, nil
 }

@@ -1,14 +1,12 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/spf13/cobra"
+	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/path"
 )
 
 var (
-	configDir  string
 	systemMode bool
 )
 
@@ -28,11 +26,11 @@ Commands are separated by privilege level:
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&configDir, "config", "c", "", "Configuration directory (default: ~/.config/toto)")
 	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Apply system-level resources (requires root)")
 
 	rootCmd.AddCommand(
 		versionCmd,
+		initCmd,
 		applyCmd,
 		validateCmd,
 		planCmd,
@@ -40,13 +38,7 @@ func init() {
 	)
 }
 
+// getConfigDir returns the fixed config directory path (~/.config/toto).
 func getConfigDir() (string, error) {
-	if configDir != "" {
-		return configDir, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".config", "toto"), nil
+	return path.Expand(config.DefaultConfigDir)
 }

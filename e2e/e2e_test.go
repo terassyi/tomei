@@ -26,7 +26,7 @@ func containerExecBash(script string) (string, error) {
 	return containerExec("bash", "-c", script)
 }
 
-var _ = Describe("toto on Ubuntu", func() {
+var _ = Describe("toto on Ubuntu", Ordered, func() {
 	It("displays version information", func() {
 		By("Running toto version command")
 		output, err := containerExec("toto", "version")
@@ -34,6 +34,31 @@ var _ = Describe("toto on Ubuntu", func() {
 
 		By("Checking output contains version string")
 		Expect(output).To(ContainSubstring("toto version"))
+	})
+
+	It("initializes environment with toto init", func() {
+		By("Running toto init --yes to create config.cue and directories")
+		output, err := containerExec("toto", "init", "--yes")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(ContainSubstring("Initialization complete"))
+
+		By("Verifying config.cue was created")
+		output, err = containerExecBash("cat ~/.config/toto/config.cue")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(ContainSubstring("package toto"))
+
+		By("Verifying data directory was created")
+		_, err = containerExecBash("ls -d ~/.local/share/toto")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Verifying bin directory was created")
+		_, err = containerExecBash("ls -d ~/.local/bin")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Verifying state.json was created")
+		output, err = containerExecBash("cat ~/.local/share/toto/state.json")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(ContainSubstring(`"version"`))
 	})
 
 	It("validates CUE configuration", func() {

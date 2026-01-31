@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
@@ -171,13 +170,4 @@ func unmarshalResource[R resource.Resource](jsonBytes []byte) (R, error) {
 		return res, err
 	}
 	return res, nil
-}
-
-// DefaultConfigDir returns the default configuration directory.
-func DefaultConfigDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(home, ".config", "toto"), nil
 }
