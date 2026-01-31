@@ -809,9 +809,128 @@ slog.Error("failed to download", "url", url, "error", err)
 
 ---
 
-## 14. 将来の設計検討事項
+## 14. テスト戦略
 
-### 14.1 InstallerRepository
+### 14.1 テストピラミッド
+
+```
+                    ┌─────────┐
+                    │   E2E   │  ← Docker コンテナ、実際のダウンロード
+                   ┌┴─────────┴┐
+                   │ 結合テスト │  ← コンポーネント結合、モックインストーラ
+                  ┌┴───────────┴┐
+                  │ ユニットテスト │  ← 単一コンポーネント、独立
+                 └──────────────┘
+```
+
+### 14.2 ユニットテスト
+
+**配置:** `internal/*/..._test.go`
+
+**スコープ:**
+- 単一コンポーネントの独立したテスト
+- 依存関係にはモック/スタブを使用
+- ネットワークアクセスなし
+- ファイルシステムへの副作用なし（`t.TempDir()` を使用）
+
+**例:**
+- `internal/checksum/checksum_test.go` - チェックサム検証ロジック
+- `internal/installer/reconciler/reconciler_test.go` - アクション決定
+- `internal/state/store_test.go` - 状態永続化
+
+**要件:**
+- 高速実行（テストあたり 1 秒未満）
+- 外部依存なし
+- 決定論的な結果
+
+### 14.3 結合テスト
+
+**配置:** `tests/`
+
+**スコープ:**
+- 複数コンポーネントの結合
+- CUE 設定 → Resource → State のフロー
+- モックインストーラ（実際のダウンロードなし）
+- 実際のファイルシステム操作（一時ディレクトリ内）
+
+**テストファイル:**
+
+| ファイル | 目的 |
+|---------|------|
+| `tests/resource_test.go` | CUE ローディング、リソースストア、依存解決 |
+| `tests/engine_test.go` | モックインストーラを使った Engine（Plan, Apply, Upgrade, Remove） |
+| `tests/state_test.go` | 状態永続化、Taint ロジック、並行アクセス |
+
+**要件:**
+- ネットワークアクセスなし
+- 実際のツールインストールなし
+- `t.TempDir()` を使用して分離
+- テスト後のクリーンアップ（ローカル環境を汚さない）
+
+**モックインストーラ:**
+```go
+type mockToolInstaller struct {
+    installed map[string]*resource.ToolState
+    removed   map[string]bool
+}
+
+func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+    // 呼び出しを記録し、モック状態を返す
+}
+```
+
+### 14.4 E2E テスト
+
+**配置:** `e2e/`
+
+**スコープ:**
+- Docker コンテナ内でのフルシステムテスト
+- 実際のダウンロードとインストール
+- 実際のバイナリ実行検証
+- `toto apply` コマンドのエンドツーエンドテスト
+
+**要件:**
+- 分離された Docker コンテナ内で実行
+- `TOTO_E2E_CONTAINER` 環境変数が必要
+- linux/amd64 のみ
+- 実際のダウンロードのためネットワークアクセスあり
+
+**実行方法:**
+```bash
+cd e2e
+make test          # コンテナ内で E2E テスト実行
+make exec          # テストコンテナにシェルで入る
+```
+
+### 14.5 テストコマンド
+
+```bash
+# ユニットテストのみ
+make test
+
+# 結合テストを含む全テスト
+go test ./...
+
+# 特定パッケージのテスト
+go test -v ./internal/installer/engine/...
+
+# E2E テスト（Docker 必要）
+cd e2e && make test
+```
+
+### 14.6 テストガイドライン
+
+1. **分離**: 各テストは独立しており、他のテストに影響を与えない
+2. **クリーンアップ**: 自動クリーンアップのため `t.TempDir()` を使用
+3. **副作用なし**: テストは開発者のローカル環境を変更しない
+4. **決定論的**: テストは繰り返し実行しても同じ結果を生成
+5. **速度**: ユニットテストは高速に。遅いテストは E2E に配置
+
+---
+
+## 15. 将来の設計検討事項
+
+### 15.1 InstallerRepository
 
 aqua registry のように、ツールのメタデータ（URL パターン、アーキテクチャ別ファイル名など）を提供するリポジトリ。SystemPackageRepository と同様の役割。
 
@@ -845,7 +964,7 @@ spec: {
 }
 ```
 
-### 14.2 認証・トークン
+### 15.2 認証・トークン
 
 GitHub API のレートリミット対策、プライベートリポジトリへのアクセス、認証付きレジストリ対応。
 

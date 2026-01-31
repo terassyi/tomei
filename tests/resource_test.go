@@ -188,7 +188,7 @@ spec: {
 
 	// Test Validate()
 	err = spec.Validate()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test Dependencies()
 	deps := spec.Dependencies()

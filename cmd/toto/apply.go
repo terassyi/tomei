@@ -9,6 +9,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/place"
+	"github.com/terassyi/toto/internal/installer/runtime"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/state"
@@ -73,16 +74,18 @@ func runUserApply(ctx context.Context, configDir string) error {
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
-	// Create tool installer
+	// Create installers
 	downloader := download.NewDownloader()
-	placer := place.NewPlacer(
-		paths.UserDataDir()+"/tools",
-		paths.UserBinDir(),
-	)
-	toolInstaller := tool.NewInstaller(downloader, placer)
+	toolsDir := paths.UserDataDir() + "/tools"
+	runtimesDir := paths.UserDataDir() + "/runtimes"
+	binDir := paths.UserBinDir()
 
-	// Create and run engine
-	eng := engine.NewEngine(toolInstaller, store)
+	placer := place.NewPlacer(toolsDir, binDir)
+	toolInstaller := tool.NewInstaller(downloader, placer)
+	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir, binDir)
+
+	// Create and run engine with runtime support
+	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
 	if err := eng.Apply(ctx, configDir); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}

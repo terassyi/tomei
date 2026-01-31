@@ -809,9 +809,128 @@ slog.Error("failed to download", "url", url, "error", err)
 
 ---
 
-## 14. Future Design Considerations
+## 14. Testing Strategy
 
-### 14.1 InstallerRepository
+### 14.1 Test Pyramid
+
+```
+                    ┌─────────┐
+                    │   E2E   │  ← Docker container, real downloads
+                   ┌┴─────────┴┐
+                   │Integration│  ← Component integration, mock installers
+                  ┌┴───────────┴┐
+                  │  Unit Tests │  ← Single component, isolated
+                 └──────────────┘
+```
+
+### 14.2 Unit Tests
+
+**Location:** `internal/*/..._test.go`
+
+**Scope:**
+- Single component in isolation
+- Uses mocks/stubs for dependencies
+- No network access
+- No file system side effects (uses `t.TempDir()`)
+
+**Examples:**
+- `internal/checksum/checksum_test.go` - Checksum verification logic
+- `internal/installer/reconciler/reconciler_test.go` - Action determination
+- `internal/state/store_test.go` - State persistence
+
+**Requirements:**
+- Fast execution (< 1s per test)
+- No external dependencies
+- Deterministic results
+
+### 14.3 Integration Tests
+
+**Location:** `tests/`
+
+**Scope:**
+- Multiple component integration
+- CUE config → Resource → State flow
+- Mock installers (no real downloads)
+- Real file system operations (in temp directories)
+
+**Test Files:**
+
+| File | Purpose |
+|------|---------|
+| `tests/resource_test.go` | CUE loading, resource store, dependency resolution |
+| `tests/engine_test.go` | Engine with mock installers (Plan, Apply, Upgrade, Remove) |
+| `tests/state_test.go` | State persistence, taint logic, concurrent access |
+
+**Requirements:**
+- No network access
+- No real tool installation
+- Uses `t.TempDir()` for isolation
+- Clean up after tests (no local environment pollution)
+
+**Mock Installers:**
+```go
+type mockToolInstaller struct {
+    installed map[string]*resource.ToolState
+    removed   map[string]bool
+}
+
+func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+    // Record call, return mock state
+}
+```
+
+### 14.4 E2E Tests
+
+**Location:** `e2e/`
+
+**Scope:**
+- Full system test in Docker container
+- Real downloads and installations
+- Actual binary execution verification
+- Tests `toto apply` command end-to-end
+
+**Requirements:**
+- Runs in isolated Docker container
+- Requires `TOTO_E2E_CONTAINER` environment variable
+- linux/amd64 only
+- Network access for real downloads
+
+**Execution:**
+```bash
+cd e2e
+make test          # Run E2E tests in container
+make exec          # Shell into test container
+```
+
+### 14.5 Test Commands
+
+```bash
+# Unit tests only
+make test
+
+# All tests including integration
+go test ./...
+
+# Run specific package
+go test -v ./internal/installer/engine/...
+
+# E2E tests (requires Docker)
+cd e2e && make test
+```
+
+### 14.6 Test Guidelines
+
+1. **Isolation**: Each test must be independent and not affect other tests
+2. **Cleanup**: Use `t.TempDir()` for automatic cleanup
+3. **No Side Effects**: Tests must not modify the developer's local environment
+4. **Determinism**: Tests must produce the same results on repeated runs
+5. **Speed**: Unit tests should be fast; slow tests belong in E2E
+
+---
+
+## 15. Future Design Considerations
+
+### 15.1 InstallerRepository
 
 A repository that provides tool metadata (URL patterns, architecture-specific filenames, etc.) like aqua registry. Similar role to SystemPackageRepository.
 
@@ -845,7 +964,7 @@ spec: {
 }
 ```
 
-### 14.2 Authentication & Tokens
+### 15.2 Authentication & Tokens
 
 For GitHub API rate limit mitigation, private repository access, and authenticated registry support.
 
