@@ -2,8 +2,6 @@ package main
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/path"
 )
 
 var (
@@ -36,9 +34,4 @@ func init() {
 		planCmd,
 		doctorCmd,
 	)
-}
-
-// getConfigDir returns the fixed config directory path (~/.config/toto).
-func getConfigDir() (string, error) {
-	return path.Expand(config.DefaultConfigDir)
 }

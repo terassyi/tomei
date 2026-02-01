@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
@@ -85,6 +86,15 @@ func (m *mockRuntimeInstaller) Remove(_ context.Context, _ *resource.RuntimeStat
 	return nil
 }
 
+// loadResources is a helper to load resources from a config directory.
+func loadResources(t *testing.T, configDir string) []resource.Resource {
+	t.Helper()
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+	return resources
+}
+
 // TestEngine_PlanAll_Tool tests that Engine correctly plans tool actions from CUE config.
 func TestEngine_PlanAll_Tool(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -110,6 +120,8 @@ ripgrep: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -118,7 +130,7 @@ ripgrep: {
 	eng := engine.NewEngine(mockTool, mockRuntime, store)
 
 	ctx := context.Background()
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 
 	assert.Empty(t, runtimeActions)
@@ -153,6 +165,8 @@ goRuntime: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -161,7 +175,7 @@ goRuntime: {
 	eng := engine.NewEngine(mockTool, mockRuntime, store)
 
 	ctx := context.Background()
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 
 	assert.Len(t, runtimeActions, 1)
@@ -194,6 +208,8 @@ jq: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -204,7 +220,7 @@ jq: {
 	ctx := context.Background()
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify mock was called
@@ -250,6 +266,8 @@ goRuntime: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -260,7 +278,7 @@ goRuntime: {
 	ctx := context.Background()
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify mock was called
@@ -301,6 +319,8 @@ fd: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -311,12 +331,12 @@ fd: {
 	ctx := context.Background()
 
 	// First apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, mockTool.installed, 1)
 
 	// Second apply - should be no-op
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Empty(t, toolActions)
@@ -348,6 +368,8 @@ bat: {
 	cueFile := filepath.Join(configDir, "tool.cue")
 	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -358,7 +380,7 @@ bat: {
 	ctx := context.Background()
 
 	// First apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Update config with new version
@@ -379,8 +401,11 @@ bat: {
 `
 	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
 
+	// Reload resources with new config
+	resourcesV2 := loadResources(t, configDir)
+
 	// Plan should show upgrade
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resourcesV2)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 1)
@@ -388,7 +413,7 @@ bat: {
 	assert.Equal(t, resource.ActionUpgrade, toolActions[0].Type)
 
 	// Apply upgrade
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resourcesV2)
 	require.NoError(t, err)
 
 	// Verify state was updated
@@ -426,6 +451,8 @@ fzf: {
 	cueFile := filepath.Join(configDir, "tool.cue")
 	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -436,7 +463,7 @@ fzf: {
 	ctx := context.Background()
 
 	// First apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 	assert.Contains(t, mockTool.installed, "fzf")
 
@@ -458,8 +485,11 @@ other: {
 `
 	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentWithOther), 0644))
 
+	// Reload resources with new config
+	resourcesV2 := loadResources(t, configDir)
+
 	// Plan should show remove for fzf and install for other
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resourcesV2)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 2) // remove fzf + install other
@@ -476,7 +506,7 @@ other: {
 	assert.Equal(t, resource.ActionRemove, fzfAction.Type)
 
 	// Apply removal
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resourcesV2)
 	require.NoError(t, err)
 
 	// Verify mock Remove was called
@@ -530,6 +560,8 @@ jq: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -540,13 +572,13 @@ jq: {
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 1)
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify both installed
@@ -607,6 +639,8 @@ bat: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tools.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -617,7 +651,7 @@ bat: {
 	ctx := context.Background()
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify all installed
@@ -681,6 +715,8 @@ gopls: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -691,7 +727,7 @@ gopls: {
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 1)
@@ -704,7 +740,7 @@ gopls: {
 	assert.Equal(t, "golang.org/x/tools/gopls", toolActions[0].Resource.ToolSpec.Package)
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify runtime and tool are installed
@@ -761,6 +797,8 @@ jq: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -771,7 +809,7 @@ jq: {
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 1)
@@ -780,7 +818,7 @@ jq: {
 	assert.Equal(t, "brew", toolActions[0].Resource.ToolSpec.InstallerRef)
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify tool is installed
@@ -867,6 +905,8 @@ staticcheck: {
 `
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
 
+	resources := loadResources(t, configDir)
+
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
@@ -877,13 +917,13 @@ staticcheck: {
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 3)
 
 	// Apply
-	err = eng.Apply(ctx, configDir)
+	err = eng.Apply(ctx, resources)
 	require.NoError(t, err)
 
 	// Verify all installed

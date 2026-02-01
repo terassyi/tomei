@@ -9,7 +9,7 @@ import (
 )
 
 var validateCmd = &cobra.Command{
-	Use:   "validate",
+	Use:   "validate <files or directories...>",
 	Short: "Validate the configuration",
 	Long: `Validate the CUE configuration files.
 
@@ -17,19 +17,15 @@ Checks for:
   - CUE syntax errors
   - Schema validation
   - Circular dependency detection`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runValidate,
 }
 
-func runValidate(cmd *cobra.Command, _ []string) error {
-	dir, err := getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	cmd.Printf("Validating configuration in %s\n", dir)
+func runValidate(cmd *cobra.Command, args []string) error {
+	cmd.Printf("Validating configuration in %v\n", args)
 
 	loader := config.NewLoader(nil)
-	resources, err := loader.Load(dir)
+	resources, err := loader.LoadPaths(args)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}

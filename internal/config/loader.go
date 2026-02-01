@@ -4,12 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 
 	"github.com/terassyi/toto/internal/resource"
+)
+
+const (
+	// ConfigFileName is the name of the toto config file that should be ignored when loading manifests.
+	ConfigFileName = "config.cue"
 )
 
 // Loader loads and parses CUE configuration files.
@@ -30,6 +37,7 @@ func NewLoader(env *Env) *Loader {
 }
 
 // Load loads CUE configuration from the given directory.
+// config.cue files are excluded from loading as they contain toto configuration, not manifests.
 func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	// Check if directory exists
 	info, err := os.Stat(dir)
@@ -40,8 +48,29 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("%s is not a directory", dir)
 	}
 
+	// Collect all .cue files except config.cue
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	var cueFiles []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if filepath.Ext(name) == ".cue" && name != ConfigFileName {
+			cueFiles = append(cueFiles, name)
+		}
+	}
+
+	if len(cueFiles) == 0 {
+		return nil, nil
+	}
+
 	// Load CUE files
-	instances := load.Instances([]string{"."}, &load.Config{
+	instances := load.Instances(cueFiles, &load.Config{
 		Dir: dir,
 	})
 
@@ -66,8 +95,66 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	return l.parseResources(value)
 }
 
+// LoadPaths loads resources from multiple files or directories.
+func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
+	var allResources []resource.Resource
+
+	for _, p := range paths {
+		// Expand ~ to home directory
+		expanded, err := expandPath(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+		}
+
+		info, err := os.Stat(expanded)
+		if err != nil {
+			return nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+		}
+
+		var resources []resource.Resource
+		if info.IsDir() {
+			resources, err = l.Load(expanded)
+		} else {
+			resources, err = l.LoadFile(expanded)
+		}
+		if err != nil {
+			return nil, err
+		}
+		allResources = append(allResources, resources...)
+	}
+
+	return allResources, nil
+}
+
+// expandPath expands ~ to the home directory.
+func expandPath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, path[2:]), nil
+	}
+
+	if path == "~" {
+		return os.UserHomeDir()
+	}
+
+	return path, nil
+}
+
 // LoadFile loads a single CUE file.
+// If the file is config.cue, it is skipped and returns empty resources.
 func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
+	// Skip config.cue file
+	if filepath.Base(path) == ConfigFileName {
+		return nil, nil
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
