@@ -120,9 +120,9 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		Expect(output).To(ContainSubstring("bin"))
 	})
 
-	It("creates symlinks for runtime binaries", func() {
-		By("Listing bin directory")
-		output, err := containerExecBash("ls -la ~/.local/bin/")
+	It("creates symlinks for runtime binaries in BinDir (~/go/bin)", func() {
+		By("Listing go bin directory")
+		output, err := containerExecBash("ls -la ~/go/bin/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking symlink to go exists")
@@ -130,11 +130,17 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		By("Checking symlink to gofmt exists")
 		Expect(output).To(ContainSubstring("gofmt ->"))
+
+		By("Verifying runtime binaries are NOT in ~/.local/bin")
+		output, err = containerExecBash("ls -la ~/.local/bin/ 2>/dev/null || echo 'empty'")
+		Expect(err).NotTo(HaveOccurred())
+		// go and gofmt should NOT be in ~/.local/bin anymore
+		Expect(output).NotTo(MatchRegexp(`\bgo\b.*->`))
 	})
 
 	It("allows running go command after install", func() {
-		By("Executing go version")
-		output, err := containerExec("go", "version")
+		By("Executing go version from ~/go/bin")
+		output, err := containerExecBash("~/go/bin/go version")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking go version output")
@@ -143,7 +149,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	It("allows running gofmt command after install", func() {
 		By("Executing gofmt -h to verify it works")
-		output, err := containerExecBash("gofmt -h 2>&1 || true")
+		output, err := containerExecBash("~/go/bin/gofmt -h 2>&1 || true")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking gofmt output")
@@ -190,6 +196,10 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		By("Checking go runtime version is recorded")
 		Expect(output).To(ContainSubstring(`"version": "1.25.5"`))
 
+		By("Checking go runtime binDir is recorded")
+		Expect(output).To(ContainSubstring(`"binDir"`))
+		Expect(output).To(ContainSubstring(`go/bin`))
+
 		By("Checking tools section exists")
 		Expect(output).To(ContainSubstring(`"tools"`))
 
@@ -219,7 +229,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		Expect(output2).NotTo(ContainSubstring("installed successfully"))
 
 		By("Checking go still works")
-		output, err := containerExec("go", "version")
+		output, err := containerExecBash("~/go/bin/go version")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output).To(ContainSubstring("go1.25.5"))
 
@@ -282,5 +292,34 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		output, err = containerExecBash("~/go/bin/gopls version")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output).To(ContainSubstring("v0.21.0"))
+	})
+
+	// === Doctor: Environment Health Check ===
+	It("reports no issues when environment is clean", func() {
+		By("Running toto doctor command")
+		output, err := containerExec("toto", "doctor")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking doctor reports healthy environment")
+		Expect(output).To(ContainSubstring("No issues found"))
+	})
+
+	It("detects unmanaged tools in runtime bin path", func() {
+		By("Installing an unmanaged tool via go install")
+		// Use the go binary from ~/go/bin with proper PATH
+		_, err := containerExecBash("export PATH=$HOME/go/bin:$PATH && go install golang.org/x/tools/cmd/goimports@latest")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Running toto doctor command")
+		output, err := containerExec("toto", "doctor")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking doctor detects unmanaged tool")
+		Expect(output).To(ContainSubstring("[go]"))
+		Expect(output).To(ContainSubstring("goimports"))
+		Expect(output).To(ContainSubstring("unmanaged"))
+
+		By("Checking doctor suggests toto adopt")
+		Expect(output).To(ContainSubstring("toto adopt"))
 	})
 })

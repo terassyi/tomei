@@ -11,7 +11,8 @@ type RuntimeSpec struct {
 	Version      string            `json:"version"`
 	Source       DownloadSource    `json:"source"`
 	Binaries     []string          `json:"binaries"`
-	ToolBinPath  string            `json:"toolBinPath"`
+	BinDir       string            `json:"binDir,omitempty"` // Symlink destination for runtime binaries (empty = use ToolBinPath)
+	ToolBinPath  string            `json:"toolBinPath"`      // Installation path for tools (e.g., ~/go/bin for go install)
 	Env          map[string]string `json:"env,omitempty"`
 	Commands     *CommandsSpec     `json:"commands,omitempty"` // For tool installation (e.g., go install)
 }
@@ -52,6 +53,7 @@ type RuntimeState struct {
 	Digest       string            `json:"digest,omitempty"`
 	InstallPath  string            `json:"installPath"`
 	Binaries     []string          `json:"binaries"`
+	BinDir       string            `json:"binDir,omitempty"` // Actual symlink destination used
 	ToolBinPath  string            `json:"toolBinPath"`
 	Env          map[string]string `json:"env,omitempty"`
 	Commands     *CommandsSpec     `json:"commands,omitempty"`

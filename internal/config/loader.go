@@ -101,9 +101,22 @@ func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
 
 	for _, p := range paths {
 		// Expand ~ to home directory
-		expanded, err := expandPath(p)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+		var expanded string
+		switch {
+		case strings.HasPrefix(p, "~/"):
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+			}
+			expanded = filepath.Join(home, p[2:])
+		case p == "~":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+			}
+			expanded = home
+		default:
+			expanded = p
 		}
 
 		info, err := os.Stat(expanded)
@@ -124,27 +137,6 @@ func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
 	}
 
 	return allResources, nil
-}
-
-// expandPath expands ~ to the home directory.
-func expandPath(path string) (string, error) {
-	if path == "" {
-		return "", nil
-	}
-
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, path[2:]), nil
-	}
-
-	if path == "~" {
-		return os.UserHomeDir()
-	}
-
-	return path, nil
 }
 
 // LoadFile loads a single CUE file.

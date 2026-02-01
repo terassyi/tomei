@@ -85,7 +85,7 @@ func runUserApply(ctx context.Context, paths []string) error {
 
 	placer := place.NewPlacer(toolsDir, binDir)
 	toolInstaller := tool.NewInstaller(downloader, placer)
-	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir, binDir)
+	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 
 	// Create and run engine with runtime support
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
