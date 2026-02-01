@@ -64,7 +64,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	It("validates CUE configuration", func() {
 		By("Running toto validate command")
-		output, err := containerExec("toto", "validate")
+		output, err := containerExec("toto", "validate", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking validation succeeded")
@@ -82,7 +82,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	It("shows planned changes", func() {
 		By("Running toto plan command")
-		output, err := containerExec("toto", "plan")
+		output, err := containerExec("toto", "plan", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking plan shows resources")
@@ -93,7 +93,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	// === Apply: Install Runtime and Tools ===
 	It("downloads and installs Runtime and Tools", func() {
 		By("Running toto apply command")
-		output, err := containerExec("toto", "apply")
+		output, err := containerExec("toto", "apply", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking runtime installation")
@@ -200,7 +200,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	// === Idempotency ===
 	It("is idempotent on subsequent applies", func() {
 		By("Running toto apply again")
-		output, err := containerExec("toto", "apply")
+		output, err := containerExec("toto", "apply", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking no changes to apply")
@@ -209,9 +209,9 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	It("does not re-download on multiple applies", func() {
 		By("Running toto apply two more times")
-		output1, err := containerExec("toto", "apply")
+		output1, err := containerExec("toto", "apply", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
-		output2, err := containerExec("toto", "apply")
+		output2, err := containerExec("toto", "apply", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking no installations occurred")
@@ -272,7 +272,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	It("is idempotent for runtime delegation tools", func() {
 		By("Running toto apply again")
-		output, err := containerExec("toto", "apply")
+		output, err := containerExec("toto", "apply", "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Checking no changes to apply")

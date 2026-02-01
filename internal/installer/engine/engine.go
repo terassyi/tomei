@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/executor"
 	"github.com/terassyi/toto/internal/installer/reconciler"
 	"github.com/terassyi/toto/internal/installer/tool"
@@ -35,7 +34,6 @@ type Engine struct {
 	runtimeExecutor   *executor.Executor[*resource.Runtime, *resource.RuntimeState]
 	toolReconciler    *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
 	toolExecutor      *executor.Executor[*resource.Tool, *resource.ToolState]
-	loader            *config.Loader
 }
 
 // NewEngine creates a new Engine.
@@ -53,7 +51,6 @@ func NewEngine(
 		runtimeExecutor:   executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
 		toolReconciler:    reconciler.NewToolReconciler(),
 		toolExecutor:      executor.New(resource.KindTool, toolInstaller, toolStore),
-		loader:            config.NewLoader(nil),
 	}
 }
 
@@ -63,12 +60,12 @@ type ToolAction = reconciler.Action[*resource.Tool, *resource.ToolState]
 // RuntimeAction is an alias for runtime-specific action type.
 type RuntimeAction = reconciler.Action[*resource.Runtime, *resource.RuntimeState]
 
-// Apply loads config, reconciles with state, and executes actions.
-func (e *Engine) Apply(ctx context.Context, configDir string) error {
-	slog.Info("applying configuration", "dir", configDir)
+// Apply reconciles resources with state and executes actions.
+func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
+	slog.Info("applying configuration", "resources", len(resources))
 
 	// Plan first
-	runtimeActions, toolActions, err := e.PlanAll(ctx, configDir)
+	runtimeActions, toolActions, err := e.PlanAll(ctx, resources)
 	if err != nil {
 		return err
 	}
@@ -101,15 +98,10 @@ func (e *Engine) Apply(ctx context.Context, configDir string) error {
 		}
 	}
 
-	// Load current state and config for tool installation
+	// Load current state for tool installation
 	st, err := e.store.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
-	}
-
-	resources, err := e.loader.Load(configDir)
-	if err != nil {
-		return fmt.Errorf("failed to reload config: %w", err)
 	}
 
 	// Register runtimes for delegation pattern
@@ -160,15 +152,9 @@ func (e *Engine) Apply(ctx context.Context, configDir string) error {
 	return nil
 }
 
-// PlanAll loads config and returns both runtime and tool actions.
-func (e *Engine) PlanAll(ctx context.Context, configDir string) ([]RuntimeAction, []ToolAction, error) {
-	slog.Debug("planning configuration", "dir", configDir)
-
-	// Load configuration
-	resources, err := e.loader.Load(configDir)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load config: %w", err)
-	}
+// PlanAll returns both runtime and tool actions based on resources and current state.
+func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]RuntimeAction, []ToolAction, error) {
+	slog.Debug("planning configuration", "resources", len(resources))
 
 	// Extract resources
 	runtimes := extractRuntimes(resources)

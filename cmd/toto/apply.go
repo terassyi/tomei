@@ -16,69 +16,72 @@ import (
 )
 
 var applyCmd = &cobra.Command{
-	Use:   "apply",
+	Use:   "apply <files or directories...>",
 	Short: "Apply the configuration",
 	Long: `Apply the configuration to install, upgrade, or remove resources.
 
 For user-level resources (Runtime, Tool, ToolSet):
-  toto apply
+  toto apply .
+  toto apply tools.cue runtime.cue
+  toto apply ~/.config/toto/
 
 For system-level resources (SystemPackageRepository, SystemPackageSet):
-  sudo toto apply --system
-
-It is recommended to run system-level apply first, then user-level.`,
+  sudo toto apply --system .`,
+	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }
 
-func runApply(cmd *cobra.Command, _ []string) error {
-	dir, err := getConfigDir()
-	if err != nil {
-		return fmt.Errorf("failed to get config directory: %w", err)
-	}
-
+func runApply(cmd *cobra.Command, args []string) error {
 	if systemMode {
-		cmd.Printf("Applying system-level resources from %s\n", dir)
+		cmd.Printf("Applying system-level resources from %v\n", args)
 		// TODO: implement system apply in Phase 4
 		cmd.Println("System apply not yet implemented")
 		return nil
 	}
 
-	cmd.Printf("Applying user-level resources from %s\n", dir)
-	return runUserApply(cmd.Context(), dir)
+	cmd.Printf("Applying user-level resources from %v\n", args)
+	return runUserApply(cmd.Context(), args)
 }
 
-func runUserApply(ctx context.Context, configDir string) error {
-	// Load config
-	cfg, err := config.LoadConfig(configDir)
+func runUserApply(ctx context.Context, paths []string) error {
+	// Load resources from paths (manifests)
+	loader := config.NewLoader(nil)
+	resources, err := loader.LoadPaths(paths)
+	if err != nil {
+		return fmt.Errorf("failed to load resources: %w", err)
+	}
+
+	// Load config from fixed path (~/.config/toto/config.cue)
+	cfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Setup paths from config
-	paths, err := path.NewFromConfig(cfg)
+	pathConfig, err := path.NewFromConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %w", err)
 	}
 
 	// Ensure directories exist
-	if err := path.EnsureDir(paths.UserDataDir()); err != nil {
+	if err := path.EnsureDir(pathConfig.UserDataDir()); err != nil {
 		return fmt.Errorf("failed to create data directory: %w", err)
 	}
-	if err := path.EnsureDir(paths.UserBinDir()); err != nil {
+	if err := path.EnsureDir(pathConfig.UserBinDir()); err != nil {
 		return fmt.Errorf("failed to create bin directory: %w", err)
 	}
 
 	// Create state store
-	store, err := state.NewStore[state.UserState](paths.UserDataDir())
+	store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
 	if err != nil {
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
 	// Create installers
 	downloader := download.NewDownloader()
-	toolsDir := paths.UserDataDir() + "/tools"
-	runtimesDir := paths.UserDataDir() + "/runtimes"
-	binDir := paths.UserBinDir()
+	toolsDir := pathConfig.UserDataDir() + "/tools"
+	runtimesDir := pathConfig.UserDataDir() + "/runtimes"
+	binDir := pathConfig.UserBinDir()
 
 	placer := place.NewPlacer(toolsDir, binDir)
 	toolInstaller := tool.NewInstaller(downloader, placer)
@@ -86,7 +89,7 @@ func runUserApply(ctx context.Context, configDir string) error {
 
 	// Create and run engine with runtime support
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
-	if err := eng.Apply(ctx, configDir); err != nil {
+	if err := eng.Apply(ctx, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
@@ -107,6 +108,11 @@ tool: {
 	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
 	require.NoError(t, err)
 
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
 	// Setup mock and store
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
@@ -130,7 +136,7 @@ tool: {
 	engine := NewEngine(toolMock, runtimeMock, store)
 
 	// Run Apply
-	err = engine.Apply(context.Background(), configDir)
+	err = engine.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Verify tool was installed
@@ -172,6 +178,11 @@ tool: {
 	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
 	require.NoError(t, err)
 
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
 	// Setup mock and store with pre-existing state
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
@@ -202,7 +213,7 @@ tool: {
 	engine := NewEngine(toolMock, runtimeMock, store)
 
 	// Run Apply
-	err = engine.Apply(context.Background(), configDir)
+	err = engine.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Install should not be called since version matches
@@ -256,6 +267,11 @@ tool: {
 	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
 	require.NoError(t, err)
 
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
 	// Setup store
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
@@ -295,7 +311,7 @@ tool: {
 	engine := NewEngine(toolMock, runtimeMock, store)
 
 	// Run Apply
-	err = engine.Apply(context.Background(), configDir)
+	err = engine.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Verify runtime was installed
@@ -355,6 +371,11 @@ tool: {
 	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
 	require.NoError(t, err)
 
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
 	// Setup store with pre-existing state
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
@@ -410,7 +431,7 @@ tool: {
 	engine := NewEngine(toolMock, runtimeMock, store)
 
 	// Run Apply - should upgrade runtime and reinstall tainted tools
-	err = engine.Apply(context.Background(), configDir)
+	err = engine.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Verify runtime was upgraded
@@ -472,6 +493,11 @@ tool: {
 	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
 	require.NoError(t, err)
 
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
 	// Setup store
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
@@ -480,7 +506,7 @@ tool: {
 	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
 
 	// Run PlanAll
-	runtimeActions, toolActions, err := engine.PlanAll(context.Background(), configDir)
+	runtimeActions, toolActions, err := engine.PlanAll(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Should have one runtime install action
