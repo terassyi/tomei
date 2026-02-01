@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/terassyi/toto/internal/installer/engine"
+	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 )
@@ -32,6 +33,8 @@ func newMockToolInstaller() *mockToolInstaller {
 func (m *mockToolInstaller) Install(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	st := &resource.ToolState{
 		InstallerRef: res.ToolSpec.InstallerRef,
+		RuntimeRef:   res.ToolSpec.RuntimeRef,
+		Package:      res.ToolSpec.Package,
 		Version:      res.ToolSpec.Version,
 		BinPath:      filepath.Join("/mock/bin", name),
 	}
@@ -44,6 +47,10 @@ func (m *mockToolInstaller) Remove(_ context.Context, _ *resource.ToolState, nam
 	delete(m.installed, name)
 	return nil
 }
+
+func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
+
+func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
 // mockRuntimeInstaller is a mock implementation of engine.RuntimeInstaller.
 type mockRuntimeInstaller struct {
@@ -66,6 +73,7 @@ func (m *mockRuntimeInstaller) Install(_ context.Context, res *resource.Runtime,
 		Binaries:     res.RuntimeSpec.Binaries,
 		ToolBinPath:  res.RuntimeSpec.ToolBinPath,
 		Env:          res.RuntimeSpec.Env,
+		Commands:     res.RuntimeSpec.Commands,
 	}
 	m.installed[name] = st
 	return st, nil
@@ -625,4 +633,281 @@ bat: {
 	_ = store.Unlock()
 
 	assert.Len(t, st.Tools, 3)
+}
+
+// TestEngine_Apply_RuntimeDelegation tests installing a tool via runtime delegation (e.g., go install).
+func TestEngine_Apply_RuntimeDelegation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config with Runtime that has commands, and Tool with runtimeRef
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		installerRef: "download"
+		version: "1.25.5"
+		source: {
+			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		env: {
+			GOROOT: "/mock/runtimes/go/1.25.5"
+			GOBIN: "~/go/bin"
+		}
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+			remove: "rm -f {{.BinPath}}"
+		}
+	}
+}
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.16.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// Plan
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	require.NoError(t, err)
+	assert.Len(t, runtimeActions, 1)
+	assert.Len(t, toolActions, 1)
+
+	assert.Equal(t, "go", runtimeActions[0].Name)
+	assert.Equal(t, "gopls", toolActions[0].Name)
+
+	// Verify tool spec has runtimeRef
+	assert.Equal(t, "go", toolActions[0].Resource.ToolSpec.RuntimeRef)
+	assert.Equal(t, "golang.org/x/tools/gopls", toolActions[0].Resource.ToolSpec.Package)
+
+	// Apply
+	err = eng.Apply(ctx, configDir)
+	require.NoError(t, err)
+
+	// Verify runtime and tool are installed
+	assert.Contains(t, mockRuntime.installed, "go")
+	assert.Contains(t, mockTool.installed, "gopls")
+
+	// Verify state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Contains(t, st.Runtimes, "go")
+	assert.Contains(t, st.Tools, "gopls")
+
+	// Verify runtime has commands
+	assert.NotNil(t, st.Runtimes["go"].Commands)
+	assert.Equal(t, "go install {{.Package}}@{{.Version}}", st.Runtimes["go"].Commands.Install)
+}
+
+// TestEngine_Apply_InstallerDelegation tests installing a tool via installer delegation (e.g., brew install).
+func TestEngine_Apply_InstallerDelegation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config with delegation pattern Installer and Tool
+	cueContent := `package toto
+
+brewInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "brew"
+	spec: {
+		pattern: "delegation"
+		commands: {
+			install: "brew install {{.Package}}"
+			remove: "brew uninstall {{.Package}}"
+		}
+	}
+}
+
+jq: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "brew"
+		package: "jq"
+		version: "1.7"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// Plan
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	require.NoError(t, err)
+	assert.Empty(t, runtimeActions)
+	assert.Len(t, toolActions, 1)
+
+	assert.Equal(t, "jq", toolActions[0].Name)
+	assert.Equal(t, "brew", toolActions[0].Resource.ToolSpec.InstallerRef)
+
+	// Apply
+	err = eng.Apply(ctx, configDir)
+	require.NoError(t, err)
+
+	// Verify tool is installed
+	assert.Contains(t, mockTool.installed, "jq")
+
+	// Verify state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Contains(t, st.Tools, "jq")
+	assert.Equal(t, "brew", st.Tools["jq"].InstallerRef)
+}
+
+// TestEngine_Apply_MixedPatterns tests installing tools with different patterns together.
+func TestEngine_Apply_MixedPatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config with mixed patterns:
+	// - Runtime with commands (for go install)
+	// - Download pattern tool (ripgrep)
+	// - Runtime delegation tool (gopls)
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		installerRef: "download"
+		version: "1.25.5"
+		source: {
+			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+		}
+	}
+}
+
+// Download pattern tool
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "ripgrep"
+	spec: {
+		installerRef: "download"
+		version: "14.0.0"
+		source: {
+			url: "https://example.com/ripgrep.tar.gz"
+		}
+	}
+}
+
+// Runtime delegation tool
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.16.0"
+	}
+}
+
+// Another runtime delegation tool
+staticcheck: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "staticcheck"
+	spec: {
+		runtimeRef: "go"
+		package: "honnef.co/go/tools/cmd/staticcheck"
+		version: "v0.5.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// Plan
+	runtimeActions, toolActions, err := eng.PlanAll(ctx, configDir)
+	require.NoError(t, err)
+	assert.Len(t, runtimeActions, 1)
+	assert.Len(t, toolActions, 3)
+
+	// Apply
+	err = eng.Apply(ctx, configDir)
+	require.NoError(t, err)
+
+	// Verify all installed
+	assert.Contains(t, mockRuntime.installed, "go")
+	assert.Len(t, mockTool.installed, 3)
+	assert.Contains(t, mockTool.installed, "ripgrep")
+	assert.Contains(t, mockTool.installed, "gopls")
+	assert.Contains(t, mockTool.installed, "staticcheck")
+
+	// Verify state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Len(t, st.Runtimes, 1)
+	assert.Len(t, st.Tools, 3)
+
+	// Check tool patterns
+	assert.Equal(t, "download", st.Tools["ripgrep"].InstallerRef)
+	assert.Empty(t, st.Tools["ripgrep"].RuntimeRef)
+
+	assert.Equal(t, "go", st.Tools["gopls"].RuntimeRef)
+	assert.Equal(t, "golang.org/x/tools/gopls", st.Tools["gopls"].Package)
+
+	assert.Equal(t, "go", st.Tools["staticcheck"].RuntimeRef)
 }

@@ -189,6 +189,7 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath string) *
 		Binaries:     spec.Binaries,
 		ToolBinPath:  toolBinPath,
 		Env:          env,
+		Commands:     spec.Commands,
 		UpdatedAt:    time.Now(),
 	}
 }

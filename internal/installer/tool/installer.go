@@ -4,40 +4,94 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/terassyi/toto/internal/checksum"
 	"github.com/terassyi/toto/internal/installer"
+	"github.com/terassyi/toto/internal/installer/command"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/extract"
 	"github.com/terassyi/toto/internal/installer/place"
 	"github.com/terassyi/toto/internal/resource"
 )
 
-// Installer installs tools using the download pattern.
+// RuntimeInfo contains the information needed to install tools via runtime delegation.
+type RuntimeInfo struct {
+	InstallPath string            // Path where runtime is installed (e.g., ~/.local/share/toto/runtimes/go/1.25.5)
+	ToolBinPath string            // Path where tools should be installed (e.g., ~/go/bin)
+	Env         map[string]string // Environment variables (e.g., GOROOT, GOBIN)
+	Commands    *resource.CommandsSpec
+}
+
+// InstallerInfo contains the information needed to install tools via installer delegation.
+type InstallerInfo struct {
+	Pattern    resource.InstallerPattern // "download" or "delegation"
+	RuntimeRef string                    // Reference to runtime (optional)
+	Commands   *resource.CommandsSpec
+}
+
+// Installer installs tools using download or delegation patterns.
 type Installer struct {
-	downloader download.Downloader
-	placer     place.Placer
+	downloader  download.Downloader
+	placer      place.Placer
+	cmdExecutor *command.Executor
+	runtimes    map[string]*RuntimeInfo   // name -> RuntimeInfo
+	installers  map[string]*InstallerInfo // name -> InstallerInfo
 }
 
 // NewInstaller creates a new tool Installer.
 func NewInstaller(downloader download.Downloader, placer place.Placer) *Installer {
 	return &Installer{
-		downloader: downloader,
-		placer:     placer,
+		downloader:  downloader,
+		placer:      placer,
+		cmdExecutor: command.NewExecutor(""),
+		runtimes:    make(map[string]*RuntimeInfo),
+		installers:  make(map[string]*InstallerInfo),
 	}
+}
+
+// RegisterRuntime registers a runtime for tool delegation.
+func (i *Installer) RegisterRuntime(name string, info *RuntimeInfo) {
+	i.runtimes[name] = info
+}
+
+// RegisterInstaller registers an installer for tool delegation.
+func (i *Installer) RegisterInstaller(name string, info *InstallerInfo) {
+	i.installers[name] = info
 }
 
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
-	cfg := &installer.InstallConfig{
-		BinaryName: name, // default to tool name
-	}
 
 	slog.Info("installing tool", "name", name, "version", spec.Version)
+
+	// Determine installation pattern
+	// 1. If runtimeRef is set, use Runtime delegation (e.g., go install)
+	if spec.RuntimeRef != "" {
+		return i.installByRuntime(ctx, res, name)
+	}
+
+	// 2. If installerRef points to a delegation pattern Installer, use it
+	if info, ok := i.installers[spec.InstallerRef]; ok {
+		if info.Pattern == resource.InstallerPatternDelegation {
+			return i.installByInstaller(ctx, res, name, info)
+		}
+	}
+
+	// 3. Otherwise, use download pattern
+	return i.installByDownload(ctx, res, name)
+}
+
+// installByDownload installs a tool using the download pattern.
+func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+	spec := res.ToolSpec
+	cfg := &installer.InstallConfig{
+		BinaryName: name,
+	}
 
 	// Validate spec
 	if spec.Source == nil {
@@ -180,4 +234,107 @@ func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name str
 
 	slog.Info("tool removed", "name", name)
 	return nil
+}
+
+// installByRuntime installs a tool using Runtime delegation (e.g., go install).
+func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+	spec := res.ToolSpec
+
+	// Get runtime info
+	info, ok := i.runtimes[spec.RuntimeRef]
+	if !ok {
+		return nil, fmt.Errorf("runtime %q not found", spec.RuntimeRef)
+	}
+
+	// Check if runtime has commands defined
+	if info.Commands == nil || info.Commands.Install == "" {
+		return nil, fmt.Errorf("runtime %q does not have install command defined", spec.RuntimeRef)
+	}
+
+	// Ensure toolBinPath directory exists
+	if info.ToolBinPath != "" {
+		if err := os.MkdirAll(info.ToolBinPath, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create toolBinPath directory %q: %w", info.ToolBinPath, err)
+		}
+	}
+
+	// Build variables for command substitution
+	vars := command.Vars{
+		Package: spec.Package,
+		Version: spec.Version,
+		Name:    name,
+		BinPath: filepath.Join(info.ToolBinPath, name),
+	}
+
+	// Build environment with PATH including runtime's bin directory
+	env := make(map[string]string)
+	maps.Copy(env, info.Env)
+	// Add runtime's bin directory to PATH so commands like "go" can be found
+	runtimeBinDir := filepath.Join(info.InstallPath, "bin")
+	if currentPath := os.Getenv("PATH"); currentPath != "" {
+		env["PATH"] = runtimeBinDir + string(os.PathListSeparator) + currentPath
+	} else {
+		env["PATH"] = runtimeBinDir
+	}
+
+	// Execute install command with runtime's environment
+	if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
+		return nil, fmt.Errorf("failed to execute install command: %w", err)
+	}
+
+	slog.Info("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+
+	return i.buildDelegationState(spec, vars.BinPath), nil
+}
+
+// installByInstaller installs a tool using Installer delegation (e.g., brew install).
+func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, name string, info *InstallerInfo) (*resource.ToolState, error) {
+	spec := res.ToolSpec
+
+	// Check if installer has commands defined
+	if info.Commands == nil || info.Commands.Install == "" {
+		return nil, fmt.Errorf("installer %q does not have install command defined", spec.InstallerRef)
+	}
+
+	// Build variables for command substitution
+	pkg := spec.Package
+	if pkg == "" {
+		pkg = name // default to tool name if package not specified
+	}
+
+	vars := command.Vars{
+		Package: pkg,
+		Version: spec.Version,
+		Name:    name,
+		BinPath: "", // installer manages the path
+	}
+
+	// Get environment from runtime if installer has runtimeRef
+	var env map[string]string
+	if info.RuntimeRef != "" {
+		if runtimeInfo, ok := i.runtimes[info.RuntimeRef]; ok {
+			env = runtimeInfo.Env
+		}
+	}
+
+	// Execute install command
+	if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
+		return nil, fmt.Errorf("failed to execute install command: %w", err)
+	}
+
+	slog.Info("tool installed via installer", "name", name, "version", spec.Version, "installer", spec.InstallerRef)
+
+	return i.buildDelegationState(spec, ""), nil
+}
+
+// buildDelegationState creates a ToolState for delegation pattern installations.
+func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string) *resource.ToolState {
+	return &resource.ToolState{
+		InstallerRef: spec.InstallerRef,
+		Version:      spec.Version,
+		BinPath:      binPath,
+		RuntimeRef:   spec.RuntimeRef,
+		Package:      spec.Package,
+		UpdatedAt:    time.Now(),
+	}
 }

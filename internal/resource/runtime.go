@@ -13,6 +13,7 @@ type RuntimeSpec struct {
 	Binaries     []string          `json:"binaries"`
 	ToolBinPath  string            `json:"toolBinPath"`
 	Env          map[string]string `json:"env,omitempty"`
+	Commands     *CommandsSpec     `json:"commands,omitempty"` // For tool installation (e.g., go install)
 }
 
 // Validate validates the RuntimeSpec.
@@ -53,6 +54,7 @@ type RuntimeState struct {
 	Binaries     []string          `json:"binaries"`
 	ToolBinPath  string            `json:"toolBinPath"`
 	Env          map[string]string `json:"env,omitempty"`
+	Commands     *CommandsSpec     `json:"commands,omitempty"`
 	UpdatedAt    time.Time         `json:"updatedAt"`
 }
 
