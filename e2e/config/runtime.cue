@@ -15,6 +15,7 @@ goRuntime: {
 			}
 		}
 		binaries: ["go", "gofmt"]
+		binDir:      "~/go/bin" // Runtime binaries go to GOBIN (same as toolBinPath)
 		toolBinPath: "~/go/bin"
 		env: {
 			GOROOT: "~/.local/share/toto/runtimes/go/1.25.5"

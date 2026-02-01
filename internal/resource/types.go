@@ -17,6 +17,9 @@ const (
 )
 
 const (
+	// ProjectName is the name of the project.
+	ProjectName = "toto"
+
 	// APIGroup is the API group for toto resources.
 	APIGroup = "toto.terassyi.net"
 

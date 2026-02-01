@@ -19,15 +19,13 @@ import (
 type Installer struct {
 	downloader  download.Downloader
 	runtimesDir string
-	binDir      string
 }
 
 // NewInstaller creates a new runtime Installer.
-func NewInstaller(downloader download.Downloader, runtimesDir, binDir string) *Installer {
+func NewInstaller(downloader download.Downloader, runtimesDir string) *Installer {
 	return &Installer{
 		downloader:  downloader,
 		runtimesDir: runtimesDir,
-		binDir:      binDir,
 	}
 }
 
@@ -54,7 +52,11 @@ func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name str
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
 		slog.Info("runtime already installed, skipping", "name", name, "version", spec.Version)
-		return i.buildState(spec, installPath), nil
+		binDir, err := i.resolveBinDir(spec)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
+		}
+		return i.buildState(spec, installPath, binDir), nil
 	}
 
 	// Download
@@ -123,24 +125,32 @@ func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name str
 	}
 
 	// Create symlinks for binaries
-	if err := i.createSymlinks(installPath, spec.Binaries); err != nil {
-		return nil, fmt.Errorf("failed to create symlinks: %w", err)
+	binDir, err := i.resolveBinDir(spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
+	}
+	if binDir != "" {
+		if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
+			return nil, fmt.Errorf("failed to create symlinks: %w", err)
+		}
 	}
 
 	slog.Info("runtime installed successfully", "name", name, "version", spec.Version, "path", installPath)
 
-	return i.buildState(spec, installPath), nil
+	return i.buildState(spec, installPath, binDir), nil
 }
 
 // Remove removes an installed runtime.
 func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name string) error {
 	slog.Info("removing runtime", "name", name, "version", st.Version)
 
-	// Remove symlinks
-	for _, binary := range st.Binaries {
-		linkPath := filepath.Join(i.binDir, binary)
-		if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
-			slog.Debug("failed to remove symlink", "path", linkPath, "error", err)
+	// Remove symlinks (only if BinDir was set)
+	if st.BinDir != "" {
+		for _, binary := range st.Binaries {
+			linkPath := filepath.Join(st.BinDir, binary)
+			if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+				slog.Debug("failed to remove symlink", "path", linkPath, "error", err)
+			}
 		}
 	}
 
@@ -159,7 +169,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 }
 
 // buildState creates a RuntimeState from the installation.
-func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath string) *resource.RuntimeState {
+func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir string) *resource.RuntimeState {
 	digest := ""
 	if spec.Source.Checksum != nil {
 		digest = checksum.ExtractHash(spec.Source.Checksum)
@@ -187,6 +197,7 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath string) *
 		Digest:       digest,
 		InstallPath:  installPath,
 		Binaries:     spec.Binaries,
+		BinDir:       binDir,
 		ToolBinPath:  toolBinPath,
 		Env:          env,
 		Commands:     spec.Commands,
@@ -194,9 +205,34 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath string) *
 	}
 }
 
-// createSymlinks creates symlinks for runtime binaries in binDir.
-func (i *Installer) createSymlinks(installPath string, binaries []string) error {
-	if err := os.MkdirAll(i.binDir, 0755); err != nil {
+// resolveBinDir determines where to create symlinks for runtime binaries.
+// Returns empty string if no symlinks should be created.
+func (i *Installer) resolveBinDir(spec *resource.RuntimeSpec) (string, error) {
+	// If BinDir is explicitly set, use it
+	if spec.BinDir != "" {
+		expanded, err := path.Expand(spec.BinDir)
+		if err != nil {
+			return "", fmt.Errorf("failed to expand binDir: %w", err)
+		}
+		return expanded, nil
+	}
+
+	// Default: use ToolBinPath (for Go, Rust, etc.)
+	if spec.ToolBinPath != "" {
+		expanded, err := path.Expand(spec.ToolBinPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to expand toolBinPath: %w", err)
+		}
+		return expanded, nil
+	}
+
+	// No ToolBinPath either - no symlinks
+	return "", nil
+}
+
+// createSymlinks creates symlinks for runtime binaries in the specified binDir.
+func (i *Installer) createSymlinks(installPath string, binaries []string, binDir string) error {
+	if err := os.MkdirAll(binDir, 0755); err != nil {
 		return fmt.Errorf("failed to create bin directory: %w", err)
 	}
 
@@ -207,7 +243,7 @@ func (i *Installer) createSymlinks(installPath string, binaries []string) error 
 			return fmt.Errorf("binary %q not found in %s", binary, installPath)
 		}
 
-		linkPath := filepath.Join(i.binDir, binary)
+		linkPath := filepath.Join(binDir, binary)
 
 		// Remove existing symlink if any
 		if _, err := os.Lstat(linkPath); err == nil {

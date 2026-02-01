@@ -67,11 +67,18 @@ func newMockRuntimeInstaller() *mockRuntimeInstaller {
 }
 
 func (m *mockRuntimeInstaller) Install(_ context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+	// Resolve BinDir: use explicit BinDir, or fall back to ToolBinPath
+	binDir := res.RuntimeSpec.BinDir
+	if binDir == "" {
+		binDir = res.RuntimeSpec.ToolBinPath
+	}
+
 	st := &resource.RuntimeState{
 		InstallerRef: res.RuntimeSpec.InstallerRef,
 		Version:      res.RuntimeSpec.Version,
 		InstallPath:  filepath.Join("/mock/runtimes", name, res.RuntimeSpec.Version),
 		Binaries:     res.RuntimeSpec.Binaries,
+		BinDir:       binDir,
 		ToolBinPath:  res.RuntimeSpec.ToolBinPath,
 		Env:          res.RuntimeSpec.Env,
 		Commands:     res.RuntimeSpec.Commands,
@@ -950,4 +957,111 @@ staticcheck: {
 	assert.Equal(t, "golang.org/x/tools/gopls", st.Tools["gopls"].Package)
 
 	assert.Equal(t, "go", st.Tools["staticcheck"].RuntimeRef)
+}
+
+// TestEngine_Apply_RuntimeWithBinDir tests that BinDir is correctly set in state.
+func TestEngine_Apply_RuntimeWithBinDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config with explicit BinDir
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		installerRef: "download"
+		version: "1.25.5"
+		source: {
+			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
+		}
+		binaries: ["go", "gofmt"]
+		binDir: "~/go/bin"
+		toolBinPath: "~/go/bin"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// Apply
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Verify state has BinDir
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Contains(t, st.Runtimes, "go")
+	assert.Equal(t, "~/go/bin", st.Runtimes["go"].BinDir)
+	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
+}
+
+// TestEngine_Apply_RuntimeWithoutBinDir tests that BinDir defaults to ToolBinPath.
+func TestEngine_Apply_RuntimeWithoutBinDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config without explicit BinDir (should default to ToolBinPath)
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		installerRef: "download"
+		version: "1.25.5"
+		source: {
+			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "runtime.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// Apply
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Verify state: BinDir should default to ToolBinPath
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Contains(t, st.Runtimes, "go")
+	assert.Equal(t, "~/go/bin", st.Runtimes["go"].BinDir)
+	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
 }

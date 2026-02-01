@@ -22,11 +22,10 @@ import (
 
 func TestNewInstaller(t *testing.T) {
 	downloader := download.NewDownloader()
-	installer := NewInstaller(downloader, "/runtimes", "/bin")
+	installer := NewInstaller(downloader, "/runtimes")
 
 	assert.NotNil(t, installer)
 	assert.Equal(t, "/runtimes", installer.runtimesDir)
-	assert.Equal(t, "/bin", installer.binDir)
 }
 
 func TestInstaller_Install(t *testing.T) {
@@ -50,13 +49,13 @@ func TestInstaller_Install(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Run("successful install", func(t *testing.T) {
+	t.Run("successful install with BinDir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
 		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir, binDir)
+		installer := NewInstaller(downloader, runtimesDir)
 
 		runtime := &resource.Runtime{
 			BaseResource: resource.BaseResource{
@@ -74,6 +73,7 @@ func TestInstaller_Install(t *testing.T) {
 					},
 				},
 				Binaries:    []string{"mybin", "mybin2"},
+				BinDir:      binDir, // Explicit BinDir
 				ToolBinPath: "~/myruntime/bin",
 				Env: map[string]string{
 					"MY_RUNTIME_HOME": "~/.local/share/toto/runtimes/myruntime/1.0.0",
@@ -90,6 +90,7 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, archiveHash, state.Digest)
 		assert.Contains(t, state.InstallPath, "myruntime/1.0.0")
 		assert.Equal(t, []string{"mybin", "mybin2"}, state.Binaries)
+		assert.Equal(t, binDir, state.BinDir)
 		// ToolBinPath and Env values should have ~ expanded
 		home, _ := os.UserHomeDir()
 		assert.Equal(t, filepath.Join(home, "myruntime/bin"), state.ToolBinPath)
@@ -102,7 +103,7 @@ func TestInstaller_Install(t *testing.T) {
 		assert.FileExists(t, filepath.Join(state.InstallPath, "bin", "mybin"))
 		assert.FileExists(t, filepath.Join(state.InstallPath, "bin", "mybin2"))
 
-		// Verify symlinks
+		// Verify symlinks in BinDir
 		link1, err := os.Readlink(filepath.Join(binDir, "mybin"))
 		require.NoError(t, err)
 		assert.Contains(t, link1, "mybin")
@@ -112,17 +113,56 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Contains(t, link2, "mybin2")
 	})
 
+	t.Run("successful install with ToolBinPath as default BinDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		runtimesDir := filepath.Join(tmpDir, "runtimes")
+		toolBinDir := filepath.Join(tmpDir, "toolbin")
+
+		downloader := download.NewDownloader()
+		installer := NewInstaller(downloader, runtimesDir)
+
+		runtime := &resource.Runtime{
+			BaseResource: resource.BaseResource{
+				APIVersion:   resource.GroupVersion,
+				ResourceKind: resource.KindRuntime,
+				Metadata:     resource.Metadata{Name: "myruntime"},
+			},
+			RuntimeSpec: &resource.RuntimeSpec{
+				InstallerRef: "download",
+				Version:      "1.0.0",
+				Source: resource.DownloadSource{
+					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					Checksum: &resource.Checksum{
+						Value: "sha256:" + archiveHash,
+					},
+				},
+				Binaries:    []string{"mybin", "mybin2"},
+				ToolBinPath: toolBinDir, // No BinDir, should use ToolBinPath
+			},
+		}
+
+		state, err := installer.Install(context.Background(), runtime, "myruntime")
+		require.NoError(t, err)
+
+		// BinDir should be ToolBinPath
+		assert.Equal(t, toolBinDir, state.BinDir)
+
+		// Verify symlinks in ToolBinPath
+		link1, err := os.Readlink(filepath.Join(toolBinDir, "mybin"))
+		require.NoError(t, err)
+		assert.Contains(t, link1, "mybin")
+	})
+
 	t.Run("already installed", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
-		binDir := filepath.Join(tmpDir, "bin")
 
 		// Pre-create the install directory
 		installPath := filepath.Join(runtimesDir, "myruntime", "1.0.0")
 		require.NoError(t, os.MkdirAll(installPath, 0755))
 
 		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir, binDir)
+		installer := NewInstaller(downloader, runtimesDir)
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
@@ -142,7 +182,7 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("unsupported installer", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir, tmpDir)
+		installer := NewInstaller(download.NewDownloader(), tmpDir)
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
@@ -158,7 +198,7 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("missing source URL", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir, tmpDir)
+		installer := NewInstaller(download.NewDownloader(), tmpDir)
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
@@ -175,7 +215,7 @@ func TestInstaller_Install(t *testing.T) {
 }
 
 func TestInstaller_Remove(t *testing.T) {
-	t.Run("successful remove", func(t *testing.T) {
+	t.Run("successful remove with BinDir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
@@ -189,12 +229,13 @@ func TestInstaller_Remove(t *testing.T) {
 		require.NoError(t, os.MkdirAll(binDir, 0755))
 		require.NoError(t, os.Symlink(filepath.Join(installPath, "bin", "mybin"), filepath.Join(binDir, "mybin")))
 
-		installer := NewInstaller(download.NewDownloader(), runtimesDir, binDir)
+		installer := NewInstaller(download.NewDownloader(), runtimesDir)
 
 		state := &resource.RuntimeState{
 			Version:     "1.0.0",
 			InstallPath: installPath,
 			Binaries:    []string{"mybin"},
+			BinDir:      binDir,
 		}
 
 		err := installer.Remove(context.Background(), state, "myruntime")
@@ -203,6 +244,31 @@ func TestInstaller_Remove(t *testing.T) {
 		// Verify removal
 		assert.NoDirExists(t, installPath)
 		assert.NoFileExists(t, filepath.Join(binDir, "mybin"))
+	})
+
+	t.Run("successful remove without BinDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		runtimesDir := filepath.Join(tmpDir, "runtimes")
+
+		// Create mock runtime installation
+		installPath := filepath.Join(runtimesDir, "myruntime", "1.0.0")
+		require.NoError(t, os.MkdirAll(filepath.Join(installPath, "bin"), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(installPath, "bin", "mybin"), []byte("binary"), 0755))
+
+		installer := NewInstaller(download.NewDownloader(), runtimesDir)
+
+		state := &resource.RuntimeState{
+			Version:     "1.0.0",
+			InstallPath: installPath,
+			Binaries:    []string{"mybin"},
+			BinDir:      "", // No symlinks were created
+		}
+
+		err := installer.Remove(context.Background(), state, "myruntime")
+		require.NoError(t, err)
+
+		// Verify removal of install path
+		assert.NoDirExists(t, installPath)
 	})
 }
 
