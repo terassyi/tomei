@@ -18,6 +18,12 @@ goRuntime: {
 		toolBinPath: "~/go/bin"
 		env: {
 			GOROOT: "~/.local/share/toto/runtimes/go/1.25.5"
+			GOBIN:  "~/go/bin"
+		}
+		// Commands for tool installation via go install
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+			remove:  "rm -f {{.BinPath}}"
 		}
 	}
 }

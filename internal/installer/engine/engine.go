@@ -8,6 +8,7 @@ import (
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/executor"
 	"github.com/terassyi/toto/internal/installer/reconciler"
+	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 )
@@ -16,6 +17,8 @@ import (
 type ToolInstaller interface {
 	Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error)
 	Remove(ctx context.Context, st *resource.ToolState, name string) error
+	RegisterRuntime(name string, info *tool.RuntimeInfo)
+	RegisterInstaller(name string, info *tool.InstallerInfo)
 }
 
 // RuntimeInstaller defines the interface for installing runtimes.
@@ -27,6 +30,7 @@ type RuntimeInstaller interface {
 // Engine orchestrates the apply process.
 type Engine struct {
 	store             *state.Store[state.UserState]
+	toolInstaller     ToolInstaller
 	runtimeReconciler *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
 	runtimeExecutor   *executor.Executor[*resource.Runtime, *resource.RuntimeState]
 	toolReconciler    *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
@@ -44,6 +48,7 @@ func NewEngine(
 	runtimeStore := executor.NewRuntimeStateStore(store)
 	return &Engine{
 		store:             store,
+		toolInstaller:     toolInstaller,
 		runtimeReconciler: reconciler.NewRuntimeReconciler(),
 		runtimeExecutor:   executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
 		toolReconciler:    reconciler.NewToolReconciler(),
@@ -96,23 +101,45 @@ func (e *Engine) Apply(ctx context.Context, configDir string) error {
 		}
 	}
 
+	// Load current state and config for tool installation
+	st, err := e.store.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	resources, err := e.loader.Load(configDir)
+	if err != nil {
+		return fmt.Errorf("failed to reload config: %w", err)
+	}
+
+	// Register runtimes for delegation pattern
+	for name, runtimeState := range st.Runtimes {
+		e.toolInstaller.RegisterRuntime(name, &tool.RuntimeInfo{
+			InstallPath: runtimeState.InstallPath,
+			ToolBinPath: runtimeState.ToolBinPath,
+			Env:         runtimeState.Env,
+			Commands:    runtimeState.Commands,
+		})
+	}
+
+	// Register installers for delegation pattern
+	for _, res := range resources {
+		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
+			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
+				Pattern:    inst.InstallerSpec.Pattern,
+				RuntimeRef: inst.InstallerSpec.RuntimeRef,
+				Commands:   inst.InstallerSpec.Commands,
+			})
+		}
+	}
+
 	// If any runtimes were updated, taint dependent tools and re-reconcile
 	if len(updatedRuntimes) > 0 {
-		// Load current state for tainting
-		st, err := e.store.Load()
-		if err != nil {
-			return fmt.Errorf("failed to load state for tainting: %w", err)
-		}
-
 		if err := e.taintDependentTools(st, updatedRuntimes); err != nil {
 			slog.Warn("failed to taint dependent tools", "error", err)
 		}
 
 		// Re-reconcile tools with updated state
-		resources, err := e.loader.Load(configDir)
-		if err != nil {
-			return fmt.Errorf("failed to reload config: %w", err)
-		}
 		tools := extractTools(resources)
 		st, err = e.store.Load()
 		if err != nil {

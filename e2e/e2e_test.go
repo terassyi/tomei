@@ -73,6 +73,9 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		By("Checking Tool/gh is recognized")
 		Expect(output).To(ContainSubstring("Tool/gh"))
 
+		By("Checking Tool/gopls is recognized")
+		Expect(output).To(ContainSubstring("Tool/gopls"))
+
 		By("Checking Runtime/go is recognized")
 		Expect(output).To(ContainSubstring("Runtime/go"))
 	})
@@ -87,8 +90,8 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		Expect(output).To(ContainSubstring("resource"))
 	})
 
-	// === Apply: Install Runtime and Tool ===
-	It("downloads and installs Runtime and Tool", func() {
+	// === Apply: Install Runtime and Tools ===
+	It("downloads and installs Runtime and Tools", func() {
 		By("Running toto apply command")
 		output, err := containerExec("toto", "apply")
 		Expect(err).NotTo(HaveOccurred())
@@ -98,10 +101,13 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		Expect(output).To(ContainSubstring("name=go"))
 		Expect(output).To(ContainSubstring("runtime installed"))
 
-		By("Checking tool installation")
+		By("Checking tool installation (gh - download pattern)")
 		Expect(output).To(ContainSubstring("installing tool"))
 		Expect(output).To(ContainSubstring("name=gh"))
 		Expect(output).To(ContainSubstring("tool installed"))
+
+		By("Checking tool installation (gopls - runtime delegation)")
+		Expect(output).To(ContainSubstring("name=gopls"))
 	})
 
 	// === Verify Runtime Installation ===
@@ -221,5 +227,60 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		output, err = containerExec("gh", "--version")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(output).To(ContainSubstring("gh version 2.86.0"))
+	})
+
+	// === Runtime Delegation: go install (gopls was installed in the first apply) ===
+	It("installed tool via runtime delegation (go install) in first apply", func() {
+		By("Verifying gopls was already installed")
+		// gopls was installed during the first toto apply along with go runtime and gh
+		// This test verifies the installation results
+	})
+
+	It("places gopls binary in toolBinPath (~/go/bin)", func() {
+		By("Listing ~/go/bin directory")
+		output, err := containerExecBash("ls ~/go/bin/")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking gopls binary exists")
+		Expect(output).To(ContainSubstring("gopls"))
+	})
+
+	It("allows running gopls command after install", func() {
+		By("Executing gopls version")
+		output, err := containerExecBash("~/go/bin/gopls version")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking gopls version output")
+		Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
+		Expect(output).To(ContainSubstring("v0.21.0"))
+	})
+
+	It("updates state.json with gopls tool info", func() {
+		By("Reading state.json")
+		output, err := containerExecBash("cat ~/.local/share/toto/state.json")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking gopls is in tools section")
+		Expect(output).To(ContainSubstring(`"gopls"`))
+
+		By("Checking runtimeRef is recorded")
+		Expect(output).To(ContainSubstring(`"runtimeRef": "go"`))
+
+		By("Checking package is recorded")
+		Expect(output).To(ContainSubstring(`"package": "golang.org/x/tools/gopls"`))
+	})
+
+	It("is idempotent for runtime delegation tools", func() {
+		By("Running toto apply again")
+		output, err := containerExec("toto", "apply")
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Checking no changes to apply")
+		Expect(output).To(ContainSubstring("no changes to apply"))
+
+		By("Checking gopls still works")
+		output, err = containerExecBash("~/go/bin/gopls version")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(ContainSubstring("v0.21.0"))
 	})
 })

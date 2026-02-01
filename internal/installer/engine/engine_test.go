@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 )
@@ -36,6 +37,10 @@ func (m *mockToolInstaller) Remove(ctx context.Context, st *resource.ToolState, 
 	}
 	return nil
 }
+
+func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
+
+func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
 // mockRuntimeInstaller is a mock implementation for testing.
 type mockRuntimeInstaller struct {
