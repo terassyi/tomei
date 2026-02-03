@@ -62,6 +62,46 @@ type Metadata struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
+// InstallType represents the installation method for resources (Runtime, Installer).
+type InstallType string
+
+const (
+	// InstallTypeDownload indicates direct binary download.
+	// toto handles downloading, extracting, and placing binaries.
+	// Example: Go runtime from go.dev, aqua installer for GitHub releases.
+	InstallTypeDownload InstallType = "download"
+
+	// InstallTypeDelegation indicates delegation to external commands.
+	// toto executes configured install/check/remove commands.
+	// Example: Rust via rustup, brew install, go install.
+	InstallTypeDelegation InstallType = "delegation"
+)
+
+// IsDownload returns true if the type is download.
+func (t InstallType) IsDownload() bool {
+	return t == InstallTypeDownload
+}
+
+// IsDelegation returns true if the type is delegation.
+func (t InstallType) IsDelegation() bool {
+	return t == InstallTypeDelegation
+}
+
+// CommandSet defines a set of shell commands for install/check/remove operations.
+// This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
+// Commands may support Go template variables depending on the context.
+type CommandSet struct {
+	// Install is the shell command to install/setup.
+	Install string `json:"install"`
+
+	// Check is the shell command to verify installation.
+	// Should exit 0 if installed, non-zero otherwise.
+	Check string `json:"check,omitempty"`
+
+	// Remove is the shell command to uninstall/cleanup.
+	Remove string `json:"remove,omitempty"`
+}
+
 // BaseResource provides common fields for all resources.
 // Embed this in concrete resource types.
 type BaseResource struct {

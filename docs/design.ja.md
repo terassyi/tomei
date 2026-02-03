@@ -80,7 +80,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "SystemInstaller"
 metadata: name: "apt"
 spec: {
-    pattern: "delegation"
+    type: "delegation"
     privileged: true
     commands: {
         install: {command: "apt-get", verb: "install -y"}
@@ -131,28 +131,30 @@ spec: {
 
 #### Installer
 
-ユーザー権限のインストーラ定義。toto が builtin で aqua, go, cargo, npm, brew を提供。
+ユーザー権限のインストーラ定義。Runtime を持たないツール（aqua, brew）や、Tool に依存するインストーラ（binstall）に使用。
+
+**Note:** Runtime 経由でインストールする Tool（go install, cargo install）は Installer 不要。Tool から直接 `runtimeRef` で Runtime を参照する。
 
 ```cue
-// Download Pattern (aqua)
+// Download Pattern (aqua) - GitHub Releases 等から直接ダウンロード
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
 }
 
-// Delegation Pattern (go install)
+// Delegation Pattern (binstall) - Tool に依存
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
-metadata: name: "go"
+metadata: name: "binstall"
 spec: {
-    pattern: "delegation"
-    runtimeRef: "go"
+    type: "delegation"
+    toolRef: "cargo-binstall"  // cargo-binstall Tool に依存 (cargo install でインストール済み)
     commands: {
-        install: "go install {{.Package}}@{{.Version}}"
-        check: "go version -m {{.BinPath}}"
-        remove: "rm {{.BinPath}}"
+        install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
+        check: "cargo binstall --info {{.Package}}"
+        remove: "cargo uninstall {{.Package}}"
     }
 }
 
@@ -161,7 +163,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "brew"
 spec: {
-    pattern: "delegation"
+    type: "delegation"
     bootstrap: {
         install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
         check: "command -v brew"
@@ -177,27 +179,77 @@ spec: {
 
 #### Runtime
 
-言語ランタイム。
+言語ランタイム。2 つのパターンをサポート。
+
+##### Download Pattern
+
+toto が直接 tarball をダウンロードして展開するパターン。Go などの tarball 配布に適用。
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-    installerRef: "download"
+    type: "download"
     version: "1.25.1"
     source: {
         url: "https://go.dev/dl/go{{.Version}}.{{.OS}}-{{.Arch}}.tar.gz"
         checksum: "sha256:..."
         archiveType: "tar.gz"
     }
-    binaries: ["go", "gofmt"]
-    toolBinPath: "~/go/bin"
+    binaries: ["go", "gofmt"]       // optional: 省略時は bin/ 内の実行可能ファイルを自動検出
+    binDir: "{{.InstallPath}}/bin"  // optional: 省略時は {{.InstallPath}}/bin
+    toolBinPath: "~/go/bin"         // go install でインストールされる Tool の配置先
+    commands: {
+        install: "go install {{.Package}}@{{.Version}}"  // Tool インストール用
+    }
     env: {
         GOROOT: "{{.InstallPath}}"
+        GOBIN: "~/go/bin"
     }
 }
 ```
+
+##### Delegation Pattern
+
+外部スクリプトやインストーラに処理を委譲するパターン。rustup や nvm のようなインストーラスクリプトを使用するランタイムに適用。
+
+```cue
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    type: "delegation"
+    version: "stable"  // "stable", "latest", or specific version "1.83.0"
+    bootstrap: {
+        install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
+        check: "rustc --version"
+        remove: "rustup self uninstall -y"
+        resolveVersion: "rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"  // optional: resolve "stable"/"latest" to actual version
+    }
+    commands: {
+        install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}"  // Tool インストール用
+    }
+    // binaries: 省略可能 - delegation pattern では外部インストーラが配置
+    // binDir: 省略時は toolBinPath と同じ
+    toolBinPath: "~/.cargo/bin" // cargo install でインストールされる Tool の配置先
+    env: {
+        CARGO_HOME: "~/.cargo"
+        RUSTUP_HOME: "~/.rustup"
+    }
+}
+```
+
+**Note:** 
+- `bootstrap`: Runtime 自体のインストール/チェック/削除を定義（delegation pattern のみ）
+- `commands`: この Runtime を使った Tool のインストールコマンドを定義（両パターン共通）
+
+##### パターン比較
+
+| パターン | 説明 | 例 |
+|---------|------|-----|
+| Download | toto が tarball をダウンロード・展開 | Go, Node (tarball) |
+| Delegation | 外部スクリプト/インストーラに委譲 | Rust (rustup), Node (nvm) |
 
 #### Tool (単体)
 
@@ -234,13 +286,12 @@ spec: {
     }
 }
 
-// Runtime Delegation Pattern
+// Runtime 経由でインストール (Installer 不要)
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "go-tools"
 spec: {
-    installerRef: "go"
-    runtimeRef: "go"
+    runtimeRef: "go"  // Runtime の commands.install を使用
     tools: {
         gopls: { package: "golang.org/x/tools/gopls" }
         staticcheck: { package: "honnef.co/go/tools/cmd/staticcheck" }
@@ -271,6 +322,7 @@ toto init        # 初期化 (config.cue, ディレクトリ, state.json)
 toto validate    # CUE 構文 + 循環参照チェック
 toto plan        # validate + 実行計画表示
 toto apply       # plan + 実行
+toto env         # 環境変数を出力 (eval 用)
 toto doctor      # 未管理ツール検知、競合検知
 toto adopt       # 未管理ツールを管理下に追加
 toto version     # バージョン表示
@@ -299,6 +351,29 @@ toto init --force
 5. `dataDir/tools/`, `dataDir/runtimes/` 作成
 6. bin ディレクトリ (`binDir`) 作成
 7. `dataDir/state.json` 初期化
+
+### 4.4 toto env
+
+Runtime の `env` フィールドで定義された環境変数を出力する。
+
+```bash
+$ toto env
+export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.1"
+export GOBIN="$HOME/go/bin"
+export CARGO_HOME="$HOME/.cargo"
+export RUSTUP_HOME="$HOME/.rustup"
+export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
+```
+
+**使用方法:**
+
+シェルの profile (`~/.bashrc`, `~/.zshrc` など) に以下を追加:
+
+```bash
+eval "$(toto env)"
+```
+
+**Note:** `toto apply` 時の delegation コマンド実行では、toto が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `toto env` はユーザーのシェル環境用。
 
 ---
 
@@ -347,7 +422,7 @@ System State:
   "version": "1",
   "runtimes": {
     "go": {
-      "installerRef": "download",
+      "type": "download",
       "version": "1.25.1",
       "digest": "sha256:abc123...",
       "installPath": "~/.local/share/toto/runtimes/go/1.25.1",
@@ -355,6 +430,17 @@ System State:
       "toolBinPath": "~/go/bin",
       "env": {
         "GOROOT": "~/.local/share/toto/runtimes/go/1.25.1"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "rust": {
+      "type": "delegation",
+      "version": "1.83.0",
+      "specVersion": "stable",
+      "toolBinPath": "~/.cargo/bin",
+      "env": {
+        "CARGO_HOME": "~/.cargo",
+        "RUSTUP_HOME": "~/.rustup"
       },
       "updatedAt": "2025-01-28T12:00:00Z"
     }
@@ -437,64 +523,194 @@ System State:
 
 ```
 明示的に書く:
-├── runtimeRef: Tool → Runtime
+├── runtimeRef: Tool → Runtime (Runtime の commands.install を使用)
+├── installerRef: Tool → Installer (Installer の commands.install を使用)
+├── toolRef: Installer → Tool (Tool に依存する Installer)
 ├── repositoryRef: SystemPackage → SystemPackageRepository
-├── installerRef: 各リソース → Installer
 └── deps: Installer → パッケージ名 (best effort)
 ```
 
-### 6.2 循環参照の検出
+**Note:** Tool は `runtimeRef` または `installerRef` のどちらか一方を指定する（排他的）。
 
-**アルゴリズム: DFS + 訪問状態管理**
+### 6.2 ツールチェーン依存
+
+Tool は Runtime を直接参照できる。Installer が必要なのは Runtime を持たないケース（aqua, brew）や Tool に依存するケース（binstall）のみ。
+
+**例: Tool を Installer として使用**
 
 ```
-状態:
-├── unvisited (未訪問)
-├── visiting (訪問中 = 現在のパス上)
-└── visited (訪問完了)
+Runtime(rust) → Tool(cargo-binstall) → Installer(binstall) → Tool(ripgrep)
+```
+
+```cue
+// 1. Rust Runtime (commands.install で cargo install を定義)
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    version: "stable"
+    bootstrap: { install: "curl ... | sh", check: "rustc --version", remove: "..." }
+    commands: { install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}" }
+    ...
+}
+
+// 2. cargo-binstall Tool (Runtime を直接参照)
+kind: "Tool"
+metadata: name: "cargo-binstall"
+spec: {
+    runtimeRef: "rust"  // Runtime の commands.install を使用
+    package: "cargo-binstall"
+    version: "1.6.4"
+}
+
+// 3. binstall Installer (cargo-binstall Tool に依存)
+kind: "Installer"
+metadata: name: "binstall"
+spec: {
+    type: "delegation"
+    toolRef: "cargo-binstall"  // ← Tool に依存
+    commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
+}
+
+// 4. ripgrep Tool (binstall installer でインストール)
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "binstall"
+    package: "ripgrep"
+    version: "14.1.0"
+}
+```
+
+### 6.3 DAG データ構造
+
+依存グラフは有向非巡回グラフ (DAG) として表現される。
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            dag (internal)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ nodes: map[string]*Node                                              │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Runtime/rust"       → {Kind: Runtime, Name: "rust"}        │   │
+│   │ "Tool/cargo-binstall"→ {Kind: Tool, Name: "cargo-binstall"} │   │
+│   │ "Installer/binstall" → {Kind: Installer, Name: "binstall"}  │   │
+│   │ "Tool/ripgrep"       → {Kind: Tool, Name: "ripgrep"}        │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ edges: map[string][]string  (ノード → 依存先)                       │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Tool/cargo-binstall" → ["Runtime/rust"]                    │   │
+│   │ "Installer/binstall"  → ["Tool/cargo-binstall"]             │   │
+│   │ "Tool/ripgrep"        → ["Installer/binstall"]              │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ inDegree: map[string]int  (依存数)                                   │
+│   Runtime/rust: 0, Tool/cargo-binstall: 1, Installer/binstall: 1, ..
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.4 循環参照の検出
+
+**アルゴリズム: DFS + 3色マーキング (Three-Color Marking)**
+
+グラフのサイクル検出における標準的な手法。
+
+```
+色:
+├── 白 (white): 未訪問
+├── グレー (gray): 訪問中 (DFS スタック上、現在のパスに含まれる)
+└── 黒 (black): 訪問完了 (全ての子孫を処理済み)
 
 手順:
-1. 全ノードを unvisited に
-2. 各ノードから DFS 開始
-3. visiting のノードに再度到達 → 循環検出
-4. DFS 完了 → visited に
+1. 全ノードを白に初期化
+2. 各白ノードから DFS を開始
+3. ノードに入る時にグレーにマーク
+4. グレーノードへの辺を発見 → back edge → 循環検出!
+5. DFS 完了時に黒にマーク
+```
+
+**例: 循環検出**
+
+```
+正常ケース:                   循環ケース:
+  A → B → C                     A → B
+                                ↑   ↓
+  A: 白→グレー→黒               └── C
+  B: 白→グレー→黒
+  C: 白→グレー→黒               A: グレー, B: グレー, C: グレー
+                                C → A で A がグレー → back edge → 循環!
 ```
 
 `toto validate` で事前に検出し、エラーメッセージで循環パスを表示。
 
-### 6.3 実行順序の決定
+### 6.5 トポロジカルソート
 
-**アルゴリズム: トポロジカルソート**
-
-```
-1. 全リソースからグラフ構築
-2. 入次数 (依存される数) を計算
-3. 入次数 0 のノードをキューに入れる
-4. キューから取り出し、レイヤーに追加
-5. そのノードに依存していたノードの入次数を減らす
-6. 入次数 0 になったらキューに追加
-7. 繰り返し
-```
-
-**結果: レイヤー分け**
+ノードをレイヤーに分けて実行順序を決定。
 
 ```
-Layer 0: [go, rust, ripgrep, fd]
-Layer 1: [gopls, staticcheck, rust-analyzer]
+Step 1: inDegree=0 のノードを探す
+┌───────────────────────────────────────────┐
+│ Queue: [Runtime/rust]                     │
+│ inDegree: {Tool/cargo-binstall: 1, ...}   │
+└───────────────────────────────────────────┘
+
+Step 2: デキュー、レイヤーに追加、依存先の inDegree を減算
+┌───────────────────────────────────────────┐
+│ Layer 0: [Runtime/rust]                   │
+│ Queue: [Tool/cargo-binstall] (inDegree→0) │
+└───────────────────────────────────────────┘
+
+Step 3-4: 繰り返し
+┌───────────────────────────────────────────┐
+│ Layer 1: [Tool/cargo-binstall]            │
+│ Layer 2: [Installer/binstall]             │
+│ Layer 3: [Tool/ripgrep]                   │
+└───────────────────────────────────────────┘
 ```
 
-同一レイヤー内は並列実行可能 (errgroup, max 5)。
+**結果: 実行レイヤー**
 
-### 6.4 実行順序
+```
+Layer 0: [Runtime/rust]         ← 依存なし
+Layer 1: [Tool/cargo-binstall]  ← Runtime/rust に依存
+Layer 2: [Installer/binstall]   ← Tool/cargo-binstall に依存
+Layer 3: [Tool/ripgrep]         ← Installer/binstall に依存
+```
+
+### 6.6 並列実行
+
+同一レイヤー内のノードは相互依存がないため並列実行可能。
+
+```
+                    ┌─────────────┐
+                    │Installer/aqua│  Layer 0
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │Tool/ripgrep│  │ Tool/fd  │    │ Tool/bat │  Layer 1
+    └──────────┘    └──────────┘    └──────────┘
+    
+    → 同一レイヤー = 相互依存なし
+    → 並列実行可能
+```
+
+**Note:** 現在は state ファイルの書き込み競合のため逐次実行。
+将来的にレイヤー完了後のバッチ更新で並列化予定。
+
+### 6.7 実行順序まとめ
 
 ```
 System 権限 (sudo toto apply --system):
-  Layer 0: SystemPackageRepository
-  Layer 1: SystemPackageSet
+  Layer 0: SystemInstaller
+  Layer 1: SystemPackageRepository
+  Layer 2: SystemPackageSet
 
 User 権限 (toto apply):
-  Layer 0: Runtime, Tool (runtimeRef なし)
-  Layer 1: Tool (runtimeRef あり)
+  DAG トポロジカルソートで決定:
+  - Runtime (依存なし)
+  - Installer (Runtime または Tool に依存)
+  - Tool (Installer に依存)
 ```
 
 ---
@@ -974,7 +1190,7 @@ GitHub API のレートリミット対策、プライベートリポジトリへ
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
     auth: {
         tokenEnvVar: "GITHUB_TOKEN"  // 環境変数から取得
         // or tokenFile: "~/.config/toto/github-token"
@@ -997,7 +1213,7 @@ spec: {
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
     credentialRef: "github"
 }
 ```

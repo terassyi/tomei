@@ -10,6 +10,6 @@ var BuiltinInstaller = &resource.Installer{
 		Metadata:     resource.Metadata{Name: "download"},
 	},
 	InstallerSpec: &resource.InstallerSpec{
-		Pattern: resource.InstallerPatternDownload,
+		Type: resource.InstallTypeDownload,
 	},
 }

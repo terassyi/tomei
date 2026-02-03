@@ -9,5 +9,6 @@ import (
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "E2E Suite")
+	// Enable verbose output to capture stdout from tests
+	RunSpecs(t, "E2E Suite", Label("e2e"))
 }

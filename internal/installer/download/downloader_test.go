@@ -241,7 +241,7 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 				_, _ = w.Write([]byte("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  other.tar.gz\n"))
 			},
 			wantErr:    true,
-			errContain: "not found in checksums file",
+			errContain: "not found in GNU checksums file",
 		},
 		{
 			name: "checksum file fetch error",
@@ -275,6 +275,127 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 			checksum := &resource.Checksum{
 				URL:         server.URL + "/checksums.txt",
 				FilePattern: tt.filePattern,
+			}
+
+			d := NewDownloader()
+			err = d.Verify(context.Background(), filePath, checksum)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContain != "" {
+					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDownloader_Verify_GoJSONChecksum(t *testing.T) {
+	testContent := []byte("hello world")
+	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
+
+	tests := []struct {
+		name       string
+		handler    http.HandlerFunc
+		filename   string
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name: "valid Go JSON format",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(fmt.Appendf(nil, `[
+					{
+						"version": "go1.23.5",
+						"stable": true,
+						"files": [
+							{
+								"filename": "go1.23.5.linux-amd64.tar.gz",
+								"os": "linux",
+								"arch": "amd64",
+								"sha256": "%s",
+								"size": 12345,
+								"kind": "archive"
+							}
+						]
+					}
+				]`, sha256sum))
+			},
+			filename: "go1.23.5.linux-amd64.tar.gz",
+			wantErr:  false,
+		},
+		{
+			name: "multiple versions in Go JSON",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(fmt.Appendf(nil, `[
+					{
+						"version": "go1.24.0",
+						"stable": true,
+						"files": [
+							{"filename": "go1.24.0.linux-amd64.tar.gz", "sha256": "aaaa", "kind": "archive"}
+						]
+					},
+					{
+						"version": "go1.23.5",
+						"stable": true,
+						"files": [
+							{"filename": "go1.23.5.linux-amd64.tar.gz", "sha256": "%s", "kind": "archive"},
+							{"filename": "go1.23.5.darwin-arm64.tar.gz", "sha256": "bbbb", "kind": "archive"}
+						]
+					}
+				]`, sha256sum))
+			},
+			filename: "go1.23.5.linux-amd64.tar.gz",
+			wantErr:  false,
+		},
+		{
+			name: "file not found in Go JSON",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`[
+					{
+						"version": "go1.23.5",
+						"stable": true,
+						"files": [
+							{"filename": "go1.23.5.darwin-arm64.tar.gz", "sha256": "aaaa", "kind": "archive"}
+						]
+					}
+				]`))
+			},
+			filename:   "go1.23.5.linux-amd64.tar.gz",
+			wantErr:    true,
+			errContain: "not found in Go JSON checksums",
+		},
+		{
+			name: "invalid JSON falls back to unknown format",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				// Invalid JSON is detected as unknown format
+				_, _ = w.Write([]byte(`[invalid json`))
+			},
+			filename:   "go1.23.5.linux-amd64.tar.gz",
+			wantErr:    true,
+			errContain: "unknown or unsupported checksum file format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			tmpDir := t.TempDir()
+			filePath := filepath.Join(tmpDir, tt.filename)
+			err := os.WriteFile(filePath, testContent, 0644)
+			require.NoError(t, err)
+
+			checksum := &resource.Checksum{
+				URL: server.URL,
 			}
 
 			d := NewDownloader()

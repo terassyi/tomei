@@ -8,7 +8,7 @@ gh: {
 		installerRef: "download"
 		version:      "2.86.0"
 		source: {
-			url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_amd64.tar.gz"
+			url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_arm64.tar.gz"
 			checksum: {
 				url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_checksums.txt"
 			}

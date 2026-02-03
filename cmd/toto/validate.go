@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/graph"
 )
 
 var validateCmd = &cobra.Command{
@@ -35,7 +36,22 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		cmd.Printf("  - %s/%s\n", res.Kind(), res.Name())
 	}
 
-	// TODO: Add circular dependency detection
+	// Validate each resource's spec
+	for _, res := range resources {
+		if err := res.Spec().Validate(); err != nil {
+			return fmt.Errorf("validation failed for %s/%s: %w", res.Kind(), res.Name(), err)
+		}
+	}
+
+	// Check for circular dependencies
+	resolver := graph.NewResolver()
+	for _, res := range resources {
+		resolver.AddResource(res)
+	}
+
+	if err := resolver.Validate(); err != nil {
+		return fmt.Errorf("dependency validation failed: %w", err)
+	}
 
 	cmd.Println("Validation successful")
 	return nil

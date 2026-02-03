@@ -80,7 +80,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "SystemInstaller"
 metadata: name: "apt"
 spec: {
-    pattern: "delegation"
+    type: "delegation"
     privileged: true
     commands: {
         install: {command: "apt-get", verb: "install -y"}
@@ -134,25 +134,25 @@ spec: {
 User-level installer definition. toto provides builtin installers: aqua, go, cargo, npm, brew.
 
 ```cue
-// Download Pattern (aqua)
+// Download Pattern (aqua) - Downloads directly from GitHub Releases, etc.
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
 }
 
-// Delegation Pattern (go install)
+// Delegation Pattern (binstall) - depends on Tool
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
-metadata: name: "go"
+metadata: name: "binstall"
 spec: {
-    pattern: "delegation"
-    runtimeRef: "go"
+    type: "delegation"
+    toolRef: "cargo-binstall"  // depends on cargo-binstall Tool (installed via cargo install)
     commands: {
-        install: "go install {{.Package}}@{{.Version}}"
-        check: "go version -m {{.BinPath}}"
-        remove: "rm {{.BinPath}}"
+        install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
+        check: "cargo binstall --info {{.Package}}"
+        remove: "cargo uninstall {{.Package}}"
     }
 }
 
@@ -161,7 +161,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "brew"
 spec: {
-    pattern: "delegation"
+    type: "delegation"
     bootstrap: {
         install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
         check: "command -v brew"
@@ -177,27 +177,76 @@ spec: {
 
 #### Runtime
 
-Language runtimes.
+Language runtimes. Supports two installation patterns:
+
+**Download Pattern** - Downloads and extracts tarball directly (e.g., Go):
 
 ```cue
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-    installerRef: "download"
+    type: "download"
     version: "1.25.1"
     source: {
         url: "https://go.dev/dl/go{{.Version}}.{{.OS}}-{{.Arch}}.tar.gz"
         checksum: "sha256:..."
         archiveType: "tar.gz"
     }
-    binaries: ["go", "gofmt"]
-    toolBinPath: "~/go/bin"
+    binaries: ["go", "gofmt"]       // optional: auto-detect executables in bin/ if omitted
+    binDir: "{{.InstallPath}}/bin"  // optional: defaults to {{.InstallPath}}/bin
+    toolBinPath: "~/go/bin"         // where tools are installed via go install
+    commands: {
+        install: "go install {{.Package}}@{{.Version}}"  // for Tool installation
+    }
     env: {
         GOROOT: "{{.InstallPath}}"
+        GOBIN: "~/go/bin"
     }
 }
 ```
+
+**Delegation Pattern** - Executes installer script (e.g., Rust via rustup):
+
+```cue
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    type: "delegation"
+    version: "stable"  // "stable", "latest", or specific version "1.83.0"
+    bootstrap: {
+        install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
+        check: "rustc --version"
+        remove: "rustup self uninstall -y"
+        resolveVersion: "rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"  // optional: resolve "stable"/"latest" to actual version
+    }
+    commands: {
+        install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}"  // for Tool installation
+    }
+    // binaries: optional - external installer manages placement
+    // binDir: optional - defaults to toolBinPath
+    toolBinPath: "~/.cargo/bin" // where tools are installed via cargo install
+    env: {
+        CARGO_HOME: "~/.cargo"
+        RUSTUP_HOME: "~/.rustup"
+    }
+}
+```
+
+**Note:** 
+- `bootstrap`: Defines install/check/remove for the Runtime itself (delegation pattern only)
+- `commands`: Defines install command for Tools using this Runtime (both patterns)
+
+**Key differences:**
+
+| Aspect | Download Pattern | Delegation Pattern |
+|--------|------------------|-------------------|
+| Installation | toto downloads & extracts tarball | External script installs (e.g., rustup) |
+| Source | `source.url` with checksum | `commands.install` script |
+| Binary location | Extracted to `dataDir/runtimes/` | Managed by external tool (e.g., `~/.cargo/bin`) |
+| Symlinks | Created by toto from extract dir | Not needed (binaries already in toolBinPath) |
+| Version management | toto manages versions | External tool manages (e.g., rustup) |
 
 #### Tool (Individual)
 
@@ -234,13 +283,12 @@ spec: {
     }
 }
 
-// Runtime Delegation Pattern
+// Install via Runtime (no Installer needed)
 apiVersion: "toto.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "go-tools"
 spec: {
-    installerRef: "go"
-    runtimeRef: "go"
+    runtimeRef: "go"  // Uses Runtime's commands.install
     tools: {
         gopls: { package: "golang.org/x/tools/gopls" }
         staticcheck: { package: "honnef.co/go/tools/cmd/staticcheck" }
@@ -271,6 +319,7 @@ toto init        # Initialize (config.cue, directories, state.json)
 toto validate    # CUE syntax + circular reference check
 toto plan        # validate + show execution plan
 toto apply       # plan + execute
+toto env         # Output environment variables (for eval)
 toto doctor      # detect unmanaged tools, conflicts
 toto adopt       # bring unmanaged tools under management
 toto version     # show version
@@ -299,6 +348,29 @@ Execution steps:
 5. Create `dataDir/tools/`, `dataDir/runtimes/`
 6. Create bin directory (`binDir`)
 7. Initialize `dataDir/state.json`
+
+### 4.4 toto env
+
+Outputs environment variables defined in Runtime's `env` field.
+
+```bash
+$ toto env
+export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.1"
+export GOBIN="$HOME/go/bin"
+export CARGO_HOME="$HOME/.cargo"
+export RUSTUP_HOME="$HOME/.rustup"
+export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
+```
+
+**Usage:**
+
+Add the following to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
+
+```bash
+eval "$(toto env)"
+```
+
+**Note:** During `toto apply`, delegation commands are automatically executed with the `env` field's environment variables set by toto. Therefore, `toto env` is for the user's shell environment.
 
 ---
 
@@ -347,14 +419,27 @@ System State:
   "version": "1",
   "runtimes": {
     "go": {
-      "installerRef": "download",
+      "type": "download",
       "version": "1.25.1",
       "digest": "sha256:abc123...",
       "installPath": "~/.local/share/toto/runtimes/go/1.25.1",
       "binaries": ["go", "gofmt"],
+      "binDir": "~/.local/share/toto/runtimes/go/1.25.1/bin",
       "toolBinPath": "~/go/bin",
       "env": {
-        "GOROOT": "~/.local/share/toto/runtimes/go/1.25.1"
+        "GOROOT": "~/.local/share/toto/runtimes/go/1.25.1",
+        "GOBIN": "~/go/bin"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "rust": {
+      "type": "delegation",
+      "version": "1.83.0",
+      "specVersion": "stable",
+      "toolBinPath": "~/.cargo/bin",
+      "env": {
+        "CARGO_HOME": "~/.cargo",
+        "RUSTUP_HOME": "~/.rustup"
       },
       "updatedAt": "2025-01-28T12:00:00Z"
     }
@@ -437,64 +522,194 @@ System State:
 
 ```
 Explicitly specified:
-├── runtimeRef: Tool → Runtime
+├── runtimeRef: Tool → Runtime (uses Runtime's commands.install)
+├── installerRef: Tool → Installer (uses Installer's commands.install)
+├── toolRef: Installer → Tool (Installer depends on a Tool)
 ├── repositoryRef: SystemPackage → SystemPackageRepository
-├── installerRef: Each resource → Installer
 └── deps: Installer → package names (best effort)
 ```
 
-### 6.2 Circular Reference Detection
+**Note:** Tool specifies either `runtimeRef` or `installerRef` (mutually exclusive).
 
-**Algorithm: DFS + Visit State Management**
+### 6.2 Tool Chain Dependencies
+
+Tools can directly reference a Runtime. Installers are only needed for tools without a Runtime (aqua, brew) or installers that depend on a Tool (binstall).
+
+**Example: Tool as Installer**
 
 ```
-States:
-├── unvisited
-├── visiting (currently on path)
-└── visited (completed)
+Runtime(rust) → Tool(cargo-binstall) → Installer(binstall) → Tool(ripgrep)
+```
+
+```cue
+// 1. Rust Runtime (commands.install defines cargo install)
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    version: "stable"
+    bootstrap: { install: "curl ... | sh", check: "rustc --version", remove: "..." }
+    commands: { install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}" }
+    ...
+}
+
+// 2. cargo-binstall Tool (directly references Runtime)
+kind: "Tool"
+metadata: name: "cargo-binstall"
+spec: {
+    runtimeRef: "rust"  // uses Runtime's commands.install
+    package: "cargo-binstall"
+    version: "1.6.4"
+}
+
+// 3. binstall Installer (depends on cargo-binstall Tool)
+kind: "Installer"
+metadata: name: "binstall"
+spec: {
+    type: "delegation"
+    toolRef: "cargo-binstall"  // ← depends on Tool
+    commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
+}
+
+// 4. ripgrep Tool (installed via binstall installer)
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "binstall"
+    package: "ripgrep"
+    version: "14.1.0"
+}
+```
+
+### 6.3 DAG Data Structure
+
+The dependency graph is represented as a Directed Acyclic Graph (DAG).
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            dag (internal)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ nodes: map[string]*Node                                              │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Runtime/rust"       → {Kind: Runtime, Name: "rust"}        │   │
+│   │ "Tool/cargo-binstall"→ {Kind: Tool, Name: "cargo-binstall"} │   │
+│   │ "Installer/binstall" → {Kind: Installer, Name: "binstall"}  │   │
+│   │ "Tool/ripgrep"       → {Kind: Tool, Name: "ripgrep"}        │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ edges: map[string][]string  (node → dependencies)                   │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Tool/cargo-binstall" → ["Runtime/rust"]                    │   │
+│   │ "Installer/binstall"  → ["Tool/cargo-binstall"]             │   │
+│   │ "Tool/ripgrep"        → ["Installer/binstall"]              │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ inDegree: map[string]int  (number of dependencies)                  │
+│   Runtime/rust: 0, Tool/cargo-binstall: 1, Installer/binstall: 1, ..│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.4 Circular Reference Detection
+
+**Algorithm: DFS + Three-Color Marking**
+
+A standard technique for cycle detection in graphs.
+
+```
+Colors:
+├── white: unvisited
+├── gray: visiting (on DFS stack, part of current path)
+└── black: visited (all descendants processed)
 
 Procedure:
-1. Mark all nodes as unvisited
-2. Start DFS from each node
-3. Reaching a visiting node → cycle detected
-4. DFS complete → mark as visited
+1. Initialize all nodes as white
+2. Start DFS from each white node
+3. Mark node as gray when entering
+4. Edge to gray node found → back edge → cycle detected!
+5. Mark node as black when DFS completes
+```
+
+**Example: Cycle Detection**
+
+```
+Normal case:                   Cycle case:
+  A → B → C                      A → B
+                                 ↑   ↓
+  A: white→gray→black            └── C
+  B: white→gray→black
+  C: white→gray→black            A: gray, B: gray, C: gray
+                                 C → A where A is gray → back edge → Cycle!
 ```
 
 Detected early with `toto validate`, error message shows the cycle path.
 
-### 6.3 Execution Order Determination
+### 6.5 Topological Sort
 
-**Algorithm: Topological Sort**
-
-```
-1. Build graph from all resources
-2. Calculate in-degree (number of dependents)
-3. Add nodes with in-degree 0 to queue
-4. Remove from queue, add to layer
-5. Decrement in-degree of dependent nodes
-6. Add to queue when in-degree becomes 0
-7. Repeat
-```
-
-**Result: Layer Assignment**
+Determines execution order by sorting nodes into layers.
 
 ```
-Layer 0: [go, rust, ripgrep, fd]
-Layer 1: [gopls, staticcheck, rust-analyzer]
+Step 1: Find nodes with inDegree=0
+┌───────────────────────────────────────────┐
+│ Queue: [Runtime/rust]                     │
+│ inDegree: {Tool/cargo-binstall: 1, ...}   │
+└───────────────────────────────────────────┘
+
+Step 2: Dequeue, add to layer, decrement dependents
+┌───────────────────────────────────────────┐
+│ Layer 0: [Runtime/rust]                   │
+│ Queue: [Tool/cargo-binstall] (inDegree→0) │
+└───────────────────────────────────────────┘
+
+Step 3-4: Repeat
+┌───────────────────────────────────────────┐
+│ Layer 1: [Tool/cargo-binstall]            │
+│ Layer 2: [Installer/binstall]             │
+│ Layer 3: [Tool/ripgrep]                   │
+└───────────────────────────────────────────┘
 ```
 
-Tasks within the same layer can run in parallel (errgroup, max 5).
+**Result: Execution Layers**
 
-### 6.4 Execution Order
+```
+Layer 0: [Runtime/rust]         ← No dependencies
+Layer 1: [Tool/cargo-binstall]  ← Depends on Runtime/rust
+Layer 2: [Installer/binstall]   ← Depends on Tool/cargo-binstall
+Layer 3: [Tool/ripgrep]         ← Depends on Installer/binstall
+```
+
+### 6.6 Parallel Execution
+
+Nodes within the same layer have no dependencies between them and can run in parallel.
+
+```
+                    ┌─────────────┐
+                    │Installer/aqua│  Layer 0
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │Tool/ripgrep│  │ Tool/fd  │    │ Tool/bat │  Layer 1
+    └──────────┘    └──────────┘    └──────────┘
+    
+    → Same layer = no inter-dependencies
+    → Can be executed in parallel
+```
+
+**Note:** Currently sequential execution due to state file write conflicts.
+Future improvement: batch state updates after layer completion.
+
+### 6.7 Execution Order Summary
 
 ```
 System Privilege (sudo toto apply --system):
-  Layer 0: SystemPackageRepository
-  Layer 1: SystemPackageSet
+  Layer 0: SystemInstaller
+  Layer 1: SystemPackageRepository
+  Layer 2: SystemPackageSet
 
 User Privilege (toto apply):
-  Layer 0: Runtime, Tool (without runtimeRef)
-  Layer 1: Tool (with runtimeRef)
+  Determined by DAG topological sort:
+  - Runtime (no dependencies)
+  - Installer (depends on Runtime or Tool)
+  - Tool (depends on Installer)
 ```
 
 ---
@@ -974,7 +1189,7 @@ For GitHub API rate limit mitigation, private repository access, and authenticat
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
     auth: {
         tokenEnvVar: "GITHUB_TOKEN"  // get from environment variable
         // or tokenFile: "~/.config/toto/github-token"
@@ -997,7 +1212,7 @@ spec: {
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    pattern: "download"
+    type: "download"
     credentialRef: "github"
 }
 ```

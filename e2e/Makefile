@@ -4,7 +4,7 @@ IMAGE_NAME := toto-ubuntu:test
 .PHONY: build up down test clean help
 
 build: ## Build toto binary and Docker image
-	GOOS=linux GOARCH=amd64 go build -o toto ../cmd/toto
+	GOOS=linux GOARCH=arm64 go build -o toto ../cmd/toto
 	docker build -t $(IMAGE_NAME) -f containers/ubuntu/Dockerfile .
 
 up: ## Start the test container

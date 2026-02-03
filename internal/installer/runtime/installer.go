@@ -30,19 +30,26 @@ func NewInstaller(downloader download.Downloader, runtimesDir string) *Installer
 }
 
 // Install installs a runtime according to the resource and returns its state.
-// Currently only supports the download pattern.
+// Supports both download and delegation types.
 func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
 	spec := res.RuntimeSpec
 
-	slog.Info("installing runtime", "name", name, "version", spec.Version)
+	slog.Info("installing runtime", "name", name, "version", spec.Version, "type", spec.Type)
 
-	// Only download pattern is supported for now
-	if spec.InstallerRef != "download" {
-		return nil, fmt.Errorf("installer %q not supported yet (only download pattern)", spec.InstallerRef)
+	switch spec.Type {
+	case resource.InstallTypeDownload:
+		return i.installDownload(ctx, spec, name)
+	case resource.InstallTypeDelegation:
+		return i.installDelegation(ctx, spec, name)
+	default:
+		return nil, fmt.Errorf("unsupported type: %s", spec.Type)
 	}
+}
 
+// installDownload installs a runtime using the download pattern.
+func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeSpec, name string) (*resource.RuntimeState, error) {
 	// Validate spec
-	if spec.Source.URL == "" {
+	if spec.Source == nil || spec.Source.URL == "" {
 		return nil, fmt.Errorf("source.url is required for download pattern")
 	}
 
@@ -79,7 +86,7 @@ func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name str
 	}
 
 	// Determine archive type
-	archiveType := extract.ArchiveType(spec.Source.ArchiveType)
+	archiveType := spec.Source.ArchiveType
 	if archiveType == "" {
 		archiveType = extract.DetectArchiveType(spec.Source.URL)
 		if archiveType == "" {
@@ -171,7 +178,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 // buildState creates a RuntimeState from the installation.
 func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir string) *resource.RuntimeState {
 	digest := ""
-	if spec.Source.Checksum != nil {
+	if spec.Source != nil && spec.Source.Checksum != nil {
 		digest = checksum.ExtractHash(spec.Source.Checksum)
 	}
 
@@ -192,17 +199,33 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 	}
 
 	return &resource.RuntimeState{
-		InstallerRef: spec.InstallerRef,
-		Version:      spec.Version,
-		Digest:       digest,
-		InstallPath:  installPath,
-		Binaries:     spec.Binaries,
-		BinDir:       binDir,
-		ToolBinPath:  toolBinPath,
-		Env:          env,
-		Commands:     spec.Commands,
-		UpdatedAt:    time.Now(),
+		Type:        spec.Type,
+		Version:     spec.Version,
+		SpecVersion: spec.Version, // TODO: resolve aliases like "stable" to actual version
+		Digest:      digest,
+		InstallPath: installPath,
+		Binaries:    spec.Binaries,
+		BinDir:      binDir,
+		ToolBinPath: toolBinPath,
+		Commands:    spec.Commands,
+		Env:         env,
+		UpdatedAt:   time.Now(),
 	}
+}
+
+// installDelegation installs a runtime using the delegation pattern.
+func (i *Installer) installDelegation(_ context.Context, spec *resource.RuntimeSpec, _ string) (*resource.RuntimeState, error) {
+	// Validate spec
+	if spec.Bootstrap == nil {
+		return nil, fmt.Errorf("bootstrap is required for delegation pattern")
+	}
+	if spec.Bootstrap.Install == "" {
+		return nil, fmt.Errorf("bootstrap.install is required for delegation pattern")
+	}
+
+	// TODO: Implement delegation pattern (execute bootstrap commands)
+	// For now, return an error as it's not yet implemented
+	return nil, fmt.Errorf("delegation pattern is not yet implemented")
 }
 
 // resolveBinDir determines where to create symlinks for runtime binaries.

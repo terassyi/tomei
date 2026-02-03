@@ -28,9 +28,9 @@ type RuntimeInfo struct {
 
 // InstallerInfo contains the information needed to install tools via installer delegation.
 type InstallerInfo struct {
-	Pattern    resource.InstallerPattern // "download" or "delegation"
-	RuntimeRef string                    // Reference to runtime (optional)
-	Commands   *resource.CommandsSpec
+	Type     resource.InstallType // "download" or "delegation"
+	ToolRef  string               // Reference to tool (optional, e.g., cargo-binstall)
+	Commands *resource.CommandsSpec
 }
 
 // Installer installs tools using download or delegation patterns.
@@ -75,9 +75,9 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 		return i.installByRuntime(ctx, res, name)
 	}
 
-	// 2. If installerRef points to a delegation pattern Installer, use it
+	// 2. If installerRef points to a delegation type Installer, use it
 	if info, ok := i.installers[spec.InstallerRef]; ok {
-		if info.Pattern == resource.InstallerPatternDelegation {
+		if info.Type == resource.InstallTypeDelegation {
 			return i.installByInstaller(ctx, res, name, info)
 		}
 	}
@@ -150,7 +150,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Determine archive type: use explicit value or auto-detect from URL
-	archiveType := extract.ArchiveType(spec.Source.ArchiveType)
+	archiveType := spec.Source.ArchiveType
 	if archiveType == "" {
 		archiveType = extract.DetectArchiveType(spec.Source.URL)
 		if archiveType == "" {
@@ -165,7 +165,12 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		return nil, fmt.Errorf("failed to create extractor: %w", err)
 	}
 
+	// For raw binaries, use tool name as subdirectory so the binary gets the correct name
 	extractDir := filepath.Join(tmpDir, "extracted")
+	if archiveType == extract.ArchiveTypeRaw {
+		extractDir = filepath.Join(tmpDir, "extracted", name)
+	}
+
 	archiveFile, err := os.Open(archivePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open archive: %w", err)
@@ -174,6 +179,11 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 
 	if err := extractor.Extract(archiveFile, extractDir); err != nil {
 		return nil, fmt.Errorf("failed to extract: %w", err)
+	}
+
+	// Reset extractDir for placer to search from
+	if archiveType == extract.ArchiveTypeRaw {
+		extractDir = filepath.Join(tmpDir, "extracted")
 	}
 
 	// Place binary
@@ -309,16 +319,10 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		BinPath: "", // installer manages the path
 	}
 
-	// Get environment from runtime if installer has runtimeRef
-	var env map[string]string
-	if info.RuntimeRef != "" {
-		if runtimeInfo, ok := i.runtimes[info.RuntimeRef]; ok {
-			env = runtimeInfo.Env
-		}
-	}
-
 	// Execute install command
-	if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
+	// Note: Installer no longer references Runtime directly.
+	// Tools that need runtime environment should use runtimeRef on the Tool itself.
+	if err := i.cmdExecutor.Execute(ctx, info.Commands.Install, vars); err != nil {
 		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
