@@ -1,7 +1,6 @@
 package download
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/terassyi/toto/internal/checksum"
 	"github.com/terassyi/toto/internal/resource"
@@ -145,6 +143,9 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 }
 
 // fetchChecksumFromURL fetches a checksums file from URL and extracts the hash for the given filename.
+// Supports two formats:
+//   - Standard text format: "<hash>  <filename>" or "<hash> *<filename>"
+//   - Go JSON format: [{"version":"go1.x","files":[{"filename":"...","sha256":"..."}]}]
 func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, string, error) {
 	slog.Debug("fetching checksum file", "url", url, "filename", filename)
 
@@ -163,50 +164,16 @@ func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename
 		return "", "", fmt.Errorf("failed to fetch checksum file: HTTP %d", resp.StatusCode)
 	}
 
-	// Parse checksums file
-	// Format: "<hash>  <filename>" or "<hash> *<filename>"
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		hash, file := parseChecksumLine(line)
-		if file == filename || filepath.Base(file) == filename {
-			// Determine algorithm from hash length
-			algorithm := checksum.DetectAlgorithm(hash)
-			if algorithm == "" {
-				return "", "", fmt.Errorf("could not determine hash algorithm for %q", hash)
-			}
-			slog.Debug("found checksum for file", "file", file, "algorithm", algorithm)
-			return algorithm, hash, nil
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "", "", fmt.Errorf("failed to read checksum file: %w", err)
 	}
 
-	return "", "", fmt.Errorf("checksum for %q not found in checksums file", filename)
-}
-
-// parseChecksumLine parses a line from a checksums file.
-// Supports formats:
-// - "<hash>  <filename>"
-// - "<hash> *<filename>"
-// - "<hash>  *<filename>"
-func parseChecksumLine(line string) (hash, filename string) {
-	parts := strings.Fields(line)
-	if len(parts) < 2 {
-		return "", ""
+	algo, hash, err := checksum.ParseFile(body, filename)
+	if err != nil {
+		return "", "", err
 	}
 
-	hash = parts[0]
-	filename = parts[1]
-
-	// Remove leading * from filename (BSD-style)
-	filename = strings.TrimPrefix(filename, "*")
-
-	return hash, filename
+	slog.Debug("found checksum", "file", filename, "algorithm", algo, "format", checksum.DetectFileFormat(body))
+	return algo, hash, nil
 }

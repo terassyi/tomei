@@ -61,12 +61,12 @@ func TestStore_LoadSave(t *testing.T) {
 	state.Version = Version
 	state.Runtimes = map[string]*resource.RuntimeState{
 		"go": {
-			InstallerRef: "download",
-			Version:      "1.25.1",
-			InstallPath:  "/home/user/.local/share/toto/runtimes/go/1.25.1",
-			Binaries:     []string{"go", "gofmt"},
-			ToolBinPath:  "/home/user/go/bin",
-			UpdatedAt:    time.Now(),
+			Type:        resource.InstallTypeDownload,
+			Version:     "1.25.1",
+			InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.1",
+			Binaries:    []string{"go", "gofmt"},
+			ToolBinPath: "/home/user/go/bin",
+			UpdatedAt:   time.Now(),
 		},
 	}
 	state.Tools = map[string]*resource.ToolState{

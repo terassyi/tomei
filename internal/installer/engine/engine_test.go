@@ -54,12 +54,12 @@ func (m *mockRuntimeInstaller) Install(ctx context.Context, res *resource.Runtim
 		return m.installFunc(ctx, res, name)
 	}
 	return &resource.RuntimeState{
-		InstallerRef: res.RuntimeSpec.InstallerRef,
-		Version:      res.RuntimeSpec.Version,
-		InstallPath:  "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-		Binaries:     res.RuntimeSpec.Binaries,
-		ToolBinPath:  res.RuntimeSpec.ToolBinPath,
-		Env:          res.RuntimeSpec.Env,
+		Type:        res.RuntimeSpec.Type,
+		Version:     res.RuntimeSpec.Version,
+		InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+		Binaries:    res.RuntimeSpec.Binaries,
+		ToolBinPath: res.RuntimeSpec.ToolBinPath,
+		Env:         res.RuntimeSpec.Env,
 	}, nil
 }
 
@@ -231,7 +231,7 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "myruntime"
 	spec: {
-		installerRef: "download"
+		pattern: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/myruntime-1.0.0.tar.gz"
@@ -283,12 +283,12 @@ tool: {
 	runtimeMock := &mockRuntimeInstaller{
 		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
 			st := &resource.RuntimeState{
-				InstallerRef: res.RuntimeSpec.InstallerRef,
-				Version:      res.RuntimeSpec.Version,
-				InstallPath:  "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-				Binaries:     res.RuntimeSpec.Binaries,
-				ToolBinPath:  res.RuntimeSpec.ToolBinPath,
-				Env:          res.RuntimeSpec.Env,
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:    res.RuntimeSpec.Binaries,
+				ToolBinPath: res.RuntimeSpec.ToolBinPath,
+				Env:         res.RuntimeSpec.Env,
 			}
 			installedRuntimes[name] = st
 			return st, nil
@@ -343,7 +343,7 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		pattern: "download"
 		version: "1.26.0"
 		source: {
 			url: "https://example.com/go-1.26.0.tar.gz"
@@ -353,6 +353,9 @@ runtime: {
 		}
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+		}
 	}
 }
 
@@ -361,10 +364,9 @@ tool: {
 	kind: "Tool"
 	metadata: name: "gopls"
 	spec: {
-		installerRef: "go"
-		version: "0.16.0"
 		runtimeRef: "go"
-		pkg: "golang.org/x/tools/gopls"
+		version: "0.16.0"
+		package: "golang.org/x/tools/gopls"
 	}
 }
 `
@@ -385,17 +387,16 @@ tool: {
 	require.NoError(t, store.Lock())
 	initialState := state.NewUserState()
 	initialState.Runtimes["go"] = &resource.RuntimeState{
-		InstallerRef: "download",
-		Version:      "1.25.0",
-		InstallPath:  "/runtimes/go/1.25.0",
-		Binaries:     []string{"go", "gofmt"},
+		Type:        resource.InstallTypeDownload,
+		Version:     "1.25.0",
+		InstallPath: "/runtimes/go/1.25.0",
+		Binaries:    []string{"go", "gofmt"},
 	}
 	initialState.Tools["gopls"] = &resource.ToolState{
-		InstallerRef: "go",
-		Version:      "0.16.0",
-		RuntimeRef:   "go", // depends on go runtime
-		InstallPath:  "/tools/gopls/0.16.0",
-		BinPath:      "/bin/gopls",
+		RuntimeRef:  "go", // depends on go runtime
+		Version:     "0.16.0",
+		InstallPath: "/tools/gopls/0.16.0",
+		BinPath:     "/bin/gopls",
 	}
 	err = store.Save(initialState)
 	require.NoError(t, err)
@@ -406,10 +407,10 @@ tool: {
 		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
 			runtimeInstallCalled = true
 			return &resource.RuntimeState{
-				InstallerRef: res.RuntimeSpec.InstallerRef,
-				Version:      res.RuntimeSpec.Version,
-				InstallPath:  "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-				Binaries:     res.RuntimeSpec.Binaries,
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:    res.RuntimeSpec.Binaries,
 			}, nil
 		},
 	}
@@ -454,6 +455,293 @@ tool: {
 	assert.False(t, st.Tools["gopls"].IsTainted(), "tool should not be tainted after reinstall")
 }
 
+func TestEngine_Apply_DependencyOrder(t *testing.T) {
+	// Test that DAG-based execution respects dependency order:
+	// Runtime(go) -> Tool(pnpm) -> Installer(pnpm) -> Tool(biome)
+	// Tool can directly reference Runtime via runtimeRef
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.23.0"
+		source: {
+			url: "https://example.com/go-1.23.0.tar.gz"
+			checksum: { value: "sha256:abc123" }
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		env: {
+			GOROOT: "/runtimes/go/1.23.0"
+			GOBIN: "~/go/bin"
+		}
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+		}
+	}
+}
+
+pnpmTool: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "pnpm"
+	spec: {
+		runtimeRef: "go"
+		package: "github.com/pnpm/pnpm"
+		version: "v8.0.0"
+	}
+}
+
+pnpmInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "pnpm"
+	spec: {
+		pattern: "delegation"
+		toolRef: "pnpm"
+		commands: {
+			install: "pnpm add -g {{.Package}}@{{.Version}}"
+		}
+	}
+}
+
+biomeTool: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "biome"
+	spec: {
+		installerRef: "pnpm"
+		package: "@biomejs/biome"
+		version: "1.5.0"
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Track execution order
+	var executionOrder []string
+
+	// Setup store
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	runtimeMock := &mockRuntimeInstaller{
+		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			executionOrder = append(executionOrder, "Runtime:"+name)
+			return &resource.RuntimeState{
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:    res.RuntimeSpec.Binaries,
+				ToolBinPath: res.RuntimeSpec.ToolBinPath,
+				Env:         res.RuntimeSpec.Env,
+				Commands:    res.RuntimeSpec.Commands,
+			}, nil
+		},
+	}
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			executionOrder = append(executionOrder, "Tool:"+name)
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	engine := NewEngine(toolMock, runtimeMock, store)
+
+	// Run Apply
+	err = engine.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Verify execution order respects dependencies
+	// Runtime:go must come before Tool:pnpm
+	// Tool:pnpm must come before Tool:biome
+	goIndex := -1
+	pnpmIndex := -1
+	biomeIndex := -1
+
+	for i, item := range executionOrder {
+		switch item {
+		case "Runtime:go":
+			goIndex = i
+		case "Tool:pnpm":
+			pnpmIndex = i
+		case "Tool:biome":
+			biomeIndex = i
+		}
+	}
+
+	assert.NotEqual(t, -1, goIndex, "go runtime should be installed")
+	assert.NotEqual(t, -1, pnpmIndex, "pnpm tool should be installed")
+	assert.NotEqual(t, -1, biomeIndex, "biome tool should be installed")
+
+	assert.Less(t, goIndex, pnpmIndex, "go runtime must be installed before pnpm tool")
+	assert.Less(t, pnpmIndex, biomeIndex, "pnpm tool must be installed before biome tool")
+}
+
+func TestEngine_Apply_CircularDependency(t *testing.T) {
+	// Test that circular dependencies are detected and rejected
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+installerA: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "installer-a"
+	spec: {
+		pattern: "delegation"
+		toolRef: "tool-b"
+		commands: {
+			install: "install-a {{.Package}}"
+		}
+	}
+}
+
+toolB: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "tool-b"
+	spec: {
+		installerRef: "installer-a"
+		version: "1.0.0"
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup store
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+
+	// Run Apply - should fail due to circular dependency
+	err = engine.Apply(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "circular dependency")
+}
+
+func TestEngine_Apply_ParallelExecution(t *testing.T) {
+	// Test that independent tools are executed in parallel
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: {
+		pattern: "download"
+	}
+}
+
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "ripgrep"
+	spec: {
+		installerRef: "aqua"
+		version: "14.0.0"
+		source: {
+			url: "https://example.com/ripgrep.tar.gz"
+			checksum: { value: "sha256:rg" }
+		}
+	}
+}
+
+fd: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fd"
+	spec: {
+		installerRef: "aqua"
+		version: "9.0.0"
+		source: {
+			url: "https://example.com/fd.tar.gz"
+			checksum: { value: "sha256:fd" }
+		}
+	}
+}
+
+bat: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "aqua"
+		version: "0.24.0"
+		source: {
+			url: "https://example.com/bat.tar.gz"
+			checksum: { value: "sha256:bat" }
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup store
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installedTools := make(map[string]bool)
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installedTools[name] = true
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+	// Run Apply
+	err = engine.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// All three tools should be installed
+	assert.True(t, installedTools["ripgrep"])
+	assert.True(t, installedTools["fd"])
+	assert.True(t, installedTools["bat"])
+}
+
 func TestEngine_PlanAll(t *testing.T) {
 	// Create test config directory with CUE file
 	configDir := t.TempDir()
@@ -465,7 +753,7 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "myruntime"
 	spec: {
-		installerRef: "download"
+		pattern: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/myruntime.tar.gz"

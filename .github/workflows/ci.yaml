@@ -57,7 +57,7 @@ jobs:
   e2e-test:
     name: E2E Test
     needs: integration-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v6

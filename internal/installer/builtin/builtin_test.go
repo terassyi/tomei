@@ -32,8 +32,9 @@ func TestInstallers(t *testing.T) {
 
 	// Verify spec
 	require.NotNil(t, downloadInstaller.InstallerSpec)
-	assert.Equal(t, resource.InstallerPatternDownload, downloadInstaller.InstallerSpec.Pattern)
+	assert.Equal(t, resource.InstallTypeDownload, downloadInstaller.InstallerSpec.Type)
 	assert.Empty(t, downloadInstaller.InstallerSpec.RuntimeRef)
+	assert.Empty(t, downloadInstaller.InstallerSpec.ToolRef)
 	assert.Nil(t, downloadInstaller.InstallerSpec.Bootstrap)
 	assert.Nil(t, downloadInstaller.InstallerSpec.Commands)
 }

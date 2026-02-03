@@ -52,7 +52,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-	pattern: "download"
+	type: "download"
 }
 `
 	toolSetCue := `
@@ -118,7 +118,7 @@ spec: {
 		require.True(t, ok)
 		assert.Equal(t, "aqua", installer.Name())
 		assert.Equal(t, resource.KindInstaller, installer.Kind())
-		assert.Equal(t, resource.InstallerPatternDownload, installer.InstallerSpec.Pattern)
+		assert.Equal(t, resource.InstallTypeDownload, installer.InstallerSpec.Type)
 	})
 
 	t.Run("Get ToolSet by type", func(t *testing.T) {

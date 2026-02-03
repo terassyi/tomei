@@ -3,52 +3,110 @@ package resource
 import (
 	"fmt"
 	"time"
+
+	"github.com/terassyi/toto/internal/installer/extract"
 )
 
-// DownloadSource holds download configuration.
+// DownloadSource holds download configuration for tools and runtimes
+// that are installed via the download pattern (e.g., aqua installer).
 type DownloadSource struct {
-	URL         string    `json:"url"`
-	Checksum    *Checksum `json:"checksum,omitempty"`
-	ArchiveType string    `json:"archiveType,omitempty"`
+	// URL is the download URL for the tool archive or binary.
+	// Must be HTTPS. Supports GitHub releases, direct downloads, etc.
+	// Example: "https://github.com/cli/cli/releases/download/v2.62.0/gh_2.62.0_linux_amd64.tar.gz"
+	URL string `json:"url"`
+
+	// Checksum configures how to verify the downloaded file's integrity.
+	// Either a direct value or a URL to a checksums file can be specified.
+	Checksum *Checksum `json:"checksum,omitempty"`
+
+	// ArchiveType specifies the archive format explicitly.
+	// If empty, the type is auto-detected from the URL extension.
+	// See extract.ArchiveTypeTarGz, extract.ArchiveTypeZip, extract.ArchiveTypeRaw.
+	ArchiveType extract.ArchiveType `json:"archiveType,omitempty"`
 }
 
 // Checksum holds checksum verification configuration.
 // Either Value or URL should be specified, not both.
 type Checksum struct {
-	// Value is the direct checksum value (e.g., "sha256:abc123...")
+	// Value is the direct checksum value in "algorithm:hash" format.
+	// Currently only sha256 is supported.
+	// Example: "sha256:abc123def456..."
 	Value string `json:"value,omitempty"`
-	// URL is the URL to a checksums file (e.g., GitHub release checksums.txt)
+
+	// URL points to a checksums file (e.g., GitHub release SHA256SUMS).
+	// The file should contain lines in "hash  filename" format.
+	// Example: "https://github.com/cli/cli/releases/download/v2.62.0/checksums.txt"
 	URL string `json:"url,omitempty"`
-	// FilePattern is the pattern to match the target file in checksums file.
-	// If empty, uses the downloaded filename.
+
+	// FilePattern is a glob pattern to match the target file in the checksums file.
+	// Used when URL is specified to identify which line contains our file's hash.
+	// If empty, matches against the downloaded filename.
+	// Example: "gh_*_linux_amd64.tar.gz"
 	FilePattern string `json:"filePattern,omitempty"`
 }
 
-// ToolSpec defines an individual tool.
+// ToolSpec defines the desired state of an individual tool.
+// A tool can be installed via two patterns:
+//  1. Download pattern: Downloads a binary/archive directly (requires InstallerRef pointing to a download-pattern installer like "aqua")
+//  2. Delegation pattern: Uses a runtime or installer command (e.g., "go install", "cargo install")
 type ToolSpec struct {
-	InstallerRef string          `json:"installerRef"`
-	Version      string          `json:"version"`
-	Enabled      *bool           `json:"enabled,omitempty"` // default: true
-	Source       *DownloadSource `json:"source,omitempty"`  // for download pattern
-	RuntimeRef   string          `json:"runtimeRef,omitempty"`
-	Package      string          `json:"package,omitempty"` // for runtime delegation
+	// InstallerRef references an Installer resource by name.
+	// For download pattern: points to an installer like "aqua" that handles downloading.
+	// For delegation pattern: points to an installer like "go", "cargo", "npm" that has install commands.
+	// Either InstallerRef or RuntimeRef must be specified.
+	InstallerRef string `json:"installerRef,omitempty"`
+
+	// Version specifies the tool version to install.
+	// Format depends on the tool (e.g., "2.62.0", "v2.62.0", "latest").
+	// Required for download pattern; optional for delegation pattern if Package includes version.
+	Version string `json:"version,omitempty"`
+
+	// Enabled controls whether this tool should be installed.
+	// Default is true. Set to false to skip installation without removing the config.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Source configures download settings for the download pattern.
+	// Required when using a download-pattern installer (e.g., "aqua").
+	// Not used for delegation pattern installations.
+	Source *DownloadSource `json:"source,omitempty"`
+
+	// RuntimeRef references a Runtime resource by name for delegation installation.
+	// When set, the tool is installed using the runtime's install command
+	// (e.g., "go install" for Go runtime).
+	// The tool will be tainted (marked for reinstallation) when the runtime is upgraded.
+	// Either InstallerRef or RuntimeRef must be specified.
+	RuntimeRef string `json:"runtimeRef,omitempty"`
+
+	// Package specifies the package identifier for delegation installation.
+	// Required when using RuntimeRef.
+	// Format depends on the runtime:
+	//   - Go: "golang.org/x/tools/gopls"
+	//   - Cargo: "ripgrep"
+	//   - npm: "@biomejs/biome"
+	Package string `json:"package,omitempty"`
 }
 
 // Validate validates the ToolSpec.
 func (s *ToolSpec) Validate() error {
-	if s.InstallerRef == "" {
-		return fmt.Errorf("installerRef is required")
+	// Either installerRef or runtimeRef must be specified
+	if s.InstallerRef == "" && s.RuntimeRef == "" {
+		return fmt.Errorf("either installerRef or runtimeRef is required")
 	}
 	if s.Version == "" && s.Package == "" {
 		return fmt.Errorf("version or package is required")
+	}
+	// Runtime delegation requires package
+	if s.RuntimeRef != "" && s.Package == "" {
+		return fmt.Errorf("package is required when using runtimeRef")
 	}
 	return nil
 }
 
 // Dependencies returns the resources this tool depends on.
 func (s *ToolSpec) Dependencies() []Ref {
-	deps := []Ref{
-		{Kind: KindInstaller, Name: s.InstallerRef},
+	var deps []Ref
+	if s.InstallerRef != "" {
+		deps = append(deps, Ref{Kind: KindInstaller, Name: s.InstallerRef})
 	}
 	if s.RuntimeRef != "" {
 		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
@@ -76,17 +134,34 @@ func (t *ToolSpec) IsEnabled() bool {
 	return *t.Enabled
 }
 
-// ToolSetSpec defines a set of tools.
+// ToolSetSpec defines a set of tools that share the same installer configuration.
+// This is a convenience for managing multiple tools from the same source
+// (e.g., multiple CLI tools from GitHub releases via aqua, or Go tools via go install).
 type ToolSetSpec struct {
-	InstallerRef string              `json:"installerRef"`
-	RuntimeRef   string              `json:"runtimeRef,omitempty"`
-	Tools        map[string]ToolItem `json:"tools"`
+	// InstallerRef references the shared Installer resource for all tools in this set.
+	// All tools will be installed using this installer's pattern and commands.
+	// Either InstallerRef or RuntimeRef must be specified (mutually exclusive).
+	InstallerRef string `json:"installerRef,omitempty"`
+
+	// RuntimeRef references a Runtime resource for installation.
+	// When set, all tools in this set will be installed via the runtime's commands.install.
+	// Either InstallerRef or RuntimeRef must be specified (mutually exclusive).
+	RuntimeRef string `json:"runtimeRef,omitempty"`
+
+	// Tools maps tool names to their individual configurations.
+	// The key becomes the tool name (and typically the binary name).
+	// Each tool can override version and source settings.
+	Tools map[string]ToolItem `json:"tools"`
 }
 
 // Validate validates the ToolSetSpec.
 func (s *ToolSetSpec) Validate() error {
-	if s.InstallerRef == "" {
-		return fmt.Errorf("installerRef is required")
+	// Either installerRef or runtimeRef must be specified (mutually exclusive)
+	if s.InstallerRef == "" && s.RuntimeRef == "" {
+		return fmt.Errorf("either installerRef or runtimeRef is required")
+	}
+	if s.InstallerRef != "" && s.RuntimeRef != "" {
+		return fmt.Errorf("cannot specify both installerRef and runtimeRef")
 	}
 	if len(s.Tools) == 0 {
 		return fmt.Errorf("at least one tool is required")
@@ -96,8 +171,9 @@ func (s *ToolSetSpec) Validate() error {
 
 // Dependencies returns the resources this toolset depends on.
 func (s *ToolSetSpec) Dependencies() []Ref {
-	deps := []Ref{
-		{Kind: KindInstaller, Name: s.InstallerRef},
+	var deps []Ref
+	if s.InstallerRef != "" {
+		deps = append(deps, Ref{Kind: KindInstaller, Name: s.InstallerRef})
 	}
 	if s.RuntimeRef != "" {
 		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
@@ -118,11 +194,23 @@ func (*ToolSet) Kind() Kind { return KindToolSet }
 func (t *ToolSet) Spec() Spec { return t.ToolSetSpec }
 
 // ToolItem represents a tool within a ToolSet.
+// It provides per-tool overrides for version and source configuration.
 type ToolItem struct {
-	Version string          `json:"version,omitempty"`
-	Enabled *bool           `json:"enabled,omitempty"`
-	Source  *DownloadSource `json:"source,omitempty"`
-	Package string          `json:"package,omitempty"`
+	// Version specifies the tool version to install.
+	// Overrides any default version from the ToolSet.
+	Version string `json:"version,omitempty"`
+
+	// Enabled controls whether this specific tool should be installed.
+	// Default is true. Set to false to exclude this tool from the set.
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// Source provides download configuration for this specific tool.
+	// Required for download pattern installers.
+	Source *DownloadSource `json:"source,omitempty"`
+
+	// Package specifies the package identifier for delegation installation.
+	// Used when the ToolSet has a RuntimeRef configured.
+	Package string `json:"package,omitempty"`
 }
 
 // IsEnabled returns whether the tool item is enabled.
@@ -133,18 +221,48 @@ func (t *ToolItem) IsEnabled() bool {
 	return *t.Enabled
 }
 
-// ToolState represents the state of an installed tool.
+// ToolState represents the persisted state of an installed tool.
+// This is stored in state.json and used for reconciliation to determine
+// what actions are needed (install, upgrade, reinstall, remove).
 type ToolState struct {
-	InstallerRef string          `json:"installerRef"`
-	Version      string          `json:"version"`
-	Digest       string          `json:"digest,omitempty"`
-	InstallPath  string          `json:"installPath"`
-	BinPath      string          `json:"binPath"`
-	Source       *DownloadSource `json:"source,omitempty"`
-	RuntimeRef   string          `json:"runtimeRef,omitempty"`
-	Package      string          `json:"package,omitempty"`
-	TaintReason  string          `json:"taintReason,omitempty"`
-	UpdatedAt    time.Time       `json:"updatedAt"`
+	// InstallerRef is the installer that was used to install this tool.
+	InstallerRef string `json:"installerRef"`
+
+	// Version is the installed version of the tool.
+	Version string `json:"version"`
+
+	// Digest is the SHA256 hash of the installed binary (for download pattern).
+	// Used to verify integrity and detect if the binary was modified.
+	Digest string `json:"digest,omitempty"`
+
+	// InstallPath is the absolute path to the installed binary.
+	// For download pattern: ~/.local/share/toto/tools/{name}/{version}/{binary}
+	// For delegation pattern: depends on the installer (e.g., ~/go/bin/{name})
+	InstallPath string `json:"installPath"`
+
+	// BinPath is the absolute path to the symlink in the user's bin directory.
+	// Typically ~/.local/bin/{name} for download pattern tools.
+	// May be empty for delegation pattern tools that manage their own PATH.
+	BinPath string `json:"binPath"`
+
+	// Source records the download configuration used for installation.
+	// Stored for reference and potential re-download if needed.
+	Source *DownloadSource `json:"source,omitempty"`
+
+	// RuntimeRef records which runtime was used for delegation installation.
+	// Used to determine if the tool needs reinstallation when the runtime is upgraded.
+	RuntimeRef string `json:"runtimeRef,omitempty"`
+
+	// Package records the package identifier used for delegation installation.
+	Package string `json:"package,omitempty"`
+
+	// TaintReason indicates why this tool needs reinstallation.
+	// Common reasons: "runtime_upgraded" (runtime was updated).
+	// Empty string means the tool is not tainted.
+	TaintReason string `json:"taintReason,omitempty"`
+
+	// UpdatedAt is the timestamp when this tool was last installed or updated.
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (*ToolState) isState() {}

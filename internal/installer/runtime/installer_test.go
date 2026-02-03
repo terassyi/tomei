@@ -64,9 +64,9 @@ func TestInstaller_Install(t *testing.T) {
 				Metadata:     resource.Metadata{Name: "myruntime"},
 			},
 			RuntimeSpec: &resource.RuntimeSpec{
-				InstallerRef: "download",
-				Version:      "1.0.0",
-				Source: resource.DownloadSource{
+				Type:    resource.InstallTypeDownload,
+				Version: "1.0.0",
+				Source: &resource.DownloadSource{
 					URL: server.URL + "/myruntime-1.0.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
@@ -85,7 +85,7 @@ func TestInstaller_Install(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify state
-		assert.Equal(t, "download", state.InstallerRef)
+		assert.Equal(t, resource.InstallTypeDownload, state.Type)
 		assert.Equal(t, "1.0.0", state.Version)
 		assert.Equal(t, archiveHash, state.Digest)
 		assert.Contains(t, state.InstallPath, "myruntime/1.0.0")
@@ -128,9 +128,9 @@ func TestInstaller_Install(t *testing.T) {
 				Metadata:     resource.Metadata{Name: "myruntime"},
 			},
 			RuntimeSpec: &resource.RuntimeSpec{
-				InstallerRef: "download",
-				Version:      "1.0.0",
-				Source: resource.DownloadSource{
+				Type:    resource.InstallTypeDownload,
+				Version: "1.0.0",
+				Source: &resource.DownloadSource{
 					URL: server.URL + "/myruntime-1.0.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
@@ -166,12 +166,13 @@ func TestInstaller_Install(t *testing.T) {
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
-				InstallerRef: "download",
-				Version:      "1.0.0",
-				Source: resource.DownloadSource{
+				Type:    resource.InstallTypeDownload,
+				Version: "1.0.0",
+				Source: &resource.DownloadSource{
 					URL: server.URL + "/myruntime-1.0.0.tar.gz",
 				},
-				Binaries: []string{"mybin"},
+				Binaries:    []string{"mybin"},
+				ToolBinPath: "~/bin",
 			},
 		}
 
@@ -180,20 +181,27 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, installPath, state.InstallPath)
 	})
 
-	t.Run("unsupported installer", func(t *testing.T) {
+	t.Run("delegation pattern not supported yet", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		installer := NewInstaller(download.NewDownloader(), tmpDir)
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
-				InstallerRef: "rustup",
-				Version:      "stable",
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: "~/.cargo/bin",
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
+						Check:   "rustc --version",
+					},
+				},
 			},
 		}
 
 		_, err := installer.Install(context.Background(), runtime, "rust")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not supported yet")
+		assert.Contains(t, err.Error(), "not yet implemented")
 	})
 
 	t.Run("missing source URL", func(t *testing.T) {
@@ -202,9 +210,10 @@ func TestInstaller_Install(t *testing.T) {
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
-				InstallerRef: "download",
-				Version:      "1.0.0",
-				Source:       resource.DownloadSource{},
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.0.0",
+				Source:      &resource.DownloadSource{},
+				ToolBinPath: "~/bin",
 			},
 		}
 

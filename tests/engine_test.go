@@ -74,14 +74,14 @@ func (m *mockRuntimeInstaller) Install(_ context.Context, res *resource.Runtime,
 	}
 
 	st := &resource.RuntimeState{
-		InstallerRef: res.RuntimeSpec.InstallerRef,
-		Version:      res.RuntimeSpec.Version,
-		InstallPath:  filepath.Join("/mock/runtimes", name, res.RuntimeSpec.Version),
-		Binaries:     res.RuntimeSpec.Binaries,
-		BinDir:       binDir,
-		ToolBinPath:  res.RuntimeSpec.ToolBinPath,
-		Env:          res.RuntimeSpec.Env,
-		Commands:     res.RuntimeSpec.Commands,
+		Type:        res.RuntimeSpec.Type,
+		Version:     res.RuntimeSpec.Version,
+		InstallPath: filepath.Join("/mock/runtimes", name, res.RuntimeSpec.Version),
+		Binaries:    res.RuntimeSpec.Binaries,
+		BinDir:      binDir,
+		ToolBinPath: res.RuntimeSpec.ToolBinPath,
+		Env:         res.RuntimeSpec.Env,
+		Commands:    res.RuntimeSpec.Commands,
 	}
 	m.installed[name] = st
 	return st, nil

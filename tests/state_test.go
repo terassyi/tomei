@@ -37,11 +37,11 @@ func TestState_Persistence(t *testing.T) {
 		},
 		Runtimes: map[string]*resource.RuntimeState{
 			"go": {
-				InstallerRef: "download",
-				Version:      "1.25.5",
-				InstallPath:  "/home/user/.local/share/toto/runtimes/go/1.25.5",
-				Binaries:     []string{"go", "gofmt"},
-				ToolBinPath:  "/home/user/go/bin",
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.25.5",
+				InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+				Binaries:    []string{"go", "gofmt"},
+				ToolBinPath: "/home/user/go/bin",
 				Env: map[string]string{
 					"GOROOT": "/home/user/.local/share/toto/runtimes/go/1.25.5",
 				},
@@ -190,10 +190,10 @@ func TestState_Taint(t *testing.T) {
 		},
 		Runtimes: map[string]*resource.RuntimeState{
 			"go": {
-				InstallerRef: "download",
-				Version:      "1.25.5",
-				InstallPath:  "/home/user/.local/share/toto/runtimes/go/1.25.5",
-				Binaries:     []string{"go", "gofmt"},
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.25.5",
+				InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+				Binaries:    []string{"go", "gofmt"},
 			},
 		},
 	}

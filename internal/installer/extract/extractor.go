@@ -11,12 +11,19 @@ import (
 	"path/filepath"
 )
 
-// ArchiveType represents the type of archive.
+// ArchiveType represents the type of archive format for downloads.
 type ArchiveType string
 
 const (
+	// ArchiveTypeTarGz represents a gzipped tar archive (.tar.gz, .tgz).
 	ArchiveTypeTarGz ArchiveType = "tar.gz"
-	ArchiveTypeZip   ArchiveType = "zip"
+
+	// ArchiveTypeZip represents a ZIP archive (.zip).
+	ArchiveTypeZip ArchiveType = "zip"
+
+	// ArchiveTypeRaw represents a raw binary file (no compression).
+	// Use this for direct binary downloads (e.g., jq-linux-amd64).
+	ArchiveTypeRaw ArchiveType = "raw"
 )
 
 // DetectArchiveType detects the archive type from a URL or filename.
@@ -57,6 +64,8 @@ func NewExtractor(archiveType ArchiveType) (Extractor, error) {
 		return &tarGzExtractor{}, nil
 	case ArchiveTypeZip:
 		return &zipExtractor{}, nil
+	case ArchiveTypeRaw:
+		return &rawExtractor{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported archive type: %s", archiveType)
 	}
@@ -235,4 +244,36 @@ func isInsideDir(baseDir, target string) bool {
 	}
 	// Check for path traversal (../)
 	return rel != ".." && !filepath.IsAbs(rel) && len(rel) > 0 && rel[0] != '.'
+}
+
+// rawExtractor implements Extractor for raw binary files.
+type rawExtractor struct{}
+
+// Extract copies a raw binary file to the destination directory.
+// The binary is named after the base name of destDir (the tool name).
+func (e *rawExtractor) Extract(r io.Reader, destDir string) error {
+	slog.Debug("extracting raw binary", "dest", destDir)
+
+	// Create destination directory
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Use the directory name as the binary name
+	binName := filepath.Base(destDir)
+	target := filepath.Join(destDir, binName)
+
+	// Create the binary file with executable permissions
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create binary file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, r); err != nil {
+		return fmt.Errorf("failed to write binary file: %w", err)
+	}
+
+	slog.Debug("raw binary extracted", "target", target)
+	return nil
 }

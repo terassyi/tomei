@@ -89,6 +89,11 @@ func TestNewExtractor(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "raw extractor",
+			archiveType: ArchiveTypeRaw,
+			wantErr:     false,
+		},
+		{
 			name:        "unsupported archive type",
 			archiveType: ArchiveType("unknown"),
 			wantErr:     true,
@@ -286,6 +291,77 @@ func TestExtractor_Zip_RequiresReaderAt(t *testing.T) {
 	// Should error because zip needs ReaderAt
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ReaderAt")
+}
+
+func TestExtractor_Extract_Raw(t *testing.T) {
+	tests := []struct {
+		name        string
+		destDirName string // final component of destDir becomes binary name
+		content     string
+		wantErr     bool
+	}{
+		{
+			name:        "extract raw binary",
+			destDirName: "jq",
+			content:     "binary content here",
+			wantErr:     false,
+		},
+		{
+			name:        "extract raw binary with different name",
+			destDirName: "mytool",
+			content:     "#!/bin/sh\necho hello",
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			destDir := filepath.Join(tmpDir, tt.destDirName)
+
+			extractor, err := NewExtractor(ArchiveTypeRaw)
+			require.NoError(t, err)
+
+			r := bytes.NewReader([]byte(tt.content))
+			err = extractor.Extract(r, destDir)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify the binary was created with the correct name
+			binaryPath := filepath.Join(destDir, tt.destDirName)
+			content, err := os.ReadFile(binaryPath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.content, string(content))
+
+			// Verify executable permission
+			info, err := os.Stat(binaryPath)
+			require.NoError(t, err)
+			assert.NotEqual(t, fs.FileMode(0), info.Mode()&0111, "expected executable permission")
+		})
+	}
+}
+
+func TestExtractor_Raw_CreatesParentDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "nested", "path", "toolname")
+
+	extractor, err := NewExtractor(ArchiveTypeRaw)
+	require.NoError(t, err)
+
+	content := "binary content"
+	r := bytes.NewReader([]byte(content))
+	err = extractor.Extract(r, destDir)
+	require.NoError(t, err)
+
+	// Verify the binary was created
+	binaryPath := filepath.Join(destDir, "toolname")
+	_, err = os.Stat(binaryPath)
+	require.NoError(t, err)
 }
 
 // Helper functions to create test data
