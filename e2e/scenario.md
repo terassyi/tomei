@@ -16,7 +16,7 @@ This document describes the scenarios verified by toto's E2E tests.
 | Suite | Tests | Description |
 |-------|-------|-------------|
 | toto on Ubuntu | 27 | Basic commands, installation, idempotency, doctor, runtime upgrade |
-| Dependency Resolution | 9 | Circular dependency detection, parallel installation, dependency chains |
+| Dependency Resolution | 12 | Circular dependency detection, parallel installation, dependency chains, toolRef chain |
 
 ---
 
@@ -231,7 +231,29 @@ Installer(aqua) → Tool(jq) → Installer(jq-installer)
 2. `toto apply` installs jq
 3. `~/.local/bin/jq --version` → contains "jq-1.7"
 
-### 2.4 Runtime → Tool Dependency Chain
+### 2.4 Tool → Installer → Tool Chain (gh clone)
+
+#### Configuration
+```
+Tool(gh) → Installer(gh) [toolRef] → Tool(toto-src)
+```
+- gh: Tool installed via download pattern
+- gh installer: Installer referencing gh via toolRef, uses `gh repo clone`
+- toto-src: Tool (repository) cloned via gh installer
+
+#### Verification
+1. `toto validate` recognizes all resources:
+   - Tool/gh
+   - Installer/gh
+   - Tool/toto-src
+2. `toto apply` installs gh tool first
+3. gh is available: `~/.local/bin/gh --version`
+4. toto repository is cloned:
+   - `~/repos/toto-src/` directory exists
+   - `~/repos/toto-src/go.mod` exists
+   - `~/repos/toto-src/cmd/toto/main.go` exists
+
+### 2.5 Runtime → Tool Dependency Chain
 
 #### Configuration
 ```
@@ -325,3 +347,8 @@ gh CLI 2.86.0 definition (linux-arm64, download pattern)
 
 ### `e2e/config/delegation.cue`
 gopls v0.21.0 definition (runtime delegation pattern)
+
+### `e2e/config/toolref.cue`
+Tool → Installer → Tool chain definition:
+- gh installer with toolRef (depends on gh tool)
+- toto-src tool (cloned via gh installer)
