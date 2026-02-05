@@ -63,8 +63,8 @@ format: tar.gz
 	}
 
 	// Test
-	fetcher := NewFetcher(cacheDir).WithHTTPClient(mockClient)
-	info, err := fetcher.Fetch(context.Background(), ref, pkg)
+	f := newFetcher(cacheDir).withHTTPClient(mockClient)
+	info, err := f.fetch(context.Background(), ref, pkg)
 
 	// Assert
 	require.NoError(t, err)
@@ -98,10 +98,10 @@ format: tar.gz
 	}
 
 	// Test
-	fetcher := NewFetcher(cacheDir).
-		WithHTTPClient(mockClient).
-		WithBaseURL("https://example.com")
-	info, err := fetcher.Fetch(context.Background(), ref, pkg)
+	f := newFetcher(cacheDir).
+		withHTTPClient(mockClient).
+		withBaseURL("https://example.com")
+	info, err := f.fetch(context.Background(), ref, pkg)
 
 	// Assert
 	require.NoError(t, err)
@@ -130,10 +130,10 @@ func TestFetcher_Fetch_NotFound(t *testing.T) {
 	}
 
 	// Test
-	fetcher := NewFetcher(cacheDir).
-		WithHTTPClient(mockClient).
-		WithBaseURL("https://example.com")
-	_, err := fetcher.Fetch(context.Background(), ref, pkg)
+	f := newFetcher(cacheDir).
+		withHTTPClient(mockClient).
+		withBaseURL("https://example.com")
+	_, err := f.fetch(context.Background(), ref, pkg)
 
 	// Assert
 	require.Error(t, err)
@@ -155,92 +155,18 @@ func TestFetcher_Fetch_ServerError(t *testing.T) {
 	}
 
 	// Test
-	fetcher := NewFetcher(cacheDir).
-		WithHTTPClient(mockClient).
-		WithBaseURL("https://example.com")
-	_, err := fetcher.Fetch(context.Background(), ref, pkg)
+	f := newFetcher(cacheDir).
+		withHTTPClient(mockClient).
+		withBaseURL("https://example.com")
+	_, err := f.fetch(context.Background(), ref, pkg)
 
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected status code")
 }
 
-func TestFetcher_GetLatestRef(t *testing.T) {
-	// Setup: mock HTTP client
-	mockClient := &http.Client{
-		Transport: &mockRoundTripper{
-			handler: func(req *http.Request) (*http.Response, error) {
-				assert.Equal(t, "application/vnd.github.v3+json", req.Header.Get("Accept"))
-				assert.Contains(t, req.URL.String(), "api.github.com")
-				return newMockResponse(http.StatusOK, `{"tag_name": "v4.500.0"}`), nil
-			},
-		},
-	}
-
-	fetcher := NewFetcher(t.TempDir()).WithHTTPClient(mockClient)
-
-	// Test
-	ref, err := fetcher.GetLatestRef(context.Background())
-
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, "v4.500.0", ref)
-}
-
-func TestFetcher_GetLatestRef_EmptyTagName(t *testing.T) {
-	// Setup: mock HTTP client returning empty tag_name
-	mockClient := &http.Client{
-		Transport: &mockRoundTripper{
-			handler: func(req *http.Request) (*http.Response, error) {
-				return newMockResponse(http.StatusOK, `{"tag_name": ""}`), nil
-			},
-		},
-	}
-
-	fetcher := NewFetcher(t.TempDir()).WithHTTPClient(mockClient)
-
-	// Test
-	_, err := fetcher.GetLatestRef(context.Background())
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "tag_name is empty")
-}
-
-func TestFetcher_GetLatestToolVersion(t *testing.T) {
-	// Setup: mock HTTP client
-	mockClient := &http.Client{
-		Transport: &mockRoundTripper{
-			handler: func(req *http.Request) (*http.Response, error) {
-				assert.Contains(t, req.URL.Path, "/repos/cli/cli/releases/latest")
-				return newMockResponse(http.StatusOK, `{"tag_name": "v2.86.0"}`), nil
-			},
-		},
-	}
-
-	fetcher := NewFetcher(t.TempDir()).WithHTTPClient(mockClient)
-
-	// Test
-	version, err := fetcher.GetLatestToolVersion(context.Background(), "cli", "cli")
-
-	// Assert
-	require.NoError(t, err)
-	assert.Equal(t, "v2.86.0", version)
-}
-
-func TestFetcher_GetLatestToolVersion_InvalidRepoOwner(t *testing.T) {
-	fetcher := NewFetcher(t.TempDir())
-
-	// Test with path traversal in repo owner
-	_, err := fetcher.GetLatestToolVersion(context.Background(), "../etc", "cli")
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid repo owner")
-}
-
 func TestFetcher_cachePath(t *testing.T) {
-	fetcher := NewFetcher("/home/user/.cache/toto/registry/aqua")
+	f := newFetcher("/home/user/.cache/toto/registry/aqua")
 
 	tests := []struct {
 		ref      string
@@ -261,7 +187,7 @@ func TestFetcher_cachePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pkg, func(t *testing.T) {
-			path, err := fetcher.cachePath(tt.ref, tt.pkg)
+			path, err := f.cachePath(tt.ref, tt.pkg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, path)
 		})
@@ -270,13 +196,13 @@ func TestFetcher_cachePath(t *testing.T) {
 
 func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 	cacheDir := t.TempDir()
-	fetcher := NewFetcher(cacheDir)
+	f := newFetcher(cacheDir)
 
 	path := filepath.Join(cacheDir, "test", "registry.yaml")
 	data := []byte("test data")
 
 	// Write
-	err := fetcher.writeCache(path, data)
+	err := f.writeCache(path, data)
 	require.NoError(t, err)
 
 	// Verify
@@ -291,7 +217,7 @@ func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 }
 
 func TestFetcher_cachePath_PathTraversal(t *testing.T) {
-	fetcher := NewFetcher("/home/user/.cache/toto/registry/aqua")
+	f := newFetcher("/home/user/.cache/toto/registry/aqua")
 
 	tests := []struct {
 		name    string
@@ -339,7 +265,7 @@ func TestFetcher_cachePath_PathTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := fetcher.cachePath(tt.ref, tt.pkg)
+			_, err := f.cachePath(tt.ref, tt.pkg)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

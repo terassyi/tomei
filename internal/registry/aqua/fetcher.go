@@ -1,9 +1,8 @@
-// Package aqua provides a Fetcher implementation for aqua-registry.
+// Package aqua provides a fetcher implementation for aqua-registry.
 package aqua
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,34 +19,33 @@ import (
 
 const (
 	defaultBaseURL     = "https://raw.githubusercontent.com/aquaproj/aqua-registry"
-	githubAPIURL       = "https://api.github.com/repos/aquaproj/aqua-registry/releases/latest"
 	defaultHTTPTimeout = 30 * time.Second
 )
 
-// Fetcher fetches package definitions from aqua-registry.
-type Fetcher struct {
+// fetcher fetches package definitions from aqua-registry.
+type fetcher struct {
 	cacheDir   string
 	httpClient *http.Client
 	baseURL    string
 }
 
-// NewFetcher creates a new Fetcher.
-func NewFetcher(cacheDir string) *Fetcher {
-	return &Fetcher{
+// newFetcher creates a new fetcher.
+func newFetcher(cacheDir string) *fetcher {
+	return &fetcher{
 		cacheDir:   cacheDir,
 		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 		baseURL:    defaultBaseURL,
 	}
 }
 
-// WithHTTPClient sets the HTTP client (for testing).
-func (f *Fetcher) WithHTTPClient(client *http.Client) *Fetcher {
+// withHTTPClient sets the HTTP client (for testing).
+func (f *fetcher) withHTTPClient(client *http.Client) *fetcher {
 	f.httpClient = client
 	return f
 }
 
-// WithBaseURL sets the base URL (for testing).
-func (f *Fetcher) WithBaseURL(url string) *Fetcher {
+// withBaseURL sets the base URL (for testing).
+func (f *fetcher) withBaseURL(url string) *fetcher {
 	f.baseURL = url
 	return f
 }
@@ -62,7 +60,7 @@ func validatePathComponent(s string) error {
 }
 
 // cachePath constructs the cache file path with path traversal protection.
-func (f *Fetcher) cachePath(ref, pkg string) (string, error) {
+func (f *fetcher) cachePath(ref, pkg string) (string, error) {
 	if err := validatePathComponent(ref); err != nil {
 		return "", fmt.Errorf("invalid ref: %w", err)
 	}
@@ -80,7 +78,7 @@ func (f *Fetcher) cachePath(ref, pkg string) (string, error) {
 }
 
 // readCache reads package info from cache.
-func (f *Fetcher) readCache(path string) (*PackageInfo, error) {
+func (f *fetcher) readCache(path string) (*PackageInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -95,7 +93,7 @@ func (f *Fetcher) readCache(path string) (*PackageInfo, error) {
 }
 
 // buildRegistryURL constructs the registry URL with proper escaping.
-func (f *Fetcher) buildRegistryURL(ref, pkg string) (string, error) {
+func (f *fetcher) buildRegistryURL(ref, pkg string) (string, error) {
 	base, err := url.Parse(f.baseURL)
 	if err != nil {
 		return "", fmt.Errorf("invalid base URL: %w", err)
@@ -106,7 +104,7 @@ func (f *Fetcher) buildRegistryURL(ref, pkg string) (string, error) {
 }
 
 // fetchRemote fetches package definition from remote.
-func (f *Fetcher) fetchRemote(ctx context.Context, ref, pkg string) ([]byte, error) {
+func (f *fetcher) fetchRemote(ctx context.Context, ref, pkg string) ([]byte, error) {
 	registryURL, err := f.buildRegistryURL(ref, pkg)
 	if err != nil {
 		return nil, err
@@ -139,7 +137,7 @@ func (f *Fetcher) fetchRemote(ctx context.Context, ref, pkg string) ([]byte, err
 }
 
 // writeCache writes data to cache using atomic write (write to temp file then rename).
-func (f *Fetcher) writeCache(path string, data []byte) error {
+func (f *fetcher) writeCache(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
@@ -158,8 +156,8 @@ func (f *Fetcher) writeCache(path string, data []byte) error {
 	return nil
 }
 
-// Fetch fetches package definition (cache-first).
-func (f *Fetcher) Fetch(ctx context.Context, ref, pkg string) (*PackageInfo, error) {
+// fetch fetches package definition (cache-first).
+func (f *fetcher) fetch(ctx context.Context, ref, pkg string) (*PackageInfo, error) {
 	cacheFilePath, err := f.cachePath(ref, pkg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to construct cache path: %w", err)
@@ -191,82 +189,4 @@ func (f *Fetcher) Fetch(ctx context.Context, ref, pkg string) (*PackageInfo, err
 	}
 
 	return &info, nil
-}
-
-// GetLatestRef fetches the latest tag of aqua-registry.
-func (f *Fetcher) GetLatestRef(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch latest release: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if release.TagName == "" {
-		return "", fmt.Errorf("tag_name is empty")
-	}
-
-	return release.TagName, nil
-}
-
-// GetLatestToolVersion fetches the latest version of the specified tool.
-func (f *Fetcher) GetLatestToolVersion(ctx context.Context, repoOwner, repoName string) (string, error) {
-	// Validate inputs to prevent path traversal
-	if err := validatePathComponent(repoOwner); err != nil {
-		return "", fmt.Errorf("invalid repo owner: %w", err)
-	}
-	if err := validatePathComponent(repoName); err != nil {
-		return "", fmt.Errorf("invalid repo name: %w", err)
-	}
-
-	apiURL := &url.URL{
-		Scheme: "https",
-		Host:   "api.github.com",
-		Path:   path.Join("/repos", repoOwner, repoName, "releases", "latest"),
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := f.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch latest release: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	var release struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if release.TagName == "" {
-		return "", fmt.Errorf("tag_name is empty")
-	}
-
-	return release.TagName, nil
 }
