@@ -33,7 +33,7 @@ runs:
       if: inputs.mode == 'native'
       shell: bash
       run: |
-        TOTO_E2E_NATIVE=true TOTO_E2E_BINARY=./toto go test -tags=e2e -v ./e2e/... -ginkgo.v
+        TOTO_E2E_NATIVE=true TOTO_E2E_BINARY="$(pwd)/toto" go test -tags=e2e -v ./e2e/... -ginkgo.v
 
     - name: E2E Test (Container Mode)
       if: inputs.mode == 'container'
