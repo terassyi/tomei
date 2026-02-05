@@ -138,6 +138,10 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	switch action {
 	case place.ValidateActionSkip:
 		slog.Info("tool already installed, skipping", "name", name, "version", spec.Version)
+		// Even if binary exists, ensure symlink points to correct version
+		if _, err := i.placer.Symlink(target); err != nil {
+			return nil, fmt.Errorf("failed to update symlink: %w", err)
+		}
 		return i.buildState(spec, target, expectedHash), nil
 
 	case place.ValidateActionReplace:
@@ -260,6 +264,8 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve package %s: %w", pkgName, err)
 	}
+
+	slog.Debug("resolved package URL", "package", pkgName, "url", resolved.URL, "checksum", resolved.ChecksumURL)
 
 	// Log warnings from resolution
 	for _, w := range resolved.Warnings {

@@ -80,7 +80,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "SystemInstaller"
 metadata: name: "apt"
 spec: {
-    type: "delegation"
+    pattern: "delegation"
     privileged: true
     commands: {
         install: {command: "apt-get", verb: "install -y"}
@@ -141,7 +141,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    type: "download"
+    pattern: "download"
 }
 
 // Delegation Pattern (binstall) - Tool に依存
@@ -149,7 +149,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "binstall"
 spec: {
-    type: "delegation"
+    pattern: "delegation"
     toolRef: "cargo-binstall"  // cargo-binstall Tool に依存 (cargo install でインストール済み)
     commands: {
         install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
@@ -163,7 +163,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "brew"
 spec: {
-    type: "delegation"
+    pattern: "delegation"
     bootstrap: {
         install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
         check: "command -v brew"
@@ -190,7 +190,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-    type: "download"
+    pattern: "download"
     version: "1.25.1"
     source: {
         url: "https://go.dev/dl/go{{.Version}}.{{.OS}}-{{.Arch}}.tar.gz"
@@ -219,7 +219,7 @@ apiVersion: "toto.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "rust"
 spec: {
-    type: "delegation"
+    pattern: "delegation"
     version: "stable"  // "stable", "latest", or specific version "1.83.0"
     bootstrap: {
         install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
@@ -422,7 +422,7 @@ System State:
   "version": "1",
   "runtimes": {
     "go": {
-      "type": "download",
+      "pattern": "download",
       "version": "1.25.1",
       "digest": "sha256:abc123...",
       "installPath": "~/.local/share/toto/runtimes/go/1.25.1",
@@ -434,7 +434,7 @@ System State:
       "updatedAt": "2025-01-28T12:00:00Z"
     },
     "rust": {
-      "type": "delegation",
+      "pattern": "delegation",
       "version": "1.83.0",
       "specVersion": "stable",
       "toolBinPath": "~/.cargo/bin",
@@ -566,7 +566,7 @@ spec: {
 kind: "Installer"
 metadata: name: "binstall"
 spec: {
-    type: "delegation"
+    pattern: "delegation"
     toolRef: "cargo-binstall"  // ← Tool に依存
     commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
 }
@@ -1190,7 +1190,7 @@ GitHub API のレートリミット対策、プライベートリポジトリへ
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    type: "download"
+    pattern: "download"
     auth: {
         tokenEnvVar: "GITHUB_TOKEN"  // 環境変数から取得
         // or tokenFile: "~/.config/toto/github-token"
@@ -1213,7 +1213,7 @@ spec: {
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
-    type: "download"
+    pattern: "download"
     credentialRef: "github"
 }
 ```
@@ -1222,3 +1222,31 @@ spec: {
 - シンプルさ vs 再利用性
 - 複数 Installer で同じ認証を使う場合
 - シークレット管理のベストプラクティス
+
+---
+
+## 16. TODO
+
+### 16.1 `--sync` 時の latest 指定ツール自動更新
+
+**概要:**
+`toto apply --sync` 実行時、aqua-registry の ref が更新された場合、`latest` 指定のツールについて最新バージョンを再取得し、インストール済みバージョンと異なれば自動的に再インストールする機能。
+
+**現状:**
+- `--sync` は state.json の `registry.aqua.ref` を更新するのみ
+- `latest` 指定のツールは初回インストール時に解決されたバージョンが state に記録される
+- 2回目以降の apply では state のバージョンと比較するため、最新バージョンが変わっても検知しない
+
+**期待される動作:**
+1. `toto apply --sync` 実行
+2. aqua-registry の最新 ref を取得
+3. ref が変わっていたら state を更新
+4. `latest` 指定のツールについて：
+   - 新しい ref で最新バージョンを再取得
+   - インストール済みバージョンと比較
+   - 異なれば再インストール
+
+**実装検討:**
+- ToolState に `latestSpec: bool` のようなフィールドを追加して latest 指定かどうかを記録
+- または ToolSpec の version が空だった場合に latest として扱う
+- `--sync` 時のみ再チェックを行う（通常の apply では state のバージョンを信頼）

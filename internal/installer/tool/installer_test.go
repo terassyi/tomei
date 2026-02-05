@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/place"
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -200,4 +201,153 @@ func createTarGzContent(t *testing.T, binaryName string, content []byte) []byte 
 func sha256Hash(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
+}
+
+func TestToolInstaller_InstallFromRegistry(t *testing.T) {
+	// Create test binary content
+	binaryContent := []byte("#!/bin/sh\necho hello from registry")
+	tarGzContent := createTarGzContent(t, "mytool", binaryContent)
+
+	// Create test server that serves both registry YAML and binary
+	// NOTE: The registry uses type: http to point to our mock server for downloads
+	// Checksum is disabled for simplicity in this test
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/pkgs/test/mytool/registry.yaml"):
+			// Serve registry definition with type: http to use our mock server for downloads
+			// No checksum configured for simpler testing
+			w.WriteHeader(http.StatusOK)
+			registryYAML := `packages:
+  - type: http
+    repo_owner: test
+    repo_name: mytool
+    url: "` + serverURL + `/releases/mytool_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz"
+    format: tar.gz
+`
+			_, _ = w.Write([]byte(registryYAML))
+		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			// Serve binary archive
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(tarGzContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	binDir := filepath.Join(tmpDir, "bin")
+	cacheDir := filepath.Join(tmpDir, "cache")
+
+	downloader := download.NewDownloader()
+	placer := place.NewPlacer(toolsDir, binDir)
+	installer := NewInstaller(downloader, placer)
+
+	// Create mock resolver that uses our test server
+	resolver := createMockResolver(t, cacheDir, server.URL)
+	installer.SetResolver(resolver, "v4.465.0")
+
+	// Create tool with registry package
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "1.0.0",
+			Package: &resource.Package{
+				Owner: "test",
+				Repo:  "mytool",
+			},
+		},
+	}
+
+	// Install
+	state, err := installer.Install(context.Background(), tool, "mytool")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// Verify state
+	assert.Equal(t, "aqua", state.InstallerRef)
+	assert.Equal(t, "1.0.0", state.Version)
+	assert.NotEmpty(t, state.InstallPath)
+	assert.NotEmpty(t, state.BinPath)
+	assert.Equal(t, "test", state.Package.Owner)
+	assert.Equal(t, "mytool", state.Package.Repo)
+
+	// Verify binary exists
+	_, err = os.Stat(state.InstallPath)
+	require.NoError(t, err)
+}
+
+func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	binDir := filepath.Join(tmpDir, "bin")
+
+	downloader := download.NewDownloader()
+	placer := place.NewPlacer(toolsDir, binDir)
+	installer := NewInstaller(downloader, placer)
+
+	// No resolver set - should fail
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "1.0.0",
+			Package: &resource.Package{
+				Owner: "test",
+				Repo:  "mytool",
+			},
+		},
+	}
+
+	_, err := installer.Install(context.Background(), tool, "mytool")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolver not configured")
+}
+
+func TestToolInstaller_InstallFromRegistry_NoRegistryRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	binDir := filepath.Join(tmpDir, "bin")
+	cacheDir := filepath.Join(tmpDir, "cache")
+
+	downloader := download.NewDownloader()
+	placer := place.NewPlacer(toolsDir, binDir)
+	installer := NewInstaller(downloader, placer)
+
+	// Set resolver but no registry ref
+	resolver := createMockResolver(t, cacheDir, "http://example.com")
+	installer.SetResolver(resolver, "") // empty ref
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "1.0.0",
+			Package: &resource.Package{
+				Owner: "test",
+				Repo:  "mytool",
+			},
+		},
+	}
+
+	_, err := installer.Install(context.Background(), tool, "mytool")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ref not configured")
+}
+
+// createMockResolver creates a resolver with the given base URL for testing.
+func createMockResolver(t *testing.T, cacheDir, baseURL string) *aqua.Resolver {
+	t.Helper()
+	return aqua.NewResolverWithBaseURL(cacheDir, baseURL)
 }

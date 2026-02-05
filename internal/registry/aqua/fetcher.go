@@ -77,6 +77,12 @@ func (f *fetcher) cachePath(ref, pkg string) (string, error) {
 	return filepath.Join(f.cacheDir, ref, "pkgs", pkg, "registry.yaml"), nil
 }
 
+// registryFile represents the structure of registry.yaml file.
+// The file contains a list of packages under the "packages" key.
+type registryFile struct {
+	Packages []PackageInfo `yaml:"packages"`
+}
+
 // readCache reads package info from cache.
 func (f *fetcher) readCache(path string) (*PackageInfo, error) {
 	data, err := os.ReadFile(path)
@@ -84,12 +90,22 @@ func (f *fetcher) readCache(path string) (*PackageInfo, error) {
 		return nil, err
 	}
 
-	var info PackageInfo
-	if err := yaml.Unmarshal(data, &info); err != nil {
-		return nil, fmt.Errorf("failed to parse cached registry: %w", err)
+	return parseRegistryYAML(data)
+}
+
+// parseRegistryYAML parses registry.yaml content and returns the first package.
+func parseRegistryYAML(data []byte) (*PackageInfo, error) {
+	var file registryFile
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("failed to parse registry: %w", err)
 	}
 
-	return &info, nil
+	if len(file.Packages) == 0 {
+		return nil, fmt.Errorf("no packages found in registry.yaml")
+	}
+
+	// Return the first package (each registry.yaml typically contains one package)
+	return &file.Packages[0], nil
 }
 
 // buildRegistryURL constructs the registry URL with proper escaping.
@@ -183,10 +199,5 @@ func (f *fetcher) fetch(ctx context.Context, ref, pkg string) (*PackageInfo, err
 	}
 
 	// 4. Parse
-	var info PackageInfo
-	if err := yaml.Unmarshal(data, &info); err != nil {
-		return nil, fmt.Errorf("failed to parse registry: %w", err)
-	}
-
-	return &info, nil
+	return parseRegistryYAML(data)
 }

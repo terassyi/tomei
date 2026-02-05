@@ -102,8 +102,21 @@ func runUserApply(ctx context.Context, paths []string) error {
 	toolInstaller := tool.NewInstaller(downloader, placer)
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 
-	// Create and run engine with runtime support
+	// Create engine
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
+
+	// Set resolver configurer to be called after lock is acquired and state is loaded
+	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
+	eng.SetResolverConfigurer(func(st *state.UserState) error {
+		if st.Registry != nil && st.Registry.Aqua != nil {
+			resolver := aqua.NewResolver(cacheDir)
+			toolInstaller.SetResolver(resolver, aqua.RegistryRef(st.Registry.Aqua.Ref))
+			slog.Debug("configured aqua-registry resolver", "ref", st.Registry.Aqua.Ref)
+		}
+		return nil
+	})
+
+	// Run engine
 	if err := eng.Apply(ctx, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}

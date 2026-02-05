@@ -22,7 +22,15 @@ func applyOSOverrides(info *PackageInfo, goos, goarch string) *PackageInfo {
 				result.Format = override.Format
 			}
 			if override.Replacements != nil {
-				result.Replacements = override.Replacements
+				// Merge replacements: start with base, then override
+				merged := make(map[string]string)
+				for k, v := range info.Replacements {
+					merged[k] = v
+				}
+				for k, v := range override.Replacements {
+					merged[k] = v
+				}
+				result.Replacements = merged
 			}
 			// Only apply the first matching override
 			break

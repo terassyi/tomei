@@ -110,14 +110,23 @@ func (p *Package) Validate() error {
 
 // UnmarshalJSON implements custom JSON unmarshaling for Package.
 // It supports both string format and object format:
-//   - String: stored as Name, interpretation depends on context (installerRef)
+//   - String: "owner/repo" format is parsed into Owner+Repo (for aqua registry)
+//   - String: other formats are stored as Name (for go install, cargo install, etc.)
 //   - Object: {"owner": "cli", "repo": "cli"} or {"name": "golang.org/x/tools/gopls"}
 func (p *Package) UnmarshalJSON(data []byte) error {
 	// Try string format first
 	var str string
 	if err := json.Unmarshal(data, &str); err == nil {
-		// Store as Name; interpretation depends on context (installerRef)
-		p.Name = str
+		// Check if it's "owner/repo" format (exactly one slash, no dots before the slash)
+		// This distinguishes "BurntSushi/ripgrep" from "golang.org/x/tools/gopls"
+		if isRegistryFormat(str) {
+			parts := splitOnce(str, '/')
+			p.Owner = parts[0]
+			p.Repo = parts[1]
+		} else {
+			// Store as Name for delegation-based installation
+			p.Name = str
+		}
 		return nil
 	}
 
@@ -129,6 +138,42 @@ func (p *Package) UnmarshalJSON(data []byte) error {
 	}
 	*p = Package(alias)
 	return nil
+}
+
+// isRegistryFormat checks if a string looks like an "owner/repo" format
+// rather than a package path like "golang.org/x/tools/gopls".
+// Registry format: exactly one slash, no dots before the slash, not starting with @.
+func isRegistryFormat(s string) bool {
+	// npm scoped packages start with @ (e.g., @biomejs/biome)
+	if len(s) > 0 && s[0] == '@' {
+		return false
+	}
+
+	slashIdx := -1
+	for i, c := range s {
+		if c == '/' {
+			if slashIdx != -1 {
+				// More than one slash - not registry format
+				return false
+			}
+			slashIdx = i
+		} else if c == '.' && slashIdx == -1 {
+			// Dot before first slash - looks like a domain (e.g., golang.org)
+			return false
+		}
+	}
+	// Must have exactly one slash and non-empty parts
+	return slashIdx > 0 && slashIdx < len(s)-1
+}
+
+// splitOnce splits a string on the first occurrence of sep.
+func splitOnce(s string, sep byte) [2]string {
+	for i := 0; i < len(s); i++ {
+		if s[i] == sep {
+			return [2]string{s[:i], s[i+1:]}
+		}
+	}
+	return [2]string{s, ""}
 }
 
 // Checksum holds checksum verification configuration.

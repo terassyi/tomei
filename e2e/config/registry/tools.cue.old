@@ -1,0 +1,37 @@
+package manifests
+
+// ripgrep - 古いバージョン（アップグレードテスト用）
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "rg"
+	spec: {
+		installerRef: "aqua"
+		version:      "14.1.1"
+		package:      "BurntSushi/ripgrep"
+	}
+}
+
+// fd - 古いバージョン（アップグレードテスト用）
+fd: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "fd"
+	spec: {
+		installerRef: "aqua"
+		version:      "v10.2.0"
+		package:      "sharkdp/fd"
+	}
+}
+
+// jq - 古いバージョン（アップグレードテスト用）
+jq: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "jq-1.7.1"
+		package:      "jqlang/jq"
+	}
+}

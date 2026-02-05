@@ -14,6 +14,7 @@ type TemplateVars struct {
 	OS      string // OS name after replacements (e.g., "darwin", "linux")
 	Arch    string // Architecture after replacements (e.g., "amd64", "x86_64")
 	Format  string // Archive format (e.g., "tar.gz", "zip")
+	Asset   string // Rendered asset name (used for checksum templates like "{{.Asset}}.sha256")
 }
 
 // templateFuncs defines custom functions available in templates.

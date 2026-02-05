@@ -744,7 +744,7 @@ gopls: {
 
 	// Verify tool spec has runtimeRef
 	assert.Equal(t, "go", toolActions[0].Resource.ToolSpec.RuntimeRef)
-	assert.Equal(t, "golang.org/x/tools/gopls", toolActions[0].Resource.ToolSpec.Package)
+	assert.Equal(t, "golang.org/x/tools/gopls", toolActions[0].Resource.ToolSpec.Package.String())
 
 	// Apply
 	err = eng.Apply(ctx, resources)
@@ -954,7 +954,7 @@ staticcheck: {
 	assert.Empty(t, st.Tools["ripgrep"].RuntimeRef)
 
 	assert.Equal(t, "go", st.Tools["gopls"].RuntimeRef)
-	assert.Equal(t, "golang.org/x/tools/gopls", st.Tools["gopls"].Package)
+	assert.Equal(t, "golang.org/x/tools/gopls", st.Tools["gopls"].Package.String())
 
 	assert.Equal(t, "go", st.Tools["staticcheck"].RuntimeRef)
 }

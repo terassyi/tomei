@@ -85,6 +85,16 @@ func NewResolver(cacheDir string) *Resolver {
 	}
 }
 
+// NewResolverWithBaseURL creates a new Resolver with a custom base URL.
+// This is primarily for testing with mock HTTP servers.
+func NewResolverWithBaseURL(cacheDir, baseURL string) *Resolver {
+	f := newFetcher(cacheDir).withBaseURL(baseURL)
+	return &Resolver{
+		fetcher:       f,
+		versionClient: newVersionClientWithHTTPClient(f.httpClient),
+	}
+}
+
 // WithHTTPClient sets the HTTP client (for testing).
 func (r *Resolver) WithHTTPClient(client *http.Client) *Resolver {
 	r.fetcher = r.fetcher.withHTTPClient(client)
@@ -180,14 +190,23 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 		Format:  info.Format,
 	}
 
-	// 7. Build download URL from template
+	// 7. Render asset name first (needed for checksum templates like "{{.Asset}}.sha256")
+	if info.Asset != "" {
+		renderedAsset, err := RenderTemplate(info.Asset, vars)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render asset template: %w", err)
+		}
+		vars.Asset = renderedAsset
+	}
+
+	// 8. Build download URL from template
 	url, err := r.buildURL(info, vars)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build URL: %w", err)
 	}
 	result.URL = url
 
-	// 8. Build checksum URL if available
+	// 9. Build checksum URL if available
 	if info.Checksum != nil && info.Checksum.Asset != "" {
 		checksumURL, err := r.buildChecksumURL(info, vars)
 		if err != nil {
@@ -202,7 +221,7 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 		}
 	}
 
-	// 9. Set format and files
+	// 10. Set format and files
 	result.Format = info.Format
 	result.Files = info.Files
 

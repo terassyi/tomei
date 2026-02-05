@@ -16,6 +16,7 @@ This document describes the scenarios verified by toto's E2E tests.
 | Suite | Tests | Description |
 |-------|-------|-------------|
 | toto on Ubuntu | 27 | Basic commands, installation, idempotency, doctor, runtime upgrade |
+| Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Dependency Resolution | 12 | Circular dependency detection, parallel installation, dependency chains, toolRef chain |
 
 ---
@@ -167,9 +168,96 @@ This document describes the scenarios verified by toto's E2E tests.
 
 ---
 
-## 2. Dependency Resolution
+## 2. Aqua Registry Integration
 
-### 2.1 Circular Dependency Detection
+### 2.1 Registry Initialization
+
+#### `toto init` with Registry
+- Run `toto init --yes --force`
+- Verifies state.json contains:
+  - `registry.aqua.ref` (e.g., "v4.465.0")
+  - `registry.aqua.updatedAt`
+
+#### Registry Ref Format
+- ref matches pattern `v\d+\.\d+\.\d+`
+
+### 2.2 Tool Installation via Aqua Registry
+
+#### Configuration
+- 3 Tools installed via aqua registry (package field):
+  - ripgrep 15.1.0 (`BurntSushi/ripgrep`)
+  - fd v10.3.0 (`sharkdp/fd`)
+  - jq jq-1.8.1 (`jqlang/jq`)
+
+#### Validation
+- `toto validate ~/manifests/registry/` succeeds
+- Recognizes Tool/rg, Tool/fd, Tool/jq
+
+#### Installation
+- `toto apply ~/manifests/registry/` installs all tools
+- Output contains "installing tool" and "tool installed"
+
+#### Version Verification
+- `~/.local/bin/rg --version` → "ripgrep 15.1.0"
+- `~/.local/bin/fd --version` → "fd 10.3.0"
+- `~/.local/bin/jq --version` → "jq-1.8.1"
+
+### 2.3 OS/Arch Resolution
+
+#### Binary Architecture
+- `file ~/.local/bin/rg` → "ARM aarch64"
+- Verifies aqua registry replacements work correctly for linux-arm64
+
+### 2.4 State Recording
+
+#### Package Field
+- state.json contains package info for each tool:
+  - `tools.rg.package` = "BurntSushi/ripgrep"
+  - `tools.fd.package` = "sharkdp/fd"
+  - `tools.jq.package` = "jqlang/jq"
+
+### 2.5 Registry Sync
+
+#### `--sync` Flag
+- `toto apply --sync ~/manifests/registry/`
+- Logs contain "aqua registry" message
+
+### 2.6 Idempotency
+
+#### Subsequent Applies
+- Second `toto apply ~/manifests/registry/` outputs "total_actions=0"
+- All tools continue to work correctly
+
+### 2.7 Version Upgrade/Downgrade
+
+#### Downgrade to Older Version
+1. Swap manifest to older versions:
+   ```bash
+   mv ~/manifests/registry/tools.cue ~/manifests/registry/tools.cue.new
+   mv ~/manifests/registry/tools.cue.old ~/manifests/registry/tools.cue
+   ```
+2. Run `toto apply ~/manifests/registry/`
+3. Verify older versions installed:
+   - `~/.local/bin/rg --version` → "ripgrep 14.1.1"
+   - `~/.local/bin/fd --version` → "fd 10.2.0"
+   - `~/.local/bin/jq --version` → "jq-1.7.1"
+
+#### Upgrade to Newer Version
+1. Swap manifest back to newer versions
+2. Run `toto apply ~/manifests/registry/`
+3. Verify newer versions installed:
+   - `~/.local/bin/rg --version` → "ripgrep 15.1.0"
+   - `~/.local/bin/fd --version` → "fd 10.3.0"
+   - `~/.local/bin/jq --version` → "jq-1.8.1"
+
+#### Idempotency After Version Changes
+- Second apply outputs "total_actions=0"
+
+---
+
+## 3. Dependency Resolution
+
+### 3.1 Circular Dependency Detection
 
 #### Two-Node Cycle
 ```
@@ -193,7 +281,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 - `toto validate` returns error
 - Error message contains "runtimeRef" and "toolRef"
 
-### 2.2 Parallel Tool Installation
+### 3.2 Parallel Tool Installation
 
 #### Configuration
 - aqua installer (download pattern)
@@ -213,7 +301,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 #### Idempotency
 - Second apply outputs "total_actions=0" or "no changes"
 
-### 2.3 ToolRef Dependency Chain
+### 3.3 ToolRef Dependency Chain
 
 #### Configuration
 ```
@@ -231,7 +319,7 @@ Installer(aqua) → Tool(jq) → Installer(jq-installer)
 2. `toto apply` installs jq
 3. `~/.local/bin/jq --version` → contains "jq-1.7"
 
-### 2.4 Tool → Installer → Tool Chain (gh clone)
+### 3.4 Tool → Installer → Tool Chain (gh clone)
 
 #### Configuration
 ```
@@ -253,7 +341,7 @@ Tool(gh) → Installer(gh) [toolRef] → Tool(toto-src)
    - `~/repos/toto-src/go.mod` exists
    - `~/repos/toto-src/cmd/toto/main.go` exists
 
-### 2.5 Runtime → Tool Dependency Chain
+### 3.5 Runtime → Tool Dependency Chain
 
 #### Configuration
 ```
@@ -352,3 +440,9 @@ gopls v0.21.0 definition (runtime delegation pattern)
 Tool → Installer → Tool chain definition:
 - gh installer with toolRef (depends on gh tool)
 - toto-src tool (cloned via gh installer)
+
+### `e2e/config/registry/tools.cue`
+Aqua registry-based tool definitions:
+- ripgrep 15.1.0 (package: BurntSushi/ripgrep)
+- fd v10.3.0 (package: sharkdp/fd)
+- jq jq-1.8.1 (package: jqlang/jq)

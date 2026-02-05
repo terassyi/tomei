@@ -1221,3 +1221,31 @@ spec: {
 - Simplicity vs reusability
 - When multiple Installers use the same authentication
 - Secret management best practices
+
+---
+
+## 16. TODO
+
+### 16.1 Auto-update latest-specified tools on `--sync`
+
+**Overview:**
+When running `toto apply --sync`, if the aqua-registry ref is updated, tools specified with `latest` should have their latest version re-fetched and automatically reinstalled if different from the installed version.
+
+**Current Behavior:**
+- `--sync` only updates `registry.aqua.ref` in state.json
+- Tools specified with `latest` have their resolved version recorded in state at initial installation
+- Subsequent applies compare against the state version, so changes in the latest version are not detected
+
+**Expected Behavior:**
+1. Run `toto apply --sync`
+2. Fetch the latest aqua-registry ref
+3. If ref changed, update state
+4. For tools specified with `latest`:
+   - Re-fetch the latest version with the new ref
+   - Compare with the installed version
+   - Reinstall if different
+
+**Implementation Considerations:**
+- Add a field like `latestSpec: bool` to ToolState to record whether it was specified as latest
+- Or treat tools with empty version in ToolSpec as latest
+- Only perform re-check on `--sync` (normal apply trusts the version in state)

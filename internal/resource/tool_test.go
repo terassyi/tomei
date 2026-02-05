@@ -410,21 +410,51 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 		want    *Package
 		wantErr bool
 	}{
+		// Registry format strings (owner/repo) - auto-parsed to Owner+Repo
 		{
-			name: "string format stored as Name",
+			name: "string owner/repo format - cli/cli",
 			json: `"cli/cli"`,
-			want: &Package{Name: "cli/cli"},
+			want: &Package{Owner: "cli", Repo: "cli"},
 		},
+		{
+			name: "string owner/repo format - BurntSushi/ripgrep",
+			json: `"BurntSushi/ripgrep"`,
+			want: &Package{Owner: "BurntSushi", Repo: "ripgrep"},
+		},
+		{
+			name: "string owner/repo format - sharkdp/fd",
+			json: `"sharkdp/fd"`,
+			want: &Package{Owner: "sharkdp", Repo: "fd"},
+		},
+		{
+			name: "string owner/repo format - jqlang/jq",
+			json: `"jqlang/jq"`,
+			want: &Package{Owner: "jqlang", Repo: "jq"},
+		},
+
+		// Name format strings (with dots or multiple slashes) - stored as Name
 		{
 			name: "string with go package path",
 			json: `"golang.org/x/tools/gopls"`,
 			want: &Package{Name: "golang.org/x/tools/gopls"},
 		},
 		{
-			name: "string with simple name",
+			name: "string with domain",
+			json: `"github.com/user/repo"`,
+			want: &Package{Name: "github.com/user/repo"},
+		},
+		{
+			name: "string with simple name (no slash)",
 			json: `"ripgrep"`,
 			want: &Package{Name: "ripgrep"},
 		},
+		{
+			name: "string with @scope npm package",
+			json: `"@biomejs/biome"`,
+			want: &Package{Name: "@biomejs/biome"},
+		},
+
+		// Object format
 		{
 			name: "object with owner/repo",
 			json: `{"owner": "BurntSushi", "repo": "ripgrep"}`,
@@ -435,6 +465,8 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 			json: `{"name": "golang.org/x/tools/gopls"}`,
 			want: &Package{Name: "golang.org/x/tools/gopls"},
 		},
+
+		// Error cases
 		{
 			name:    "invalid json",
 			json:    `{invalid}`,
@@ -452,6 +484,48 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, &got)
+		})
+	}
+}
+
+func TestIsRegistryFormat(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		// Registry format (owner/repo)
+		{"cli/cli", true},
+		{"BurntSushi/ripgrep", true},
+		{"sharkdp/fd", true},
+		{"jqlang/jq", true},
+		{"user/repo", true},
+
+		// Not registry format - has dots before slash
+		{"golang.org/x/tools/gopls", false},
+		{"github.com/user/repo", false},
+		{"example.com/pkg", false},
+
+		// Not registry format - multiple slashes
+		{"a/b/c", false},
+		{"org/repo/subpkg", false},
+
+		// Not registry format - no slash
+		{"ripgrep", false},
+		{"fd", false},
+		{"", false},
+
+		// Not registry format - starts with @
+		{"@biomejs/biome", false},
+
+		// Edge cases
+		{"/repo", false},  // empty owner
+		{"owner/", false}, // empty repo
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := isRegistryFormat(tt.input)
+			assert.Equal(t, tt.want, got, "isRegistryFormat(%q)", tt.input)
 		})
 	}
 }
