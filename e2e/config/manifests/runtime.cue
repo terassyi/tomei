@@ -2,6 +2,7 @@ package toto
 
 // Go runtime for E2E testing
 // Initially installs Go 1.25.5, then can be upgraded to 1.25.6
+// Uses _env for OS/arch portability
 goRuntime: {
 	apiVersion: "toto.terassyi.net/v1beta1"
 	kind:       "Runtime"
@@ -10,7 +11,7 @@ goRuntime: {
 		type:    "download"
 		version: "1.25.5"
 		source: {
-			url: "https://go.dev/dl/go1.25.5.linux-arm64.tar.gz"
+			url: "https://go.dev/dl/go1.25.5.\(_env.os)-\(_env.arch).tar.gz"
 			checksum: {
 				url: "https://go.dev/dl/?mode=json&include=all"
 			}

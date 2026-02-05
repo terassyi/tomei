@@ -36,6 +36,39 @@ func NewLoader(env *Env) *Loader {
 	}
 }
 
+// envCUE returns CUE source code that defines the _env hidden field.
+// This is prepended to user CUE files to enable environment-specific configuration.
+//
+// Example usage in CUE:
+//
+//	url: "https://example.com/tool_\(_env.os)_\(_env.arch).tar.gz"
+func (l *Loader) envCUE() string {
+	return fmt.Sprintf(`_env: { os: %q, arch: %q, headless: %t }`,
+		l.env.OS, l.env.Arch, l.env.Headless)
+}
+
+// envCUEWithPackage returns CUE source code with package declaration.
+// Used when loading directories where package declaration is required.
+func (l *Loader) envCUEWithPackage(pkg string) string {
+	return fmt.Sprintf("package %s\n%s", pkg, l.envCUE())
+}
+
+// detectPackageName extracts the package name from CUE source code.
+// Returns empty string if no package declaration is found.
+func detectPackageName(source string) string {
+	for line := range strings.SplitSeq(source, "\n") {
+		line = strings.TrimSpace(line)
+		if pkg, found := strings.CutPrefix(line, "package "); found {
+			return pkg
+		}
+		// Skip empty lines and comments at the beginning
+		if line != "" && !strings.HasPrefix(line, "//") {
+			break
+		}
+	}
+	return ""
+}
+
 // Load loads CUE configuration from the given directory.
 // config.cue files are excluded from loading as they contain toto configuration, not manifests.
 func (l *Loader) Load(dir string) ([]resource.Resource, error) {
@@ -69,9 +102,38 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		return nil, nil
 	}
 
-	// Load CUE files
+	// Detect package name from the first CUE file
+	firstFileData, err := os.ReadFile(filepath.Join(dir, cueFiles[0]))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read first CUE file: %w", err)
+	}
+	pkgName := detectPackageName(string(firstFileData))
+
+	// Convert dir to absolute path for overlay (CUE requires absolute paths)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Create overlay with _env.cue to inject environment variables
+	envFilePath := filepath.Join(absDir, "_env.cue")
+	var envContent string
+	if pkgName != "" {
+		envContent = l.envCUEWithPackage(pkgName)
+	} else {
+		envContent = l.envCUE()
+	}
+	overlay := map[string]load.Source{
+		envFilePath: load.FromString(envContent),
+	}
+
+	// Add _env.cue to the list of files to load
+	cueFiles = append([]string{"_env.cue"}, cueFiles...)
+
+	// Load CUE files with overlay
 	instances := load.Instances(cueFiles, &load.Config{
-		Dir: dir,
+		Dir:     dir,
+		Overlay: overlay,
 	})
 
 	if len(instances) == 0 {
@@ -88,9 +150,6 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	if value.Err() != nil {
 		return nil, fmt.Errorf("failed to build CUE value: %w", value.Err())
 	}
-
-	// Inject environment variables as a separate value
-	// Note: We don't inject _env here as it causes issues with cue.Concrete validation
 
 	return l.parseResources(value)
 }
@@ -152,7 +211,10 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	value := l.ctx.CompileBytes(data, cue.Filename(path))
+	// Prepend _env definition to enable environment-specific configuration
+	dataWithEnv := l.envCUE() + "\n" + string(data)
+
+	value := l.ctx.CompileString(dataWithEnv, cue.Filename(path))
 	if value.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CUE: %w", value.Err())
 	}
