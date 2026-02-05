@@ -9,15 +9,15 @@ _rgSource: {
 	}
 	if _env.os == "linux" && _env.arch == "amd64" {
 		url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-unknown-linux-musl.tar.gz"
-		checksum: value: "sha256:4ef94ea177ab67e4d555a2f9c4a9e9bb19eb2a44c50c03fa8d9d0dc48713242b"
+		checksum: value: "sha256:4cf9f2741e6c465ffdb7c26f38056a59e2a2544b51f7cc128ef28337eeae4d8e"
 	}
 	if _env.os == "darwin" && _env.arch == "arm64" {
 		url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-apple-darwin.tar.gz"
-		checksum: value: "sha256:b57b43ef71c20b22d8b409a4ae1320eb57c7d170cc8d66acf04e4f0bc1f8d3da"
+		checksum: value: "sha256:24ad76777745fbff131c8fbc466742b011f925bfa4fffa2ded6def23b5b937be"
 	}
 	if _env.os == "darwin" && _env.arch == "amd64" {
 		url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-apple-darwin.tar.gz"
-		checksum: value: "sha256:3fdf6f7ab053786a0ae5ac07e4f088fee67e5bc2c11ef9225e9cefc1dc9d9826"
+		checksum: value: "sha256:fc87e78f7cb3fea12d69072e7ef3b21509754717b746368fd40d88963630e2b3"
 	}
 }
 
@@ -32,30 +32,30 @@ _fdSource: {
 	}
 	if _env.os == "darwin" && _env.arch == "arm64" {
 		url: "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-apple-darwin.tar.gz"
-		checksum: value: "sha256:3d54e372d6aed13897e401c556f647195d77b0c59e4ecb1cc5bc9f0e3a59e6eb"
+		checksum: value: "sha256:ae6327ba8c9a487cd63edd8bddd97da0207887a66d61e067dfe80c1430c5ae36"
 	}
 	if _env.os == "darwin" && _env.arch == "amd64" {
 		url: "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-apple-darwin.tar.gz"
-		checksum: value: "sha256:8fc6d5a8d9ca98f116a3f214e8dc398c3d722c2c63eb324618d7a5efde59a7b4"
+		checksum: value: "sha256:991a648a58870230af9547c1ae33e72cb5c5199a622fe5e540e162d6dba82d48"
 	}
 }
 
 _batSource: {
 	if _env.os == "linux" && _env.arch == "arm64" {
-		url: "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-aarch64-unknown-linux-gnu.tar.gz"
-		checksum: value: "sha256:feccae9a0576d97609c57e32d3914c5116136eab0df74c2ab74ef397d42c5b10"
+		url: "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-aarch64-unknown-linux-gnu.tar.gz"
+		checksum: value: "sha256:422eb73e11c854fddd99f5ca8461c2f1d6e6dce0a2a8c3d5daade5ffcb6564aa"
 	}
 	if _env.os == "linux" && _env.arch == "amd64" {
-		url: "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-unknown-linux-gnu.tar.gz"
-		checksum: value: "sha256:0faf5d51b85bf81b92495dc93bf687d5c904adc9818b16f61ec2e7a4f925c77a"
+		url: "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-gnu.tar.gz"
+		checksum: value: "sha256:726f04c8f576a7fd18b7634f1bbf2f915c43494c1c0f013baa3287edb0d5a2a3"
 	}
 	if _env.os == "darwin" && _env.arch == "arm64" {
-		url: "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-aarch64-apple-darwin.tar.gz"
-		checksum: value: "sha256:7d3478d6555a75b2c59edda1c4a95eb8a0fc2fc7e77dcab54dd2f6afb4cae23f"
+		url: "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-aarch64-apple-darwin.tar.gz"
+		checksum: value: "sha256:e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 	}
 	if _env.os == "darwin" && _env.arch == "amd64" {
-		url: "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-apple-darwin.tar.gz"
-		checksum: value: "sha256:ce4a4f98738b06f7dc03c3d91e9a7231b6fcd7d59a50e40c51478d4c65b8f527"
+		url: "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-apple-darwin.tar.gz"
+		checksum: value: "sha256:830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"
 	}
 }
 
@@ -96,7 +96,7 @@ bat: {
 	metadata: name: "bat"
 	spec: {
 		installerRef: "aqua"
-		version:      "0.24.0"
+		version:      "0.26.1"
 		source:       _batSource
 	}
 }

@@ -9,10 +9,13 @@ gh: {
 		installerRef: "download"
 		version:      "2.86.0"
 		source: {
-			url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_\(_env.os)_\(_env.arch).tar.gz"
-			checksum: {
-				url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
+			if _env.os == "linux" {
+				url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_linux_\(_env.arch).tar.gz"
 			}
+			if _env.os == "darwin" {
+				url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_macOS_\(_env.arch).zip"
+			}
+			checksum: url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
 		}
 	}
 }

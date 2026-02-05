@@ -74,7 +74,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 			By("Verifying bat works")
 			output, err = testExec.ExecBash("~/.local/bin/bat --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("bat 0.24.0"))
+			Expect(output).To(ContainSubstring("bat 0.26.1"))
 		})
 
 		It("is idempotent - second apply reports no changes", func() {
