@@ -44,8 +44,11 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 
 	Describe("Parallel Tool Installation", func() {
 		BeforeAll(func() {
-			// Reset state.json to clean state (keep directories)
+			// Reset state.json and clean up tools/symlinks to ensure clean state
 			_, _ = containerExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+			// Remove tools that may have been installed by previous tests with different versions
+			_, _ = containerExecBash(`rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat`)
+			_, _ = containerExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat`)
 		})
 
 		It("installs multiple independent tools in parallel", func() {

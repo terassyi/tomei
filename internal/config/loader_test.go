@@ -275,3 +275,294 @@ func TestEnv_Detect(t *testing.T) {
 		t.Errorf("unexpected Arch: %s", env.Arch)
 	}
 }
+
+func TestLoader_InjectEnv_StringInterpolation(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tool.cue")
+
+	// Use _env in string interpolation
+	content := `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    version: "2.86.0"
+    source: {
+        url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_\(_env.os)_\(_env.arch).tar.gz"
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Test with linux/arm64
+	loader := NewLoader(&Env{OS: "linux", Arch: "arm64", Headless: false})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	tool := resources[0].(*resource.Tool)
+	expectedURL := "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_arm64.tar.gz"
+	if tool.ToolSpec.Source.URL != expectedURL {
+		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
+	}
+
+	// Test with darwin/amd64
+	loader = NewLoader(&Env{OS: "darwin", Arch: "amd64", Headless: false})
+	resources, err = loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	tool = resources[0].(*resource.Tool)
+	expectedURL = "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_darwin_amd64.tar.gz"
+	if tool.ToolSpec.Source.URL != expectedURL {
+		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
+	}
+}
+
+func TestLoader_InjectEnv_RuntimeURL(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "runtime.cue")
+
+	// Use _env for runtime URL
+	content := `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "go"
+spec: {
+    installerRef: "download"
+    version: "1.23.6"
+    source: {
+        url: "https://go.dev/dl/go1.23.6.\(_env.os)-\(_env.arch).tar.gz"
+        archiveType: "tar.gz"
+    }
+    binaries: ["go", "gofmt"]
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "arm64", Headless: false})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	runtime := resources[0].(*resource.Runtime)
+	expectedURL := "https://go.dev/dl/go1.23.6.linux-arm64.tar.gz"
+	if runtime.RuntimeSpec.Source.URL != expectedURL {
+		t.Errorf("expected URL %s, got %s", expectedURL, runtime.RuntimeSpec.Source.URL)
+	}
+}
+
+func TestLoader_InjectEnv_Headless(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tool.cue")
+
+	// Use _env.headless for conditional field
+	content := `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test-tool"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    if _env.headless {
+        enabled: false
+    }
+    if !_env.headless {
+        enabled: true
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Test with headless=true
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: true})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	tool := resources[0].(*resource.Tool)
+	if tool.ToolSpec.Enabled == nil || *tool.ToolSpec.Enabled != false {
+		t.Errorf("expected enabled=false for headless environment")
+	}
+
+	// Test with headless=false
+	loader = NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err = loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	tool = resources[0].(*resource.Tool)
+	if tool.ToolSpec.Enabled == nil || *tool.ToolSpec.Enabled != true {
+		t.Errorf("expected enabled=true for non-headless environment")
+	}
+}
+
+func TestLoader_InjectEnv_DirectoryLoad(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a CUE file with package declaration using _env
+	content := `
+package toto
+
+tool: {
+    apiVersion: "toto.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh_\(_env.os)_\(_env.arch).tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "darwin", Arch: "arm64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load directory: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+
+	tool := resources[0].(*resource.Tool)
+	expectedURL := "https://example.com/gh_darwin_arm64.tar.gz"
+	if tool.ToolSpec.Source.URL != expectedURL {
+		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
+	}
+}
+
+func TestLoader_InjectEnv_PlatformMapping(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         *Env
+		cueTemplate string
+		expectedURL string
+	}{
+		{
+			name: "platform.os.apple darwin",
+			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    version: "2.86.0"
+    source: {
+        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/gh_macOS_arm64.tar.gz",
+		},
+		{
+			name: "platform.os.apple linux",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    version: "2.86.0"
+    source: {
+        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/gh_Linux_amd64.tar.gz",
+		},
+		{
+			name: "platform.arch.gnu amd64",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "download"
+    version: "14.0.0"
+    source: {
+        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/ripgrep-x86_64-unknown-linux-musl.tar.gz",
+		},
+		{
+			name: "platform.arch.gnu arm64",
+			env:  &Env{OS: "linux", Arch: "arm64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "download"
+    version: "14.0.0"
+    source: {
+        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/ripgrep-aarch64-unknown-linux-musl.tar.gz",
+		},
+		{
+			name: "platform.os.go and platform.arch.go",
+			env:  &Env{OS: "darwin", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "https://example.com/test_\(_env.platform.os.go)_\(_env.platform.arch.go).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/test_darwin_amd64.tar.gz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "tool.cue")
+
+			if err := os.WriteFile(cueFile, []byte(tt.cueTemplate), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			loader := NewLoader(tt.env)
+			resources, err := loader.LoadFile(cueFile)
+			if err != nil {
+				t.Fatalf("failed to load file: %v", err)
+			}
+
+			tool := resources[0].(*resource.Tool)
+			if tool.ToolSpec.Source.URL != tt.expectedURL {
+				t.Errorf("expected URL %s, got %s", tt.expectedURL, tool.ToolSpec.Source.URL)
+			}
+		})
+	}
+}

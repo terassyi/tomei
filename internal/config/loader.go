@@ -36,6 +36,75 @@ func NewLoader(env *Env) *Loader {
 	}
 }
 
+// Platform name mappings for different conventions
+var (
+	osAppleMap = map[OS]string{
+		OSLinux:  "Linux",
+		OSDarwin: "macOS",
+	}
+	archGnuMap = map[Arch]string{
+		ArchAMD64: "x86_64",
+		ArchARM64: "aarch64",
+	}
+)
+
+// envCUE returns CUE source code that defines the _env hidden field.
+// This is prepended to user CUE files to enable environment-specific configuration.
+//
+// Example usage in CUE:
+//
+//	// Basic (Go naming convention)
+//	url: "https://go.dev/dl/go1.25.5.\(_env.os)-\(_env.arch).tar.gz"
+//
+//	// Apple naming convention (macOS, Linux)
+//	url: "https://.../gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+//
+//	// GNU naming convention (x86_64, aarch64)
+//	url: "https://.../ripgrep-\(_env.platform.arch.gnu)-apple-\(_env.os).tar.gz"
+func (l *Loader) envCUE() string {
+	return fmt.Sprintf(`_env: {
+	os: %q
+	arch: %q
+	headless: %t
+	platform: {
+		os: {
+			go: %q
+			apple: %q
+		}
+		arch: {
+			go: %q
+			gnu: %q
+		}
+	}
+}`,
+		l.env.OS, l.env.Arch, l.env.Headless,
+		l.env.OS, osAppleMap[l.env.OS],
+		l.env.Arch, archGnuMap[l.env.Arch],
+	)
+}
+
+// envCUEWithPackage returns CUE source code with package declaration.
+// Used when loading directories where package declaration is required.
+func (l *Loader) envCUEWithPackage(pkg string) string {
+	return fmt.Sprintf("package %s\n%s", pkg, l.envCUE())
+}
+
+// detectPackageName extracts the package name from CUE source code.
+// Returns empty string if no package declaration is found.
+func detectPackageName(source string) string {
+	for line := range strings.SplitSeq(source, "\n") {
+		line = strings.TrimSpace(line)
+		if pkg, found := strings.CutPrefix(line, "package "); found {
+			return pkg
+		}
+		// Skip empty lines and comments at the beginning
+		if line != "" && !strings.HasPrefix(line, "//") {
+			break
+		}
+	}
+	return ""
+}
+
 // Load loads CUE configuration from the given directory.
 // config.cue files are excluded from loading as they contain toto configuration, not manifests.
 func (l *Loader) Load(dir string) ([]resource.Resource, error) {
@@ -69,9 +138,38 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		return nil, nil
 	}
 
-	// Load CUE files
+	// Detect package name from the first CUE file
+	firstFileData, err := os.ReadFile(filepath.Join(dir, cueFiles[0]))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read first CUE file: %w", err)
+	}
+	pkgName := detectPackageName(string(firstFileData))
+
+	// Convert dir to absolute path for overlay (CUE requires absolute paths)
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Create overlay with _env.cue to inject environment variables
+	envFilePath := filepath.Join(absDir, "_env.cue")
+	var envContent string
+	if pkgName != "" {
+		envContent = l.envCUEWithPackage(pkgName)
+	} else {
+		envContent = l.envCUE()
+	}
+	overlay := map[string]load.Source{
+		envFilePath: load.FromString(envContent),
+	}
+
+	// Add _env.cue to the list of files to load
+	cueFiles = append([]string{"_env.cue"}, cueFiles...)
+
+	// Load CUE files with overlay
 	instances := load.Instances(cueFiles, &load.Config{
-		Dir: dir,
+		Dir:     dir,
+		Overlay: overlay,
 	})
 
 	if len(instances) == 0 {
@@ -88,9 +186,6 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	if value.Err() != nil {
 		return nil, fmt.Errorf("failed to build CUE value: %w", value.Err())
 	}
-
-	// Inject environment variables as a separate value
-	// Note: We don't inject _env here as it causes issues with cue.Concrete validation
 
 	return l.parseResources(value)
 }
@@ -152,7 +247,27 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	value := l.ctx.CompileBytes(data, cue.Filename(path))
+	// Inject _env definition to enable environment-specific configuration
+	// Must be inserted after package declaration if present
+	source := string(data)
+	var dataWithEnv string
+
+	if pkgName := detectPackageName(source); pkgName != "" {
+		// Insert _env after package declaration
+		pkgDecl := "package " + pkgName
+		idx := strings.Index(source, pkgDecl)
+		if idx >= 0 {
+			afterPkg := idx + len(pkgDecl)
+			dataWithEnv = source[:afterPkg] + "\n" + l.envCUE() + source[afterPkg:]
+		} else {
+			dataWithEnv = l.envCUE() + "\n" + source
+		}
+	} else {
+		// No package declaration, prepend _env
+		dataWithEnv = l.envCUE() + "\n" + source
+	}
+
+	value := l.ctx.CompileString(dataWithEnv, cue.Filename(path))
 	if value.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CUE: %w", value.Err())
 	}
