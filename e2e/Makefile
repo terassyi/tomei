@@ -1,10 +1,14 @@
 CONTAINER_NAME := toto-e2e-ubuntu
 IMAGE_NAME := toto-ubuntu:test
 
+# Allow overriding GOARCH via environment variable (default: host architecture)
+GOOS ?= linux
+GOARCH ?= $(shell go env GOARCH)
+
 .PHONY: build up down test clean help
 
 build: ## Build toto binary and Docker image
-	GOOS=linux GOARCH=arm64 go build -o toto ../cmd/toto
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o toto ../cmd/toto
 	docker build -t $(IMAGE_NAME) -f containers/ubuntu/Dockerfile .
 
 up: ## Start the test container
@@ -13,8 +17,11 @@ up: ## Start the test container
 down: ## Stop and remove the test container
 	-docker rm -f $(CONTAINER_NAME) 2>/dev/null || true
 
-test: ## Run E2E tests with Ginkgo
-	TOTO_E2E_CONTAINER=$(CONTAINER_NAME) go test -v ./... -ginkgo.v
+test: ## Run E2E tests with Ginkgo (container mode)
+	TOTO_E2E_CONTAINER=$(CONTAINER_NAME) go test -tags=e2e -v ./... -ginkgo.v
+
+test-native: ## Run E2E tests natively (requires TOTO_E2E_BINARY)
+	TOTO_E2E_NATIVE=true go test -tags=e2e -v ./... -ginkgo.v
 
 exec: ## Exec into the test container
 	docker exec -it $(CONTAINER_NAME) bash

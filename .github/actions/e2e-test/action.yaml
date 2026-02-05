@@ -1,5 +1,15 @@
 name: E2E Test
-description: Run E2E tests with Docker
+description: Run E2E tests with Docker or natively
+
+inputs:
+  arch:
+    description: 'Target architecture (amd64 or arm64)'
+    required: false
+    default: ''
+  mode:
+    description: 'Execution mode (container or native)'
+    required: false
+    default: 'native'
 
 runs:
   using: composite
@@ -14,6 +24,23 @@ runs:
       shell: bash
       run: go mod download
 
-    - name: Build and run E2E tests
+    - name: Build toto binary (Native Mode)
+      if: inputs.mode == 'native'
       shell: bash
-      run: make test-e2e
+      run: go build -o toto ./cmd/toto
+
+    - name: E2E Test (Native Mode)
+      if: inputs.mode == 'native'
+      shell: bash
+      run: |
+        TOTO_E2E_NATIVE=true TOTO_E2E_BINARY="$(pwd)/toto" go test -tags=e2e -v ./e2e/... -ginkgo.v
+
+    - name: E2E Test (Container Mode)
+      if: inputs.mode == 'container'
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.arch }}" ]; then
+          GOARCH=${{ inputs.arch }} make test-e2e
+        else
+          make test-e2e
+        fi
