@@ -113,11 +113,19 @@ var _ = Describe("Aqua Registry", Ordered, func() {
 
 			By("Verifying binary matches target architecture")
 			// Check based on target architecture
+			// Linux: "ARM aarch64" / "x86-64"
+			// macOS: "Mach-O 64-bit executable arm64" / "Mach-O 64-bit executable x86_64"
 			switch targetArch {
 			case "arm64":
-				Expect(output).To(ContainSubstring("ARM aarch64"))
+				Expect(output).To(SatisfyAny(
+					ContainSubstring("ARM aarch64"),
+					ContainSubstring("Mach-O 64-bit executable arm64"),
+				))
 			case "amd64":
-				Expect(output).To(ContainSubstring("x86-64"))
+				Expect(output).To(SatisfyAny(
+					ContainSubstring("x86-64"),
+					ContainSubstring("Mach-O 64-bit executable x86_64"),
+				))
 			default:
 				Fail("Unsupported architecture: " + targetArch)
 			}
