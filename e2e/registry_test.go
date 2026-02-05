@@ -109,8 +109,16 @@ var _ = Describe("Aqua Registry", Ordered, func() {
 			output, err := containerExecBash("file $(readlink -f ~/.local/bin/rg)")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying binary is ARM aarch64 (linux-arm64)")
-			Expect(output).To(ContainSubstring("ARM aarch64"))
+			By("Verifying binary matches target architecture")
+			// Check based on target architecture
+			switch targetArch {
+			case "arm64":
+				Expect(output).To(ContainSubstring("ARM aarch64"))
+			case "amd64":
+				Expect(output).To(ContainSubstring("x86-64"))
+			default:
+				Fail("Unsupported architecture: " + targetArch)
+			}
 		})
 
 		It("records package in state.json", func() {

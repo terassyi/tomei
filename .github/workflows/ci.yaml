@@ -55,12 +55,24 @@ jobs:
         uses: ./.github/actions/integration-test
 
   e2e-test:
-    name: E2E Test
+    name: E2E Test (${{ matrix.arch }} on ${{ matrix.runner }})
     needs: integration-test
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: E2E Test
         uses: ./.github/actions/e2e-test
+        with:
+          arch: ${{ matrix.arch }}

@@ -1,6 +1,12 @@
 name: E2E Test
 description: Run E2E tests with Docker
 
+inputs:
+  arch:
+    description: 'Target architecture (amd64 or arm64). If empty, uses host architecture.'
+    required: false
+    default: ''
+
 runs:
   using: composite
   steps:
@@ -16,4 +22,9 @@ runs:
 
     - name: Build and run E2E tests
       shell: bash
-      run: make test-e2e
+      run: |
+        if [ -n "${{ inputs.arch }}" ]; then
+          GOARCH=${{ inputs.arch }} make test-e2e
+        else
+          make test-e2e
+        fi

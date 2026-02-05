@@ -4,17 +4,25 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var containerName string
+var targetArch string
 
 var _ = BeforeSuite(func() {
 	containerName = os.Getenv("TOTO_E2E_CONTAINER")
 	if containerName == "" {
 		Skip("TOTO_E2E_CONTAINER environment variable is not set - skipping E2E tests")
+	}
+
+	// Get target architecture from GOARCH env var, default to host architecture
+	targetArch = os.Getenv("GOARCH")
+	if targetArch == "" {
+		targetArch = runtime.GOARCH
 	}
 })
 

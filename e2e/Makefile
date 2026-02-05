@@ -1,10 +1,14 @@
 CONTAINER_NAME := toto-e2e-ubuntu
 IMAGE_NAME := toto-ubuntu:test
 
+# Allow overriding GOARCH via environment variable (default: host architecture)
+GOOS ?= linux
+GOARCH ?= $(shell go env GOARCH)
+
 .PHONY: build up down test clean help
 
 build: ## Build toto binary and Docker image
-	GOOS=linux GOARCH=arm64 go build -o toto ../cmd/toto
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o toto ../cmd/toto
 	docker build -t $(IMAGE_NAME) -f containers/ubuntu/Dockerfile .
 
 up: ## Start the test container
