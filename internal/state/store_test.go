@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -223,5 +224,176 @@ func TestNewStore_CreatesDirectory(t *testing.T) {
 
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		t.Error("directory should be created")
+	}
+}
+
+func TestStore_RegistryState(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name  string
+		state *UserState
+		check func(t *testing.T, loaded *UserState)
+	}{
+		{
+			name: "registry only",
+			state: &UserState{
+				Version: Version,
+				Registry: &aqua.RegistryState{
+					Aqua: &aqua.AquaRegistryState{
+						Ref:       "v4.465.0",
+						UpdatedAt: now,
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				if loaded.Registry == nil {
+					t.Fatal("registry should not be nil")
+				}
+				if loaded.Registry.Aqua == nil {
+					t.Fatal("registry.aqua should not be nil")
+				}
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
+				}
+			},
+		},
+		{
+			name: "registry with tools",
+			state: &UserState{
+				Version: Version,
+				Registry: &aqua.RegistryState{
+					Aqua: &aqua.AquaRegistryState{
+						Ref:       "v4.465.0",
+						UpdatedAt: now,
+					},
+				},
+				Tools: map[string]*resource.ToolState{
+					"gh": {
+						InstallerRef: "aqua",
+						Version:      "2.86.0",
+						Package:      "cli/cli",
+						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
+						BinPath:      "/home/user/.local/bin/gh",
+						UpdatedAt:    now,
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				// Verify registry
+				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
+					t.Fatal("registry should be loaded")
+				}
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
+				}
+				// Verify tool
+				if len(loaded.Tools) != 1 {
+					t.Fatalf("expected 1 tool, got %d", len(loaded.Tools))
+				}
+				tool := loaded.Tools["gh"]
+				if tool == nil {
+					t.Fatal("tool 'gh' should exist")
+				}
+				if tool.Package != "cli/cli" {
+					t.Errorf("expected package cli/cli, got %s", tool.Package)
+				}
+				if tool.InstallerRef != "aqua" {
+					t.Errorf("expected installerRef aqua, got %s", tool.InstallerRef)
+				}
+			},
+		},
+		{
+			name: "nil registry (backward compatibility)",
+			state: &UserState{
+				Version: Version,
+				Tools: map[string]*resource.ToolState{
+					"ripgrep": {
+						InstallerRef: "aqua",
+						Version:      "14.0.0",
+						UpdatedAt:    now,
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				// Registry should be nil (omitempty)
+				if loaded.Registry != nil {
+					t.Error("registry should be nil when not set")
+				}
+				// Tools should still be loaded
+				if len(loaded.Tools) != 1 {
+					t.Errorf("expected 1 tool, got %d", len(loaded.Tools))
+				}
+			},
+		},
+		{
+			name: "multiple tools with registry",
+			state: &UserState{
+				Version: Version,
+				Registry: &aqua.RegistryState{
+					Aqua: &aqua.AquaRegistryState{
+						Ref:       "v4.500.0",
+						UpdatedAt: now,
+					},
+				},
+				Tools: map[string]*resource.ToolState{
+					"gh": {
+						InstallerRef: "aqua",
+						Version:      "2.86.0",
+						Package:      "cli/cli",
+						UpdatedAt:    now,
+					},
+					"rg": {
+						InstallerRef: "aqua",
+						Version:      "14.0.0",
+						Package:      "BurntSushi/ripgrep",
+						UpdatedAt:    now,
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
+					t.Fatal("registry should be loaded")
+				}
+				if loaded.Registry.Aqua.Ref != "v4.500.0" {
+					t.Errorf("expected ref v4.500.0, got %s", loaded.Registry.Aqua.Ref)
+				}
+				if len(loaded.Tools) != 2 {
+					t.Fatalf("expected 2 tools, got %d", len(loaded.Tools))
+				}
+				if loaded.Tools["gh"].Package != "cli/cli" {
+					t.Errorf("expected gh package cli/cli, got %s", loaded.Tools["gh"].Package)
+				}
+				if loaded.Tools["rg"].Package != "BurntSushi/ripgrep" {
+					t.Errorf("expected rg package BurntSushi/ripgrep, got %s", loaded.Tools["rg"].Package)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewStore[UserState](dir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+
+			if err := store.Lock(); err != nil {
+				t.Fatalf("failed to lock: %v", err)
+			}
+			defer func() { _ = store.Unlock() }()
+
+			if err := store.Save(tt.state); err != nil {
+				t.Fatalf("failed to save: %v", err)
+			}
+
+			loaded, err := store.Load()
+			if err != nil {
+				t.Fatalf("failed to load: %v", err)
+			}
+
+			tt.check(t, loaded)
+		})
 	}
 }

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -15,6 +16,7 @@ type State interface {
 // UserState represents the state for user-privilege resources.
 type UserState struct {
 	Version    string                              `json:"version"`
+	Registry   *aqua.RegistryState                 `json:"registry,omitempty"`
 	Installers map[string]*resource.InstallerState `json:"installers,omitempty"`
 	Runtimes   map[string]*resource.RuntimeState   `json:"runtimes,omitempty"`
 	Tools      map[string]*resource.ToolState      `json:"tools,omitempty"`
