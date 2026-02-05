@@ -19,18 +19,18 @@ func TestResolver_Resolve_GitHubRelease(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "cli/cli"
 
-	registryYAML := `
-type: github_release
-repo_owner: cli
-repo_name: cli
-asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-replacements:
-  darwin: macOS
-checksum:
-  type: github_release
-  asset: gh_{{trimV .Version}}_checksums.txt
-  algorithm: sha256
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    replacements:
+      darwin: macOS
+    checksum:
+      type: github_release
+      asset: gh_{{trimV .Version}}_checksums.txt
+      algorithm: sha256
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -55,12 +55,12 @@ func TestResolver_Resolve_HTTP(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
 
-	registryYAML := `
-type: http
-repo_owner: example
-repo_name: tool
-url: https://example.com/releases/{{trimV .Version}}/tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
+	registryYAML := `packages:
+  - type: http
+    repo_owner: example
+    repo_name: tool
+    url: https://example.com/releases/{{trimV .Version}}/tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -79,16 +79,16 @@ func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "cli/cli"
 
-	registryYAML := `
-type: github_release
-repo_owner: cli
-repo_name: cli
-asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-version_overrides:
-  - version_constraint: semver("< 2.0.0")
-    asset: gh_old_{{trimV .Version}}_{{.OS}}_{{.Arch}}.zip
-    format: zip
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    version_overrides:
+      - version_constraint: semver("< 2.0.0")
+        asset: gh_old_{{trimV .Version}}_{{.OS}}_{{.Arch}}.zip
+        format: zip
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -109,16 +109,16 @@ func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
 
-	registryYAML := `
-type: github_release
-repo_owner: example
-repo_name: tool
-asset: tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-overrides:
-  - goos: windows
-    asset: tool_{{.OS}}_{{.Arch}}.zip
-    format: zip
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    overrides:
+      - goos: windows
+        asset: tool_{{.OS}}_{{.Arch}}.zip
+        format: zip
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -138,16 +138,16 @@ func TestResolver_Resolve_WithReplacements(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "BurntSushi/ripgrep"
 
-	registryYAML := `
-type: github_release
-repo_owner: BurntSushi
-repo_name: ripgrep
-asset: ripgrep-{{trimV .Version}}-{{.Arch}}-{{.OS}}.tar.gz
-format: tar.gz
-replacements:
-  amd64: x86_64
-  linux: unknown-linux-musl
-  darwin: apple-darwin
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: BurntSushi
+    repo_name: ripgrep
+    asset: ripgrep-{{trimV .Version}}-{{.Arch}}-{{.OS}}.tar.gz
+    format: tar.gz
+    replacements:
+      amd64: x86_64
+      linux: unknown-linux-musl
+      darwin: apple-darwin
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -166,15 +166,15 @@ func TestResolver_Resolve_UnsupportedEnv(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
 
-	registryYAML := `
-type: github_release
-repo_owner: example
-repo_name: tool
-asset: tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-supported_envs:
-  - linux/amd64
-  - darwin/arm64
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    supported_envs:
+      - linux/amd64
+      - darwin/arm64
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -195,15 +195,15 @@ func TestResolver_Resolve_SupportedEnv(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
 
-	registryYAML := `
-type: github_release
-repo_owner: example
-repo_name: tool
-asset: tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-supported_envs:
-  - linux
-  - darwin
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    supported_envs:
+      - linux
+      - darwin
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -247,12 +247,12 @@ func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "cli/cli"
 
-	registryYAML := `
-type: github_release
-repo_owner: cli
-repo_name: cli
-asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -287,12 +287,12 @@ func TestResolver_Resolve_NoChecksum(t *testing.T) {
 	pkg := "example/tool"
 
 	// Package without checksum configuration
-	registryYAML := `
-type: github_release
-repo_owner: example
-repo_name: tool
-asset: tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -314,12 +314,12 @@ func TestResolver_Resolve_UnsupportedType(t *testing.T) {
 	pkg := "example/tool"
 
 	// Package with unsupported type
-	registryYAML := `
-type: unknown_type
-repo_owner: example
-repo_name: tool
-asset: tool.tar.gz
-format: tar.gz
+	registryYAML := `packages:
+  - type: unknown_type
+    repo_owner: example
+    repo_name: tool
+    asset: tool.tar.gz
+    format: tar.gz
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
@@ -338,14 +338,14 @@ func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
 
-	registryYAML := `
-type: github_release
-repo_owner: example
-repo_name: tool
-asset: tool_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
-supported_envs:
-  - all
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    supported_envs:
+      - all
 `
 	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))

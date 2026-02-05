@@ -41,12 +41,12 @@ func TestFetcher_Fetch_CacheHit(t *testing.T) {
 	err := os.MkdirAll(filepath.Dir(cacheFile), 0o755)
 	require.NoError(t, err)
 
-	cachedYAML := `
-type: github_release
-repo_owner: cli
-repo_name: cli
-asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
+	cachedYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
 `
 	err = os.WriteFile(cacheFile, []byte(cachedYAML), 0o644)
 	require.NoError(t, err)
@@ -79,12 +79,12 @@ func TestFetcher_Fetch_CacheMiss(t *testing.T) {
 	ref := "v4.465.0"
 	pkg := "cli/cli"
 
-	remoteYAML := `
-type: github_release
-repo_owner: cli
-repo_name: cli
-asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
-format: tar.gz
+	remoteYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
 `
 	// Setup: mock HTTP client
 	mockClient := &http.Client{
