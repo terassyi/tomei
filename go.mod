@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	cuelang.org/go v0.15.4
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gofrs/flock v0.13.0
@@ -17,7 +18,6 @@ require (
 require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20250722084951-074d06050084 // indirect
 	dario.cat/mergo v1.0.0 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect

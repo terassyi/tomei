@@ -108,6 +108,16 @@ func (r *Resolver) VersionClient() *VersionClient {
 	return r.versionClient
 }
 
+// FetchPackageInfo fetches package metadata from aqua-registry.
+// This is useful for getting repo_owner/repo_name to query latest version.
+//
+// Parameters:
+//   - ref: aqua-registry version (e.g., "v4.465.0")
+//   - pkg: package name in "owner/repo" format (e.g., "cli/cli")
+func (r *Resolver) FetchPackageInfo(ctx context.Context, ref RegistryRef, pkg string) (*PackageInfo, error) {
+	return r.fetcher.fetch(ctx, string(ref), pkg)
+}
+
 // Resolve resolves a package to its download URL and metadata.
 //
 // Parameters:
@@ -117,15 +127,15 @@ func (r *Resolver) VersionClient() *VersionClient {
 //
 // Returns ResolvedSource with the download URL and metadata.
 // Check result.Errors before using the URL - if non-empty, installation is not possible.
-func (r *Resolver) Resolve(ctx context.Context, ref, pkg, version string) (*ResolvedSource, error) {
+func (r *Resolver) Resolve(ctx context.Context, ref RegistryRef, pkg, version string) (*ResolvedSource, error) {
 	return r.ResolveWithOS(ctx, ref, pkg, version, runtime.GOOS, runtime.GOARCH)
 }
 
 // ResolveWithOS resolves a package with explicit OS and Arch.
 // This is primarily for testing - use Resolve() for normal usage.
-func (r *Resolver) ResolveWithOS(ctx context.Context, ref, pkg, version, goos, goarch string) (*ResolvedSource, error) {
+func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, version, goos, goarch string) (*ResolvedSource, error) {
 	// 1. Fetch package info from aqua-registry (cache-first)
-	info, err := r.fetcher.fetch(ctx, ref, pkg)
+	info, err := r.fetcher.fetch(ctx, string(ref), pkg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch package info: %w", err)
 	}

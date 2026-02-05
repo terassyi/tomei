@@ -11,7 +11,13 @@
 // See NOTICE file for attribution.
 package aqua
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Masterminds/semver/v3"
+)
 
 // RegistryState represents registry information stored in state.json.
 //
@@ -21,9 +27,48 @@ type RegistryState struct {
 }
 
 // AquaRegistryState represents the state of aqua-registry.
+//
+//nolint:revive // Name is intentional for clarity when used outside aqua package
 type AquaRegistryState struct {
-	Ref       string    `json:"ref"` // e.g., "v4.465.0"
-	UpdatedAt time.Time `json:"updatedAt"`
+	Ref       RegistryRef `json:"ref"` // e.g., "v4.465.0"
+	UpdatedAt time.Time   `json:"updatedAt"`
+}
+
+// RegistryRef represents a reference to an aqua-registry version (tag).
+// Format: "vX.Y.Z" (e.g., "v4.465.0")
+type RegistryRef string
+
+// String returns the string representation of the registry ref.
+func (r RegistryRef) String() string {
+	return string(r)
+}
+
+// IsEmpty returns true if the registry ref is empty.
+func (r RegistryRef) IsEmpty() bool {
+	return r == ""
+}
+
+// Validate checks if the registry ref is valid.
+// A valid ref must:
+//   - Start with "v"
+//   - Be a valid semver (e.g., "v4.465.0")
+func (r RegistryRef) Validate() error {
+	if r.IsEmpty() {
+		return fmt.Errorf("registry ref is empty")
+	}
+
+	s := string(r)
+	if !strings.HasPrefix(s, "v") {
+		return fmt.Errorf("registry ref must start with 'v': %s", s)
+	}
+
+	// Remove 'v' prefix and validate as semver
+	version := strings.TrimPrefix(s, "v")
+	if _, err := semver.NewVersion(version); err != nil {
+		return fmt.Errorf("invalid registry ref format (expected vX.Y.Z): %s", s)
+	}
+
+	return nil
 }
 
 // The following types are ported from aqua's registry configuration.

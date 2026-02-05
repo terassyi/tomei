@@ -15,6 +15,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/extract"
 	"github.com/terassyi/toto/internal/installer/place"
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -40,6 +41,8 @@ type Installer struct {
 	cmdExecutor *command.Executor
 	runtimes    map[string]*RuntimeInfo   // name -> RuntimeInfo
 	installers  map[string]*InstallerInfo // name -> InstallerInfo
+	resolver    *aqua.Resolver            // aqua-registry resolver (optional)
+	registryRef aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
 }
 
 // NewInstaller creates a new tool Installer.
@@ -63,6 +66,19 @@ func (i *Installer) RegisterInstaller(name string, info *InstallerInfo) {
 	i.installers[name] = info
 }
 
+// SetResolver sets the aqua-registry resolver and registry ref.
+// This enables registry-based tool installation via RegistryPackage.
+func (i *Installer) SetResolver(resolver *aqua.Resolver, registryRef aqua.RegistryRef) {
+	i.resolver = resolver
+	i.registryRef = registryRef
+}
+
+// Resolver returns the aqua-registry resolver.
+// Returns nil if resolver is not configured.
+func (i *Installer) Resolver() *aqua.Resolver {
+	return i.resolver
+}
+
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
@@ -82,7 +98,12 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 		}
 	}
 
-	// 3. Otherwise, use download pattern
+	// 3. If package with owner/repo is set, use aqua-registry to resolve URL
+	if spec.Package.IsRegistry() {
+		return i.installFromRegistry(ctx, res, name)
+	}
+
+	// 4. Otherwise, use download pattern with explicit source
 	return i.installByDownload(ctx, res, name)
 }
 
@@ -204,6 +225,92 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	return i.buildState(spec, target, expectedHash), nil
 }
 
+// installFromRegistry installs a tool using aqua-registry to resolve the download URL.
+func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+	spec := res.ToolSpec
+
+	// Check if resolver is configured
+	if i.resolver == nil {
+		return nil, fmt.Errorf("aqua-registry resolver not configured")
+	}
+	if i.registryRef == "" {
+		return nil, fmt.Errorf("aqua-registry ref not configured; run 'toto init' first")
+	}
+
+	// Determine version: use spec.Version or fetch latest
+	pkgName := spec.Package.String()
+	version := spec.Version
+	if version == "" {
+		slog.Info("fetching latest version from registry", "package", pkgName)
+		// Fetch package info to get repo owner/name for version lookup
+		info, err := i.resolver.FetchPackageInfo(ctx, i.registryRef, pkgName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch package info: %w", err)
+		}
+		latestVersion, err := i.resolver.VersionClient().GetLatestToolVersion(ctx, info.RepoOwner, info.RepoName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get latest version for %s: %w", pkgName, err)
+		}
+		version = latestVersion
+		slog.Info("using latest version", "package", pkgName, "version", version)
+	}
+
+	// Resolve download URL from registry
+	resolved, err := i.resolver.Resolve(ctx, i.registryRef, pkgName, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve package %s: %w", pkgName, err)
+	}
+
+	// Log warnings from resolution
+	for _, w := range resolved.Warnings {
+		slog.Warn("registry warning", "package", pkgName, "warning", w)
+	}
+
+	// Check for errors from resolution (e.g., unsupported OS/Arch)
+	if len(resolved.Errors) > 0 {
+		for _, e := range resolved.Errors {
+			slog.Error("registry error", "package", pkgName, "error", e)
+		}
+		return nil, fmt.Errorf("package %s is not supported on this platform: %s", pkgName, resolved.Errors[0])
+	}
+
+	// Build DownloadSource from resolved info
+	source := &resource.DownloadSource{
+		URL:         resolved.URL,
+		ArchiveType: extract.ArchiveType(resolved.Format),
+	}
+
+	// Add checksum if available
+	if resolved.ChecksumURL != "" {
+		source.Checksum = &resource.Checksum{
+			URL: resolved.ChecksumURL,
+		}
+	}
+
+	// Create a modified tool with resolved source for download
+	resolvedTool := &resource.Tool{
+		BaseResource: res.BaseResource,
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: spec.InstallerRef,
+			Version:      version,
+			Enabled:      spec.Enabled,
+			Source:       source,
+			Package:      spec.Package,
+		},
+	}
+
+	// Use existing download logic
+	state, err := i.installByDownload(ctx, resolvedTool, name)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update state to include package info
+	state.Package = spec.Package
+
+	return state, nil
+}
+
 // buildState creates a ToolState from the installation result.
 func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest string) *resource.ToolState {
 	return &resource.ToolState{
@@ -270,7 +377,7 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 
 	// Build variables for command substitution
 	vars := command.Vars{
-		Package: spec.Package,
+		Package: spec.Package.String(),
 		Version: spec.Version,
 		Name:    name,
 		BinPath: filepath.Join(info.ToolBinPath, name),
@@ -307,7 +414,7 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 	}
 
 	// Build variables for command substitution
-	pkg := spec.Package
+	pkg := spec.Package.String()
 	if pkg == "" {
 		pkg = name // default to tool name if package not specified
 	}

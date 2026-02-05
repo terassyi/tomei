@@ -1,7 +1,9 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/terassyi/toto/internal/installer/extract"
@@ -23,6 +25,118 @@ type DownloadSource struct {
 	// If empty, the type is auto-detected from the URL extension.
 	// See extract.ArchiveTypeTarGz, extract.ArchiveTypeZip, extract.ArchiveTypeRaw.
 	ArchiveType extract.ArchiveType `json:"archiveType,omitempty"`
+}
+
+// Package is a universal package identifier that can represent different package formats
+// depending on the installer or runtime being used.
+//
+// For registry-based installation (e.g., aqua):
+//
+//	package: { owner: "cli", repo: "cli" }
+//
+// For name-based installation (e.g., go install, cargo install):
+//
+//	package: { name: "golang.org/x/tools/gopls" }
+type Package struct {
+	// Owner is the GitHub organization or user name.
+	// Used for registry-based installation (e.g., aqua).
+	// Example: "cli", "BurntSushi", "sharkdp"
+	Owner string `json:"owner,omitempty"`
+
+	// Repo is the GitHub repository name.
+	// Used for registry-based installation (e.g., aqua).
+	// Example: "cli", "ripgrep", "fd"
+	Repo string `json:"repo,omitempty"`
+
+	// Name is the package identifier for delegation-based installation.
+	// Format depends on the runtime/installer:
+	//   - Go: "golang.org/x/tools/gopls"
+	//   - Cargo: "ripgrep"
+	//   - npm: "@biomejs/biome"
+	Name string `json:"name,omitempty"`
+}
+
+// String returns a string representation of the package.
+// Returns "owner/repo" format if Owner and Repo are set, otherwise returns Name.
+func (p *Package) String() string {
+	if p == nil {
+		return ""
+	}
+	if p.Owner != "" && p.Repo != "" {
+		return p.Owner + "/" + p.Repo
+	}
+	return p.Name
+}
+
+// IsEmpty returns true if the package is not specified.
+func (p *Package) IsEmpty() bool {
+	return p == nil || (p.Owner == "" && p.Repo == "" && p.Name == "")
+}
+
+// IsRegistry returns true if the package uses registry format (owner/repo).
+func (p *Package) IsRegistry() bool {
+	return p != nil && p.Owner != "" && p.Repo != ""
+}
+
+// IsName returns true if the package uses name format.
+func (p *Package) IsName() bool {
+	return p != nil && p.Name != ""
+}
+
+// Validate checks if the package is valid.
+// Either (Owner + Repo) or Name must be specified, but not both.
+func (p *Package) Validate() error {
+	if p == nil {
+		return nil
+	}
+
+	hasRegistry := p.Owner != "" || p.Repo != ""
+	hasName := p.Name != ""
+
+	// Check mutual exclusivity
+	if hasRegistry && hasName {
+		return fmt.Errorf("package: cannot specify both owner/repo and name")
+	}
+
+	// If registry format, both owner and repo are required
+	if p.Owner != "" && p.Repo == "" {
+		return fmt.Errorf("package.repo is required when owner is specified")
+	}
+	if p.Repo != "" && p.Owner == "" {
+		return fmt.Errorf("package.owner is required when repo is specified")
+	}
+
+	return nil
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Package.
+// It supports both string format and object format:
+//   - String: "owner/repo" or "package-name"
+//   - Object: {"owner": "cli", "repo": "cli"} or {"name": "golang.org/x/tools/gopls"}
+func (p *Package) UnmarshalJSON(data []byte) error {
+	// Try string format first
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		// Check if it's "owner/repo" format
+		if parts := strings.SplitN(str, "/", 2); len(parts) == 2 && !strings.Contains(parts[1], "/") {
+			// Simple "owner/repo" format (e.g., "cli/cli", "BurntSushi/ripgrep")
+			p.Owner = parts[0]
+			p.Repo = parts[1]
+		} else {
+			// Name format (e.g., "golang.org/x/tools/gopls", "ripgrep")
+			p.Name = str
+		}
+		return nil
+	}
+
+	// Try object format
+	type packageAlias Package
+	var alias packageAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return fmt.Errorf("package: must be string or object: %w", err)
+	}
+	*p = Package(alias)
+	return nil
 }
 
 // Checksum holds checksum verification configuration.
@@ -48,8 +162,8 @@ type Checksum struct {
 // ToolSpec defines the desired state of an individual tool.
 // A tool can be installed via three patterns:
 //  1. Download pattern (explicit): Downloads with Source specified
-//  2. Download pattern (registry): Uses aqua-registry to resolve URL from RegistryPackage
-//  3. Delegation pattern: Uses a runtime or installer command (e.g., "go install", "cargo install")
+//  2. Download pattern (registry): Uses Package with owner/repo to resolve URL from aqua-registry
+//  3. Delegation pattern: Uses Package with name for runtime/installer commands
 type ToolSpec struct {
 	// InstallerRef references an Installer resource by name.
 	// For download pattern: points to an installer like "aqua" that handles downloading.
@@ -67,15 +181,16 @@ type ToolSpec struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Source configures download settings for the download pattern (explicit).
-	// Required when using a download-pattern installer without RegistryPackage.
-	// Mutually exclusive with RegistryPackage.
+	// Mutually exclusive with Package.
 	Source *DownloadSource `json:"source,omitempty"`
 
-	// RegistryPackage specifies the aqua-registry package name for registry-based installation.
-	// Format: "owner/repo" (e.g., "cli/cli", "BurntSushi/ripgrep").
-	// When specified, toto resolves the download URL from aqua-registry.
-	// Requires InstallerRef="aqua". Mutually exclusive with Source.
-	RegistryPackage string `json:"registryPackage,omitempty"`
+	// Package specifies the package identifier.
+	// For registry-based installation (aqua): use owner/repo format
+	//   package: { owner: "cli", repo: "cli" }
+	// For delegation-based installation (go, cargo, npm): use name format
+	//   package: { name: "golang.org/x/tools/gopls" }
+	// Mutually exclusive with Source.
+	Package *Package `json:"package,omitempty"`
 
 	// RuntimeRef references a Runtime resource by name for delegation installation.
 	// When set, the tool is installed using the runtime's install command
@@ -83,14 +198,6 @@ type ToolSpec struct {
 	// The tool will be tainted (marked for reinstallation) when the runtime is upgraded.
 	// Either InstallerRef or RuntimeRef must be specified.
 	RuntimeRef string `json:"runtimeRef,omitempty"`
-
-	// Package specifies the package identifier for delegation installation.
-	// Required when using RuntimeRef.
-	// Format depends on the runtime:
-	//   - Go: "golang.org/x/tools/gopls"
-	//   - Cargo: "ripgrep"
-	//   - npm: "@biomejs/biome"
-	Package string `json:"package,omitempty"`
 }
 
 // Validate validates the ToolSpec.
@@ -99,21 +206,32 @@ func (s *ToolSpec) Validate() error {
 	if s.InstallerRef == "" && s.RuntimeRef == "" {
 		return fmt.Errorf("either installerRef or runtimeRef is required")
 	}
-	if s.Version == "" && s.Package == "" && s.RegistryPackage == "" {
-		return fmt.Errorf("version, package, or registryPackage is required")
+
+	// Version, Source, or Package must be specified
+	if s.Version == "" && s.Source == nil && s.Package.IsEmpty() {
+		return fmt.Errorf("version, source, or package is required")
 	}
-	// Runtime delegation requires package
-	if s.RuntimeRef != "" && s.Package == "" {
-		return fmt.Errorf("package is required when using runtimeRef")
+
+	// Runtime delegation requires package with name
+	if s.RuntimeRef != "" && (s.Package.IsEmpty() || !s.Package.IsName()) {
+		return fmt.Errorf("package.name is required when using runtimeRef")
 	}
-	// Source and RegistryPackage are mutually exclusive
-	if s.Source != nil && s.RegistryPackage != "" {
-		return fmt.Errorf("cannot specify both source and registryPackage")
+
+	// Source and Package are mutually exclusive
+	if s.Source != nil && !s.Package.IsEmpty() {
+		return fmt.Errorf("cannot specify both source and package")
 	}
-	// RegistryPackage requires InstallerRef="aqua"
-	if s.RegistryPackage != "" && s.InstallerRef != "aqua" {
-		return fmt.Errorf("registryPackage requires installerRef: aqua")
+
+	// Registry package (owner/repo) requires InstallerRef="aqua"
+	if s.Package.IsRegistry() && s.InstallerRef != "aqua" {
+		return fmt.Errorf("package with owner/repo requires installerRef: aqua")
 	}
+
+	// Validate Package if specified
+	if err := s.Package.Validate(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -220,18 +338,14 @@ type ToolItem struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Source provides download configuration for this specific tool.
-	// Required for download pattern installers when not using RegistryPackage.
-	// Mutually exclusive with RegistryPackage.
+	// Mutually exclusive with Package.
 	Source *DownloadSource `json:"source,omitempty"`
 
-	// RegistryPackage specifies the aqua-registry package name for this tool.
-	// Format: "owner/repo" (e.g., "cli/cli", "BurntSushi/ripgrep").
+	// Package specifies the package identifier for this tool.
+	// For registry-based: { owner: "cli", repo: "cli" }
+	// For delegation-based: { name: "golang.org/x/tools/gopls" }
 	// Mutually exclusive with Source.
-	RegistryPackage string `json:"registryPackage,omitempty"`
-
-	// Package specifies the package identifier for delegation installation.
-	// Used when the ToolSet has a RuntimeRef configured.
-	Package string `json:"package,omitempty"`
+	Package *Package `json:"package,omitempty"`
 }
 
 // IsEnabled returns whether the tool item is enabled.
@@ -270,16 +384,14 @@ type ToolState struct {
 	// Stored for reference and potential re-download if needed.
 	Source *DownloadSource `json:"source,omitempty"`
 
-	// RegistryPackage records the aqua-registry package name used for installation.
-	// Stored to track which registry package was used for reconciliation.
-	RegistryPackage string `json:"registryPackage,omitempty"`
+	// Package records the package identifier used for installation.
+	// For registry-based: { owner: "cli", repo: "cli" }
+	// For delegation-based: { name: "golang.org/x/tools/gopls" }
+	Package *Package `json:"package,omitempty"`
 
 	// RuntimeRef records which runtime was used for delegation installation.
 	// Used to determine if the tool needs reinstallation when the runtime is upgraded.
 	RuntimeRef string `json:"runtimeRef,omitempty"`
-
-	// Package records the package identifier used for delegation installation.
-	Package string `json:"package,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
 	// Common reasons: "runtime_upgraded" (runtime was updated).
