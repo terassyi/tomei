@@ -71,20 +71,21 @@ func TestToolSpec_Validate(t *testing.T) {
 			wantErr: "version, source, or package is required",
 		},
 		{
-			name: "runtimeRef without package.name",
+			name: "runtimeRef without package",
 			spec: &ToolSpec{
 				RuntimeRef: "go",
 				Version:    "1.0.0",
 			},
-			wantErr: "package.name is required when using runtimeRef",
+			wantErr: "package is required when using runtimeRef",
 		},
 		{
-			name: "runtimeRef with registry package (invalid)",
+			name: "runtimeRef with registry package (valid - uses Name for delegation)",
 			spec: &ToolSpec{
 				RuntimeRef: "go",
-				Package:    &Package{Owner: "cli", Repo: "cli"},
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Version:    "v0.21.0",
 			},
-			wantErr: "package.name is required when using runtimeRef",
+			wantErr: "",
 		},
 		{
 			name: "source and package both specified",
@@ -410,12 +411,12 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "string with owner/repo format",
+			name: "string format stored as Name",
 			json: `"cli/cli"`,
-			want: &Package{Owner: "cli", Repo: "cli"},
+			want: &Package{Name: "cli/cli"},
 		},
 		{
-			name: "string with name format (go package)",
+			name: "string with go package path",
 			json: `"golang.org/x/tools/gopls"`,
 			want: &Package{Name: "golang.org/x/tools/gopls"},
 		},

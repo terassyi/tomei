@@ -3,7 +3,6 @@ package resource
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/terassyi/toto/internal/installer/extract"
@@ -111,21 +110,14 @@ func (p *Package) Validate() error {
 
 // UnmarshalJSON implements custom JSON unmarshaling for Package.
 // It supports both string format and object format:
-//   - String: "owner/repo" or "package-name"
+//   - String: stored as Name, interpretation depends on context (installerRef)
 //   - Object: {"owner": "cli", "repo": "cli"} or {"name": "golang.org/x/tools/gopls"}
 func (p *Package) UnmarshalJSON(data []byte) error {
 	// Try string format first
 	var str string
 	if err := json.Unmarshal(data, &str); err == nil {
-		// Check if it's "owner/repo" format
-		if parts := strings.SplitN(str, "/", 2); len(parts) == 2 && !strings.Contains(parts[1], "/") {
-			// Simple "owner/repo" format (e.g., "cli/cli", "BurntSushi/ripgrep")
-			p.Owner = parts[0]
-			p.Repo = parts[1]
-		} else {
-			// Name format (e.g., "golang.org/x/tools/gopls", "ripgrep")
-			p.Name = str
-		}
+		// Store as Name; interpretation depends on context (installerRef)
+		p.Name = str
 		return nil
 	}
 
@@ -212,9 +204,9 @@ func (s *ToolSpec) Validate() error {
 		return fmt.Errorf("version, source, or package is required")
 	}
 
-	// Runtime delegation requires package with name
-	if s.RuntimeRef != "" && (s.Package.IsEmpty() || !s.Package.IsName()) {
-		return fmt.Errorf("package.name is required when using runtimeRef")
+	// Runtime delegation requires package
+	if s.RuntimeRef != "" && s.Package.IsEmpty() {
+		return fmt.Errorf("package is required when using runtimeRef")
 	}
 
 	// Source and Package are mutually exclusive
@@ -222,7 +214,7 @@ func (s *ToolSpec) Validate() error {
 		return fmt.Errorf("cannot specify both source and package")
 	}
 
-	// Registry package (owner/repo) requires InstallerRef="aqua"
+	// Registry package (explicit owner/repo object) requires InstallerRef="aqua"
 	if s.Package.IsRegistry() && s.InstallerRef != "aqua" {
 		return fmt.Errorf("package with owner/repo requires installerRef: aqua")
 	}
