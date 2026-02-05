@@ -6,6 +6,12 @@ import (
 	"github.com/terassyi/toto/internal/resource"
 )
 
+// Edge represents a dependency edge in the graph.
+type Edge struct {
+	From NodeID // Dependent node
+	To   NodeID // Dependency node
+}
+
 // Resolver defines the interface for dependency resolution.
 type Resolver interface {
 	// AddResource adds a resource and its dependencies to the graph.
@@ -23,6 +29,12 @@ type Resolver interface {
 
 	// EdgeCount returns the number of edges in the graph.
 	EdgeCount() int
+
+	// GetEdges returns all edges in the graph.
+	GetEdges() []Edge
+
+	// GetNodes returns all nodes in the graph.
+	GetNodes() []*Node
 }
 
 // resolver is the concrete implementation of Resolver interface.
@@ -73,4 +85,24 @@ func (r *resolver) NodeCount() int {
 // EdgeCount returns the number of edges in the graph.
 func (r *resolver) EdgeCount() int {
 	return r.dag.edgeCount()
+}
+
+// GetEdges returns all edges in the graph.
+func (r *resolver) GetEdges() []Edge {
+	var edges []Edge
+	for from, deps := range r.dag.edges {
+		for to := range deps {
+			edges = append(edges, Edge{From: from, To: to})
+		}
+	}
+	return edges
+}
+
+// GetNodes returns all nodes in the graph.
+func (r *resolver) GetNodes() []*Node {
+	nodes := make([]*Node, 0, len(r.dag.nodes))
+	for _, node := range r.dag.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
 }
