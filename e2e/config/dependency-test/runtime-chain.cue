@@ -2,19 +2,10 @@ package toto
 
 // Runtime to Tool dependency chain test: go runtime -> go installer -> gopls
 
+_goVersion: "1.23.5"
+
 _goSource: {
-	if _env.os == "linux" && _env.arch == "arm64" {
-		url: "https://go.dev/dl/go1.23.5.linux-arm64.tar.gz"
-	}
-	if _env.os == "linux" && _env.arch == "amd64" {
-		url: "https://go.dev/dl/go1.23.5.linux-amd64.tar.gz"
-	}
-	if _env.os == "darwin" && _env.arch == "arm64" {
-		url: "https://go.dev/dl/go1.23.5.darwin-arm64.tar.gz"
-	}
-	if _env.os == "darwin" && _env.arch == "amd64" {
-		url: "https://go.dev/dl/go1.23.5.darwin-amd64.tar.gz"
-	}
+	url: "https://go.dev/dl/go\(_goVersion).\(_env.os)-\(_env.arch).tar.gz"
 	checksum: url: "https://go.dev/dl/?mode=json&include=all"
 }
 
@@ -25,13 +16,13 @@ goRuntime: {
 	metadata: name: "go"
 	spec: {
 		type:    "download"
-		version: "1.23.5"
+		version: _goVersion
 		source:  _goSource
 		binaries: ["go", "gofmt"]
 		binDir:      "~/go/bin"
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/1.23.5"
+			GOROOT: "~/.local/share/toto/runtimes/go/\(_goVersion)"
 			GOBIN:  "~/go/bin"
 		}
 		commands: {
