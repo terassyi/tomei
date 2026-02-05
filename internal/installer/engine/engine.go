@@ -27,14 +27,19 @@ type RuntimeInstaller interface {
 	Remove(ctx context.Context, st *resource.RuntimeState, name string) error
 }
 
+// ResolverConfigurer is a callback to configure the tool resolver after state is loaded.
+// This allows resolver setup to happen after the lock is acquired and state is read.
+type ResolverConfigurer func(st *state.UserState) error
+
 // Engine orchestrates the apply process.
 type Engine struct {
-	store             *state.Store[state.UserState]
-	toolInstaller     ToolInstaller
-	runtimeReconciler *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
-	runtimeExecutor   *executor.Executor[*resource.Runtime, *resource.RuntimeState]
-	toolReconciler    *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
-	toolExecutor      *executor.Executor[*resource.Tool, *resource.ToolState]
+	store              *state.Store[state.UserState]
+	toolInstaller      ToolInstaller
+	runtimeReconciler  *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
+	runtimeExecutor    *executor.Executor[*resource.Runtime, *resource.RuntimeState]
+	toolReconciler     *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
+	toolExecutor       *executor.Executor[*resource.Tool, *resource.ToolState]
+	resolverConfigurer ResolverConfigurer
 }
 
 // NewEngine creates a new Engine.
@@ -53,6 +58,12 @@ func NewEngine(
 		toolReconciler:    reconciler.NewToolReconciler(),
 		toolExecutor:      executor.New(resource.KindTool, toolInstaller, toolStore),
 	}
+}
+
+// SetResolverConfigurer sets a callback to configure the resolver after state is loaded.
+// This ensures resolver configuration happens while holding the state lock.
+func (e *Engine) SetResolverConfigurer(configurer ResolverConfigurer) {
+	e.resolverConfigurer = configurer
 }
 
 // ToolAction is an alias for tool-specific action type.
@@ -88,6 +99,13 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	st, err := e.store.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	// Configure resolver after state is loaded (while holding lock)
+	if e.resolverConfigurer != nil {
+		if err := e.resolverConfigurer(st); err != nil {
+			slog.Warn("failed to configure resolver", "error", err)
+		}
 	}
 
 	// Build resource maps for quick lookup

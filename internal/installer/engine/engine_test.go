@@ -742,6 +742,159 @@ bat: {
 	assert.True(t, installedTools["bat"])
 }
 
+func TestEngine_ResolverConfigurer(t *testing.T) {
+	// Test that ResolverConfigurer callback is called after state is loaded
+	// but before any installation happens
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := `package toto
+
+tool: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "test-tool"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/test-tool.tar.gz"
+			checksum: {
+				value: "sha256:abc123"
+			}
+			archiveType: "tar.gz"
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup store with pre-existing registry state
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state with registry info (simulating toto init)
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Registry = &state.RegistryState{
+		Aqua: &state.AquaRegistryState{
+			Ref: "v4.465.0",
+		},
+	}
+	err = store.Save(initialState)
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	// Track when configurer is called
+	configurerCalled := false
+	var capturedRef string
+	installCalled := false
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installCalled = true
+			// Verify configurer was called before install
+			assert.True(t, configurerCalled, "configurer should be called before install")
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+	// Set resolver configurer
+	engine.SetResolverConfigurer(func(st *state.UserState) error {
+		configurerCalled = true
+		if st.Registry != nil && st.Registry.Aqua != nil {
+			capturedRef = st.Registry.Aqua.Ref
+		}
+		return nil
+	})
+
+	// Run Apply
+	err = engine.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Verify configurer was called with correct state
+	assert.True(t, configurerCalled, "configurer should be called")
+	assert.Equal(t, "v4.465.0", capturedRef, "configurer should receive state with registry ref")
+
+	// Verify install was called after configurer
+	assert.True(t, installCalled, "install should be called")
+}
+
+func TestEngine_ResolverConfigurer_NilRegistry(t *testing.T) {
+	// Test that ResolverConfigurer handles nil registry gracefully
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := `package toto
+
+tool: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "test-tool"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/test-tool.tar.gz"
+			checksum: { value: "sha256:abc123" }
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// No pre-populated state (simulating fresh install without toto init)
+
+	configurerCalled := false
+	var registryIsNil bool
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+	engine.SetResolverConfigurer(func(st *state.UserState) error {
+		configurerCalled = true
+		registryIsNil = (st.Registry == nil)
+		return nil
+	})
+
+	err = engine.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	assert.True(t, configurerCalled)
+	assert.True(t, registryIsNil, "registry should be nil when not initialized")
+}
+
 func TestEngine_PlanAll(t *testing.T) {
 	// Create test config directory with CUE file
 	configDir := t.TempDir()

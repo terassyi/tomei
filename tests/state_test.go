@@ -323,3 +323,205 @@ func TestState_ConcurrentAccess(t *testing.T) {
 
 	assert.Equal(t, "1.0.0", loaded.Tools["test"].Version)
 }
+
+// TestState_RegistryPersistence tests that registry state is correctly persisted and loaded.
+func TestState_RegistryPersistence(t *testing.T) {
+	tests := []struct {
+		name  string
+		state *state.UserState
+		check func(t *testing.T, loaded *state.UserState)
+	}{
+		{
+			name: "registry with tools",
+			state: &state.UserState{
+				Registry: &state.RegistryState{
+					Aqua: &state.AquaRegistryState{
+						Ref:       "v4.465.0",
+						UpdatedAt: time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC),
+					},
+				},
+				Tools: map[string]*resource.ToolState{
+					"gh": {
+						InstallerRef: "aqua",
+						Version:      "2.86.0",
+						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
+						BinPath:      "/home/user/.local/bin/gh",
+						UpdatedAt:    time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC),
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *state.UserState) {
+				require.NotNil(t, loaded.Registry)
+				require.NotNil(t, loaded.Registry.Aqua)
+				assert.Equal(t, "v4.465.0", loaded.Registry.Aqua.Ref)
+
+				require.Len(t, loaded.Tools, 1)
+				assert.Equal(t, "cli/cli", loaded.Tools["gh"].Package.String())
+				assert.Equal(t, "aqua", loaded.Tools["gh"].InstallerRef)
+			},
+		},
+		{
+			name: "registry only (no tools)",
+			state: &state.UserState{
+				Registry: &state.RegistryState{
+					Aqua: &state.AquaRegistryState{
+						Ref:       "v4.500.0",
+						UpdatedAt: time.Now().Truncate(time.Second),
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *state.UserState) {
+				require.NotNil(t, loaded.Registry)
+				require.NotNil(t, loaded.Registry.Aqua)
+				assert.Equal(t, "v4.500.0", loaded.Registry.Aqua.Ref)
+				assert.Empty(t, loaded.Tools)
+			},
+		},
+		{
+			name: "nil registry (backward compatibility)",
+			state: &state.UserState{
+				Tools: map[string]*resource.ToolState{
+					"ripgrep": {
+						InstallerRef: "aqua",
+						Version:      "14.0.0",
+						BinPath:      "/home/user/.local/bin/rg",
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *state.UserState) {
+				assert.Nil(t, loaded.Registry)
+				require.Len(t, loaded.Tools, 1)
+				assert.Equal(t, "14.0.0", loaded.Tools["ripgrep"].Version)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+
+			store, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			// Save state
+			require.NoError(t, store.Lock())
+			require.NoError(t, store.Save(tt.state))
+			require.NoError(t, store.Unlock())
+
+			// Create new store instance and load
+			store2, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			require.NoError(t, store2.Lock())
+			loaded, err := store2.Load()
+			require.NoError(t, err)
+			require.NoError(t, store2.Unlock())
+
+			tt.check(t, loaded)
+		})
+	}
+}
+
+// TestState_RegistryJSONFormat tests that registry state has the expected JSON format.
+func TestState_RegistryJSONFormat(t *testing.T) {
+	stateDir := t.TempDir()
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Lock())
+	st := &state.UserState{
+		Registry: &state.RegistryState{
+			Aqua: &state.AquaRegistryState{
+				Ref:       "v4.465.0",
+				UpdatedAt: time.Date(2026, 2, 3, 10, 30, 0, 0, time.UTC),
+			},
+		},
+		Tools: map[string]*resource.ToolState{
+			"gh": {
+				InstallerRef: "aqua",
+				Version:      "2.86.0",
+				Package:      &resource.Package{Owner: "cli", Repo: "cli"},
+				BinPath:      "/home/user/.local/bin/gh",
+				UpdatedAt:    time.Date(2026, 2, 3, 10, 30, 0, 0, time.UTC),
+			},
+		},
+	}
+	require.NoError(t, store.Save(st))
+	require.NoError(t, store.Unlock())
+
+	// Read raw JSON
+	stateFile := filepath.Join(stateDir, "state.json")
+	data, err := os.ReadFile(stateFile)
+	require.NoError(t, err)
+
+	// Parse as generic JSON
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(data, &parsed))
+
+	// Verify registry structure
+	registry, ok := parsed["registry"].(map[string]any)
+	require.True(t, ok, "registry should be a map")
+
+	aquaState, ok := registry["aqua"].(map[string]any)
+	require.True(t, ok, "aqua should be a map")
+
+	assert.Equal(t, "v4.465.0", aquaState["ref"])
+	assert.NotEmpty(t, aquaState["updatedAt"])
+
+	// Verify tools structure
+	tools, ok := parsed["tools"].(map[string]any)
+	require.True(t, ok, "tools should be a map")
+
+	gh, ok := tools["gh"].(map[string]any)
+	require.True(t, ok, "gh should be a map")
+
+	assert.Equal(t, "aqua", gh["installerRef"])
+	assert.Equal(t, "2.86.0", gh["version"])
+
+	// package is stored as object {"owner": "cli", "repo": "cli"}
+	pkg, ok := gh["package"].(map[string]any)
+	require.True(t, ok, "package should be a map")
+	assert.Equal(t, "cli", pkg["owner"])
+	assert.Equal(t, "cli", pkg["repo"])
+}
+
+// TestState_RegistryUpdate tests updating registry state.
+func TestState_RegistryUpdate(t *testing.T) {
+	stateDir := t.TempDir()
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Save initial state with old registry ref
+	require.NoError(t, store.Lock())
+	initialState := &state.UserState{
+		Registry: &state.RegistryState{
+			Aqua: &state.AquaRegistryState{
+				Ref:       "v4.400.0",
+				UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	// Update registry ref (simulate --sync)
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+
+	st.Registry.Aqua.Ref = "v4.465.0"
+	st.Registry.Aqua.UpdatedAt = time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC)
+
+	require.NoError(t, store.Save(st))
+	require.NoError(t, store.Unlock())
+
+	// Reload and verify
+	require.NoError(t, store.Lock())
+	reloaded, err := store.Load()
+	require.NoError(t, err)
+	require.NoError(t, store.Unlock())
+
+	assert.Equal(t, "v4.465.0", reloaded.Registry.Aqua.Ref)
+}

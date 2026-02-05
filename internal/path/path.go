@@ -15,14 +15,16 @@ const (
 
 // Default path suffixes (relative to home directory)
 const (
-	defaultUserDataSuffix = ".local/share/toto"
-	defaultUserBinSuffix  = ".local/bin"
+	defaultUserDataSuffix  = ".local/share/toto"
+	defaultUserBinSuffix   = ".local/bin"
+	defaultUserCacheSuffix = ".cache/toto"
 )
 
 // Paths holds configurable paths for toto.
 type Paths struct {
 	userDataDir   string
 	userBinDir    string
+	userCacheDir  string
 	systemDataDir string
 }
 
@@ -60,6 +62,7 @@ func New(opts ...Option) (*Paths, error) {
 	p := &Paths{
 		userDataDir:   filepath.Join(home, defaultUserDataSuffix),
 		userBinDir:    filepath.Join(home, defaultUserBinSuffix),
+		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
 		systemDataDir: DefaultSystemDataDir,
 	}
 
@@ -78,6 +81,11 @@ func (p *Paths) UserDataDir() string {
 // UserBinDir returns the user bin directory.
 func (p *Paths) UserBinDir() string {
 	return p.userBinDir
+}
+
+// UserCacheDir returns the user cache directory.
+func (p *Paths) UserCacheDir() string {
+	return p.userCacheDir
 }
 
 // SystemDataDir returns the system data directory.
@@ -138,9 +146,15 @@ func NewFromConfig(cfg *config.Config) (*Paths, error) {
 		return nil, err
 	}
 
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Paths{
 		userDataDir:   dataDir,
 		userBinDir:    binDir,
+		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
 		systemDataDir: DefaultSystemDataDir,
 	}, nil
 }

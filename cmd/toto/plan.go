@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/graph"
+	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/toto/internal/registry/aqua"
+	"github.com/terassyi/toto/internal/state"
 )
 
 var planCmd = &cobra.Command{
@@ -26,7 +31,24 @@ Resources within the same layer can be executed in parallel.`,
 	RunE: runPlan,
 }
 
+var syncRegistryPlan bool
+
+func init() {
+	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
+}
+
 func runPlan(cmd *cobra.Command, args []string) error {
+	// Sync registry if --sync flag is set
+	if syncRegistryPlan {
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := syncRegistryForPlan(ctx); err != nil {
+			slog.Warn("failed to sync aqua registry", "error", err)
+		}
+	}
+
 	cmd.Printf("Planning changes for %v\n\n", args)
 
 	loader := config.NewLoader(nil)
@@ -121,4 +143,27 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	cmd.Printf("Total: %d resources in %d layers\n", totalResources, len(filteredLayers))
 
 	return nil
+}
+
+// syncRegistryForPlan creates a store and syncs the aqua registry.
+func syncRegistryForPlan(ctx context.Context) error {
+	// Load config from fixed path (~/.config/toto/config.cue)
+	cfg, err := config.LoadConfig(config.DefaultConfigDir)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Setup paths from config
+	pathConfig, err := path.NewFromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize paths: %w", err)
+	}
+
+	// Create state store
+	store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
+	if err != nil {
+		return fmt.Errorf("failed to create state store: %w", err)
+	}
+
+	return aqua.SyncRegistry(ctx, store)
 }

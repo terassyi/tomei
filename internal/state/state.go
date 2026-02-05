@@ -1,6 +1,8 @@
 package state
 
 import (
+	"time"
+
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -12,9 +14,21 @@ type State interface {
 	UserState | SystemState
 }
 
+// RegistryState represents registry information stored in state.json.
+type RegistryState struct {
+	Aqua *AquaRegistryState `json:"aqua,omitempty"`
+}
+
+// AquaRegistryState represents the state of aqua-registry.
+type AquaRegistryState struct {
+	Ref       string    `json:"ref"` // e.g., "v4.465.0"
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // UserState represents the state for user-privilege resources.
 type UserState struct {
 	Version    string                              `json:"version"`
+	Registry   *RegistryState                      `json:"registry,omitempty"`
 	Installers map[string]*resource.InstallerState `json:"installers,omitempty"`
 	Runtimes   map[string]*resource.RuntimeState   `json:"runtimes,omitempty"`
 	Tools      map[string]*resource.ToolState      `json:"tools,omitempty"`

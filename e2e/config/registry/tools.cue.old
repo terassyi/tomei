@@ -1,0 +1,37 @@
+package manifests
+
+// ripgrep - Install via aqua registry (older version for upgrade test)
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "rg"
+	spec: {
+		installerRef: "aqua"
+		version:      "14.1.1"
+		package:      "BurntSushi/ripgrep"
+	}
+}
+
+// fd - Install via aqua registry (older version for upgrade test)
+fd: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "fd"
+	spec: {
+		installerRef: "aqua"
+		version:      "v10.2.0"
+		package:      "sharkdp/fd"
+	}
+}
+
+// jq - Install via aqua registry (older version for upgrade test)
+jq: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "jq-1.7.1"
+		package:      "jqlang/jq"
+	}
+}

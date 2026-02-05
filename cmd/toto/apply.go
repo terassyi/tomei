@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/runtime"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/state"
 )
 
@@ -29,6 +31,12 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
   sudo toto apply --system .`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
+}
+
+var syncRegistry bool
+
+func init() {
+	applyCmd.Flags().BoolVar(&syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -77,6 +85,13 @@ func runUserApply(ctx context.Context, paths []string) error {
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
+	// Sync registry if --sync flag is set
+	if syncRegistry {
+		if err := aqua.SyncRegistry(ctx, store); err != nil {
+			slog.Warn("failed to sync aqua registry", "error", err)
+		}
+	}
+
 	// Create installers
 	downloader := download.NewDownloader()
 	toolsDir := pathConfig.UserDataDir() + "/tools"
@@ -87,8 +102,21 @@ func runUserApply(ctx context.Context, paths []string) error {
 	toolInstaller := tool.NewInstaller(downloader, placer)
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 
-	// Create and run engine with runtime support
+	// Create engine
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
+
+	// Set resolver configurer to be called after lock is acquired and state is loaded
+	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
+	eng.SetResolverConfigurer(func(st *state.UserState) error {
+		if st.Registry != nil && st.Registry.Aqua != nil {
+			resolver := aqua.NewResolver(cacheDir)
+			toolInstaller.SetResolver(resolver, aqua.RegistryRef(st.Registry.Aqua.Ref))
+			slog.Debug("configured aqua-registry resolver", "ref", st.Registry.Aqua.Ref)
+		}
+		return nil
+	})
+
+	// Run engine
 	if err := eng.Apply(ctx, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
 	}
