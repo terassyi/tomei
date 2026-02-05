@@ -28,7 +28,7 @@ _fdSource: {
 	}
 	if _env.os == "linux" && _env.arch == "amd64" {
 		url: "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-unknown-linux-gnu.tar.gz"
-		checksum: value: "sha256:4a1a5a295e09e908c5a0c407a01ae776c42180570bff8ad27c9e4c6c0ab51a11"
+		checksum: value: "sha256:5f9030bcb0e1d03818521ed2e3d74fdb046480a45a4418ccff4f070241b4ed25"
 	}
 	if _env.os == "darwin" && _env.arch == "arm64" {
 		url: "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-apple-darwin.tar.gz"
