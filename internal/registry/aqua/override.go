@@ -1,6 +1,8 @@
 // Package aqua provides OS/Arch override functionality for aqua-registry packages.
 package aqua
 
+import "maps"
+
 // applyOSOverrides applies OS/Arch-specific overrides to the package info.
 // It returns a new PackageInfo with the first matching override applied.
 // Matching is done by GOOS and GOArch fields (empty means "any").
@@ -24,12 +26,8 @@ func applyOSOverrides(info *PackageInfo, goos, goarch string) *PackageInfo {
 			if override.Replacements != nil {
 				// Merge replacements: start with base, then override
 				merged := make(map[string]string)
-				for k, v := range info.Replacements {
-					merged[k] = v
-				}
-				for k, v := range override.Replacements {
-					merged[k] = v
-				}
+				maps.Copy(merged, info.Replacements)
+				maps.Copy(merged, override.Replacements)
 				result.Replacements = merged
 			}
 			// Only apply the first matching override
