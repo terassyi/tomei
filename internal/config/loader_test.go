@@ -449,3 +449,120 @@ tool: {
 		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
 	}
 }
+
+func TestLoader_InjectEnv_PlatformMapping(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         *Env
+		cueTemplate string
+		expectedURL string
+	}{
+		{
+			name: "platform.os.apple darwin",
+			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    version: "2.86.0"
+    source: {
+        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/gh_macOS_arm64.tar.gz",
+		},
+		{
+			name: "platform.os.apple linux",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    version: "2.86.0"
+    source: {
+        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/gh_Linux_amd64.tar.gz",
+		},
+		{
+			name: "platform.arch.gnu amd64",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "download"
+    version: "14.0.0"
+    source: {
+        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/ripgrep-x86_64-unknown-linux-musl.tar.gz",
+		},
+		{
+			name: "platform.arch.gnu arm64",
+			env:  &Env{OS: "linux", Arch: "arm64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "download"
+    version: "14.0.0"
+    source: {
+        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/ripgrep-aarch64-unknown-linux-musl.tar.gz",
+		},
+		{
+			name: "platform.os.go and platform.arch.go",
+			env:  &Env{OS: "darwin", Arch: "amd64", Headless: false},
+			cueTemplate: `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "https://example.com/test_\(_env.platform.os.go)_\(_env.platform.arch.go).tar.gz"
+    }
+}
+`,
+			expectedURL: "https://example.com/test_darwin_amd64.tar.gz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "tool.cue")
+
+			if err := os.WriteFile(cueFile, []byte(tt.cueTemplate), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			loader := NewLoader(tt.env)
+			resources, err := loader.LoadFile(cueFile)
+			if err != nil {
+				t.Fatalf("failed to load file: %v", err)
+			}
+
+			tool := resources[0].(*resource.Tool)
+			if tool.ToolSpec.Source.URL != tt.expectedURL {
+				t.Errorf("expected URL %s, got %s", tt.expectedURL, tool.ToolSpec.Source.URL)
+			}
+		})
+	}
+}

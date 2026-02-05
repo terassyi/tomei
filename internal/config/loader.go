@@ -36,15 +36,51 @@ func NewLoader(env *Env) *Loader {
 	}
 }
 
+// Platform name mappings for different conventions
+var (
+	osAppleMap = map[OS]string{
+		OSLinux:  "Linux",
+		OSDarwin: "macOS",
+	}
+	archGnuMap = map[Arch]string{
+		ArchAMD64: "x86_64",
+		ArchARM64: "aarch64",
+	}
+)
+
 // envCUE returns CUE source code that defines the _env hidden field.
 // This is prepended to user CUE files to enable environment-specific configuration.
 //
 // Example usage in CUE:
 //
-//	url: "https://example.com/tool_\(_env.os)_\(_env.arch).tar.gz"
+//	// Basic (Go naming convention)
+//	url: "https://go.dev/dl/go1.25.5.\(_env.os)-\(_env.arch).tar.gz"
+//
+//	// Apple naming convention (macOS, Linux)
+//	url: "https://.../gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
+//
+//	// GNU naming convention (x86_64, aarch64)
+//	url: "https://.../ripgrep-\(_env.platform.arch.gnu)-apple-\(_env.os).tar.gz"
 func (l *Loader) envCUE() string {
-	return fmt.Sprintf(`_env: { os: %q, arch: %q, headless: %t }`,
-		l.env.OS, l.env.Arch, l.env.Headless)
+	return fmt.Sprintf(`_env: {
+	os: %q
+	arch: %q
+	headless: %t
+	platform: {
+		os: {
+			go: %q
+			apple: %q
+		}
+		arch: {
+			go: %q
+			gnu: %q
+		}
+	}
+}`,
+		l.env.OS, l.env.Arch, l.env.Headless,
+		l.env.OS, osAppleMap[l.env.OS],
+		l.env.Arch, archGnuMap[l.env.Arch],
+	)
 }
 
 // envCUEWithPackage returns CUE source code with package declaration.

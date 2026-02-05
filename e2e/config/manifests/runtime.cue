@@ -11,7 +11,7 @@ goRuntime: {
 		type:    "download"
 		version: "1.25.5"
 		source: {
-			url: "https://go.dev/dl/go1.25.5.\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
 			checksum: {
 				url: "https://go.dev/dl/?mode=json&include=all"
 			}
@@ -20,7 +20,7 @@ goRuntime: {
 		binDir:      "~/go/bin" // Runtime binaries go to GOBIN (same as toolBinPath)
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/1.25.5"
+			GOROOT: "~/.local/share/toto/runtimes/go/\(spec.version)"
 			GOBIN:  "~/go/bin"
 		}
 		// Commands for tool installation via go install
