@@ -55,18 +55,34 @@ jobs:
         uses: ./.github/actions/integration-test
 
   e2e-test:
-    name: E2E Test (${{ matrix.arch }} on ${{ matrix.runner }})
+    name: E2E Test (${{ matrix.os }}/${{ matrix.arch }}, ${{ matrix.mode }})
     needs: integration-test
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
+          # Native mode
+          - os: linux
+            arch: arm64
             runner: ubuntu-24.04-arm
-          - arch: amd64
+            mode: native
+          - os: linux
+            arch: amd64
             runner: ubuntu-latest
-          - arch: arm64
+            mode: native
+          - os: darwin
+            arch: arm64
             runner: macos-latest
+            mode: native
+          # Container mode (Linux only)
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            mode: container
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            mode: container
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -76,3 +92,4 @@ jobs:
         uses: ./.github/actions/e2e-test
         with:
           arch: ${{ matrix.arch }}
+          mode: ${{ matrix.mode }}

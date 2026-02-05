@@ -1,53 +1,18 @@
-package e2e_test
+//go:build e2e
+
+package e2e
 
 import (
-	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
-
-var containerName string
-var targetArch string
-
-var _ = BeforeSuite(func() {
-	containerName = os.Getenv("TOTO_E2E_CONTAINER")
-	if containerName == "" {
-		Skip("TOTO_E2E_CONTAINER environment variable is not set - skipping E2E tests")
-	}
-
-	// Get target architecture from GOARCH env var, default to host architecture
-	targetArch = os.Getenv("GOARCH")
-	if targetArch == "" {
-		targetArch = runtime.GOARCH
-	}
-})
-
-func containerExec(args ...string) (string, error) {
-	cmdArgs := append([]string{"exec", containerName}, args...)
-	cmd := exec.Command("docker", cmdArgs...)
-	output, err := cmd.CombinedOutput()
-	// Output to GinkgoWriter for visibility during test runs
-	fmt.Fprintf(GinkgoWriter, "$ docker exec %s %v\n%s", containerName, args, output)
-	if err != nil {
-		fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
-	}
-	return string(output), err
-}
-
-func containerExecBash(script string) (string, error) {
-	return containerExec("bash", "-c", script)
-}
 
 var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	Context("Basic Commands", func() {
 		It("displays version information", func() {
 			By("Running toto version command")
-			output, err := containerExec("toto", "version")
+			output, err := testExec.Exec("toto", "version")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output contains version string")
@@ -56,32 +21,32 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("initializes environment with toto init", func() {
 			By("Running toto init --yes --force to create config.cue and directories")
-			output, err := containerExec("toto", "init", "--yes", "--force")
+			output, err := testExec.Exec("toto", "init", "--yes", "--force")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Initialization complete"))
 
 			By("Verifying config.cue was created")
-			output, err = containerExecBash("cat ~/.config/toto/config.cue")
+			output, err = testExec.ExecBash("cat ~/.config/toto/config.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("package toto"))
 
 			By("Verifying data directory was created")
-			_, err = containerExecBash("ls -d ~/.local/share/toto")
+			_, err = testExec.ExecBash("ls -d ~/.local/share/toto")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying bin directory was created")
-			_, err = containerExecBash("ls -d ~/.local/bin")
+			_, err = testExec.ExecBash("ls -d ~/.local/bin")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying state.json was created")
-			output, err = containerExecBash("cat ~/.local/share/toto/state.json")
+			output, err = testExec.ExecBash("cat ~/.local/share/toto/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring(`"version"`))
 		})
 
 		It("validates CUE configuration", func() {
 			By("Running toto validate command")
-			output, err := containerExec("toto", "validate", "~/manifests/")
+			output, err := testExec.Exec("toto", "validate", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking validation succeeded")
@@ -99,7 +64,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("shows planned changes", func() {
 			By("Running toto plan command")
-			output, err := containerExec("toto", "plan", "~/manifests/")
+			output, err := testExec.Exec("toto", "plan", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan shows resources")
@@ -111,7 +76,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Runtime and Tool Installation", func() {
 		It("downloads and installs Runtime and Tools", func() {
 			By("Running toto apply command")
-			output, err := containerExec("toto", "apply", "~/manifests/")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtime installation")
@@ -132,7 +97,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Runtime Installation Verification", func() {
 		It("places runtime in runtimes directory", func() {
 			By("Listing runtimes directory")
-			output, err := containerExecBash("ls ~/.local/share/toto/runtimes/go/1.25.5/")
+			output, err := testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.5/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bin directory exists")
@@ -141,7 +106,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("creates symlinks for runtime binaries in BinDir (~/go/bin)", func() {
 			By("Listing go bin directory")
-			output, err := containerExecBash("ls -la ~/go/bin/")
+			output, err := testExec.ExecBash("ls -la ~/go/bin/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking symlink to go exists")
@@ -151,7 +116,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output).To(ContainSubstring("gofmt ->"))
 
 			By("Verifying runtime binaries are NOT in ~/.local/bin")
-			output, err = containerExecBash("ls -la ~/.local/bin/ 2>/dev/null || echo 'empty'")
+			output, err = testExec.ExecBash("ls -la ~/.local/bin/ 2>/dev/null || echo 'empty'")
 			Expect(err).NotTo(HaveOccurred())
 			// go and gofmt should NOT be in ~/.local/bin anymore
 			Expect(output).NotTo(MatchRegexp(`\bgo\b.*->`))
@@ -159,7 +124,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("allows running go command after install", func() {
 			By("Executing go version from ~/go/bin")
-			output, err := containerExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go version output")
@@ -168,7 +133,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("allows running gofmt command after install", func() {
 			By("Executing gofmt -h to verify it works")
-			output, err := containerExecBash("~/go/bin/gofmt -h 2>&1 || true")
+			output, err := testExec.ExecBash("~/go/bin/gofmt -h 2>&1 || true")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gofmt output")
@@ -179,7 +144,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Tool Installation - Download Pattern", func() {
 		It("places tool binary in tools directory", func() {
 			By("Listing tools directory")
-			output, err := containerExecBash("ls ~/.local/share/toto/tools/gh/2.86.0/")
+			output, err := testExec.ExecBash("ls ~/.local/share/toto/tools/gh/2.86.0/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gh binary exists")
@@ -188,7 +153,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("creates symlink for tool in bin directory", func() {
 			By("Listing bin directory")
-			output, err := containerExecBash("ls -la ~/.local/bin/")
+			output, err := testExec.ExecBash("ls -la ~/.local/bin/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking symlink to gh exists")
@@ -197,7 +162,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("allows running gh command after install", func() {
 			By("Executing gh --version")
-			output, err := containerExecBash("~/.local/bin/gh --version")
+			output, err := testExec.ExecBash("~/.local/bin/gh --version")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gh version output")
@@ -214,7 +179,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("places gopls binary in toolBinPath (~/go/bin)", func() {
 			By("Listing ~/go/bin directory")
-			output, err := containerExecBash("ls ~/go/bin/")
+			output, err := testExec.ExecBash("ls ~/go/bin/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls binary exists")
@@ -223,7 +188,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("allows running gopls command after install", func() {
 			By("Executing gopls version")
-			output, err := containerExecBash("~/go/bin/gopls version")
+			output, err := testExec.ExecBash("~/go/bin/gopls version")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls version output")
@@ -235,7 +200,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("State Management", func() {
 		It("updates state.json with runtime and tool info", func() {
 			By("Reading state.json")
-			output, err := containerExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtimes section exists")
@@ -257,7 +222,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("updates state.json with gopls tool info", func() {
 			By("Reading state.json")
-			output, err := containerExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls is in tools section")
@@ -276,7 +241,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running toto apply again")
-			output, err := containerExec("toto", "apply", "~/manifests/")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking no changes to apply")
@@ -285,9 +250,9 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("does not re-download on multiple applies", func() {
 			By("Running toto apply two more times")
-			output1, err := containerExec("toto", "apply", "~/manifests/")
+			output1, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-			output2, err := containerExec("toto", "apply", "~/manifests/")
+			output2, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking no installations occurred")
@@ -295,26 +260,26 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output2).NotTo(ContainSubstring("installed successfully"))
 
 			By("Checking go still works")
-			output, err := containerExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go1.25.5"))
 
 			By("Checking gh still works")
-			output, err = containerExecBash("~/.local/bin/gh --version")
+			output, err = testExec.ExecBash("~/.local/bin/gh --version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("gh version 2.86.0"))
 		})
 
 		It("is idempotent for runtime delegation tools", func() {
 			By("Running toto apply again")
-			output, err := containerExec("toto", "apply", "~/manifests/")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking no changes to apply")
 			Expect(output).To(ContainSubstring("total_actions=0"))
 
 			By("Checking gopls still works")
-			output, err = containerExecBash("~/go/bin/gopls version")
+			output, err = testExec.ExecBash("~/go/bin/gopls version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("v0.21.0"))
 		})
@@ -324,11 +289,11 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		It("reports no issues when environment is clean", func() {
 			By("Cleaning up any unmanaged tools from previous tests")
 			// Remove tools that may have been installed by dependency tests
-			_, _ = containerExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq")
-			_, _ = containerExecBash("rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat ~/.local/share/toto/tools/jq")
+			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq")
+			_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat ~/.local/share/toto/tools/jq")
 
 			By("Running toto doctor command")
-			output, err := containerExec("toto", "doctor")
+			output, err := testExec.Exec("toto", "doctor")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking doctor reports healthy environment")
@@ -338,11 +303,11 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		It("detects unmanaged tools in runtime bin path", func() {
 			By("Installing an unmanaged tool via go install using toto-managed go runtime")
 			// Use the toto-managed go binary from ~/go/bin with proper GOBIN set
-			_, err := containerExecBash("export GOROOT=$HOME/.local/share/toto/runtimes/go/1.25.5 && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest")
+			_, err := testExec.ExecBash("export GOROOT=$HOME/.local/share/toto/runtimes/go/1.25.5 && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running toto doctor command")
-			output, err := containerExec("toto", "doctor")
+			output, err := testExec.Exec("toto", "doctor")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking doctor detects unmanaged tool")
@@ -360,13 +325,13 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			By("Swapping runtime config to upgraded version (1.25.5 -> 1.25.6)")
 			// Move current runtime.cue aside and replace with upgrade version
 			// runtime.cue.upgrade has .upgrade extension so it's not loaded by toto until renamed
-			_, err := containerExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.old")
+			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.old")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = containerExecBash("mv ~/manifests/runtime.cue.upgrade ~/manifests/runtime.cue")
+			_, err = testExec.ExecBash("mv ~/manifests/runtime.cue.upgrade ~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running toto plan to see changes")
-			output, err := containerExec("toto", "plan", "~/manifests/")
+			output, err := testExec.Exec("toto", "plan", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan shows runtime in execution plan")
@@ -376,7 +341,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("upgrades runtime from 1.25.5 to 1.25.6", func() {
 			By("Running toto apply with upgraded config")
-			output, err := containerExec("toto", "apply", "~/manifests/")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtime upgrade was performed")
@@ -385,16 +350,16 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output).To(ContainSubstring("version=1.25.6"))
 
 			By("Verifying new runtime version is installed")
-			output, err = containerExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			output, err = testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go1.25.6"))
 
 			By("Verifying new runtime is in correct location")
-			_, err = containerExecBash("ls ~/.local/share/toto/runtimes/go/1.25.6/bin/go")
+			_, err = testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.6/bin/go")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying symlink points to new version")
-			output, err = containerExecBash("readlink ~/go/bin/go")
+			output, err = testExec.ExecBash("readlink ~/go/bin/go")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("1.25.6"))
 		})
@@ -405,14 +370,14 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			// The previous apply should have tainted and reinstalled it
 
 			By("Verifying gopls still works after upgrade")
-			output, err := containerExecBash("~/go/bin/gopls version")
+			output, err := testExec.ExecBash("~/go/bin/gopls version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
 		})
 
 		It("updates state.json with new runtime version", func() {
 			By("Reading state.json")
-			output, err := containerExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go runtime version is updated to 1.25.6")
@@ -421,7 +386,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("is idempotent after runtime upgrade", func() {
 			By("Running toto apply again")
-			output, err := containerExec("toto", "apply", "~/manifests/")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking no changes to apply")
