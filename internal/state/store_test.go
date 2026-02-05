@@ -227,6 +227,306 @@ func TestNewStore_CreatesDirectory(t *testing.T) {
 	}
 }
 
+func TestStore_LockBehavior(t *testing.T) {
+	tests := []struct {
+		name string
+		test func(t *testing.T, dir string)
+	}{
+		{
+			name: "lock is idempotent",
+			test: func(t *testing.T, dir string) {
+				store, err := NewStore[UserState](dir)
+				if err != nil {
+					t.Fatalf("failed to create store: %v", err)
+				}
+
+				// First lock should succeed
+				if err := store.Lock(); err != nil {
+					t.Fatalf("first lock failed: %v", err)
+				}
+
+				// Second lock should be idempotent (no-op, no error)
+				if err := store.Lock(); err != nil {
+					t.Fatalf("second lock should be idempotent: %v", err)
+				}
+
+				// Unlock should succeed
+				if err := store.Unlock(); err != nil {
+					t.Fatalf("unlock failed: %v", err)
+				}
+
+				// Second unlock should be idempotent (no-op, no error)
+				if err := store.Unlock(); err != nil {
+					t.Fatalf("second unlock should be idempotent: %v", err)
+				}
+			},
+		},
+		{
+			name: "lock contention",
+			test: func(t *testing.T, dir string) {
+				// First store acquires lock
+				store1, err := NewStore[UserState](dir)
+				if err != nil {
+					t.Fatalf("failed to create store1: %v", err)
+				}
+				if err := store1.Lock(); err != nil {
+					t.Fatalf("store1 lock failed: %v", err)
+				}
+				defer func() { _ = store1.Unlock() }()
+
+				// Second store should fail to acquire lock
+				store2, err := NewStore[UserState](dir)
+				if err != nil {
+					t.Fatalf("failed to create store2: %v", err)
+				}
+
+				err = store2.Lock()
+				if err == nil {
+					t.Error("store2 lock should fail when store1 holds lock")
+					_ = store2.Unlock()
+				}
+			},
+		},
+		{
+			name: "lock file contains PID",
+			test: func(t *testing.T, dir string) {
+				store, err := NewStore[UserState](dir)
+				if err != nil {
+					t.Fatalf("failed to create store: %v", err)
+				}
+
+				if err := store.Lock(); err != nil {
+					t.Fatalf("lock failed: %v", err)
+				}
+				defer func() { _ = store.Unlock() }()
+
+				// Read lock file and verify PID is not empty
+				data, err := os.ReadFile(store.LockPath())
+				if err != nil {
+					t.Fatalf("failed to read lock file: %v", err)
+				}
+
+				if len(data) == 0 {
+					t.Error("lock file should contain PID")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.test(t, dir)
+		})
+	}
+}
+
+func TestStore_PathAccessors(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore[UserState](dir)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		got      string
+		expected string
+	}{
+		{
+			name:     "state path",
+			got:      store.StatePath(),
+			expected: filepath.Join(dir, "state.json"),
+		},
+		{
+			name:     "lock path",
+			got:      store.LockPath(),
+			expected: filepath.Join(dir, "state.lock"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, tt.got)
+			}
+		})
+	}
+}
+
+func TestStore_LoadErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(store *Store[UserState]) error
+		wantError bool
+	}{
+		{
+			name: "corrupted JSON",
+			setup: func(store *Store[UserState]) error {
+				return os.WriteFile(store.StatePath(), []byte("invalid json{"), 0644)
+			},
+			wantError: true,
+		},
+		{
+			name: "empty file",
+			setup: func(store *Store[UserState]) error {
+				return os.WriteFile(store.StatePath(), []byte(""), 0644)
+			},
+			wantError: true,
+		},
+		{
+			name: "valid JSON",
+			setup: func(store *Store[UserState]) error {
+				return os.WriteFile(store.StatePath(), []byte(`{"version":"1"}`), 0644)
+			},
+			wantError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewStore[UserState](dir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+
+			if err := tt.setup(store); err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			if err := store.Lock(); err != nil {
+				t.Fatalf("lock failed: %v", err)
+			}
+			defer func() { _ = store.Unlock() }()
+
+			_, err = store.Load()
+			if tt.wantError && err == nil {
+				t.Error("expected error but got none")
+			}
+			if !tt.wantError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
+	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
+
+	tests := []struct {
+		name  string
+		state *UserState
+		check func(t *testing.T, loaded *UserState)
+	}{
+		{
+			name: "all fields",
+			state: &UserState{
+				Version: Version,
+				Registry: &aqua.RegistryState{
+					Aqua: &aqua.AquaRegistryState{
+						Ref:       "v4.465.0",
+						UpdatedAt: now,
+					},
+				},
+				Installers: map[string]*resource.InstallerState{
+					"aqua": {
+						Version:   "1.0.0",
+						UpdatedAt: now,
+					},
+				},
+				Runtimes: map[string]*resource.RuntimeState{
+					"go": {
+						Type:        resource.InstallTypeDownload,
+						Version:     "1.25.5",
+						InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+						Binaries:    []string{"go", "gofmt"},
+						ToolBinPath: "/home/user/go/bin",
+						UpdatedAt:   now,
+					},
+				},
+				Tools: map[string]*resource.ToolState{
+					"gh": {
+						InstallerRef: "aqua",
+						Version:      "2.86.0",
+						Package:      "cli/cli",
+						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
+						BinPath:      "/home/user/.local/bin/gh",
+						Digest:       "sha256:abc123",
+						UpdatedAt:    now,
+					},
+				},
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				if loaded.Version != Version {
+					t.Errorf("version mismatch: %s", loaded.Version)
+				}
+				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
+					t.Fatal("registry should be preserved")
+				}
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+					t.Errorf("registry ref mismatch: %s", loaded.Registry.Aqua.Ref)
+				}
+				if len(loaded.Installers) != 1 || loaded.Installers["aqua"].Version != "1.0.0" {
+					t.Error("installers mismatch")
+				}
+				if len(loaded.Runtimes) != 1 || loaded.Runtimes["go"].Version != "1.25.5" {
+					t.Error("runtimes mismatch")
+				}
+				if len(loaded.Runtimes["go"].Binaries) != 2 {
+					t.Errorf("runtime binaries mismatch: %v", loaded.Runtimes["go"].Binaries)
+				}
+				if len(loaded.Tools) != 1 || loaded.Tools["gh"].Digest != "sha256:abc123" {
+					t.Error("tools mismatch")
+				}
+			},
+		},
+		{
+			name: "empty state",
+			state: &UserState{
+				Version: Version,
+			},
+			check: func(t *testing.T, loaded *UserState) {
+				if loaded.Version != Version {
+					t.Errorf("version mismatch: %s", loaded.Version)
+				}
+				if loaded.Registry != nil {
+					t.Error("registry should be nil")
+				}
+				if loaded.Installers != nil {
+					t.Error("installers should be nil")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewStore[UserState](dir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+
+			if err := store.Lock(); err != nil {
+				t.Fatalf("lock failed: %v", err)
+			}
+			defer func() { _ = store.Unlock() }()
+
+			if err := store.Save(tt.state); err != nil {
+				t.Fatalf("save failed: %v", err)
+			}
+
+			loaded, err := store.Load()
+			if err != nil {
+				t.Fatalf("load failed: %v", err)
+			}
+
+			tt.check(t, loaded)
+		})
+	}
+}
+
 func TestStore_RegistryState(t *testing.T) {
 	now := time.Now()
 

@@ -241,6 +241,126 @@ func TestResolver_Resolve_PackageNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "package not found")
 }
 
+func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
+	// Test that Resolve() uses runtime.GOOS and runtime.GOARCH
+	cacheDir := t.TempDir()
+	ref := "v4.465.0"
+	pkg := "cli/cli"
+
+	registryYAML := `
+type: github_release
+repo_owner: cli
+repo_name: cli
+asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+format: tar.gz
+`
+	cacheFile := filepath.Join(cacheDir, ref, "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir)
+
+	// Resolve() should work with the current runtime's OS/Arch
+	result, err := resolver.Resolve(context.Background(), ref, pkg, "v2.86.0")
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.URL)
+	assert.Contains(t, result.URL, "gh_2.86.0_")
+}
+
+func TestResolver_VersionClient(t *testing.T) {
+	cacheDir := t.TempDir()
+	resolver := NewResolver(cacheDir)
+
+	// VersionClient() should return a non-nil client
+	client := resolver.VersionClient()
+	assert.NotNil(t, client)
+
+	// Same client should be returned on multiple calls
+	client2 := resolver.VersionClient()
+	assert.Same(t, client, client2)
+}
+
+func TestResolver_Resolve_NoChecksum(t *testing.T) {
+	cacheDir := t.TempDir()
+	ref := "v4.465.0"
+	pkg := "example/tool"
+
+	// Package without checksum configuration
+	registryYAML := `
+type: github_release
+repo_owner: example
+repo_name: tool
+asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+format: tar.gz
+`
+	cacheFile := filepath.Join(cacheDir, ref, "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.URL)
+	assert.Empty(t, result.ChecksumURL)
+	assert.Empty(t, result.Algorithm)
+}
+
+func TestResolver_Resolve_UnsupportedType(t *testing.T) {
+	cacheDir := t.TempDir()
+	ref := "v4.465.0"
+	pkg := "example/tool"
+
+	// Package with unsupported type
+	registryYAML := `
+type: unknown_type
+repo_owner: example
+repo_name: tool
+asset: tool.tar.gz
+format: tar.gz
+`
+	cacheFile := filepath.Join(cacheDir, ref, "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir)
+
+	_, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported package type")
+}
+
+func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
+	cacheDir := t.TempDir()
+	ref := "v4.465.0"
+	pkg := "example/tool"
+
+	registryYAML := `
+type: github_release
+repo_owner: example
+repo_name: tool
+asset: tool_{{.OS}}_{{.Arch}}.tar.gz
+format: tar.gz
+supported_envs:
+  - all
+`
+	cacheFile := filepath.Join(cacheDir, ref, "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir)
+
+	// Any OS/Arch should work with "all"
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "freebsd", "386")
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.URL)
+	assert.Empty(t, result.Errors)
+}
+
 func TestIsSupportedEnv(t *testing.T) {
 	tests := []struct {
 		name          string
