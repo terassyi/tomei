@@ -247,8 +247,25 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Prepend _env definition to enable environment-specific configuration
-	dataWithEnv := l.envCUE() + "\n" + string(data)
+	// Inject _env definition to enable environment-specific configuration
+	// Must be inserted after package declaration if present
+	source := string(data)
+	var dataWithEnv string
+
+	if pkgName := detectPackageName(source); pkgName != "" {
+		// Insert _env after package declaration
+		pkgDecl := "package " + pkgName
+		idx := strings.Index(source, pkgDecl)
+		if idx >= 0 {
+			afterPkg := idx + len(pkgDecl)
+			dataWithEnv = source[:afterPkg] + "\n" + l.envCUE() + source[afterPkg:]
+		} else {
+			dataWithEnv = l.envCUE() + "\n" + source
+		}
+	} else {
+		// No package declaration, prepend _env
+		dataWithEnv = l.envCUE() + "\n" + source
+	}
 
 	value := l.ctx.CompileString(dataWithEnv, cue.Filename(path))
 	if value.Err() != nil {
