@@ -2,14 +2,18 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/state"
 )
 
@@ -133,11 +137,45 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	defer func() { _ = store.Unlock() }()
 
 	initialState := state.NewUserState()
+
+	// Initialize aqua registry
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := initRegistry(ctx, initialState); err != nil {
+		// Log warning but don't fail init if registry initialization fails
+		slog.Warn("failed to initialize aqua registry", "error", err)
+		cmd.Printf("Warning: failed to initialize aqua registry: %v\n", err)
+	} else {
+		cmd.Printf("Aqua registry: %s\n", initialState.Registry.Aqua.Ref)
+	}
+
 	if err := store.Save(initialState); err != nil {
 		return fmt.Errorf("failed to initialize state: %w", err)
 	}
 	cmd.Printf("Initialized: %s\n", stateFile)
 
 	cmd.Println("Initialization complete.")
+	return nil
+}
+
+// initRegistry initializes the aqua-registry state by fetching the latest ref.
+func initRegistry(ctx context.Context, st *state.UserState) error {
+	client := aqua.NewVersionClient()
+
+	ref, err := client.GetLatestRef(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get latest aqua registry ref: %w", err)
+	}
+
+	st.Registry = &aqua.RegistryState{
+		Aqua: &aqua.AquaRegistryState{
+			Ref:       aqua.RegistryRef(ref),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	slog.Info("initialized aqua registry", "ref", ref)
 	return nil
 }
