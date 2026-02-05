@@ -12,7 +12,7 @@ aquaInstaller: {
 	}
 }
 
-// jq tool installed via aqua registry
+// jq tool installed via aqua
 jqTool: {
 	apiVersion: "toto.terassyi.net/v1beta1"
 	kind:       "Tool"
@@ -20,9 +20,12 @@ jqTool: {
 	spec: {
 		installerRef: "aqua"
 		version:      "1.7.1"
-		package: {
-			registry: "aqua"
-			name:     "jqlang/jq"
+		source: {
+			url: "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64"
+			checksum: {
+				value: "sha256:4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5"
+			}
+			archiveType: "raw"
 		}
 	}
 }
