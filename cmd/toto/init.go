@@ -169,9 +169,9 @@ func initRegistry(ctx context.Context, st *state.UserState) error {
 		return fmt.Errorf("failed to get latest aqua registry ref: %w", err)
 	}
 
-	st.Registry = &aqua.RegistryState{
-		Aqua: &aqua.AquaRegistryState{
-			Ref:       aqua.RegistryRef(ref),
+	st.Registry = &state.RegistryState{
+		Aqua: &state.AquaRegistryState{
+			Ref:       ref,
 			UpdatedAt: time.Now(),
 		},
 	}

@@ -2,7 +2,6 @@ package aqua
 
 import (
 	"testing"
-	"time"
 
 	"github.com/goccy/go-yaml"
 	"github.com/stretchr/testify/assert"
@@ -281,22 +280,6 @@ func TestRegistryRef_IsEmpty(t *testing.T) {
 func TestRegistryRef_String(t *testing.T) {
 	ref := RegistryRef("v4.465.0")
 	assert.Equal(t, "v4.465.0", ref.String())
-}
-
-func TestRegistryState_JSONRoundtrip(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	state := &RegistryState{
-		Aqua: &AquaRegistryState{
-			Ref:       RegistryRef("v4.465.0"),
-			UpdatedAt: now,
-		},
-	}
-
-	// RegistryState is serialized to JSON in state.json
-	// Verify the struct can be created and accessed correctly
-	assert.NotNil(t, state.Aqua)
-	assert.Equal(t, RegistryRef("v4.465.0"), state.Aqua.Ref)
-	assert.Equal(t, now, state.Aqua.UpdatedAt)
 }
 
 func TestFileSpec_YAMLParse(t *testing.T) {

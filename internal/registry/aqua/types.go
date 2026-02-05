@@ -14,25 +14,9 @@ package aqua
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/Masterminds/semver/v3"
 )
-
-// RegistryState represents registry information stored in state.json.
-//
-//nolint:revive // RegistryState is used as registry.RegistryState for clarity
-type RegistryState struct {
-	Aqua *AquaRegistryState `json:"aqua,omitempty"`
-}
-
-// AquaRegistryState represents the state of aqua-registry.
-//
-//nolint:revive // Name is intentional for clarity when used outside aqua package
-type AquaRegistryState struct {
-	Ref       RegistryRef `json:"ref"` // e.g., "v4.465.0"
-	UpdatedAt time.Time   `json:"updatedAt"`
-}
 
 // RegistryRef represents a reference to an aqua-registry version (tag).
 // Format: "vX.Y.Z" (e.g., "v4.465.0")

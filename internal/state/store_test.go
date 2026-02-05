@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/resource"
 )
 
@@ -423,9 +422,9 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 			name: "all fields",
 			state: &UserState{
 				Version: Version,
-				Registry: &aqua.RegistryState{
-					Aqua: &aqua.AquaRegistryState{
-						Ref:       aqua.RegistryRef("v4.465.0"),
+				Registry: &RegistryState{
+					Aqua: &AquaRegistryState{
+						Ref:       "v4.465.0",
 						UpdatedAt: now,
 					},
 				},
@@ -464,7 +463,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be preserved")
 				}
-				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
 					t.Errorf("registry ref mismatch: %s", loaded.Registry.Aqua.Ref)
 				}
 				if len(loaded.Installers) != 1 || loaded.Installers["aqua"].Version != "1.0.0" {
@@ -539,9 +538,9 @@ func TestStore_RegistryState(t *testing.T) {
 			name: "registry only",
 			state: &UserState{
 				Version: Version,
-				Registry: &aqua.RegistryState{
-					Aqua: &aqua.AquaRegistryState{
-						Ref:       aqua.RegistryRef("v4.465.0"),
+				Registry: &RegistryState{
+					Aqua: &AquaRegistryState{
+						Ref:       "v4.465.0",
 						UpdatedAt: now,
 					},
 				},
@@ -553,7 +552,7 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry.Aqua == nil {
 					t.Fatal("registry.aqua should not be nil")
 				}
-				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
 					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 			},
@@ -562,9 +561,9 @@ func TestStore_RegistryState(t *testing.T) {
 			name: "registry with tools",
 			state: &UserState{
 				Version: Version,
-				Registry: &aqua.RegistryState{
-					Aqua: &aqua.AquaRegistryState{
-						Ref:       aqua.RegistryRef("v4.465.0"),
+				Registry: &RegistryState{
+					Aqua: &AquaRegistryState{
+						Ref:       "v4.465.0",
 						UpdatedAt: now,
 					},
 				},
@@ -584,7 +583,7 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be loaded")
 				}
-				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
+				if loaded.Registry.Aqua.Ref != "v4.465.0" {
 					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 				// Verify tool
@@ -630,9 +629,9 @@ func TestStore_RegistryState(t *testing.T) {
 			name: "multiple tools with registry",
 			state: &UserState{
 				Version: Version,
-				Registry: &aqua.RegistryState{
-					Aqua: &aqua.AquaRegistryState{
-						Ref:       aqua.RegistryRef("v4.500.0"),
+				Registry: &RegistryState{
+					Aqua: &AquaRegistryState{
+						Ref:       "v4.500.0",
 						UpdatedAt: now,
 					},
 				},
@@ -655,7 +654,7 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be loaded")
 				}
-				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.500.0") {
+				if loaded.Registry.Aqua.Ref != "v4.500.0" {
 					t.Errorf("expected ref v4.500.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 				if len(loaded.Tools) != 2 {
