@@ -425,7 +425,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 				Version: Version,
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.465.0",
+						Ref:       aqua.RegistryRef("v4.465.0"),
 						UpdatedAt: now,
 					},
 				},
@@ -449,7 +449,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 					"gh": {
 						InstallerRef: "aqua",
 						Version:      "2.86.0",
-						Package:      "cli/cli",
+						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
 						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
 						BinPath:      "/home/user/.local/bin/gh",
 						Digest:       "sha256:abc123",
@@ -464,7 +464,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be preserved")
 				}
-				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
 					t.Errorf("registry ref mismatch: %s", loaded.Registry.Aqua.Ref)
 				}
 				if len(loaded.Installers) != 1 || loaded.Installers["aqua"].Version != "1.0.0" {
@@ -541,7 +541,7 @@ func TestStore_RegistryState(t *testing.T) {
 				Version: Version,
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.465.0",
+						Ref:       aqua.RegistryRef("v4.465.0"),
 						UpdatedAt: now,
 					},
 				},
@@ -553,7 +553,7 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry.Aqua == nil {
 					t.Fatal("registry.aqua should not be nil")
 				}
-				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
 					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 			},
@@ -564,7 +564,7 @@ func TestStore_RegistryState(t *testing.T) {
 				Version: Version,
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.465.0",
+						Ref:       aqua.RegistryRef("v4.465.0"),
 						UpdatedAt: now,
 					},
 				},
@@ -572,7 +572,7 @@ func TestStore_RegistryState(t *testing.T) {
 					"gh": {
 						InstallerRef: "aqua",
 						Version:      "2.86.0",
-						Package:      "cli/cli",
+						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
 						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
 						BinPath:      "/home/user/.local/bin/gh",
 						UpdatedAt:    now,
@@ -584,7 +584,7 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be loaded")
 				}
-				if loaded.Registry.Aqua.Ref != "v4.465.0" {
+				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.465.0") {
 					t.Errorf("expected ref v4.465.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 				// Verify tool
@@ -595,8 +595,8 @@ func TestStore_RegistryState(t *testing.T) {
 				if tool == nil {
 					t.Fatal("tool 'gh' should exist")
 				}
-				if tool.Package != "cli/cli" {
-					t.Errorf("expected package cli/cli, got %s", tool.Package)
+				if tool.Package == nil || tool.Package.String() != "cli/cli" {
+					t.Errorf("expected package cli/cli, got %v", tool.Package)
 				}
 				if tool.InstallerRef != "aqua" {
 					t.Errorf("expected installerRef aqua, got %s", tool.InstallerRef)
@@ -632,7 +632,7 @@ func TestStore_RegistryState(t *testing.T) {
 				Version: Version,
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.500.0",
+						Ref:       aqua.RegistryRef("v4.500.0"),
 						UpdatedAt: now,
 					},
 				},
@@ -640,13 +640,13 @@ func TestStore_RegistryState(t *testing.T) {
 					"gh": {
 						InstallerRef: "aqua",
 						Version:      "2.86.0",
-						Package:      "cli/cli",
+						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
 						UpdatedAt:    now,
 					},
 					"rg": {
 						InstallerRef: "aqua",
 						Version:      "14.0.0",
-						Package:      "BurntSushi/ripgrep",
+						Package:      &resource.Package{Owner: "BurntSushi", Repo: "ripgrep"},
 						UpdatedAt:    now,
 					},
 				},
@@ -655,17 +655,17 @@ func TestStore_RegistryState(t *testing.T) {
 				if loaded.Registry == nil || loaded.Registry.Aqua == nil {
 					t.Fatal("registry should be loaded")
 				}
-				if loaded.Registry.Aqua.Ref != "v4.500.0" {
+				if loaded.Registry.Aqua.Ref != aqua.RegistryRef("v4.500.0") {
 					t.Errorf("expected ref v4.500.0, got %s", loaded.Registry.Aqua.Ref)
 				}
 				if len(loaded.Tools) != 2 {
 					t.Fatalf("expected 2 tools, got %d", len(loaded.Tools))
 				}
-				if loaded.Tools["gh"].Package != "cli/cli" {
-					t.Errorf("expected gh package cli/cli, got %s", loaded.Tools["gh"].Package)
+				if loaded.Tools["gh"].Package == nil || loaded.Tools["gh"].Package.String() != "cli/cli" {
+					t.Errorf("expected gh package cli/cli, got %v", loaded.Tools["gh"].Package)
 				}
-				if loaded.Tools["rg"].Package != "BurntSushi/ripgrep" {
-					t.Errorf("expected rg package BurntSushi/ripgrep, got %s", loaded.Tools["rg"].Package)
+				if loaded.Tools["rg"].Package == nil || loaded.Tools["rg"].Package.String() != "BurntSushi/ripgrep" {
+					t.Errorf("expected rg package BurntSushi/ripgrep, got %v", loaded.Tools["rg"].Package)
 				}
 			},
 		},

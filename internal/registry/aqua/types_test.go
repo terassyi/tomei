@@ -182,11 +182,112 @@ format: tar.gz
 	}
 }
 
+func TestRegistryRef_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		ref     RegistryRef
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid ref",
+			ref:     RegistryRef("v4.465.0"),
+			wantErr: false,
+		},
+		{
+			name:    "valid ref with patch zero",
+			ref:     RegistryRef("v1.0.0"),
+			wantErr: false,
+		},
+		{
+			name:    "valid ref with large numbers",
+			ref:     RegistryRef("v100.200.300"),
+			wantErr: false,
+		},
+		{
+			name:    "empty ref",
+			ref:     RegistryRef(""),
+			wantErr: true,
+			errMsg:  "registry ref is empty",
+		},
+		{
+			name:    "missing v prefix",
+			ref:     RegistryRef("4.465.0"),
+			wantErr: true,
+			errMsg:  "must start with 'v'",
+		},
+		{
+			name:    "two part version is valid",
+			ref:     RegistryRef("v4.465"),
+			wantErr: false, // Masterminds/semver accepts v4.465 as v4.465.0
+		},
+		{
+			name:    "invalid characters",
+			ref:     RegistryRef("v4.465.0-beta"),
+			wantErr: false, // prerelease is valid semver
+		},
+		{
+			name:    "not a version",
+			ref:     RegistryRef("vlatest"),
+			wantErr: true,
+			errMsg:  "invalid registry ref format",
+		},
+		{
+			name:    "only v",
+			ref:     RegistryRef("v"),
+			wantErr: true,
+			errMsg:  "invalid registry ref format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.ref.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestRegistryRef_IsEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  RegistryRef
+		want bool
+	}{
+		{
+			name: "empty",
+			ref:  RegistryRef(""),
+			want: true,
+		},
+		{
+			name: "not empty",
+			ref:  RegistryRef("v4.465.0"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.ref.IsEmpty())
+		})
+	}
+}
+
+func TestRegistryRef_String(t *testing.T) {
+	ref := RegistryRef("v4.465.0")
+	assert.Equal(t, "v4.465.0", ref.String())
+}
+
 func TestRegistryState_JSONRoundtrip(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	state := &RegistryState{
 		Aqua: &AquaRegistryState{
-			Ref:       "v4.465.0",
+			Ref:       RegistryRef("v4.465.0"),
 			UpdatedAt: now,
 		},
 	}
@@ -194,7 +295,7 @@ func TestRegistryState_JSONRoundtrip(t *testing.T) {
 	// RegistryState is serialized to JSON in state.json
 	// Verify the struct can be created and accessed correctly
 	assert.NotNil(t, state.Aqua)
-	assert.Equal(t, "v4.465.0", state.Aqua.Ref)
+	assert.Equal(t, RegistryRef("v4.465.0"), state.Aqua.Ref)
 	assert.Equal(t, now, state.Aqua.UpdatedAt)
 }
 

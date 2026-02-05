@@ -39,7 +39,7 @@ func TestResolver_AddResource_ToolWithRuntimeRef(t *testing.T) {
 		},
 		ToolSpec: &resource.ToolSpec{
 			RuntimeRef: "go",
-			Package:    "golang.org/x/tools/gopls",
+			Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
 			Version:    "v0.17.0",
 		},
 	}
@@ -121,7 +121,7 @@ func TestResolver_Resolve_ToolChain(t *testing.T) {
 		},
 		ToolSpec: &resource.ToolSpec{
 			RuntimeRef: "rust", // Tool directly references Runtime
-			Package:    "cargo-binstall",
+			Package:    &resource.Package{Name: "cargo-binstall"},
 			Version:    "1.6.4",
 		},
 	}
@@ -149,7 +149,7 @@ func TestResolver_Resolve_ToolChain(t *testing.T) {
 		},
 		ToolSpec: &resource.ToolSpec{
 			InstallerRef: "binstall",
-			Package:      "ripgrep",
+			Package:      &resource.Package{Name: "ripgrep"},
 			Version:      "14.1.0",
 		},
 	}

@@ -337,7 +337,7 @@ func TestState_RegistryPersistence(t *testing.T) {
 			state: &state.UserState{
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.465.0",
+						Ref:       aqua.RegistryRef("v4.465.0"),
 						UpdatedAt: time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC),
 					},
 				},
@@ -354,7 +354,7 @@ func TestState_RegistryPersistence(t *testing.T) {
 			check: func(t *testing.T, loaded *state.UserState) {
 				require.NotNil(t, loaded.Registry)
 				require.NotNil(t, loaded.Registry.Aqua)
-				assert.Equal(t, "v4.465.0", loaded.Registry.Aqua.Ref)
+				assert.Equal(t, aqua.RegistryRef("v4.465.0"), loaded.Registry.Aqua.Ref)
 
 				require.Len(t, loaded.Tools, 1)
 				assert.Equal(t, "cli/cli", loaded.Tools["gh"].Package)
@@ -366,7 +366,7 @@ func TestState_RegistryPersistence(t *testing.T) {
 			state: &state.UserState{
 				Registry: &aqua.RegistryState{
 					Aqua: &aqua.AquaRegistryState{
-						Ref:       "v4.500.0",
+						Ref:       aqua.RegistryRef("v4.500.0"),
 						UpdatedAt: time.Now().Truncate(time.Second),
 					},
 				},
@@ -374,7 +374,7 @@ func TestState_RegistryPersistence(t *testing.T) {
 			check: func(t *testing.T, loaded *state.UserState) {
 				require.NotNil(t, loaded.Registry)
 				require.NotNil(t, loaded.Registry.Aqua)
-				assert.Equal(t, "v4.500.0", loaded.Registry.Aqua.Ref)
+				assert.Equal(t, aqua.RegistryRef("v4.500.0"), loaded.Registry.Aqua.Ref)
 				assert.Empty(t, loaded.Tools)
 			},
 		},
@@ -434,7 +434,7 @@ func TestState_RegistryJSONFormat(t *testing.T) {
 	st := &state.UserState{
 		Registry: &aqua.RegistryState{
 			Aqua: &aqua.AquaRegistryState{
-				Ref:       "v4.465.0",
+				Ref:       aqua.RegistryRef("v4.465.0"),
 				UpdatedAt: time.Date(2026, 2, 3, 10, 30, 0, 0, time.UTC),
 			},
 		},
@@ -494,7 +494,7 @@ func TestState_RegistryUpdate(t *testing.T) {
 	initialState := &state.UserState{
 		Registry: &aqua.RegistryState{
 			Aqua: &aqua.AquaRegistryState{
-				Ref:       "v4.400.0",
+				Ref:       aqua.RegistryRef("v4.400.0"),
 				UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 			},
 		},
@@ -507,7 +507,7 @@ func TestState_RegistryUpdate(t *testing.T) {
 	st, err := store.Load()
 	require.NoError(t, err)
 
-	st.Registry.Aqua.Ref = "v4.465.0"
+	st.Registry.Aqua.Ref = aqua.RegistryRef("v4.465.0")
 	st.Registry.Aqua.UpdatedAt = time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC)
 
 	require.NoError(t, store.Save(st))
@@ -519,5 +519,5 @@ func TestState_RegistryUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.Unlock())
 
-	assert.Equal(t, "v4.465.0", reloaded.Registry.Aqua.Ref)
+	assert.Equal(t, aqua.RegistryRef("v4.465.0"), reloaded.Registry.Aqua.Ref)
 }
