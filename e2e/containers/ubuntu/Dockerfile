@@ -27,9 +27,7 @@ COPY --chown=testuser:testuser config/manifests/tools.cue /home/testuser/manifes
 COPY --chown=testuser:testuser config/manifests/delegation.cue /home/testuser/manifests/delegation.cue
 
 # Copy registry test manifests
-# tools.cue.old has .old extension so toto won't load it until renamed
 COPY --chown=testuser:testuser config/registry/tools.cue /home/testuser/manifests/registry/tools.cue
-COPY --chown=testuser:testuser config/registry/tools.cue.old /home/testuser/manifests/registry/tools.cue.old
 
 # Copy dependency test manifests
 COPY --chown=testuser:testuser config/dependency-test/ /home/testuser/dependency-test/
