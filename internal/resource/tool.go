@@ -46,9 +46,10 @@ type Checksum struct {
 }
 
 // ToolSpec defines the desired state of an individual tool.
-// A tool can be installed via two patterns:
-//  1. Download pattern: Downloads a binary/archive directly (requires InstallerRef pointing to a download-pattern installer like "aqua")
-//  2. Delegation pattern: Uses a runtime or installer command (e.g., "go install", "cargo install")
+// A tool can be installed via three patterns:
+//  1. Download pattern (explicit): Downloads with Source specified
+//  2. Download pattern (registry): Uses aqua-registry to resolve URL from RegistryPackage
+//  3. Delegation pattern: Uses a runtime or installer command (e.g., "go install", "cargo install")
 type ToolSpec struct {
 	// InstallerRef references an Installer resource by name.
 	// For download pattern: points to an installer like "aqua" that handles downloading.
@@ -58,17 +59,23 @@ type ToolSpec struct {
 
 	// Version specifies the tool version to install.
 	// Format depends on the tool (e.g., "2.62.0", "v2.62.0", "latest").
-	// Required for download pattern; optional for delegation pattern if Package includes version.
+	// Required for download pattern with Source; optional for registry pattern (defaults to latest).
 	Version string `json:"version,omitempty"`
 
 	// Enabled controls whether this tool should be installed.
 	// Default is true. Set to false to skip installation without removing the config.
 	Enabled *bool `json:"enabled,omitempty"`
 
-	// Source configures download settings for the download pattern.
-	// Required when using a download-pattern installer (e.g., "aqua").
-	// Not used for delegation pattern installations.
+	// Source configures download settings for the download pattern (explicit).
+	// Required when using a download-pattern installer without RegistryPackage.
+	// Mutually exclusive with RegistryPackage.
 	Source *DownloadSource `json:"source,omitempty"`
+
+	// RegistryPackage specifies the aqua-registry package name for registry-based installation.
+	// Format: "owner/repo" (e.g., "cli/cli", "BurntSushi/ripgrep").
+	// When specified, toto resolves the download URL from aqua-registry.
+	// Requires InstallerRef="aqua". Mutually exclusive with Source.
+	RegistryPackage string `json:"registryPackage,omitempty"`
 
 	// RuntimeRef references a Runtime resource by name for delegation installation.
 	// When set, the tool is installed using the runtime's install command
@@ -92,12 +99,20 @@ func (s *ToolSpec) Validate() error {
 	if s.InstallerRef == "" && s.RuntimeRef == "" {
 		return fmt.Errorf("either installerRef or runtimeRef is required")
 	}
-	if s.Version == "" && s.Package == "" {
-		return fmt.Errorf("version or package is required")
+	if s.Version == "" && s.Package == "" && s.RegistryPackage == "" {
+		return fmt.Errorf("version, package, or registryPackage is required")
 	}
 	// Runtime delegation requires package
 	if s.RuntimeRef != "" && s.Package == "" {
 		return fmt.Errorf("package is required when using runtimeRef")
+	}
+	// Source and RegistryPackage are mutually exclusive
+	if s.Source != nil && s.RegistryPackage != "" {
+		return fmt.Errorf("cannot specify both source and registryPackage")
+	}
+	// RegistryPackage requires InstallerRef="aqua"
+	if s.RegistryPackage != "" && s.InstallerRef != "aqua" {
+		return fmt.Errorf("registryPackage requires installerRef: aqua")
 	}
 	return nil
 }
@@ -205,8 +220,14 @@ type ToolItem struct {
 	Enabled *bool `json:"enabled,omitempty"`
 
 	// Source provides download configuration for this specific tool.
-	// Required for download pattern installers.
+	// Required for download pattern installers when not using RegistryPackage.
+	// Mutually exclusive with RegistryPackage.
 	Source *DownloadSource `json:"source,omitempty"`
+
+	// RegistryPackage specifies the aqua-registry package name for this tool.
+	// Format: "owner/repo" (e.g., "cli/cli", "BurntSushi/ripgrep").
+	// Mutually exclusive with Source.
+	RegistryPackage string `json:"registryPackage,omitempty"`
 
 	// Package specifies the package identifier for delegation installation.
 	// Used when the ToolSet has a RuntimeRef configured.
@@ -248,6 +269,10 @@ type ToolState struct {
 	// Source records the download configuration used for installation.
 	// Stored for reference and potential re-download if needed.
 	Source *DownloadSource `json:"source,omitempty"`
+
+	// RegistryPackage records the aqua-registry package name used for installation.
+	// Stored to track which registry package was used for reconciliation.
+	RegistryPackage string `json:"registryPackage,omitempty"`
 
 	// RuntimeRef records which runtime was used for delegation installation.
 	// Used to determine if the tool needs reinstallation when the runtime is upgraded.
