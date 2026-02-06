@@ -58,7 +58,7 @@ func (e *Executor[R, S]) Execute(ctx context.Context, action reconciler.Action[R
 
 // install installs or upgrades a resource.
 func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R, S]) error {
-	slog.Info("installing resource", "kind", e.kind, "name", action.Name, "action", action.Type)
+	slog.Debug("installing resource", "kind", e.kind, "name", action.Name, "action", action.Type)
 
 	// Install the resource
 	state, err := e.installer.Install(ctx, action.Resource, action.Name)
@@ -71,13 +71,13 @@ func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R
 		return fmt.Errorf("failed to save state for %s %s: %w", e.kind, action.Name, err)
 	}
 
-	slog.Info("resource installed successfully", "kind", e.kind, "name", action.Name)
+	slog.Debug("resource installed successfully", "kind", e.kind, "name", action.Name)
 	return nil
 }
 
 // remove removes a resource.
 func (e *Executor[R, S]) remove(ctx context.Context, action reconciler.Action[R, S]) error {
-	slog.Info("removing resource", "kind", e.kind, "name", action.Name)
+	slog.Debug("removing resource", "kind", e.kind, "name", action.Name)
 
 	// Remove the resource
 	if err := e.installer.Remove(ctx, action.State, action.Name); err != nil {
@@ -89,6 +89,6 @@ func (e *Executor[R, S]) remove(ctx context.Context, action reconciler.Action[R,
 		return fmt.Errorf("failed to delete state for %s %s: %w", e.kind, action.Name, err)
 	}
 
-	slog.Info("resource removed successfully", "kind", e.kind, "name", action.Name)
+	slog.Debug("resource removed successfully", "kind", e.kind, "name", action.Name)
 	return nil
 }

@@ -42,7 +42,7 @@ func SyncRegistry(ctx context.Context, store Store) error {
 	}
 
 	if oldRef == newRef {
-		slog.Info("aqua registry is up to date", "ref", newRef)
+		slog.Debug("aqua registry is up to date", "ref", newRef)
 		return nil
 	}
 
@@ -58,6 +58,6 @@ func SyncRegistry(ctx context.Context, store Store) error {
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
-	slog.Info("aqua registry updated", "from", oldRef, "to", newRef)
+	slog.Debug("aqua registry updated", "from", oldRef, "to", newRef)
 	return nil
 }

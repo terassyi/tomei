@@ -74,7 +74,7 @@ type RuntimeAction = reconciler.Action[*resource.Runtime, *resource.RuntimeState
 
 // Apply reconciles resources with state and executes actions using DAG-based ordering.
 func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
-	slog.Info("applying configuration", "resources", len(resources))
+	slog.Debug("applying configuration", "resources", len(resources))
 
 	// Build dependency graph and get execution layers
 	resolver := graph.NewResolver()
@@ -163,7 +163,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		return err
 	}
 
-	slog.Info("apply completed", "total_actions", totalActions)
+	slog.Debug("apply completed", "total_actions", totalActions)
 	return nil
 }
 
@@ -430,7 +430,7 @@ func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[st
 		if err := e.store.Save(st); err != nil {
 			return fmt.Errorf("failed to save tainted state: %w", err)
 		}
-		slog.Info("tainted tools for reinstallation", "count", taintedCount)
+		slog.Debug("tainted tools for reinstallation", "count", taintedCount)
 	}
 
 	return nil

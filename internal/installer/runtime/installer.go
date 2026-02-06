@@ -34,7 +34,7 @@ func NewInstaller(downloader download.Downloader, runtimesDir string) *Installer
 func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
 	spec := res.RuntimeSpec
 
-	slog.Info("installing runtime", "name", name, "version", spec.Version, "type", spec.Type)
+	slog.Debug("installing runtime", "name", name, "version", spec.Version, "type", spec.Type)
 
 	switch spec.Type {
 	case resource.InstallTypeDownload:
@@ -58,7 +58,7 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
-		slog.Info("runtime already installed, skipping", "name", name, "version", spec.Version)
+		slog.Debug("runtime already installed, skipping", "name", name, "version", spec.Version)
 		binDir, err := i.resolveBinDir(spec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
@@ -142,14 +142,14 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 		}
 	}
 
-	slog.Info("runtime installed successfully", "name", name, "version", spec.Version, "path", installPath)
+	slog.Debug("runtime installed successfully", "name", name, "version", spec.Version, "path", installPath)
 
 	return i.buildState(spec, installPath, binDir), nil
 }
 
 // Remove removes an installed runtime.
 func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name string) error {
-	slog.Info("removing runtime", "name", name, "version", st.Version)
+	slog.Debug("removing runtime", "name", name, "version", st.Version)
 
 	// Remove symlinks (only if BinDir was set)
 	if st.BinDir != "" {
@@ -171,7 +171,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 		_ = os.Remove(versionDir)
 	}
 
-	slog.Info("runtime removed", "name", name)
+	slog.Debug("runtime removed", "name", name)
 	return nil
 }
 
