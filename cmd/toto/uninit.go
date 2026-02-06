@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,147 +45,206 @@ func init() {
 	uninitCmd.Flags().BoolVar(&uninitNoColor, "no-color", false, "Disable color output")
 }
 
+// uninitContext holds the state for uninit operation.
+type uninitContext struct {
+	w          io.Writer
+	errW       io.Writer
+	style      *outputStyle
+	cfgDir     string
+	dataDir    string
+	binDir     string
+	symlinks   []string
+	keepConfig bool
+	dryRun     bool
+	yes        bool
+}
+
 func runUninit(cmd *cobra.Command, _ []string) error {
 	if uninitNoColor {
 		color.NoColor = true
 	}
 
-	style := newOutputStyle()
-
-	// Get config directory
-	cfgDir, err := path.Expand(config.DefaultConfigDir)
+	ctx, err := newUninitContext(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to expand config directory: %w", err)
+		return err
 	}
 
-	// Check if toto is initialized by looking for state.json
-	paths, err := path.New()
-	if err != nil {
-		return fmt.Errorf("failed to get paths: %w", err)
-	}
-
-	stateFile := paths.UserStateFile()
-	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+	if ctx == nil {
+		// Not initialized
 		cmd.Println("toto is not initialized. Nothing to remove.")
 		return nil
+	}
+
+	ctx.printHeader()
+	ctx.printTargets()
+
+	if ctx.dryRun {
+		fmt.Fprintln(ctx.w, "No changes made.")
+		return nil
+	}
+
+	if !ctx.confirm() {
+		fmt.Fprintln(ctx.w, "Aborted.")
+		return nil
+	}
+
+	ctx.remove()
+	ctx.printFooter()
+
+	return nil
+}
+
+func newUninitContext(cmd *cobra.Command) (*uninitContext, error) {
+	cfgDir, err := path.Expand(config.DefaultConfigDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand config directory: %w", err)
+	}
+
+	paths, err := path.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get paths: %w", err)
+	}
+
+	// Check if toto is initialized
+	if _, err := os.Stat(paths.UserStateFile()); os.IsNotExist(err) {
+		return nil, nil
 	}
 
 	// Load config to get actual paths
 	cfg, err := config.LoadConfig(cfgDir)
 	if err != nil {
-		// If config load fails, use defaults
 		cfg = config.DefaultConfig()
 	}
 
 	paths, err = path.NewFromConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create paths from config: %w", err)
+		return nil, fmt.Errorf("failed to create paths from config: %w", err)
 	}
 
 	dataDir := paths.UserDataDir()
 	binDir := paths.UserBinDir()
 
-	// Find managed symlinks
 	symlinks, err := findManagedSymlinks(binDir, dataDir)
 	if err != nil {
-		// Non-fatal: just warn and continue
 		fmt.Fprintf(cmd.ErrOrStderr(), "Warning: failed to scan symlinks: %v\n", err)
 		symlinks = nil
 	}
 
-	// Print header
-	if uninitDryRun {
-		cmd.Println("Uninitializing toto... (dry-run)")
-	} else {
-		cmd.Println("Uninitializing toto...")
-	}
-	cmd.Println()
+	return &uninitContext{
+		w:          cmd.OutOrStdout(),
+		errW:       cmd.ErrOrStderr(),
+		style:      newOutputStyle(),
+		cfgDir:     cfgDir,
+		dataDir:    dataDir,
+		binDir:     binDir,
+		symlinks:   symlinks,
+		keepConfig: uninitKeepConfig,
+		dryRun:     uninitDryRun,
+		yes:        uninitYes,
+	}, nil
+}
 
-	// Show what will be removed
-	if uninitDryRun {
-		style.header.Fprintln(cmd.OutOrStdout(), "Would remove:")
+func (c *uninitContext) printHeader() {
+	if c.dryRun {
+		fmt.Fprintln(c.w, "Uninitializing toto... (dry-run)")
 	} else {
-		style.header.Fprintln(cmd.OutOrStdout(), "This will remove:")
+		fmt.Fprintln(c.w, "Uninitializing toto...")
 	}
+	fmt.Fprintln(c.w)
+}
 
-	for _, link := range symlinks {
+func (c *uninitContext) printTargets() {
+	header := "This will remove:"
+	if c.dryRun {
+		header = "Would remove:"
+	}
+	c.style.header.Fprintln(c.w, header)
+
+	for _, link := range c.symlinks {
 		target, _ := os.Readlink(link)
-		cmd.Printf("  %s -> %s\n", style.path.Sprint(link), target)
+		fmt.Fprintf(c.w, "  %s -> %s\n", c.style.path.Sprint(link), target)
 	}
-	cmd.Printf("  %s\n", style.path.Sprint(dataDir))
-	if !uninitKeepConfig {
-		cmd.Printf("  %s\n", style.path.Sprint(cfgDir))
+	fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.dataDir))
+	if !c.keepConfig {
+		fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.cfgDir))
 	}
-	cmd.Println()
+	fmt.Fprintln(c.w)
 
-	if uninitKeepConfig {
-		style.header.Fprintln(cmd.OutOrStdout(), "Config will be preserved:")
-		cmd.Printf("  %s\n", style.path.Sprint(cfgDir))
-		cmd.Println()
+	if c.keepConfig {
+		c.style.header.Fprintln(c.w, "Config will be preserved:")
+		fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.cfgDir))
+		fmt.Fprintln(c.w)
 	}
+}
 
-	// Dry-run ends here
-	if uninitDryRun {
-		cmd.Println("No changes made.")
-		return nil
-	}
-
-	// Confirmation prompt
-	if !uninitYes {
-		cmd.Print("Proceed? [y/N]: ")
-		reader := bufio.NewReader(os.Stdin)
-		answer, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
-		}
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			cmd.Println("Aborted.")
-			return nil
-		}
+func (c *uninitContext) confirm() bool {
+	if c.yes {
+		return true
 	}
 
-	cmd.Println()
-	style.header.Fprintln(cmd.OutOrStdout(), "Removing:")
+	fmt.Fprint(c.w, "Proceed? [y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer == "y" || answer == "yes"
+}
+
+func (c *uninitContext) remove() {
+	fmt.Fprintln(c.w)
+	c.style.header.Fprintln(c.w, "Removing:")
 
 	// Remove symlinks first
-	for _, link := range symlinks {
+	for _, link := range c.symlinks {
 		target, _ := os.Readlink(link)
-		if err := os.Remove(link); err != nil {
-			cmd.Printf("  %s %s -> %s (%v)\n", style.failMark, link, target, err)
-		} else {
-			cmd.Printf("  %s %s -> %s\n", style.successMark, style.path.Sprint(link), target)
-		}
+		c.removeItem(link, target)
 	}
 
 	// Remove data directory
-	if err := os.RemoveAll(dataDir); err != nil {
-		cmd.Printf("  %s %s (%v)\n", style.failMark, dataDir, err)
-	} else {
-		cmd.Printf("  %s %s\n", style.successMark, style.path.Sprint(dataDir))
-	}
+	c.removeItem(c.dataDir, "")
 
 	// Remove config directory (unless --keep-config)
-	if !uninitKeepConfig {
-		if err := os.RemoveAll(cfgDir); err != nil {
-			cmd.Printf("  %s %s (%v)\n", style.failMark, cfgDir, err)
-		} else {
-			cmd.Printf("  %s %s\n", style.successMark, style.path.Sprint(cfgDir))
-		}
+	if !c.keepConfig {
+		c.removeItem(c.cfgDir, "")
+	}
+}
+
+func (c *uninitContext) removeItem(path, target string) {
+	var err error
+	if target != "" {
+		// Symlink
+		err = os.Remove(path)
+	} else {
+		// Directory
+		err = os.RemoveAll(path)
 	}
 
-	cmd.Println()
-	style.success.Fprintln(cmd.OutOrStdout(), "Uninitialization complete!")
-	cmd.Println()
-	cmd.Printf("Note: %s directory was preserved.\n", style.path.Sprint(binDir))
+	if err != nil {
+		if target != "" {
+			fmt.Fprintf(c.w, "  %s %s -> %s (%v)\n", c.style.failMark, path, target, err)
+		} else {
+			fmt.Fprintf(c.w, "  %s %s (%v)\n", c.style.failMark, path, err)
+		}
+	} else {
+		if target != "" {
+			fmt.Fprintf(c.w, "  %s %s -> %s\n", c.style.successMark, c.style.path.Sprint(path), target)
+		} else {
+			fmt.Fprintf(c.w, "  %s %s\n", c.style.successMark, c.style.path.Sprint(path))
+		}
+	}
+}
 
-	return nil
+func (c *uninitContext) printFooter() {
+	fmt.Fprintln(c.w)
+	c.style.success.Fprintln(c.w, "Uninitialization complete!")
+	fmt.Fprintln(c.w)
+	fmt.Fprintf(c.w, "Note: %s directory was preserved.\n", c.style.path.Sprint(c.binDir))
 }
 
 // findManagedSymlinks finds symlinks in binDir that point to files under dataDir.
 func findManagedSymlinks(binDir, dataDir string) ([]string, error) {
-	var symlinks []string
-
 	entries, err := os.ReadDir(binDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -193,6 +253,7 @@ func findManagedSymlinks(binDir, dataDir string) ([]string, error) {
 		return nil, err
 	}
 
+	var symlinks []string
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink == 0 {
 			continue
