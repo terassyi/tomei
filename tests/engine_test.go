@@ -1042,6 +1042,122 @@ goRuntime: {
 	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
 }
 
+// TestEngine_Apply_RemoveRuntimeBlockedByDependentTool tests that removing a runtime
+// from config is rejected when dependent tools still reference it.
+func TestEngine_Apply_RemoveRuntimeBlockedByDependentTool(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// Initial config: runtime + delegated tool
+	cueContent := `package toto
+
+runtime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: value: "sha256:abc123"
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "resources.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	ctx := context.Background()
+
+	// First apply: install runtime + tool
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Remove runtime only, keep gopls
+	cueContentV2 := `package toto
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2 := loadResources(t, configDir)
+
+	// Apply should fail — runtime has dependent tool
+	err = eng.Apply(ctx, resourcesV2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove runtime")
+	assert.Contains(t, err.Error(), "gopls")
+
+	// PlanAll should also fail
+	_, _, err = eng.PlanAll(ctx, resourcesV2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove runtime")
+
+	// Now remove both — should succeed
+	cueContentV3 := `package toto
+
+placeholder: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV3), 0644))
+	resourcesV3 := loadResources(t, configDir)
+
+	err = eng.Apply(ctx, resourcesV3)
+	require.NoError(t, err)
+
+	// Verify both removed from state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.NotContains(t, st.Runtimes, "go")
+	assert.NotContains(t, st.Tools, "gopls")
+}
+
 // TestEngine_Apply_ToolSet_InstallerRef tests ToolSet expansion with installerRef (download pattern).
 func TestEngine_Apply_ToolSet_InstallerRef(t *testing.T) {
 	tmpDir := t.TempDir()

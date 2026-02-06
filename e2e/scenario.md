@@ -15,7 +15,7 @@ This document describes the scenarios verified by toto's E2E tests.
 
 | Suite | Tests | Description |
 |-------|-------|-------------|
-| toto on Ubuntu | 27 | Basic commands, installation, idempotency, doctor, runtime upgrade |
+| toto on Ubuntu | 30 | Basic commands, installation, idempotency, doctor, runtime upgrade, resource removal |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 
@@ -32,8 +32,9 @@ flowchart TD
         S1_7["1.7 Delegation<br/>gopls via go install"]
         S1_8["1.8 Doctor<br/>unmanaged tool detection"]
         S1_9["1.9 Runtime Upgrade<br/>go 1.25.5 → 1.25.6 + taint"]
+        S1_10["1.10 Resource Removal<br/>dependency guard + tool/runtime removal"]
 
-        S1_1 --> S1_2 --> S1_3 --> S1_6 --> S1_7 --> S1_8 --> S1_9
+        S1_1 --> S1_2 --> S1_3 --> S1_6 --> S1_7 --> S1_8 --> S1_9 --> S1_10
     end
 
     subgraph S2["2. Aqua Registry"]
@@ -236,6 +237,47 @@ graph LR
 
 #### Idempotency After Upgrade
 - Second apply outputs "total_actions=0" (no changes)
+
+### 1.10 Resource Removal
+
+#### Removal Blocked by Dependent Tool
+1. Hide runtime manifest:
+   ```bash
+   mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden
+   ```
+2. Run `toto apply ~/manifests/`
+3. Verify:
+   - Apply fails with error
+   - Error contains "cannot remove runtime"
+   - Error contains "gopls" (the dependent tool)
+4. Restore runtime manifest:
+   ```bash
+   mv ~/manifests/runtime.cue.hidden ~/manifests/runtime.cue
+   ```
+
+#### Tool Removal (No Dependencies)
+1. Hide tool manifest:
+   ```bash
+   mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden
+   ```
+2. Run `toto apply ~/manifests/`
+3. Verify:
+   - Apply succeeds
+   - `~/.local/bin/gh` symlink no longer exists
+   - state.json does not contain `"gh"`
+
+#### Runtime and Dependent Tool Removed Together
+1. Hide both runtime and delegation manifests:
+   ```bash
+   mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden
+   mv ~/manifests/delegation.cue ~/manifests/delegation.cue.hidden
+   ```
+2. Run `toto apply ~/manifests/`
+3. Verify:
+   - Apply succeeds (no blocking — both removed)
+   - `~/go/bin/go` symlink no longer exists
+   - `~/go/bin/gopls` binary no longer exists
+   - state.json does not contain `"go"` or `"gopls"`
 
 ---
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -660,6 +661,19 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 	runtimeActions := e.runtimeReconciler.Reconcile(runtimes, st.Runtimes)
 
+	// Validate no remaining tools depend on runtimes being removed
+	var runtimeRemovals []string
+	for _, action := range runtimeActions {
+		if action.Type == resource.ActionRemove {
+			runtimeRemovals = append(runtimeRemovals, action.Name)
+		}
+	}
+	if len(runtimeRemovals) > 0 {
+		if err := checkRemovalDependencies(runtimeRemovals, tools); err != nil {
+			return err
+		}
+	}
+
 	// Execute remove actions for tools
 	for _, action := range toolActions {
 		if action.Type != resource.ActionRemove {
@@ -716,6 +730,19 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 	// Reconcile tools
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 
+	// Validate no remaining tools depend on runtimes being removed
+	var runtimeRemovals []string
+	for _, action := range runtimeActions {
+		if action.Type == resource.ActionRemove {
+			runtimeRemovals = append(runtimeRemovals, action.Name)
+		}
+	}
+	if len(runtimeRemovals) > 0 {
+		if err := checkRemovalDependencies(runtimeRemovals, tools); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	slog.Debug("plan completed", "runtimeActions", len(runtimeActions), "toolActions", len(toolActions))
 	return runtimeActions, toolActions, nil
 }
@@ -762,4 +789,24 @@ func extractTools(resources []resource.Resource) []*resource.Tool {
 		}
 	}
 	return tools
+}
+
+// checkRemovalDependencies validates that no remaining tools depend on runtimes being removed.
+func checkRemovalDependencies(runtimeRemovals []string, remainingTools []*resource.Tool) error {
+	removingRuntimes := make(map[string]bool, len(runtimeRemovals))
+	for _, name := range runtimeRemovals {
+		removingRuntimes[name] = true
+	}
+
+	var blocked []string
+	for _, t := range remainingTools {
+		if t.ToolSpec.RuntimeRef != "" && removingRuntimes[t.ToolSpec.RuntimeRef] {
+			blocked = append(blocked, fmt.Sprintf("tool %q depends on runtime %q", t.Name(), t.ToolSpec.RuntimeRef))
+		}
+	}
+
+	if len(blocked) > 0 {
+		return fmt.Errorf("cannot remove runtime: dependent tools still in spec:\n  %s", strings.Join(blocked, "\n  "))
+	}
+	return nil
 }

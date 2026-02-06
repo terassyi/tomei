@@ -1999,3 +1999,297 @@ func TestEngine_Apply_ToolSet_NameConflict(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "name conflict")
 }
+
+func TestCheckRemovalDependencies(t *testing.T) {
+	tests := []struct {
+		name            string
+		runtimeRemovals []string
+		remainingTools  []*resource.Tool
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			name:            "no removals",
+			runtimeRemovals: nil,
+			remainingTools: []*resource.Tool{
+				{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}}, ToolSpec: &resource.ToolSpec{RuntimeRef: "go"}},
+			},
+			wantErr: false,
+		},
+		{
+			name:            "removal with no dependents",
+			runtimeRemovals: []string{"go"},
+			remainingTools: []*resource.Tool{
+				{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "fzf"}}, ToolSpec: &resource.ToolSpec{InstallerRef: "download"}},
+			},
+			wantErr: false,
+		},
+		{
+			name:            "removal blocked by dependent tool",
+			runtimeRemovals: []string{"go"},
+			remainingTools: []*resource.Tool{
+				{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}}, ToolSpec: &resource.ToolSpec{RuntimeRef: "go"}},
+			},
+			wantErr:     true,
+			errContains: `tool "gopls" depends on runtime "go"`,
+		},
+		{
+			name:            "removal blocked by multiple dependents",
+			runtimeRemovals: []string{"go"},
+			remainingTools: []*resource.Tool{
+				{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}}, ToolSpec: &resource.ToolSpec{RuntimeRef: "go"}},
+				{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "staticcheck"}}, ToolSpec: &resource.ToolSpec{RuntimeRef: "go"}},
+			},
+			wantErr:     true,
+			errContains: "cannot remove runtime",
+		},
+		{
+			name:            "dependent tool not in remaining (both removed)",
+			runtimeRemovals: []string{"go"},
+			remainingTools:  nil,
+			wantErr:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkRemovalDependencies(tt.runtimeRemovals, tt.remainingTools)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestEngine_Apply_RemoveRuntimeWithDependentTool(t *testing.T) {
+	configDir := t.TempDir()
+	stateDir := t.TempDir()
+
+	// Initial config: runtime + delegated tool
+	cueContent := `package toto
+
+runtime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: value: "sha256:abc123"
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "resources.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	toolMock := &mockToolInstaller{}
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	// First apply: install both
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Second apply: remove runtime only, keep gopls
+	cueContentV2 := `package toto
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	err = eng.Apply(context.Background(), resourcesV2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove runtime")
+	assert.Contains(t, err.Error(), "gopls")
+
+	// Verify runtime was NOT removed from state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+	assert.NotNil(t, st.Runtimes["go"], "runtime should still be in state")
+}
+
+func TestEngine_PlanAll_RemoveRuntimeWithDependentTool(t *testing.T) {
+	configDir := t.TempDir()
+	stateDir := t.TempDir()
+
+	// Pre-populate state as if runtime + tool were installed
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Runtimes["go"] = &resource.RuntimeState{
+		Version:     "1.0.0",
+		InstallPath: "/runtimes/go/1.0.0",
+		ToolBinPath: "~/go/bin",
+	}
+	initialState.Tools["gopls"] = &resource.ToolState{
+		Version:    "v0.21.0",
+		RuntimeRef: "go",
+		BinPath:    "~/go/bin/gopls",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	// Config with only gopls (runtime removed)
+	cueContent := `package toto
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "resources.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	toolMock := &mockToolInstaller{}
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	_, _, err = eng.PlanAll(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot remove runtime")
+	assert.Contains(t, err.Error(), "gopls")
+}
+
+func TestEngine_Apply_RemoveRuntimeAndDependentTool(t *testing.T) {
+	configDir := t.TempDir()
+	stateDir := t.TempDir()
+
+	// Initial config: runtime + delegated tool
+	cueContent := `package toto
+
+runtime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: value: "sha256:abc123"
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+gopls: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "resources.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	removedTools := make(map[string]bool)
+	removedRuntimes := make(map[string]bool)
+
+	toolMock := &mockToolInstaller{
+		removeFunc: func(ctx context.Context, st *resource.ToolState, name string) error {
+			removedTools[name] = true
+			return nil
+		},
+	}
+	runtimeMock := &mockRuntimeInstaller{
+		removeFunc: func(ctx context.Context, st *resource.RuntimeState, name string) error {
+			removedRuntimes[name] = true
+			return nil
+		},
+	}
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	// First apply: install both
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Second apply: remove both (empty config with just a placeholder)
+	cueContentV2 := `package toto
+
+placeholder: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/fzf.tar.gz"
+			checksum: value: "sha256:abc123"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	err = eng.Apply(context.Background(), resourcesV2)
+	require.NoError(t, err)
+
+	assert.True(t, removedTools["gopls"], "gopls should be removed")
+	assert.True(t, removedRuntimes["go"], "go runtime should be removed")
+}
