@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("toto on Ubuntu", Ordered, func() {
+func basicTests() {
 
 	Context("Basic Commands", func() {
 		It("displays version information", func() {
@@ -84,7 +84,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Runtime Installation Verification", func() {
 		It("places runtime in runtimes directory", func() {
 			By("Listing runtimes directory")
-			output, err := testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.5/")
+			output, err := testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.6/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bin directory exists")
@@ -115,7 +115,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go version output")
-			Expect(output).To(ContainSubstring("go1.25.5"))
+			Expect(output).To(ContainSubstring("go1.25.6"))
 		})
 
 		It("allows running gofmt command after install", func() {
@@ -194,7 +194,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output).To(ContainSubstring(`"runtimes"`))
 
 			By("Checking go runtime version is recorded")
-			Expect(output).To(ContainSubstring(`"version": "1.25.5"`))
+			Expect(output).To(ContainSubstring(`"version": "1.25.6"`))
 
 			By("Checking go runtime binDir is recorded")
 			Expect(output).To(ContainSubstring(`"binDir"`))
@@ -242,7 +242,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			By("Checking go still works")
 			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("go1.25.5"))
+			Expect(output).To(ContainSubstring("go1.25.6"))
 
 			By("Checking gh still works")
 			output, err = testExec.ExecBash("~/.local/bin/gh --version")
@@ -280,7 +280,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 		It("detects unmanaged tools in runtime bin path", func() {
 			By("Installing an unmanaged tool via go install using toto-managed go runtime")
 			// Use the toto-managed go binary from ~/go/bin with proper GOBIN set
-			_, err := testExec.ExecBash("export GOROOT=$HOME/.local/share/toto/runtimes/go/1.25.5 && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest")
+			_, err := testExec.ExecBash("export GOROOT=$HOME/.local/share/toto/runtimes/go/1.25.6 && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running toto doctor command")
@@ -299,7 +299,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 	Context("Runtime Upgrade", func() {
 		It("shows upgrade plan before applying", func() {
-			By("Swapping runtime config to upgraded version (1.25.5 -> 1.25.6)")
+			By("Swapping runtime config to upgraded version (1.25.6 -> 1.25.7)")
 			// Move current runtime.cue aside and replace with upgrade version
 			// runtime.cue.upgrade has .upgrade extension so it's not loaded by toto until renamed
 			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.old")
@@ -316,7 +316,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output).To(ContainSubstring("Execution Order"))
 		})
 
-		It("upgrades runtime from 1.25.5 to 1.25.6", func() {
+		It("upgrades runtime from 1.25.6 to 1.25.7", func() {
 			By("Running toto apply with upgraded config")
 			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
@@ -324,16 +324,16 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			By("Verifying new runtime version is installed")
 			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("go1.25.6"))
+			Expect(output).To(ContainSubstring("go1.25.7"))
 
 			By("Verifying new runtime is in correct location")
-			_, err = testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.6/bin/go")
+			_, err = testExec.ExecBash("ls ~/.local/share/toto/runtimes/go/1.25.7/bin/go")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying symlink points to new version")
 			output, err = testExec.ExecBash("readlink ~/go/bin/go")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("1.25.6"))
+			Expect(output).To(ContainSubstring("1.25.7"))
 		})
 
 		It("taints dependent tools after runtime upgrade", func() {
@@ -352,8 +352,8 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking go runtime version is updated to 1.25.6")
-			Expect(output).To(ContainSubstring(`"version": "1.25.6"`))
+			By("Checking go runtime version is updated to 1.25.7")
+			Expect(output).To(ContainSubstring(`"version": "1.25.7"`))
 		})
 
 		It("is idempotent after runtime upgrade", func() {
@@ -364,7 +364,7 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			By("Verifying runtime still works")
 			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("go1.25.6"))
+			Expect(output).To(ContainSubstring("go1.25.7"))
 		})
 	})
-})
+}

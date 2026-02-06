@@ -16,6 +16,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
+	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 	"github.com/terassyi/toto/internal/ui"
 )
@@ -75,6 +76,12 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	resources, err := loader.LoadPaths(paths)
 	if err != nil {
 		return fmt.Errorf("failed to load resources: %w", err)
+	}
+
+	// Expand set resources (ToolSet, etc.) into individual resources
+	resources, err = resource.ExpandSets(resources)
+	if err != nil {
+		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
 	// Load config from fixed path (~/.config/toto/config.cue)

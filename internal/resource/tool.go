@@ -363,6 +363,33 @@ func (*ToolSet) Kind() Kind { return KindToolSet }
 // Spec returns the spec as Spec interface.
 func (t *ToolSet) Spec() Spec { return t.ToolSetSpec }
 
+// Expand expands a ToolSet into individual Tool resources.
+// Disabled tools are excluded from the result.
+func (ts *ToolSet) Expand() ([]Resource, error) {
+	var tools []Resource
+	for name, item := range ts.ToolSetSpec.Tools {
+		if !item.IsEnabled() {
+			continue
+		}
+		tool := &Tool{
+			BaseResource: BaseResource{
+				APIVersion:   GroupVersion,
+				ResourceKind: KindTool,
+				Metadata:     Metadata{Name: name},
+			},
+			ToolSpec: &ToolSpec{
+				InstallerRef: ts.ToolSetSpec.InstallerRef,
+				RuntimeRef:   ts.ToolSetSpec.RuntimeRef,
+				Version:      item.Version,
+				Source:       item.Source,
+				Package:      item.Package,
+			},
+		}
+		tools = append(tools, tool)
+	}
+	return tools, nil
+}
+
 // ToolItem represents a tool within a ToolSet.
 // It provides per-tool overrides for version and source configuration.
 type ToolItem struct {

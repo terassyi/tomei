@@ -2,6 +2,10 @@ name: E2E Test
 description: Run E2E tests with Docker or natively
 
 inputs:
+  os:
+    description: 'Target OS (linux or darwin)'
+    required: false
+    default: 'linux'
   arch:
     description: 'Target architecture (amd64 or arm64)'
     required: false
@@ -14,26 +18,33 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.25.6'
-        cache: true
-
-    - name: Download dependencies
-      shell: bash
-      run: go mod download
-
-    - name: Build toto binary (Native Mode)
+    # Native mode: use pre-built binaries (no setup-go needed)
+    - name: Prepare E2E binaries (Native Mode)
       if: inputs.mode == 'native'
       shell: bash
-      run: go build -o toto ./cmd/toto
+      run: |
+        chmod +x dist/toto dist/e2e.test dist/ginkgo
 
     - name: E2E Test (Native Mode)
       if: inputs.mode == 'native'
       shell: bash
       run: |
-        TOTO_E2E_NATIVE=true TOTO_E2E_BINARY="$(pwd)/toto" go test -tags=e2e -v ./e2e/... -ginkgo.v
+        TOTO_E2E_NATIVE=true \
+        TOTO_E2E_BINARY="$(pwd)/dist/toto" \
+          ./dist/ginkgo -v ./dist/e2e.test
+
+    # Container mode: setup-go is safe (tests run inside Docker, no PATH conflict)
+    - name: Setup Go (Container Mode)
+      if: inputs.mode == 'container'
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25.6'
+        cache: true
+
+    - name: Download dependencies (Container Mode)
+      if: inputs.mode == 'container'
+      shell: bash
+      run: go mod download
 
     - name: E2E Test (Container Mode)
       if: inputs.mode == 'container'

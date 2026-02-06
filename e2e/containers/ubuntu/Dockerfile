@@ -25,6 +25,7 @@ COPY --chown=testuser:testuser config/manifests/runtime.cue /home/testuser/manif
 COPY --chown=testuser:testuser config/manifests/runtime.cue.upgrade /home/testuser/manifests/runtime.cue.upgrade
 COPY --chown=testuser:testuser config/manifests/tools.cue /home/testuser/manifests/tools.cue
 COPY --chown=testuser:testuser config/manifests/delegation.cue /home/testuser/manifests/delegation.cue
+COPY --chown=testuser:testuser config/manifests/toolset.cue /home/testuser/manifests/toolset.cue
 
 # Copy registry test manifests
 # tools.cue.old contains older versions for upgrade/downgrade tests

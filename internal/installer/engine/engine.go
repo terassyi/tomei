@@ -153,6 +153,13 @@ type RuntimeAction = reconciler.Action[*resource.Runtime, *resource.RuntimeState
 
 // Apply reconciles resources with state and executes actions using DAG-based ordering.
 func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
+	// Expand set resources (ToolSet, etc.) into individual resources
+	var err error
+	resources, err = resource.ExpandSets(resources)
+	if err != nil {
+		return fmt.Errorf("failed to expand sets: %w", err)
+	}
+
 	slog.Debug("applying configuration", "resources", len(resources))
 
 	// Build dependency graph and get execution layers

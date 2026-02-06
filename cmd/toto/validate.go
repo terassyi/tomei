@@ -8,6 +8,7 @@ import (
 
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/graph"
+	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/ui"
 )
 
@@ -42,6 +43,12 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)
+	if err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Expand set resources (ToolSet, etc.) into individual resources
+	resources, err = resource.ExpandSets(resources)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
 	}
