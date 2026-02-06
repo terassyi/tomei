@@ -184,7 +184,7 @@ func sortNodesByKind(nodes []*Node) {
 // Within each layer, nodes are sorted by Kind priority: Runtime -> Installer -> Tool.
 func (g *dag) topologicalSort() ([]Layer, error) {
 	if cycle := g.detectCycle(); cycle != nil {
-		return nil, fmt.Errorf("circular dependency detected: %v", cycle)
+		return nil, NewCycleError(cycle)
 	}
 
 	// Clone inDegree for modification

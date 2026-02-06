@@ -334,9 +334,9 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			output, err := testExec.Exec("toto", "plan", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking plan shows runtime in execution plan")
+			By("Checking plan shows runtime in execution order")
 			Expect(output).To(ContainSubstring("Runtime/go"))
-			Expect(output).To(ContainSubstring("Execution Plan"))
+			Expect(output).To(ContainSubstring("Execution Order"))
 		})
 
 		It("upgrades runtime from 1.25.5 to 1.25.6", func() {

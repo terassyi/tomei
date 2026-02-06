@@ -4,13 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/graph"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
+	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 )
 
@@ -25,19 +28,30 @@ Displays what actions would be taken:
   - reinstall: Resources to reinstall (due to taint)
   - remove: Resources to remove
 
-Resources are shown in dependency order, grouped by execution layer.
-Resources within the same layer can be executed in parallel.`,
+Resources are shown in dependency order as a tree.
+Use --output to change the output format (text, json, yaml).`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runPlan,
 }
 
-var syncRegistryPlan bool
+var (
+	syncRegistryPlan bool
+	outputFormat     string
+	noColor          bool
+)
 
 func init() {
 	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
+	planCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json, yaml")
+	planCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
+	// Disable color if --no-color flag is set
+	if noColor {
+		color.NoColor = true
+	}
+
 	// Sync registry if --sync flag is set
 	if syncRegistryPlan {
 		ctx := cmd.Context()
@@ -49,8 +63,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	cmd.Printf("Planning changes for %v\n\n", args)
-
+	// Load configuration
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)
 	if err != nil {
@@ -62,13 +75,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	cmd.Printf("Found %d resource(s)\n\n", len(resources))
-
 	// Build a set of defined resource IDs for filtering
 	definedResources := make(map[string]struct{})
+	resourceMap := make(map[graph.NodeID]resource.Resource)
 	for _, res := range resources {
-		id := graph.NewNodeID(res.Kind(), res.Name()).String()
-		definedResources[id] = struct{}{}
+		id := graph.NewNodeID(res.Kind(), res.Name())
+		definedResources[id.String()] = struct{}{}
+		resourceMap[id] = res
 	}
 
 	// Build dependency graph
@@ -80,12 +93,12 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Validate and get execution layers
 	layers, err := resolver.Resolve()
 	if err != nil {
-		return fmt.Errorf("failed to resolve dependencies: %w", err)
+		// Return the error as-is - it will be formatted by main.go
+		return err
 	}
 
 	// Filter layers to only include defined resources
 	var filteredLayers []graph.Layer
-	totalResources := 0
 	for _, layer := range layers {
 		var filteredNodes []*graph.Node
 		for _, node := range layer.Nodes {
@@ -96,51 +109,114 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 		if len(filteredNodes) > 0 {
 			filteredLayers = append(filteredLayers, graph.Layer{Nodes: filteredNodes})
-			totalResources += len(filteredNodes)
 		}
 	}
 
-	// Display execution plan
-	cmd.Printf("Execution Plan (%d layers):\n", len(filteredLayers))
-	cmd.Println("================================")
+	// Load state to determine actions
+	resourceInfo := buildResourceInfo(resources, resourceMap)
 
-	for i, layer := range filteredLayers {
-		cmd.Printf("\nLayer %d", i+1)
-		if len(layer.Nodes) > 1 {
-			cmd.Printf(" (parallel: %d resources)", len(layer.Nodes))
-		}
-		cmd.Println(":")
+	// Get edges for tree/export
+	edges := resolver.GetEdges()
 
-		for _, node := range layer.Nodes {
-			cmd.Printf("  - %s/%s\n", node.Kind, node.Name)
-		}
+	// Output based on format
+	switch outputFormat {
+	case "json":
+		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
+		return exporter.ExportJSON(os.Stdout)
+	case "yaml":
+		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
+		return exporter.ExportYAML(os.Stdout)
+	case "text":
+		fallthrough
+	default:
+		return printTextPlan(cmd, args, resources, resolver, filteredLayers, resourceInfo)
 	}
+}
 
-	cmd.Println()
+func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resource.Resource) map[graph.NodeID]graph.ResourceInfo {
+	info := make(map[graph.NodeID]graph.ResourceInfo)
 
-	// Show dependency information
-	cmd.Println("Dependencies:")
-	for _, res := range resources {
-		deps := res.Spec().Dependencies()
-		if len(deps) > 0 {
-			cmd.Printf("  %s/%s depends on:\n", res.Kind(), res.Name())
-			for _, dep := range deps {
-				status := "(defined)"
-				depID := graph.NewNodeID(dep.Kind, dep.Name).String()
-				if _, ok := definedResources[depID]; !ok {
-					status = "(builtin/external)"
+	// Try to load state for action determination
+	var userState *state.UserState
+	cfg, err := config.LoadConfig(config.DefaultConfigDir)
+	if err == nil {
+		pathConfig, err := path.NewFromConfig(cfg)
+		if err == nil {
+			store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
+			if err == nil {
+				loaded, err := store.Load()
+				if err == nil {
+					userState = loaded
 				}
-				cmd.Printf("    - %s/%s %s\n", dep.Kind, dep.Name, status)
 			}
 		}
 	}
 
-	cmd.Println()
+	for _, res := range resources {
+		nodeID := graph.NewNodeID(res.Kind(), res.Name())
+		resInfo := graph.ResourceInfo{
+			Kind:   res.Kind(),
+			Name:   res.Name(),
+			Action: graph.ActionInstall, // default to install
+		}
 
-	// TODO: Load state and diff to show actual actions (install/upgrade/remove)
-	// For now, just show the execution order
+		// Get version from spec
+		switch res.Kind() {
+		case resource.KindRuntime:
+			if rt, ok := res.(*resource.Runtime); ok && rt.RuntimeSpec != nil {
+				resInfo.Version = rt.RuntimeSpec.Version
+			}
+		case resource.KindTool:
+			if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
+				resInfo.Version = tool.ToolSpec.Version
+			}
+		}
 
-	cmd.Printf("Total: %d resources in %d layers\n", totalResources, len(filteredLayers))
+		// Determine action by comparing with state
+		if userState != nil {
+			switch res.Kind() {
+			case resource.KindRuntime:
+				if rt, ok := userState.Runtimes[res.Name()]; ok {
+					if rt.Version == resInfo.Version {
+						resInfo.Action = graph.ActionNone
+					} else {
+						resInfo.Action = graph.ActionUpgrade
+					}
+				}
+			case resource.KindTool:
+				if tool, ok := userState.Tools[res.Name()]; ok {
+					if tool.Version == resInfo.Version {
+						resInfo.Action = graph.ActionNone
+					} else {
+						resInfo.Action = graph.ActionUpgrade
+					}
+				}
+			case resource.KindInstaller:
+				// Installers don't have versions in state typically
+				resInfo.Action = graph.ActionNone
+			}
+		}
+
+		info[nodeID] = resInfo
+	}
+
+	return info
+}
+
+func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resource, resolver graph.Resolver, layers []graph.Layer, resourceInfo map[graph.NodeID]graph.ResourceInfo) error {
+	cmd.Printf("Planning changes for %v\n\n", args)
+	cmd.Printf("Found %d resource(s)\n\n", len(resources))
+
+	// Print dependency tree
+	cmd.Println("Dependency Graph:")
+	printer := graph.NewTreePrinter(cmd.OutOrStdout(), noColor)
+	printer.PrintTree(resolver, resourceInfo)
+
+	// Print execution layers
+	printer.PrintLayers(layers, resourceInfo)
+
+	// Print summary
+	printer.PrintSummary(resourceInfo)
 
 	return nil
 }
