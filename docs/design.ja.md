@@ -869,49 +869,87 @@ Mode:
 
 ## 11. 実装フェーズ
 
-### Phase 1: 基盤
+### Phase 1: 基盤 (完了)
 
 ```
 ├── internal/resource/ (types, action)
 ├── internal/state/ (state.json 読み書き、flock)
 ├── internal/config/ (CUE ローダー基盤)
-└── CLI 骨格 (cobra: apply, validate, version)
+├── internal/graph/ (DAG、循環検出、トポロジカルソート)
+└── CLI 骨格 (cobra: apply, validate, version, init, plan, doctor)
 ```
 
-### Phase 2: User 権限の最小セット
+### Phase 2: User 権限の最小セット (完了)
 
 ```
-├── Tool (Download Pattern, aqua 形式)
+├── Tool (Download Pattern) チェックサム検証付き
+├── Aqua Registry 統合 (パッケージ解決、--sync)
 ├── toto apply でツールインストール
 ├── ~/.local/bin への symlink
 └── state.json の更新
 ```
 
-### Phase 3: Runtime
+### Phase 3: Runtime (完了)
 
 ```
-├── Runtime (Go のみ最初)
-├── Tool の Runtime Delegation (go install)
-├── Taint Logic
-└── toto doctor (未管理ツール検出)
+├── Runtime (Go, Rust, Node.js)
+├── Tool の Runtime Delegation (go install, cargo install, npm install -g)
+├── Taint Logic (ランタイムアップグレード時にツール再インストール)
+├── toto doctor (未管理ツール検出、コンフリクト検出)
+└── 削除時の依存ガード (依存ツールが残っている場合ランタイム削除を拒否)
 ```
 
-### Phase 4: System 権限
+### Phase 4: 並列実行 & UI (完了)
+
+```
+├── DAG ベースの並列実行エンジン (1-20 並列数設定可能)
+├── mpb によるプログレス UI (マルチバーダウンロード進捗)
+├── イベント駆動型の進捗トラッキング
+└── --parallel, --quiet, --no-color フラグ
+```
+
+### Phase 5: ToolSet & E2E (完了)
+
+```
+├── ToolSet 展開 (Expandable インターフェース)
+├── E2E テスト基盤 (コンテナベース、Ginkgo v2)
+└── CUE からのバージョン抽出 (single source of truth)
+```
+
+### Phase 6: ユーザランドコマンド (次)
+
+1. **toto adopt** — doctor が検出した未管理ツールを toto の管理下に取り込む
+2. **toto env** — ランタイムの環境変数をシェルにエクスポート (`eval $(toto env)`)
+
+### Phase 7: Runtime Delegation & バージョン解決
+
+```
+├── Delegation パターンによるランタイムインストール (rustup, nvm ブートストラップ)
+├── バージョンエイリアス解決 ("stable", "latest" → 実バージョン)
+└── --sync 時の latest 指定ツール自動更新
+```
+
+### Phase 8: 設定 & レジストリ
+
+```
+├── CUE プリセット/オーバーレイ — 環境別条件分岐 (_env.os, _env.arch)
+├── InstallerRepository — ツールメタデータのリポジトリ管理
+└── 認証・トークン — GitHub API レート制限対策、プライベートリポジトリ
+```
+
+### Phase 9: パフォーマンス
+
+```
+└── 実行レイヤー単位の state バッチ書き込み (並列実行最適化)
+```
+
+### Phase 10: System 権限 (後回し)
 
 ```
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
 └── toto apply --system
-```
-
-### Phase 5: 拡張
-
-```
-├── ToolSet, overlay
-├── toto adopt
-├── 他の Runtime (Rust, Node)
-├── CUE プリセット
 ```
 
 ---

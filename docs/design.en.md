@@ -868,49 +868,87 @@ Mode:
 
 ## 11. Implementation Phases
 
-### Phase 1: Foundation
+### Phase 1: Foundation (Completed)
 
 ```
 ├── internal/resource/ (types, action)
 ├── internal/state/ (state.json read/write, flock)
 ├── internal/config/ (CUE loader foundation)
-└── CLI skeleton (cobra: apply, validate, version)
+├── internal/graph/ (DAG, cycle detection, topological sort)
+└── CLI skeleton (cobra: apply, validate, version, init, plan, doctor)
 ```
 
-### Phase 2: Minimum User Privilege Set
+### Phase 2: Minimum User Privilege Set (Completed)
 
 ```
-├── Tool (Download Pattern, aqua format)
+├── Tool (Download Pattern) with checksum verification
+├── Aqua Registry integration (package resolution, --sync)
 ├── Install tools with toto apply
 ├── Symlink to ~/.local/bin
 └── Update state.json
 ```
 
-### Phase 3: Runtime
+### Phase 3: Runtime (Completed)
 
 ```
-├── Runtime (Go only initially)
-├── Tool Runtime Delegation (go install)
-├── Taint Logic
-└── toto doctor (unmanaged tool detection)
+├── Runtime (Go, Rust, Node.js)
+├── Tool Runtime Delegation (go install, cargo install, npm install -g)
+├── Taint Logic (runtime upgrade triggers tool reinstall)
+├── toto doctor (unmanaged tool detection, conflict detection)
+└── Removal dependency guard (reject runtime removal if dependent tools remain)
 ```
 
-### Phase 4: System Privilege
+### Phase 4: Parallel Execution & UI (Completed)
+
+```
+├── DAG-based parallel execution engine (configurable 1-20)
+├── Progress UI with mpb (multi-bar download progress)
+├── Event-driven architecture for progress tracking
+└── --parallel, --quiet, --no-color flags
+```
+
+### Phase 5: ToolSet & E2E (Completed)
+
+```
+├── ToolSet expansion with Expandable interface
+├── E2E test infrastructure (container-based, Ginkgo v2)
+└── Version extraction from CUE (single source of truth)
+```
+
+### Phase 6: Userland Commands (Next)
+
+1. **toto adopt** — bring unmanaged tools (detected by doctor) under toto management
+2. **toto env** — export runtime environment variables for shell (`eval $(toto env)`)
+
+### Phase 7: Runtime Delegation & Version Resolution
+
+```
+├── Delegation pattern for runtime installation (rustup, nvm bootstrap)
+├── Version alias resolution ("stable", "latest" → actual version)
+└── Auto-update latest-specified tools on --sync
+```
+
+### Phase 8: Configuration & Registry
+
+```
+├── CUE presets/overlay — environment-based conditional branching (_env.os, _env.arch)
+├── InstallerRepository — tool metadata repository management
+└── Authentication & tokens — GitHub API rate limiting, private repositories
+```
+
+### Phase 9: Performance
+
+```
+└── Batch state writes per execution layer (parallel execution optimization)
+```
+
+### Phase 10: System Privilege (Deferred)
 
 ```
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
 └── toto apply --system
-```
-
-### Phase 5: Extensions
-
-```
-├── ToolSet, overlay
-├── toto adopt
-├── Other Runtimes (Rust, Node)
-├── CUE presets
 ```
 
 ---
