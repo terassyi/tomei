@@ -8,6 +8,7 @@ import (
 
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/graph"
+	"github.com/terassyi/toto/internal/ui"
 )
 
 var validateNoColor bool
@@ -34,7 +35,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		color.NoColor = true
 	}
 
-	style := newOutputStyle()
+	style := ui.NewStyle()
 
 	cmd.Println("Validating configuration...")
 	cmd.Println()
@@ -50,16 +51,16 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	validationFailed := false
 	for _, res := range resources {
 		if err := res.Spec().Validate(); err != nil {
-			cmd.Printf("  %s %s - %v\n", style.failMark, style.path.Sprintf("%s/%s", res.Kind(), res.Name()), err)
+			cmd.Printf("  %s %s - %v\n", style.FailMark, style.Path.Sprintf("%s/%s", res.Kind(), res.Name()), err)
 			validationFailed = true
 		} else {
-			cmd.Printf("  %s %s\n", style.successMark, style.path.Sprintf("%s/%s", res.Kind(), res.Name()))
+			cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprintf("%s/%s", res.Kind(), res.Name()))
 		}
 	}
 	cmd.Println()
 
 	if validationFailed {
-		cmd.Printf("%s Validation failed\n", style.failMark)
+		cmd.Printf("%s Validation failed\n", style.FailMark)
 		return fmt.Errorf("validation failed")
 	}
 
@@ -71,14 +72,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	cmd.Println("Dependencies:")
 	if err := resolver.Validate(); err != nil {
-		cmd.Printf("  %s %v\n", style.failMark, err)
+		cmd.Printf("  %s %v\n", style.FailMark, err)
 		cmd.Println()
-		cmd.Printf("%s Validation failed\n", style.failMark)
+		cmd.Printf("%s Validation failed\n", style.FailMark)
 		return err
 	}
-	cmd.Printf("  %s No circular dependencies\n", style.successMark)
+	cmd.Printf("  %s No circular dependencies\n", style.SuccessMark)
 	cmd.Println()
 
-	cmd.Printf("%s Validation successful (%d resources)\n", style.successMark, len(resources))
+	cmd.Printf("%s Validation successful (%d resources)\n", style.SuccessMark, len(resources))
 	return nil
 }

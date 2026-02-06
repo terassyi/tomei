@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/toto/internal/ui"
 )
 
 var uninitCmd = &cobra.Command{
@@ -49,7 +50,7 @@ func init() {
 type uninitContext struct {
 	w          io.Writer
 	errW       io.Writer
-	style      *outputStyle
+	style      *ui.Style
 	cfgDir     string
 	dataDir    string
 	binDir     string
@@ -133,7 +134,7 @@ func newUninitContext(cmd *cobra.Command) (*uninitContext, error) {
 	return &uninitContext{
 		w:          cmd.OutOrStdout(),
 		errW:       cmd.ErrOrStderr(),
-		style:      newOutputStyle(),
+		style:      ui.NewStyle(),
 		cfgDir:     cfgDir,
 		dataDir:    dataDir,
 		binDir:     binDir,
@@ -158,21 +159,21 @@ func (c *uninitContext) printTargets() {
 	if c.dryRun {
 		header = "Would remove:"
 	}
-	c.style.header.Fprintln(c.w, header)
+	c.style.Header.Fprintln(c.w, header)
 
 	for _, link := range c.symlinks {
 		target, _ := os.Readlink(link)
-		fmt.Fprintf(c.w, "  %s -> %s\n", c.style.path.Sprint(link), target)
+		fmt.Fprintf(c.w, "  %s -> %s\n", c.style.Path.Sprint(link), target)
 	}
-	fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.dataDir))
+	fmt.Fprintf(c.w, "  %s\n", c.style.Path.Sprint(c.dataDir))
 	if !c.keepConfig {
-		fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.cfgDir))
+		fmt.Fprintf(c.w, "  %s\n", c.style.Path.Sprint(c.cfgDir))
 	}
 	fmt.Fprintln(c.w)
 
 	if c.keepConfig {
-		c.style.header.Fprintln(c.w, "Config will be preserved:")
-		fmt.Fprintf(c.w, "  %s\n", c.style.path.Sprint(c.cfgDir))
+		c.style.Header.Fprintln(c.w, "Config will be preserved:")
+		fmt.Fprintf(c.w, "  %s\n", c.style.Path.Sprint(c.cfgDir))
 		fmt.Fprintln(c.w)
 	}
 }
@@ -194,7 +195,7 @@ func (c *uninitContext) confirm() bool {
 
 func (c *uninitContext) remove() {
 	fmt.Fprintln(c.w)
-	c.style.header.Fprintln(c.w, "Removing:")
+	c.style.Header.Fprintln(c.w, "Removing:")
 
 	// Remove symlinks first
 	for _, link := range c.symlinks {
@@ -223,24 +224,24 @@ func (c *uninitContext) removeItem(path, target string) {
 
 	if err != nil {
 		if target != "" {
-			fmt.Fprintf(c.w, "  %s %s -> %s (%v)\n", c.style.failMark, path, target, err)
+			fmt.Fprintf(c.w, "  %s %s -> %s (%v)\n", c.style.FailMark, path, target, err)
 		} else {
-			fmt.Fprintf(c.w, "  %s %s (%v)\n", c.style.failMark, path, err)
+			fmt.Fprintf(c.w, "  %s %s (%v)\n", c.style.FailMark, path, err)
 		}
 	} else {
 		if target != "" {
-			fmt.Fprintf(c.w, "  %s %s -> %s\n", c.style.successMark, c.style.path.Sprint(path), target)
+			fmt.Fprintf(c.w, "  %s %s -> %s\n", c.style.SuccessMark, c.style.Path.Sprint(path), target)
 		} else {
-			fmt.Fprintf(c.w, "  %s %s\n", c.style.successMark, c.style.path.Sprint(path))
+			fmt.Fprintf(c.w, "  %s %s\n", c.style.SuccessMark, c.style.Path.Sprint(path))
 		}
 	}
 }
 
 func (c *uninitContext) printFooter() {
 	fmt.Fprintln(c.w)
-	c.style.success.Fprintln(c.w, "Uninitialization complete!")
+	c.style.Success.Fprintln(c.w, "Uninitialization complete!")
 	fmt.Fprintln(c.w)
-	fmt.Fprintf(c.w, "Note: %s directory was preserved.\n", c.style.path.Sprint(c.binDir))
+	fmt.Fprintf(c.w, "Note: %s directory was preserved.\n", c.style.Path.Sprint(c.binDir))
 }
 
 // findManagedSymlinks finds symlinks in binDir that point to files under dataDir.

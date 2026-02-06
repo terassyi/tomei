@@ -12,6 +12,7 @@ import (
 	"github.com/terassyi/toto/internal/doctor"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/toto/internal/ui"
 )
 
 var doctorNoColor bool
@@ -84,13 +85,13 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 }
 
 func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
-	style := newOutputStyle()
+	style := ui.NewStyle()
 
-	style.header.Fprintln(cmd.OutOrStdout(), "Environment Health Check")
+	style.Header.Fprintln(cmd.OutOrStdout(), "Environment Health Check")
 	cmd.Println()
 
 	if !result.HasIssues() {
-		cmd.Printf("%s No issues found. Environment is healthy.\n", style.successMark)
+		cmd.Printf("%s No issues found. Environment is healthy.\n", style.SuccessMark)
 		return
 	}
 
@@ -114,13 +115,13 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 		}
 
 		if categoryPath != "" {
-			cmd.Printf("[%s] %s\n", color.New(color.FgYellow).Sprint(category), style.path.Sprint(categoryPath))
+			cmd.Printf("[%s] %s\n", color.New(color.FgYellow).Sprint(category), style.Path.Sprint(categoryPath))
 		} else {
 			cmd.Printf("[%s]\n", color.New(color.FgYellow).Sprint(category))
 		}
 
 		for _, tool := range tools {
-			cmd.Printf("  %s %-16s unmanaged\n", style.warnMark, tool.Name)
+			cmd.Printf("  %s %-16s unmanaged\n", style.WarnMark, tool.Name)
 		}
 		cmd.Println()
 	}
@@ -129,9 +130,9 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 	if len(result.Conflicts) > 0 {
 		cmd.Printf("[%s]\n", color.New(color.FgRed).Sprint("Conflicts"))
 		for _, conflict := range result.Conflicts {
-			cmd.Printf("  %s %s: found in %s\n", style.failMark, conflict.Name, strings.Join(conflict.Locations, ", "))
+			cmd.Printf("  %s %s: found in %s\n", style.FailMark, conflict.Name, strings.Join(conflict.Locations, ", "))
 			if conflict.ResolvedTo != "" {
-				cmd.Printf("       PATH resolves to: %s\n", style.path.Sprint(conflict.ResolvedTo))
+				cmd.Printf("       PATH resolves to: %s\n", style.Path.Sprint(conflict.ResolvedTo))
 			}
 		}
 		cmd.Println()
@@ -141,7 +142,7 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 	if len(result.StateIssues) > 0 {
 		cmd.Printf("[%s]\n", color.New(color.FgRed).Sprint("State Issues"))
 		for _, issue := range result.StateIssues {
-			cmd.Printf("  %s %s: %s\n", style.failMark, issue.Name, issue.Message())
+			cmd.Printf("  %s %s: %s\n", style.FailMark, issue.Name, issue.Message())
 		}
 		cmd.Println()
 	}
@@ -165,7 +166,7 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 	// Print suggestions
 	unmanagedNames := result.UnmanagedToolNames()
 	if len(unmanagedNames) > 0 {
-		style.header.Fprintln(cmd.OutOrStdout(), "Suggestions:")
-		cmd.Printf("  %s\n", style.success.Sprintf("toto adopt %s", strings.Join(unmanagedNames, " ")))
+		style.Header.Fprintln(cmd.OutOrStdout(), "Suggestions:")
+		cmd.Printf("  %s\n", style.Success.Sprintf("toto adopt %s", strings.Join(unmanagedNames, " ")))
 	}
 }

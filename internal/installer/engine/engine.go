@@ -21,6 +21,7 @@ type ToolInstaller interface {
 	RegisterRuntime(name string, info *tool.RuntimeInfo)
 	RegisterInstaller(name string, info *tool.InstallerInfo)
 	SetProgressCallback(callback download.ProgressCallback)
+	SetOutputCallback(callback func(line string))
 }
 
 // RuntimeInstaller defines the interface for installing runtimes.
@@ -42,6 +43,8 @@ const (
 	EventStart EventType = iota
 	// EventProgress is emitted during download to report progress.
 	EventProgress
+	// EventOutput is emitted for each line of command output (delegation pattern).
+	EventOutput
 	// EventComplete is emitted when an action completes successfully.
 	EventComplete
 	// EventError is emitted when an action fails.
@@ -56,8 +59,10 @@ type Event struct {
 	Version    string
 	Action     resource.ActionType
 	Error      error
-	Downloaded int64 // bytes downloaded (for EventProgress)
-	Total      int64 // total bytes (-1 if unknown, for EventProgress)
+	Downloaded int64  // bytes downloaded (for EventProgress)
+	Total      int64  // total bytes (-1 if unknown, for EventProgress)
+	Output     string // output line (for EventOutput)
+	Method     string // install method: "download", "go install", etc.
 }
 
 // EventHandler is a callback for engine events.
@@ -371,7 +376,10 @@ func (e *Engine) executeToolNode(
 		return nil
 	}
 
-	// Set progress callback for this tool installation
+	// Determine install method
+	method := e.determineInstallMethod(t)
+
+	// Set progress callback for download pattern
 	e.toolInstaller.SetProgressCallback(func(downloaded, total int64) {
 		e.emitEvent(Event{
 			Type:       EventProgress,
@@ -381,9 +389,24 @@ func (e *Engine) executeToolNode(
 			Action:     action.Type,
 			Downloaded: downloaded,
 			Total:      total,
+			Method:     method,
 		})
 	})
-	defer e.toolInstaller.SetProgressCallback(nil) // Clear after installation
+	defer e.toolInstaller.SetProgressCallback(nil)
+
+	// Set output callback for delegation pattern
+	e.toolInstaller.SetOutputCallback(func(line string) {
+		e.emitEvent(Event{
+			Type:    EventOutput,
+			Kind:    resource.KindTool,
+			Name:    action.Name,
+			Version: t.ToolSpec.Version,
+			Action:  action.Type,
+			Output:  line,
+			Method:  method,
+		})
+	})
+	defer e.toolInstaller.SetOutputCallback(nil)
 
 	// Emit start event
 	e.emitEvent(Event{
@@ -392,6 +415,7 @@ func (e *Engine) executeToolNode(
 		Name:    action.Name,
 		Version: t.ToolSpec.Version,
 		Action:  action.Type,
+		Method:  method,
 	})
 
 	if err := e.toolExecutor.Execute(ctx, action); err != nil {
@@ -401,6 +425,7 @@ func (e *Engine) executeToolNode(
 			Name:   action.Name,
 			Action: action.Type,
 			Error:  err,
+			Method: method,
 		})
 		return fmt.Errorf("failed to execute action %s for tool %s: %w", action.Type, action.Name, err)
 	}
@@ -411,10 +436,29 @@ func (e *Engine) executeToolNode(
 		Kind:   resource.KindTool,
 		Name:   action.Name,
 		Action: action.Type,
+		Method: method,
 	})
 
 	*totalActions++
 	return nil
+}
+
+// determineInstallMethod returns the install method string for a tool.
+func (e *Engine) determineInstallMethod(t *resource.Tool) string {
+	spec := t.ToolSpec
+
+	// Runtime delegation (e.g., "go install")
+	if spec.RuntimeRef != "" {
+		return spec.RuntimeRef + " install"
+	}
+
+	// Installer delegation (e.g., "brew install")
+	if spec.InstallerRef != "" && spec.InstallerRef != "download" {
+		return spec.InstallerRef + " install"
+	}
+
+	// Download pattern
+	return "download"
 }
 
 // handleTaintedTools handles reinstallation of tools that depend on updated runtimes.

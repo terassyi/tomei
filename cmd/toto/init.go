@@ -16,6 +16,7 @@ import (
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/toto/internal/ui"
 )
 
 var initCmd = &cobra.Command{
@@ -54,7 +55,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		color.NoColor = true
 	}
 
-	style := newOutputStyle()
+	style := ui.NewStyle()
 
 	cmd.Println("Initializing toto...")
 	cmd.Println()
@@ -118,7 +119,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Print directories section
-	style.header.Fprintln(cmd.OutOrStdout(), "Directories:")
+	style.Header.Fprintln(cmd.OutOrStdout(), "Directories:")
 
 	// Create directories
 	dirs := []struct {
@@ -136,12 +137,12 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		if err := path.EnsureDir(dir.path); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir.path, err)
 		}
-		cmd.Printf("  %s %s\n", style.successMark, style.path.Sprint(dir.path))
+		cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(dir.path))
 	}
 	cmd.Println()
 
 	// Initialize state.json
-	style.header.Fprintln(cmd.OutOrStdout(), "State:")
+	style.Header.Fprintln(cmd.OutOrStdout(), "State:")
 	store, err := state.NewStore[state.UserState](paths.UserDataDir())
 	if err != nil {
 		return fmt.Errorf("failed to create state store: %w", err)
@@ -160,17 +161,17 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		ctx = context.Background()
 	}
 
-	cmd.Printf("  %s %s\n", style.successMark, style.path.Sprint(stateFile))
+	cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(stateFile))
 	cmd.Println()
 
 	// Registry section
-	style.header.Fprintln(cmd.OutOrStdout(), "Registry:")
+	style.Header.Fprintln(cmd.OutOrStdout(), "Registry:")
 	if err := initRegistry(ctx, initialState); err != nil {
 		// Log warning but don't fail init if registry initialization fails
 		slog.Warn("failed to initialize aqua registry", "error", err)
-		cmd.Printf("  %s aqua-registry (failed to fetch)\n", style.warnMark)
+		cmd.Printf("  %s aqua-registry (failed to fetch)\n", style.WarnMark)
 	} else {
-		cmd.Printf("  %s aqua-registry %s\n", style.successMark, style.path.Sprint(initialState.Registry.Aqua.Ref))
+		cmd.Printf("  %s aqua-registry %s\n", style.SuccessMark, style.Path.Sprint(initialState.Registry.Aqua.Ref))
 	}
 	cmd.Println()
 
@@ -178,14 +179,14 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to initialize state: %w", err)
 	}
 
-	style.success.Fprintln(cmd.OutOrStdout(), "Initialization complete!")
+	style.Success.Fprintln(cmd.OutOrStdout(), "Initialization complete!")
 	cmd.Println()
 
 	// Next steps
-	style.header.Fprintln(cmd.OutOrStdout(), "Next steps:")
-	cmd.Printf("  %s Add %s to your PATH\n", style.step.Sprint("1."), style.path.Sprint(paths.UserBinDir()))
-	cmd.Printf("  %s Create manifest files (tools.cue, runtime.cue)\n", style.step.Sprint("2."))
-	cmd.Printf("  %s Run '%s' to install\n", style.step.Sprint("3."), style.path.Sprint("toto apply ."))
+	style.Header.Fprintln(cmd.OutOrStdout(), "Next steps:")
+	cmd.Printf("  %s Add %s to your PATH\n", style.Step.Sprint("1."), style.Path.Sprint(paths.UserBinDir()))
+	cmd.Printf("  %s Create manifest files (tools.cue, runtime.cue)\n", style.Step.Sprint("2."))
+	cmd.Printf("  %s Run '%s' to install\n", style.Step.Sprint("3."), style.Path.Sprint("toto apply ."))
 
 	return nil
 }

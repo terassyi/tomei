@@ -172,3 +172,71 @@ func TestExecutor_ContextCancellation(t *testing.T) {
 	err := e.Execute(ctx, "sleep 10", Vars{})
 	require.Error(t, err)
 }
+
+func TestExecutor_ExecuteWithOutput(t *testing.T) {
+	ctx := context.Background()
+	e := NewExecutor("")
+
+	t.Run("streams output lines", func(t *testing.T) {
+		var lines []string
+		callback := func(line string) {
+			lines = append(lines, line)
+		}
+
+		err := e.ExecuteWithOutput(ctx, "echo line1; echo line2; echo line3", Vars{}, nil, callback)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"line1", "line2", "line3"}, lines)
+	})
+
+	t.Run("captures stderr", func(t *testing.T) {
+		var lines []string
+		callback := func(line string) {
+			lines = append(lines, line)
+		}
+
+		err := e.ExecuteWithOutput(ctx, "echo stdout; echo stderr >&2", Vars{}, nil, callback)
+		require.NoError(t, err)
+		assert.Contains(t, lines, "stdout")
+		assert.Contains(t, lines, "stderr")
+	})
+
+	t.Run("with variables", func(t *testing.T) {
+		var lines []string
+		callback := func(line string) {
+			lines = append(lines, line)
+		}
+
+		err := e.ExecuteWithOutput(ctx, "echo {{.Name}} {{.Version}}", Vars{Name: "gopls", Version: "v0.16.0"}, nil, callback)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"gopls v0.16.0"}, lines)
+	})
+
+	t.Run("with environment variables", func(t *testing.T) {
+		var lines []string
+		callback := func(line string) {
+			lines = append(lines, line)
+		}
+
+		env := map[string]string{"MY_VAR": "test_value"}
+		err := e.ExecuteWithOutput(ctx, "echo $MY_VAR", Vars{}, env, callback)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"test_value"}, lines)
+	})
+
+	t.Run("nil callback drains output", func(t *testing.T) {
+		err := e.ExecuteWithOutput(ctx, "echo hello", Vars{}, nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("failing command", func(t *testing.T) {
+		var lines []string
+		callback := func(line string) {
+			lines = append(lines, line)
+		}
+
+		err := e.ExecuteWithOutput(ctx, "echo before_fail; exit 1", Vars{}, nil, callback)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "command failed")
+		assert.Contains(t, lines, "before_fail")
+	})
+}

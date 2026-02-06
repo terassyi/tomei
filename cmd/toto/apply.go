@@ -17,6 +17,7 @@ import (
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/toto/internal/ui"
 )
 
 var applyCmd = &cobra.Command{
@@ -118,16 +119,16 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
 
 	// Track results for summary
-	results := &applyResults{}
+	results := &ui.ApplyResults{}
 
 	// Create progress manager for download progress bars
-	pm := newProgressManager(w)
+	pm := ui.NewProgressManager(w)
 	defer pm.Wait()
 
 	// Set event handler for progress display
 	if !applyNoOutput {
 		eng.SetEventHandler(func(event engine.Event) {
-			pm.handleEvent(event, results)
+			pm.HandleEvent(event, results)
 		})
 	}
 
@@ -149,7 +150,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 
 	// Print summary
 	if !applyNoOutput {
-		printApplySummary(w, results)
+		ui.PrintApplySummary(w, results)
 	}
 
 	return nil
