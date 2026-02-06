@@ -110,6 +110,7 @@ func TestConfig_ToCue(t *testing.T) {
 	cfg := &Config{
 		DataDir: "~/my-data",
 		BinDir:  "~/my-bin",
+		EnvDir:  "~/my-env",
 	}
 
 	cueBytes, err := cfg.ToCue()
@@ -122,6 +123,8 @@ func TestConfig_ToCue(t *testing.T) {
 	assert.Contains(t, cueContent, "~/my-data")
 	assert.Contains(t, cueContent, "binDir")
 	assert.Contains(t, cueContent, "~/my-bin")
+	assert.Contains(t, cueContent, "envDir")
+	assert.Contains(t, cueContent, "~/my-env")
 }
 
 func TestConfig_ToCue_RoundTrip(t *testing.T) {
@@ -142,4 +145,5 @@ func TestConfig_ToCue_RoundTrip(t *testing.T) {
 
 	assert.Equal(t, cfg.DataDir, loadedCfg.DataDir)
 	assert.Equal(t, cfg.BinDir, loadedCfg.BinDir)
+	assert.Equal(t, cfg.EnvDir, loadedCfg.EnvDir)
 }

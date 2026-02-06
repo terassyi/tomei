@@ -25,6 +25,7 @@ type Paths struct {
 	userDataDir   string
 	userBinDir    string
 	userCacheDir  string
+	envDir        string
 	systemDataDir string
 }
 
@@ -88,6 +89,11 @@ func (p *Paths) UserCacheDir() string {
 	return p.userCacheDir
 }
 
+// EnvDir returns the directory for env export files.
+func (p *Paths) EnvDir() string {
+	return p.envDir
+}
+
 // SystemDataDir returns the system data directory.
 func (p *Paths) SystemDataDir() string {
 	return p.systemDataDir
@@ -146,6 +152,11 @@ func NewFromConfig(cfg *config.Config) (*Paths, error) {
 		return nil, err
 	}
 
+	envDir, err := Expand(cfg.EnvDir)
+	if err != nil {
+		return nil, err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -155,6 +166,7 @@ func NewFromConfig(cfg *config.Config) (*Paths, error) {
 		userDataDir:   dataDir,
 		userBinDir:    binDir,
 		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
+		envDir:        envDir,
 		systemDataDir: DefaultSystemDataDir,
 	}, nil
 }

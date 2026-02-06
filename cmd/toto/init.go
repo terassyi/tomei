@@ -131,6 +131,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		{filepath.Join(paths.UserDataDir(), "tools"), "tools"},
 		{filepath.Join(paths.UserDataDir(), "runtimes"), "runtimes"},
 		{paths.UserBinDir(), "bin"},
+		{paths.EnvDir(), "env"},
 	}
 
 	for _, dir := range dirs {

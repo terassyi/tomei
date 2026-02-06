@@ -15,7 +15,7 @@ This document describes the scenarios verified by toto's E2E tests.
 
 | Suite | Tests | Description |
 |-------|-------|-------------|
-| toto on Ubuntu | 30 | Basic commands, installation, idempotency, doctor, runtime upgrade, resource removal |
+| toto on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 
@@ -28,13 +28,14 @@ flowchart TD
         S1_1["1.1 Basic Commands<br/>version / init / validate / plan"]
         S1_2["1.2 Apply<br/>Runtime(go 1.25.5) + Tool(gh) + Tool(gopls)"]
         S1_3["1.3-1.5 Verify<br/>directories / symlinks / state.json"]
+        S1_5a["1.5a Environment Export<br/>toto env / --shell fish / --export"]
         S1_6["1.6 Idempotency<br/>total_actions=0"]
         S1_7["1.7 Delegation<br/>gopls via go install"]
         S1_8["1.8 Doctor<br/>unmanaged tool detection"]
         S1_9["1.9 Runtime Upgrade<br/>go 1.25.5 → 1.25.6 + taint"]
         S1_10["1.10 Resource Removal<br/>dependency guard + tool/runtime removal"]
 
-        S1_1 --> S1_2 --> S1_3 --> S1_6 --> S1_7 --> S1_8 --> S1_9 --> S1_10
+        S1_1 --> S1_2 --> S1_3 --> S1_5a --> S1_6 --> S1_7 --> S1_8 --> S1_9 --> S1_10
     end
 
     subgraph S2["2. Aqua Registry"]
@@ -169,6 +170,30 @@ graph LR
   - gh tool version: "2.86.0"
   - gopls runtimeRef: "go"
   - gopls package: "golang.org/x/tools/gopls"
+
+### 1.5a Environment Export
+
+#### POSIX Output (`toto env`)
+1. Run `toto env`
+2. Verify:
+   - Output contains `export GOROOT=`
+   - Output contains `export GOBIN=`
+   - Output contains `go/bin` and `.local/bin` in PATH
+   - Output is eval-safe and PATH works: `eval '<output>' && GOTOOLCHAIN=local go version` succeeds
+
+#### Fish Output (`toto env --shell fish`)
+1. Run `toto env --shell fish`
+2. Verify:
+   - Output contains `set -gx GOROOT`
+   - Output contains `fish_add_path`
+
+#### File Export (`toto env --export`)
+1. Run `toto env --export`
+2. Verify:
+   - Output mentions `env.sh` file
+   - File `~/.config/toto/env.sh` exists
+   - File contains `export GOROOT=`
+   - File contains `export PATH=`
 
 ### 1.6 Idempotency
 

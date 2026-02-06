@@ -227,6 +227,55 @@ func basicTests() {
 		})
 	})
 
+	Context("Environment Export", func() {
+		It("outputs posix environment variables for installed runtimes", func() {
+			By("Running toto env")
+			output, err := testExec.Exec("toto", "env")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking GOROOT export")
+			Expect(output).To(ContainSubstring(`export GOROOT=`))
+
+			By("Checking GOBIN export")
+			Expect(output).To(ContainSubstring(`export GOBIN=`))
+
+			By("Checking PATH includes go/bin and .local/bin")
+			Expect(output).To(ContainSubstring(`go/bin`))
+			Expect(output).To(ContainSubstring(`.local/bin`))
+
+			By("Checking output is eval-safe and PATH works")
+			_, err = testExec.ExecBash(fmt.Sprintf("eval '%s' && test -n \"$GOROOT\" && GOTOOLCHAIN=local go version", output))
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("outputs fish environment variables", func() {
+			By("Running toto env --shell fish")
+			output, err := testExec.Exec("toto", "env", "--shell", "fish")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking fish-style GOROOT export")
+			Expect(output).To(ContainSubstring(`set -gx GOROOT`))
+
+			By("Checking fish_add_path")
+			Expect(output).To(ContainSubstring(`fish_add_path`))
+		})
+
+		It("exports env file with --export flag", func() {
+			By("Running toto env --export")
+			output, err := testExec.Exec("toto", "env", "--export")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking output confirms file was written")
+			Expect(output).To(ContainSubstring("env.sh"))
+
+			By("Verifying env file exists and contains exports")
+			content, err := testExec.ExecBash("cat ~/.config/toto/env.sh")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(content).To(ContainSubstring(`export GOROOT=`))
+			Expect(content).To(ContainSubstring(`export PATH=`))
+		})
+	})
+
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running toto apply again")
