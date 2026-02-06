@@ -1,15 +1,18 @@
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/terassyi/toto/internal/errors"
 )
 
 var version = "dev"
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		formatter := errors.NewFormatter(os.Stderr, false)
+		output := formatter.Format(err)
+		os.Stderr.WriteString(output)
 		os.Exit(1)
 	}
 }

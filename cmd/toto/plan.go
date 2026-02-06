@@ -93,12 +93,8 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Validate and get execution layers
 	layers, err := resolver.Resolve()
 	if err != nil {
-		// Check if it's a cycle error and format it nicely
-		if cycleErr, ok := err.(*graph.CycleError); ok {
-			fmt.Fprint(os.Stderr, cycleErr.FormatCycle(noColor))
-			return fmt.Errorf("dependency resolution failed")
-		}
-		return fmt.Errorf("failed to resolve dependencies: %w", err)
+		// Return the error as-is - it will be formatted by main.go
+		return err
 	}
 
 	// Filter layers to only include defined resources
@@ -137,7 +133,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, resourceMap map[graph.NodeID]resource.Resource) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resource.Resource) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Try to load state for action determination
