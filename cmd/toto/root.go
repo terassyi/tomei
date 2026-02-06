@@ -34,5 +34,6 @@ func init() {
 		validateCmd,
 		planCmd,
 		doctorCmd,
+		envCmd,
 	)
 }

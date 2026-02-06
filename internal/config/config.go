@@ -17,12 +17,14 @@ const (
 	DefaultConfigDir = "~/.config/toto"
 	DefaultDataDir   = "~/.local/share/toto"
 	DefaultBinDir    = "~/.local/bin"
+	DefaultEnvDir    = "~/.config/toto"
 )
 
 // Config represents toto configuration.
 type Config struct {
 	DataDir string `json:"dataDir"`
 	BinDir  string `json:"binDir"`
+	EnvDir  string `json:"envDir"`
 }
 
 // DefaultConfig returns the default configuration.
@@ -30,6 +32,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		DataDir: DefaultDataDir,
 		BinDir:  DefaultBinDir,
+		EnvDir:  DefaultEnvDir,
 	}
 }
 
