@@ -392,3 +392,118 @@ func sha256sum(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
+
+// mockRuntimeDownloader records whether a progress callback was passed.
+type mockRuntimeDownloader struct {
+	archiveData          []byte
+	lastProgressCallback download.ProgressCallback
+}
+
+func (m *mockRuntimeDownloader) Download(_ context.Context, _, destPath string) (string, error) {
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockRuntimeDownloader) DownloadWithProgress(_ context.Context, _, destPath string, callback download.ProgressCallback) (string, error) {
+	m.lastProgressCallback = callback
+	if callback != nil {
+		callback(100, 200)
+	}
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockRuntimeDownloader) Verify(_ context.Context, _ string, _ *resource.Checksum) error {
+	return nil
+}
+
+func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
+	binContent := []byte("#!/bin/sh\necho 'mock runtime'\n")
+	archiveData := createRuntimeTarGz(t, "myruntime", []mockBinary{
+		{name: "mybin", content: binContent},
+	})
+
+	makeRuntime := func() *resource.Runtime {
+		return &resource.Runtime{
+			BaseResource: resource.BaseResource{
+				APIVersion:   resource.GroupVersion,
+				ResourceKind: resource.KindRuntime,
+				Metadata:     resource.Metadata{Name: "myruntime"},
+			},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:    resource.InstallTypeDownload,
+				Version: "1.0.0",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/myruntime-1.0.0.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:dummy"},
+				},
+				Binaries: []string{"mybin"},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		fieldCallback bool
+		ctxCallback   bool
+		wantField     bool
+		wantCtx       bool
+	}{
+		{
+			name:          "context callback preferred over field",
+			fieldCallback: true,
+			ctxCallback:   true,
+			wantField:     false,
+			wantCtx:       true,
+		},
+		{
+			name:          "field callback used when no context callback",
+			fieldCallback: true,
+			ctxCallback:   false,
+			wantField:     true,
+			wantCtx:       false,
+		},
+		{
+			name:          "no callback - nil passed to downloader",
+			fieldCallback: false,
+			ctxCallback:   false,
+			wantField:     false,
+			wantCtx:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			runtimesDir := filepath.Join(tmpDir, "runtimes")
+
+			dl := &mockRuntimeDownloader{archiveData: archiveData}
+			installer := NewInstaller(dl, runtimesDir)
+
+			var fieldCalled, ctxCalled bool
+
+			if tt.fieldCallback {
+				installer.SetProgressCallback(func(_, _ int64) { fieldCalled = true })
+			}
+
+			ctx := context.Background()
+			if tt.ctxCallback {
+				ctx = download.WithCallback(ctx, download.ProgressCallback(func(_, _ int64) { ctxCalled = true }))
+			}
+
+			_, err := installer.Install(ctx, makeRuntime(), "myruntime")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantField, fieldCalled, "field callback")
+			assert.Equal(t, tt.wantCtx, ctxCalled, "context callback")
+
+			if !tt.fieldCallback && !tt.ctxCallback {
+				assert.Nil(t, dl.lastProgressCallback, "callback should be nil")
+			}
+		})
+	}
+}

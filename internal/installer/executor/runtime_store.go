@@ -1,22 +1,23 @@
 package executor
 
 import (
+	"sync"
+
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
 )
 
 // RuntimeStateStore adapts state.Store to the StateStore interface for Runtimes.
 type RuntimeStateStore struct {
+	mu    *sync.Mutex
 	store *state.Store[state.UserState]
-}
-
-// NewRuntimeStateStore creates a new RuntimeStateStore.
-func NewRuntimeStateStore(store *state.Store[state.UserState]) *RuntimeStateStore {
-	return &RuntimeStateStore{store: store}
 }
 
 // Load loads a runtime state by name.
 func (s *RuntimeStateStore) Load(name string) (*resource.RuntimeState, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	st, err := s.store.Load()
 	if err != nil {
 		return nil, false, err
@@ -27,6 +28,9 @@ func (s *RuntimeStateStore) Load(name string) (*resource.RuntimeState, bool, err
 
 // Save saves a runtime state.
 func (s *RuntimeStateStore) Save(name string, runtimeState *resource.RuntimeState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	st, err := s.store.Load()
 	if err != nil {
 		return err
@@ -42,6 +46,9 @@ func (s *RuntimeStateStore) Save(name string, runtimeState *resource.RuntimeStat
 
 // Delete removes a runtime from state.
 func (s *RuntimeStateStore) Delete(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	st, err := s.store.Load()
 	if err != nil {
 		return err

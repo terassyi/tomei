@@ -10,16 +10,6 @@ import (
 	"github.com/terassyi/toto/internal/resource"
 )
 
-// ANSI escape sequences for terminal control.
-const (
-	ansiCursorUp      = "\033[%dA"
-	ansiClearLine     = "\033[2K"
-	ansiCursorToStart = "\033[G"
-)
-
-// Default configuration for command view.
-const defaultMaxLogLines = 4
-
 // cmdTask represents a single command execution task.
 type cmdTask struct {
 	kind      resource.Kind
@@ -27,7 +17,7 @@ type cmdTask struct {
 	version   string
 	method    string // installation method (e.g., "go install", "brew install")
 	startTime time.Time
-	logs      []string // circular buffer of recent log lines
+	lastLog   string // most recent log line (for TTY spinner display)
 	done      bool
 	err       error
 }
@@ -37,37 +27,19 @@ func (t *cmdTask) elapsed() time.Duration {
 	return time.Since(t.startTime).Round(100 * time.Millisecond)
 }
 
-// statusText returns the current status as a string.
-func (t *cmdTask) statusText() string {
-	if !t.done {
-		return fmt.Sprintf("%.1fs", t.elapsed().Seconds())
-	}
-	if t.err != nil {
-		return "failed"
-	}
-	return "done"
-}
-
-// CommandView manages BuildKit-style output for command execution tasks.
-// It displays a fixed-height scrolling view of recent log lines per task.
+// CommandView manages task state and non-TTY output for command execution tasks.
 type CommandView struct {
 	mu            sync.Mutex
 	w             io.Writer
-	isTTY         bool
 	tasks         map[string]*cmdTask
-	taskOrder     []string
-	maxLogLines   int
 	headerPrinted bool
-	linesWritten  int
 }
 
 // NewCommandView creates a new CommandView.
-func NewCommandView(w io.Writer, isTTY bool) *CommandView {
+func NewCommandView(w io.Writer) *CommandView {
 	return &CommandView{
-		w:           w,
-		isTTY:       isTTY,
-		tasks:       make(map[string]*cmdTask),
-		maxLogLines: defaultMaxLogLines,
+		w:     w,
+		tasks: make(map[string]*cmdTask),
 	}
 }
 
@@ -82,16 +54,10 @@ func (v *CommandView) StartTask(key string, kind resource.Kind, name, version, m
 		version:   version,
 		method:    method,
 		startTime: time.Now(),
-		logs:      make([]string, 0, v.maxLogLines),
-	}
-	v.taskOrder = append(v.taskOrder, key)
-
-	if v.isTTY {
-		v.redrawTTY()
 	}
 }
 
-// AddOutput adds a line of output to a task.
+// AddOutput records the latest output line for a task.
 func (v *CommandView) AddOutput(key, line string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -101,15 +67,18 @@ func (v *CommandView) AddOutput(key, line string) {
 		return
 	}
 
-	// Circular buffer: remove oldest if at capacity
-	if len(task.logs) >= v.maxLogLines {
-		task.logs = task.logs[1:]
-	}
-	task.logs = append(task.logs, line)
+	task.lastLog = line
+}
 
-	if v.isTTY {
-		v.redrawTTY()
+// LastLog returns the most recent log line for a task.
+func (v *CommandView) LastLog(key string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if task, ok := v.tasks[key]; ok {
+		return task.lastLog
 	}
+	return ""
 }
 
 // CompleteTask marks a task as complete.
@@ -119,11 +88,7 @@ func (v *CommandView) CompleteTask(key string) {
 
 	if task, ok := v.tasks[key]; ok {
 		task.done = true
-		task.logs = nil
-	}
-
-	if v.isTTY {
-		v.redrawTTY()
+		task.lastLog = ""
 	}
 }
 
@@ -135,10 +100,6 @@ func (v *CommandView) FailTask(key string, err error) {
 	if task, ok := v.tasks[key]; ok {
 		task.done = true
 		task.err = err
-	}
-
-	if v.isTTY {
-		v.redrawTTY()
 	}
 }
 
@@ -189,81 +150,6 @@ func (v *CommandView) PrintTaskComplete(key string) {
 		fmt.Fprintf(v.w, " => %s/%s %s done (%.1fs)\n",
 			task.kind, style.Path.Sprint(task.name), task.version, elapsed.Seconds())
 	}
-}
-
-// redrawTTY redraws the view for TTY output with cursor control.
-// Must be called with v.mu held.
-func (v *CommandView) redrawTTY() {
-	// Move cursor up to overwrite previous output
-	if v.linesWritten > 0 {
-		fmt.Fprintf(v.w, ansiCursorUp, v.linesWritten)
-	}
-
-	lines := v.buildOutputLines()
-
-	// Write lines with clear
-	for i, line := range lines {
-		if i > 0 || v.linesWritten > 0 {
-			fmt.Fprint(v.w, ansiClearLine+ansiCursorToStart)
-		}
-		fmt.Fprintln(v.w, line)
-	}
-
-	// Clear remaining old lines
-	for i := len(lines); i < v.linesWritten; i++ {
-		fmt.Fprint(v.w, ansiClearLine+ansiCursorToStart+"\n")
-	}
-
-	v.linesWritten = len(lines)
-}
-
-// buildOutputLines constructs the lines to display.
-// Must be called with v.mu held.
-func (v *CommandView) buildOutputLines() []string {
-	var lines []string
-
-	// Header
-	if !v.headerPrinted || v.hasActiveTasks() {
-		lines = append(lines, "", "Commands:")
-		v.headerPrinted = true
-	}
-
-	style := NewStyle()
-
-	for _, key := range v.taskOrder {
-		task := v.tasks[key]
-		if task == nil {
-			continue
-		}
-
-		// Task header line
-		lines = append(lines, fmt.Sprintf(" => %s/%s %s (%s) %s",
-			task.kind, style.Path.Sprint(task.name), task.version, task.method, task.statusText()))
-
-		// Log lines for active tasks
-		if !task.done {
-			for _, log := range task.logs {
-				lines = append(lines, "    "+truncateLine(log, 70))
-			}
-		}
-
-		// Error message for failed tasks
-		if task.err != nil {
-			lines = append(lines, fmt.Sprintf("    %s %v", style.FailMark, task.err))
-		}
-	}
-
-	return lines
-}
-
-// hasActiveTasks returns true if there are non-completed tasks.
-func (v *CommandView) hasActiveTasks() bool {
-	for _, task := range v.tasks {
-		if !task.done {
-			return true
-		}
-	}
-	return false
 }
 
 // truncateLine truncates a line to maxLen characters with ellipsis.

@@ -351,3 +351,140 @@ func createMockResolver(t *testing.T, cacheDir, baseURL string) *aqua.Resolver {
 	t.Helper()
 	return aqua.NewResolverWithBaseURL(cacheDir, baseURL)
 }
+
+// mockDownloader records whether a progress callback was passed to DownloadWithProgress.
+// It writes a valid tar.gz archive to destPath so that subsequent extraction succeeds.
+type mockDownloader struct {
+	archiveData          []byte
+	lastProgressCallback download.ProgressCallback
+}
+
+func (m *mockDownloader) Download(_ context.Context, _, destPath string) (string, error) {
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockDownloader) DownloadWithProgress(_ context.Context, _, destPath string, callback download.ProgressCallback) (string, error) {
+	m.lastProgressCallback = callback
+	if callback != nil {
+		callback(100, 200) // trigger to verify which callback was called
+	}
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockDownloader) Verify(_ context.Context, _ string, _ *resource.Checksum) error {
+	return nil
+}
+
+// mockPlacer always returns install action and succeeds.
+type mockPlacer struct{}
+
+func (m *mockPlacer) BinaryPath(target place.Target) string {
+	return "/tools/" + target.Name + "/" + target.Version + "/" + target.BinaryName
+}
+
+func (m *mockPlacer) LinkPath(target place.Target) string {
+	return "/bin/" + target.BinaryName
+}
+
+func (m *mockPlacer) Validate(_ place.Target, _ string) (place.ValidateAction, error) {
+	return place.ValidateActionInstall, nil
+}
+
+func (m *mockPlacer) Place(_ string, target place.Target) (*place.Result, error) {
+	return &place.Result{
+		BinaryPath: "/tools/" + target.Name + "/" + target.Version + "/" + target.BinaryName,
+	}, nil
+}
+
+func (m *mockPlacer) Symlink(target place.Target) (string, error) {
+	return "/bin/" + target.BinaryName, nil
+}
+
+func (m *mockPlacer) Cleanup(_ string) error {
+	return nil
+}
+
+func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
+	archiveData := createTarGzContent(t, "mytool", []byte("#!/bin/sh\necho hello"))
+
+	makeTool := func() *resource.Tool {
+		return &resource.Tool{
+			BaseResource: resource.BaseResource{
+				Metadata: resource.Metadata{Name: "mytool"},
+			},
+			ToolSpec: &resource.ToolSpec{
+				InstallerRef: "download",
+				Version:      "1.0.0",
+				Source: &resource.DownloadSource{
+					URL:         "https://example.com/mytool.tar.gz",
+					Checksum:    &resource.Checksum{Value: "sha256:dummy"},
+					ArchiveType: "tar.gz",
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name          string
+		fieldCallback bool
+		ctxCallback   bool
+		wantField     bool
+		wantCtx       bool
+	}{
+		{
+			name:          "context callback preferred over field",
+			fieldCallback: true,
+			ctxCallback:   true,
+			wantField:     false,
+			wantCtx:       true,
+		},
+		{
+			name:          "field callback used when no context callback",
+			fieldCallback: true,
+			ctxCallback:   false,
+			wantField:     true,
+			wantCtx:       false,
+		},
+		{
+			name:          "no callback - nil passed to downloader",
+			fieldCallback: false,
+			ctxCallback:   false,
+			wantField:     false,
+			wantCtx:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dl := &mockDownloader{archiveData: archiveData}
+			installer := NewInstaller(dl, &mockPlacer{})
+
+			var fieldCalled, ctxCalled bool
+
+			if tt.fieldCallback {
+				installer.SetProgressCallback(func(_, _ int64) { fieldCalled = true })
+			}
+
+			ctx := context.Background()
+			if tt.ctxCallback {
+				ctx = download.WithCallback(ctx, download.ProgressCallback(func(_, _ int64) { ctxCalled = true }))
+			}
+
+			_, err := installer.Install(ctx, makeTool(), "mytool")
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantField, fieldCalled, "field callback")
+			assert.Equal(t, tt.wantCtx, ctxCalled, "context callback")
+
+			if !tt.fieldCallback && !tt.ctxCallback {
+				assert.Nil(t, dl.lastProgressCallback, "callback should be nil")
+			}
+		})
+	}
+}

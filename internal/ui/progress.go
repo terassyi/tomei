@@ -14,6 +14,9 @@ import (
 	"github.com/vbauerster/mpb/v8/decor"
 )
 
+// spinnerFrames are the frames used for the delegation spinner.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 // ApplyResults tracks apply operation results.
 type ApplyResults struct {
 	Installed int
@@ -41,7 +44,7 @@ func NewProgressManager(w io.Writer) *ProgressManager {
 		w:       w,
 		isTTY:   isTTY,
 		bars:    make(map[string]*mpb.Bar),
-		cmdView: NewCommandView(w, isTTY),
+		cmdView: NewCommandView(w),
 	}
 
 	if isTTY {
@@ -95,14 +98,11 @@ func isDownloadMethod(method string) bool {
 func (pm *ProgressManager) handleDownloadStart(event engine.Event, key string) {
 	style := NewStyle()
 
-	if !pm.downloadHeaderShown && !pm.isTTY {
-		fmt.Fprintln(pm.w)
-		fmt.Fprintln(pm.w, "Downloads:")
-	}
+	pm.mu.Lock()
+	showHeader := !pm.downloadHeaderShown && !pm.isTTY
 	pm.downloadHeaderShown = true
 
 	if pm.isTTY {
-		pm.mu.Lock()
 		pm.bars[key] = pm.progress.AddBar(0,
 			mpb.BarFillerClearOnComplete(),
 			mpb.PrependDecorators(
@@ -118,16 +118,47 @@ func (pm *ProgressManager) handleDownloadStart(event engine.Event, key string) {
 		)
 		pm.mu.Unlock()
 	} else {
+		if showHeader {
+			fmt.Fprintln(pm.w)
+			fmt.Fprintln(pm.w, "Downloads:")
+		}
 		fmt.Fprintf(pm.w, "  %s %s/%s %s\n",
 			style.ActionIcon(event.Action), event.Kind, style.Path.Sprint(event.Name), event.Version)
+		pm.mu.Unlock()
 	}
 }
 
 // handleCommandStart handles EventStart for delegation pattern.
 func (pm *ProgressManager) handleCommandStart(event engine.Event, key string) {
 	pm.cmdView.StartTask(key, event.Kind, event.Name, event.Version, event.Method)
-	if !pm.isTTY {
+
+	if pm.isTTY {
+		style := NewStyle()
+		label := fmt.Sprintf(" => %s/%s %s (%s) ",
+			event.Kind, style.Path.Sprint(event.Name), event.Version, event.Method)
+
+		bar, _ := pm.progress.Add(0,
+			mpb.SpinnerStyle(spinnerFrames...).Build(),
+			mpb.BarFillerClearOnComplete(),
+			mpb.PrependDecorators(
+				decor.Name(label, decor.WC{W: 40, C: decor.DindentRight}),
+			),
+			mpb.AppendDecorators(
+				decor.Any(func(s decor.Statistics) string {
+					return truncateLine(pm.cmdView.LastLog(key), 50)
+				}),
+				decor.Elapsed(decor.ET_STYLE_GO, decor.WC{W: 8}),
+				decor.OnComplete(decor.Name(""), " done"),
+			),
+		)
+
+		pm.mu.Lock()
+		pm.bars[key] = bar
+		pm.mu.Unlock()
+	} else {
+		pm.mu.Lock()
 		pm.cmdView.PrintTaskStart(key)
+		pm.mu.Unlock()
 	}
 }
 
@@ -153,8 +184,11 @@ func (pm *ProgressManager) handleProgress(event engine.Event, key string) {
 func (pm *ProgressManager) handleOutput(event engine.Event, key string) {
 	pm.cmdView.AddOutput(key, event.Output)
 	if !pm.isTTY {
+		pm.mu.Lock()
 		pm.cmdView.PrintOutput(event.Output)
+		pm.mu.Unlock()
 	}
+	// TTY: the spinner bar's decor.Any callback reads LastLog dynamically via cmdView
 }
 
 // handleComplete handles EventComplete.
@@ -170,12 +204,24 @@ func (pm *ProgressManager) handleComplete(event engine.Event, results *ApplyResu
 		}
 	} else {
 		pm.cmdView.CompleteTask(key)
-		if !pm.isTTY {
+		if pm.isTTY {
+			pm.mu.Lock()
+			if bar, ok := pm.bars[key]; ok {
+				bar.SetTotal(1, true)
+				bar.SetCurrent(1)
+				delete(pm.bars, key)
+			}
+			pm.mu.Unlock()
+		} else {
+			pm.mu.Lock()
 			pm.cmdView.PrintTaskComplete(key)
+			pm.mu.Unlock()
 		}
 	}
 
+	pm.mu.Lock()
 	updateResults(event.Action, results)
+	pm.mu.Unlock()
 }
 
 // handleError handles EventError.
@@ -183,24 +229,33 @@ func (pm *ProgressManager) handleError(event engine.Event, results *ApplyResults
 	style := NewStyle()
 
 	if isDownload {
+		pm.mu.Lock()
 		if pm.isTTY {
-			pm.mu.Lock()
 			if bar, ok := pm.bars[key]; ok {
 				bar.Abort(true)
 				delete(pm.bars, key)
 			}
-			pm.mu.Unlock()
 		}
 		fmt.Fprintf(pm.w, "  %s %s/%s failed: %v\n",
 			style.FailMark, event.Kind, event.Name, event.Error)
+		pm.mu.Unlock()
 	} else {
 		pm.cmdView.FailTask(key, event.Error)
-		if !pm.isTTY {
+		pm.mu.Lock()
+		if pm.isTTY {
+			if bar, ok := pm.bars[key]; ok {
+				bar.Abort(true)
+				delete(pm.bars, key)
+			}
+		} else {
 			pm.cmdView.PrintTaskComplete(key)
 		}
+		pm.mu.Unlock()
 	}
 
+	pm.mu.Lock()
 	results.Failed++
+	pm.mu.Unlock()
 }
 
 // updateResults updates the results based on action type.

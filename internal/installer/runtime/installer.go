@@ -81,7 +81,12 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 	urlFilename := filepath.Base(spec.Source.URL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
-	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, i.progressCallback)
+	// Prefer context callback for parallel execution
+	progressCb := download.CallbackFromContext[download.ProgressCallback](ctx)
+	if progressCb == nil {
+		progressCb = i.progressCallback
+	}
+	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, progressCb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}
