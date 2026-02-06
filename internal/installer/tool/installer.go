@@ -44,6 +44,7 @@ type Installer struct {
 	resolver         *aqua.Resolver            // aqua-registry resolver (optional)
 	registryRef      aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
 	progressCallback download.ProgressCallback // optional progress callback
+	outputCallback   func(line string)         // optional output callback for delegation
 }
 
 // NewInstaller creates a new tool Installer.
@@ -83,6 +84,11 @@ func (i *Installer) Resolver() *aqua.Resolver {
 // SetProgressCallback sets a callback for download progress.
 func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
 	i.progressCallback = callback
+}
+
+// SetOutputCallback sets a callback for command output lines (delegation pattern).
+func (i *Installer) SetOutputCallback(callback func(line string)) {
+	i.outputCallback = callback
 }
 
 // Install installs a tool according to the resource and returns its state.
@@ -408,9 +414,15 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		env["PATH"] = runtimeBinDir
 	}
 
-	// Execute install command with runtime's environment
-	if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
-		return nil, fmt.Errorf("failed to execute install command: %w", err)
+	// Execute install command with runtime's environment and output streaming
+	if i.outputCallback != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, i.outputCallback); err != nil {
+			return nil, fmt.Errorf("failed to execute install command: %w", err)
+		}
+	} else {
+		if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
+			return nil, fmt.Errorf("failed to execute install command: %w", err)
+		}
 	}
 
 	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
@@ -440,11 +452,17 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		BinPath: "", // installer manages the path
 	}
 
-	// Execute install command
+	// Execute install command with output streaming
 	// Note: Installer no longer references Runtime directly.
 	// Tools that need runtime environment should use runtimeRef on the Tool itself.
-	if err := i.cmdExecutor.Execute(ctx, info.Commands.Install, vars); err != nil {
-		return nil, fmt.Errorf("failed to execute install command: %w", err)
+	if i.outputCallback != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, nil, i.outputCallback); err != nil {
+			return nil, fmt.Errorf("failed to execute install command: %w", err)
+		}
+	} else {
+		if err := i.cmdExecutor.Execute(ctx, info.Commands.Install, vars); err != nil {
+			return nil, fmt.Errorf("failed to execute install command: %w", err)
+		}
 	}
 
 	slog.Debug("tool installed via installer", "name", name, "version", spec.Version, "installer", spec.InstallerRef)

@@ -22,13 +22,17 @@ type applyResults struct {
 	failed    int
 }
 
-// progressManager manages progress display for downloads.
+// progressManager manages progress display for downloads and commands.
 type progressManager struct {
 	mu       sync.Mutex
 	w        io.Writer
 	isTTY    bool
 	progress *mpb.Progress
 	bars     map[string]*mpb.Bar
+
+	// Commands section (for delegation pattern)
+	cmdView             *CommandView
+	downloadHeaderShown bool
 }
 
 // newProgressManager creates a new progress manager.
@@ -36,9 +40,10 @@ func newProgressManager(w io.Writer) *progressManager {
 	isTTY := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 
 	pm := &progressManager{
-		w:     w,
-		isTTY: isTTY,
-		bars:  make(map[string]*mpb.Bar),
+		w:       w,
+		isTTY:   isTTY,
+		bars:    make(map[string]*mpb.Bar),
+		cmdView: NewCommandView(w, isTTY),
 	}
 
 	if isTTY {
@@ -63,6 +68,11 @@ func barKey(kind resource.Kind, name string) string {
 	return fmt.Sprintf("%s/%s", kind, name)
 }
 
+// isDownloadMethod returns true if the method is a download pattern.
+func isDownloadMethod(method string) bool {
+	return method == "" || method == "download"
+}
+
 // handleEvent handles engine events for progress display.
 func (pm *progressManager) handleEvent(event engine.Event, results *applyResults) {
 	style := newOutputStyle()
@@ -70,18 +80,43 @@ func (pm *progressManager) handleEvent(event engine.Event, results *applyResults
 
 	switch event.Type {
 	case engine.EventStart:
-		pm.handleStart(event, style, key)
+		if isDownloadMethod(event.Method) {
+			pm.handleDownloadStart(event, style, key)
+		} else {
+			pm.handleCommandStart(event, key)
+		}
 	case engine.EventProgress:
 		pm.handleProgress(event, key)
+	case engine.EventOutput:
+		pm.handleOutput(event, key)
 	case engine.EventComplete:
-		pm.handleComplete(event, results, key)
+		if isDownloadMethod(event.Method) {
+			pm.handleDownloadComplete(event, results, key)
+		} else {
+			pm.handleCommandComplete(event, results, key)
+		}
 	case engine.EventError:
-		pm.handleError(event, results, style, key)
+		if isDownloadMethod(event.Method) {
+			pm.handleDownloadError(event, results, style, key)
+		} else {
+			pm.handleCommandError(event, results, key)
+		}
 	}
 }
 
-// handleStart handles EventStart - creates progress bar or prints start line.
-func (pm *progressManager) handleStart(event engine.Event, style *outputStyle, key string) {
+// handleDownloadStart handles EventStart for download pattern.
+func (pm *progressManager) handleDownloadStart(event engine.Event, style *outputStyle, key string) {
+	// Show Downloads header if needed
+	if !pm.downloadHeaderShown {
+		if pm.isTTY {
+			// mpb handles its own output
+		} else {
+			fmt.Fprintln(pm.w)
+			fmt.Fprintln(pm.w, "Downloads:")
+		}
+		pm.downloadHeaderShown = true
+	}
+
 	if pm.isTTY {
 		pm.mu.Lock()
 		bar := pm.progress.AddBar(0,
@@ -110,6 +145,14 @@ func (pm *progressManager) handleStart(event engine.Event, style *outputStyle, k
 	}
 }
 
+// handleCommandStart handles EventStart for delegation pattern.
+func (pm *progressManager) handleCommandStart(event engine.Event, key string) {
+	pm.cmdView.StartTask(key, event.Kind, event.Name, event.Version, event.Method)
+	if !pm.isTTY {
+		pm.cmdView.PrintTaskStart(key)
+	}
+}
+
 // handleProgress handles EventProgress - updates progress bar.
 func (pm *progressManager) handleProgress(event engine.Event, key string) {
 	if !pm.isTTY {
@@ -128,8 +171,16 @@ func (pm *progressManager) handleProgress(event engine.Event, key string) {
 	}
 }
 
-// handleComplete handles EventComplete - completes progress bar and updates results.
-func (pm *progressManager) handleComplete(event engine.Event, results *applyResults, key string) {
+// handleOutput handles EventOutput - adds command output line.
+func (pm *progressManager) handleOutput(event engine.Event, key string) {
+	pm.cmdView.AddOutput(key, event.Output)
+	if !pm.isTTY {
+		pm.cmdView.PrintOutput(event.Output)
+	}
+}
+
+// handleDownloadComplete handles EventComplete for download pattern.
+func (pm *progressManager) handleDownloadComplete(event engine.Event, results *applyResults, key string) {
 	if pm.isTTY {
 		pm.mu.Lock()
 		bar, exists := pm.bars[key]
@@ -140,18 +191,21 @@ func (pm *progressManager) handleComplete(event engine.Event, results *applyResu
 		pm.mu.Unlock()
 	}
 
-	switch event.Action {
-	case resource.ActionInstall, resource.ActionReinstall:
-		results.installed++
-	case resource.ActionUpgrade:
-		results.upgraded++
-	case resource.ActionRemove:
-		results.removed++
-	}
+	updateResults(event.Action, results)
 }
 
-// handleError handles EventError - aborts progress bar and prints error.
-func (pm *progressManager) handleError(event engine.Event, results *applyResults, style *outputStyle, key string) {
+// handleCommandComplete handles EventComplete for delegation pattern.
+func (pm *progressManager) handleCommandComplete(event engine.Event, results *applyResults, key string) {
+	pm.cmdView.CompleteTask(key)
+	if !pm.isTTY {
+		pm.cmdView.PrintTaskComplete(key)
+	}
+
+	updateResults(event.Action, results)
+}
+
+// handleDownloadError handles EventError for download pattern.
+func (pm *progressManager) handleDownloadError(event engine.Event, results *applyResults, style *outputStyle, key string) {
 	if pm.isTTY {
 		pm.mu.Lock()
 		bar, exists := pm.bars[key]
@@ -168,6 +222,28 @@ func (pm *progressManager) handleError(event engine.Event, results *applyResults
 		event.Kind,
 		event.Name,
 		event.Error)
+}
+
+// handleCommandError handles EventError for delegation pattern.
+func (pm *progressManager) handleCommandError(event engine.Event, results *applyResults, key string) {
+	pm.cmdView.FailTask(key, event.Error)
+	if !pm.isTTY {
+		pm.cmdView.PrintTaskComplete(key)
+	}
+
+	results.failed++
+}
+
+// updateResults updates the results based on action type.
+func updateResults(action resource.ActionType, results *applyResults) {
+	switch action {
+	case resource.ActionInstall, resource.ActionReinstall:
+		results.installed++
+	case resource.ActionUpgrade:
+		results.upgraded++
+	case resource.ActionRemove:
+		results.removed++
+	}
 }
 
 // printApplySummary prints the apply summary.

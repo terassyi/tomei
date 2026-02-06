@@ -56,6 +56,8 @@ func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {
 
 func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
+func (m *mockToolInstaller) SetOutputCallback(_ func(line string)) {}
+
 // mockRuntimeInstaller is a mock implementation of engine.RuntimeInstaller.
 type mockRuntimeInstaller struct {
 	installed map[string]*resource.RuntimeState
