@@ -1,124 +1,117 @@
 # E2E Tests
 
-End-to-end tests for toto using Docker containers with Ginkgo BDD framework.
-
-## Overview
-
-These tests verify the complete workflow of toto in a clean Ubuntu environment:
-
-1. Build toto binary for Linux
-2. Create a Docker container with the binary
-3. Run toto commands to install tools from GitHub Releases
-4. Verify the installed tools work correctly
+End-to-end tests for toto using Ginkgo BDD framework.
+Tests run in Docker containers (default) or natively on supported platforms.
 
 ## Requirements
 
-- Docker
+- Docker (container mode)
 - Go 1.25+
 - Ginkgo v2 (`go install github.com/onsi/ginkgo/v2/ginkgo@latest`)
 
 ## Running Tests
 
 ```bash
-# From this directory
-make build   # Build toto binary and Docker image
-make up      # Start the test container
-make test    # Run E2E tests
-make down    # Stop and remove the test container
-
-# Or using go test directly (requires TOTO_E2E_CONTAINER)
-TOTO_E2E_CONTAINER=toto-e2e-ubuntu go test -v ./...
-
-# From project root
+# From project root (recommended)
 make test-e2e
 ```
 
 ## Test Structure (BDD)
 
+All tests run within a single `Ordered` Describe block to guarantee execution order:
+
 ```
-toto on Ubuntu
-├── displays version information
-├── validates CUE configuration
-├── shows planned changes
-├── downloads and installs gh CLI from GitHub
-├── places binary in tools directory
-├── creates symlink in bin directory
-├── allows running gh command after install
-├── updates state.json after install
-├── is idempotent on subsequent applies
-└── does not re-download binary on multiple applies
+toto E2E
+├── Basic             # init, validate, plan, apply, runtime/tool install, upgrade, doctor
+├── ToolSet           # ToolSet expansion and installation via runtime delegation
+├── Aqua Registry     # Registry-based tool install, version upgrade/downgrade
+└── Dependency Resolution  # Circular detection, parallel install, runtime chain, toolRef
 ```
 
-## Test Configuration
+## Version Management
 
-The test installs [GitHub CLI (gh)](https://github.com/cli/cli) as a sample tool.
+CUE manifests are the **single source of truth** for all version strings.
+Go test code loads versions from CUE at startup via `versions_test.go`.
 
-```cue
-// e2e/config/tools.cue
-gh: {
-    apiVersion: "toto.terassyi.net/v1beta1"
-    kind:       "Tool"
-    metadata: name: "gh"
-    spec: {
-        installerRef: "download"
-        version:      "2.86.0"
-        source: {
-            url:         "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_amd64.tar.gz"
-            checksum:    "sha256:f3b08bd6a28420cc2229b0a1a687fa25f2b838d3f04b297414c1041ca68103c7"
-            archiveType: "tar.gz"
-        }
-    }
-}
+### How it works
+
+1. `versions_test.go` defines `e2eVersions` struct and `loadVersions()` function
+2. `loadVersions()` uses `internal/config.Loader.LoadFile()` to parse each CUE manifest
+3. `BeforeSuite` calls `loadVersions()` and stores the result in a global `versions` variable
+4. All test assertions reference `versions.GoVersion`, `versions.GhVersion`, etc.
+
+### Updating versions
+
+**To update a version, just change the `_xxxVersion` variable in the CUE file. No Go test code changes required.**
+
+Example: updating the Go runtime version
+
+```diff
+// e2e/config/manifests/runtime.cue
+-_goVersion: "1.25.6"
++_goVersion: "1.26.0"
 ```
+
+| Manifest | Variables | Notes |
+|----------|-----------|-------|
+| `config/manifests/runtime.cue` | `_goVersion` | |
+| `config/manifests/runtime.cue.upgrade` | `_goVersionUpgrade` | |
+| `config/manifests/tools.cue` | `_ghVersion` | |
+| `config/manifests/delegation.cue` | `_goplsVersion` | |
+| `config/dependency-test/parallel.cue` | `_rgVersion`, `_fdVersion`, `_batVersion` | Checksum update required |
+| `config/dependency-test/runtime-chain.cue` | `_goVersion` | |
+| `config/dependency-test/toolref.cue` | `_jqVersion` | Checksum update required |
+| `config/registry/tools.cue` | `_rgVersion`, `_fdVersion`, `_jqVersion` | No checksum (registry resolves) |
+| `config/registry/tools.cue.old` | `_rgVersionOld`, `_fdVersionOld`, `_jqVersionOld` | No checksum (registry resolves) |
+
+### Maintenance notes
+
+There are three categories of manifests, each with different update requirements:
+
+**1. URL-template manifests (version change only)**
+
+Manifests like `runtime.cue`, `runtime.cue.upgrade`, and `tools.cue` use `\(spec.version)` in URL templates and fetch checksums from a remote URL. Changing the `_xxxVersion` variable is sufficient — URLs and checksum resolution adapt automatically.
+
+**2. Download pattern manifests with inline checksums (version + checksum)**
+
+`parallel.cue` and `toolref.cue` embed per-platform checksum values directly. When updating a version, you must also update all `checksum: value: "sha256:..."` entries for each OS/arch combination.
+
+**3. Registry manifests (version change only)**
+
+`config/registry/tools.cue` and `tools.cue.old` use the aqua registry to resolve download URLs and checksums. Only the version variable needs to be changed.
+
+> **Tip:** When updating `runtime.cue.upgrade`, keep it one patch version ahead of `runtime.cue` so the upgrade test remains meaningful.
 
 ## Directory Structure
 
 ```
 e2e/
-├── Makefile             # Test targets (build, up, down, test)
-├── README.md            # This file
-├── suite_test.go        # Ginkgo suite setup
-├── e2e_test.go          # BDD test specs
+├── README.md                # This file
+├── suite_test.go            # Ginkgo suite setup, single Ordered Describe
+├── versions_test.go         # CUE → Go version extraction
+├── executor.go              # Test executor (container/native mode)
+├── basic_test.go            # Basic workflow tests
+├── toolset_test.go          # ToolSet tests
+├── registry_test.go         # Aqua registry tests
+├── dependency_test.go       # Dependency resolution tests
 ├── config/
-│   └── tools.cue        # Test tool configuration
+│   ├── manifests/           # Basic test CUE manifests
+│   │   ├── runtime.cue
+│   │   ├── runtime.cue.upgrade
+│   │   ├── tools.cue
+│   │   ├── toolset.cue
+│   │   ├── delegation.cue
+│   │   └── registry/
+│   │       ├── tools.cue
+│   │       └── tools.cue.old
+│   └── dependency-test/     # Dependency test CUE manifests
+│       ├── parallel.cue
+│       ├── runtime-chain.cue
+│       ├── toolref.cue
+│       ├── circular.cue
+│       ├── circular3.cue
+│       └── invalid-installer.cue
 └── containers/
     └── ubuntu/
-        └── Dockerfile   # Ubuntu 24.04 test container
-```
-
-## Adding New Container Targets
-
-To test on other distributions, add new Dockerfiles under `containers/`:
-
-```
-containers/
-├── ubuntu/
-│   └── Dockerfile
-├── fedora/
-│   └── Dockerfile
-└── alpine/
-    └── Dockerfile
-```
-
-## Updating Test Tools
-
-To update the gh version:
-
-1. Check latest release:
-   ```bash
-   curl -s https://api.github.com/repos/cli/cli/releases/latest | jq -r '.tag_name'
-   ```
-
-2. Get checksum:
-   ```bash
-   curl -sL https://github.com/cli/cli/releases/download/vX.Y.Z/gh_X.Y.Z_checksums.txt | grep linux_amd64.tar.gz
-   ```
-
-3. Update `config/tools.cue` with new version and checksum
-
-## Cleanup
-
-```bash
-make clean   # Remove binary and Docker image
-make down    # Stop and remove running container
+        └── Dockerfile       # Ubuntu test container
 ```

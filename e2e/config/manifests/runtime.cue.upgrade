@@ -2,13 +2,16 @@ package toto
 
 // Go runtime upgraded to 1.25.7
 // Uses _env for OS/arch portability
+
+_goVersionUpgrade: "1.25.7"
+
 goRuntime: {
 	apiVersion: "toto.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: name: "go"
 	spec: {
 		type:    "download"
-		version: "1.25.7"
+		version: _goVersionUpgrade
 		source: {
 			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
 			checksum: {

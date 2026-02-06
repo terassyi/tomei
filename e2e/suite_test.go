@@ -22,6 +22,9 @@ var _ = BeforeSuite(func() {
 		Skip(err.Error())
 	}
 	Expect(testExec.Setup()).To(Succeed())
+
+	versions, err = loadVersions()
+	Expect(err).NotTo(HaveOccurred(), "failed to load versions from CUE manifests")
 })
 
 var _ = AfterSuite(func() {
