@@ -40,10 +40,12 @@ func (e *containerExecutor) Exec(name string, args ...string) (string, error) {
 	cmdArgs := append([]string{"exec", e.containerName, name}, args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	output, err := cmd.CombinedOutput()
-	// Output to GinkgoWriter for visibility during test runs
-	fmt.Fprintf(GinkgoWriter, "$ docker exec %s %v\n%s", e.containerName, append([]string{name}, args...), output)
-	if err != nil {
-		fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
+	// Only output toto commands to GinkgoWriter
+	if name == "toto" {
+		fmt.Fprintf(GinkgoWriter, "$ %s %v\n%s", name, args, output)
+		if err != nil {
+			fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
+		}
 	}
 	return string(output), err
 }
@@ -109,10 +111,12 @@ func (e *nativeExecutor) Exec(name string, args ...string) (string, error) {
 	}
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
-	// Output to GinkgoWriter for visibility during test runs
-	fmt.Fprintf(GinkgoWriter, "$ %s %v\n%s", name, args, output)
-	if err != nil {
-		fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
+	// Only output toto commands to GinkgoWriter
+	if name == "toto" {
+		fmt.Fprintf(GinkgoWriter, "$ %s %v\n%s", name, args, output)
+		if err != nil {
+			fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
+		}
 	}
 	return string(output), err
 }
@@ -125,11 +129,6 @@ func (e *nativeExecutor) ExecBash(script string) (string, error) {
 	cmd := exec.Command("bash", "-c", script)
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
-	// Output to GinkgoWriter for visibility during test runs
-	fmt.Fprintf(GinkgoWriter, "$ bash -c %q\n%s", script, output)
-	if err != nil {
-		fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
-	}
 	return string(output), err
 }
 

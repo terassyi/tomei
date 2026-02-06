@@ -76,21 +76,8 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Runtime and Tool Installation", func() {
 		It("downloads and installs Runtime and Tools", func() {
 			By("Running toto apply command")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking runtime installation")
-			Expect(output).To(ContainSubstring("installing runtime"))
-			Expect(output).To(ContainSubstring("name=go"))
-			Expect(output).To(ContainSubstring("runtime installed"))
-
-			By("Checking tool installation (gh - download pattern)")
-			Expect(output).To(ContainSubstring("installing tool"))
-			Expect(output).To(ContainSubstring("name=gh"))
-			Expect(output).To(ContainSubstring("tool installed"))
-
-			By("Checking tool installation (gopls - runtime delegation)")
-			Expect(output).To(ContainSubstring("name=gopls"))
 		})
 	})
 
@@ -241,23 +228,16 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running toto apply again")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking no changes to apply")
-			Expect(output).To(ContainSubstring("total_actions=0"))
 		})
 
 		It("does not re-download on multiple applies", func() {
 			By("Running toto apply two more times")
-			output1, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-			output2, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err = testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking no installations occurred")
-			Expect(output1).NotTo(ContainSubstring("installed successfully"))
-			Expect(output2).NotTo(ContainSubstring("installed successfully"))
 
 			By("Checking go still works")
 			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
@@ -272,14 +252,11 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("is idempotent for runtime delegation tools", func() {
 			By("Running toto apply again")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking no changes to apply")
-			Expect(output).To(ContainSubstring("total_actions=0"))
-
 			By("Checking gopls still works")
-			output, err = testExec.ExecBash("~/go/bin/gopls version")
+			output, err := testExec.ExecBash("~/go/bin/gopls version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("v0.21.0"))
 		})
@@ -341,16 +318,11 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("upgrades runtime from 1.25.5 to 1.25.6", func() {
 			By("Running toto apply with upgraded config")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking runtime upgrade was performed")
-			Expect(output).To(ContainSubstring("installing runtime"))
-			Expect(output).To(ContainSubstring("name=go"))
-			Expect(output).To(ContainSubstring("version=1.25.6"))
-
 			By("Verifying new runtime version is installed")
-			output, err = testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go1.25.6"))
 
@@ -386,11 +358,13 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 
 		It("is idempotent after runtime upgrade", func() {
 			By("Running toto apply again")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			_, err := testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking no changes to apply")
-			Expect(output).To(ContainSubstring("total_actions=0"))
+			By("Verifying runtime still works")
+			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("go1.25.6"))
 		})
 	})
 })

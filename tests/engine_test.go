@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
@@ -53,6 +54,8 @@ func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
 
 func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
+func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
+
 // mockRuntimeInstaller is a mock implementation of engine.RuntimeInstaller.
 type mockRuntimeInstaller struct {
 	installed map[string]*resource.RuntimeState
@@ -92,6 +95,8 @@ func (m *mockRuntimeInstaller) Remove(_ context.Context, _ *resource.RuntimeStat
 	delete(m.installed, name)
 	return nil
 }
+
+func (m *mockRuntimeInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
 // loadResources is a helper to load resources from a config directory.
 func loadResources(t *testing.T, configDir string) []resource.Resource {

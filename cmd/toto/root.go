@@ -29,6 +29,7 @@ func init() {
 	rootCmd.AddCommand(
 		versionCmd,
 		initCmd,
+		uninitCmd,
 		applyCmd,
 		validateCmd,
 		planCmd,

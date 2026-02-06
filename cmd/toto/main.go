@@ -6,7 +6,11 @@ import (
 	"github.com/terassyi/toto/internal/errors"
 )
 
-var version = "dev"
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {

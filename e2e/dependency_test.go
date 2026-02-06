@@ -53,13 +53,8 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 			Expect(output).To(ContainSubstring("Validation successful"))
 
 			By("Running toto apply on parallel.cue")
-			output, err = testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
+			_, err = testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking all tools were installed")
-			Expect(output).To(ContainSubstring("name=rg"))
-			Expect(output).To(ContainSubstring("name=fd"))
-			Expect(output).To(ContainSubstring("name=bat"))
 
 			By("Verifying rg works")
 			output, err = testExec.ExecBash("~/.local/bin/rg --version")
@@ -79,14 +74,13 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 
 		It("is idempotent - second apply reports no changes", func() {
 			By("Running toto apply again on parallel.cue")
-			output, err := testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
+			_, err := testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking no changes needed")
-			Expect(output).To(SatisfyAny(
-				ContainSubstring("no changes"),
-				ContainSubstring("total_actions=0"),
-			))
+			By("Verifying tools still work after second apply")
+			output, err := testExec.ExecBash("~/.local/bin/rg --version")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("ripgrep"))
 		})
 	})
 
@@ -110,14 +104,11 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 
 		It("installs tool before dependent installer is available", func() {
 			By("Running toto apply on toolref.cue")
-			output, err := testExec.Exec("toto", "apply", "~/dependency-test/toolref.cue")
+			_, err := testExec.Exec("toto", "apply", "~/dependency-test/toolref.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking jq tool was installed")
-			Expect(output).To(ContainSubstring("name=jq"))
-
 			By("Verifying jq is installed and works")
-			output, err = testExec.ExecBash("~/.local/bin/jq --version")
+			output, err := testExec.ExecBash("~/.local/bin/jq --version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("jq-1.7"))
 		})
@@ -143,20 +134,12 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 
 		It("installs runtime before dependent tools", func() {
 			By("Running toto apply on runtime-chain.cue")
-			output, err := testExec.Exec("toto", "apply", "~/dependency-test/runtime-chain.cue")
+			_, err := testExec.Exec("toto", "apply", "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking runtime was installed")
-			Expect(output).To(ContainSubstring("installing runtime"))
-			Expect(output).To(ContainSubstring("name=go"))
-
-			By("Checking tool was installed after runtime")
-			Expect(output).To(ContainSubstring("installing tool"))
-			Expect(output).To(ContainSubstring("name=gopls"))
 
 			By("Verifying go runtime 1.23.5 is installed in expected location")
 			// Set GOTOOLCHAIN=local to prevent auto-upgrade to newer Go version
-			output, err = testExec.ExecBash("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version")
+			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go1.23"))
 

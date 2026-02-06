@@ -3,11 +3,14 @@ package main
 import (
 	"fmt"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/graph"
 )
+
+var validateNoColor bool
 
 var validateCmd = &cobra.Command{
 	Use:   "validate <files or directories...>",
@@ -22,8 +25,19 @@ Checks for:
 	RunE: runValidate,
 }
 
+func init() {
+	validateCmd.Flags().BoolVar(&validateNoColor, "no-color", false, "Disable colored output")
+}
+
 func runValidate(cmd *cobra.Command, args []string) error {
-	cmd.Printf("Validating configuration in %v\n", args)
+	if validateNoColor {
+		color.NoColor = true
+	}
+
+	style := newOutputStyle()
+
+	cmd.Println("Validating configuration...")
+	cmd.Println()
 
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)
@@ -31,16 +45,22 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	cmd.Printf("Found %d resource(s)\n", len(resources))
-	for _, res := range resources {
-		cmd.Printf("  - %s/%s\n", res.Kind(), res.Name())
-	}
-
 	// Validate each resource's spec
+	cmd.Println("Resources:")
+	validationFailed := false
 	for _, res := range resources {
 		if err := res.Spec().Validate(); err != nil {
-			return fmt.Errorf("validation failed for %s/%s: %w", res.Kind(), res.Name(), err)
+			cmd.Printf("  %s %s - %v\n", style.failMark, style.path.Sprintf("%s/%s", res.Kind(), res.Name()), err)
+			validationFailed = true
+		} else {
+			cmd.Printf("  %s %s\n", style.successMark, style.path.Sprintf("%s/%s", res.Kind(), res.Name()))
 		}
+	}
+	cmd.Println()
+
+	if validationFailed {
+		cmd.Printf("%s Validation failed\n", style.failMark)
+		return fmt.Errorf("validation failed")
 	}
 
 	// Check for circular dependencies
@@ -49,10 +69,16 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		resolver.AddResource(res)
 	}
 
+	cmd.Println("Dependencies:")
 	if err := resolver.Validate(); err != nil {
-		return fmt.Errorf("dependency validation failed: %w", err)
+		cmd.Printf("  %s %v\n", style.failMark, err)
+		cmd.Println()
+		cmd.Printf("%s Validation failed\n", style.failMark)
+		return err
 	}
+	cmd.Printf("  %s No circular dependencies\n", style.successMark)
+	cmd.Println()
 
-	cmd.Println("Validation successful")
+	cmd.Printf("%s Validation successful (%d resources)\n", style.successMark, len(resources))
 	return nil
 }

@@ -36,13 +36,14 @@ type InstallerInfo struct {
 
 // Installer installs tools using download or delegation patterns.
 type Installer struct {
-	downloader  download.Downloader
-	placer      place.Placer
-	cmdExecutor *command.Executor
-	runtimes    map[string]*RuntimeInfo   // name -> RuntimeInfo
-	installers  map[string]*InstallerInfo // name -> InstallerInfo
-	resolver    *aqua.Resolver            // aqua-registry resolver (optional)
-	registryRef aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
+	downloader       download.Downloader
+	placer           place.Placer
+	cmdExecutor      *command.Executor
+	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
+	installers       map[string]*InstallerInfo // name -> InstallerInfo
+	resolver         *aqua.Resolver            // aqua-registry resolver (optional)
+	registryRef      aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
+	progressCallback download.ProgressCallback // optional progress callback
 }
 
 // NewInstaller creates a new tool Installer.
@@ -79,11 +80,16 @@ func (i *Installer) Resolver() *aqua.Resolver {
 	return i.resolver
 }
 
+// SetProgressCallback sets a callback for download progress.
+func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
+	i.progressCallback = callback
+}
+
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
 
-	slog.Info("installing tool", "name", name, "version", spec.Version)
+	slog.Debug("installing tool", "name", name, "version", spec.Version)
 
 	// Determine installation pattern
 	// 1. If runtimeRef is set, use Runtime delegation (e.g., go install)
@@ -137,7 +143,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 
 	switch action {
 	case place.ValidateActionSkip:
-		slog.Info("tool already installed, skipping", "name", name, "version", spec.Version)
+		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
 		// Even if binary exists, ensure symlink points to correct version
 		if _, err := i.placer.Symlink(target); err != nil {
 			return nil, fmt.Errorf("failed to update symlink: %w", err)
@@ -148,7 +154,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		if !cfg.Force {
 			return nil, fmt.Errorf("tool %s@%s exists with different hash, use force to replace", name, spec.Version)
 		}
-		slog.Info("replacing existing tool", "name", name, "version", spec.Version)
+		slog.Debug("replacing existing tool", "name", name, "version", spec.Version)
 
 	case place.ValidateActionInstall:
 		slog.Debug("installing new tool", "name", name, "version", spec.Version)
@@ -164,7 +170,9 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	// Use original filename from URL for checksum matching
 	urlFilename := filepath.Base(spec.Source.URL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
-	_, err = i.downloader.Download(ctx, spec.Source.URL, archivePath)
+
+	// Download with progress callback if set
+	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, i.progressCallback)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}
@@ -224,7 +232,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 	result.LinkPath = linkPath
 
-	slog.Info("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
+	slog.Debug("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
 
 	return i.buildState(spec, target, expectedHash), nil
 }
@@ -245,7 +253,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	pkgName := spec.Package.String()
 	version := spec.Version
 	if version == "" {
-		slog.Info("fetching latest version from registry", "package", pkgName)
+		slog.Debug("fetching latest version from registry", "package", pkgName)
 		// Fetch package info to get repo owner/name for version lookup
 		info, err := i.resolver.FetchPackageInfo(ctx, i.registryRef, pkgName)
 		if err != nil {
@@ -256,7 +264,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 			return nil, fmt.Errorf("failed to get latest version for %s: %w", pkgName, err)
 		}
 		version = latestVersion
-		slog.Info("using latest version", "package", pkgName, "version", version)
+		slog.Debug("using latest version", "package", pkgName, "version", version)
 	}
 
 	// Resolve download URL from registry
@@ -334,7 +342,7 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 
 // Remove removes an installed tool.
 func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name string) error {
-	slog.Info("removing tool", "name", name, "version", st.Version)
+	slog.Debug("removing tool", "name", name, "version", st.Version)
 
 	// Remove the binary
 	if st.InstallPath != "" {
@@ -355,7 +363,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name str
 		}
 	}
 
-	slog.Info("tool removed", "name", name)
+	slog.Debug("tool removed", "name", name)
 	return nil
 }
 
@@ -405,7 +413,7 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
-	slog.Info("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
 
 	return i.buildDelegationState(spec, vars.BinPath), nil
 }
@@ -439,7 +447,7 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
-	slog.Info("tool installed via installer", "name", name, "version", spec.Version, "installer", spec.InstallerRef)
+	slog.Debug("tool installed via installer", "name", name, "version", spec.Version, "installer", spec.InstallerRef)
 
 	return i.buildDelegationState(spec, ""), nil
 }

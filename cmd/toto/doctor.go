@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
@@ -12,6 +13,8 @@ import (
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/state"
 )
+
+var doctorNoColor bool
 
 var doctorCmd = &cobra.Command{
 	Use:   "doctor",
@@ -25,7 +28,15 @@ Checks for:
 	RunE: runDoctor,
 }
 
+func init() {
+	doctorCmd.Flags().BoolVar(&doctorNoColor, "no-color", false, "Disable color output")
+}
+
 func runDoctor(cmd *cobra.Command, _ []string) error {
+	if doctorNoColor {
+		color.NoColor = true
+	}
+
 	ctx := context.Background()
 
 	// Load config
@@ -73,10 +84,20 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 }
 
 func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
+	style := newOutputStyle()
+
+	style.header.Fprintln(cmd.OutOrStdout(), "Environment Health Check")
+	cmd.Println()
+
 	if !result.HasIssues() {
-		cmd.Println("No issues found. Environment is healthy.")
+		cmd.Printf("%s No issues found. Environment is healthy.\n", style.successMark)
 		return
 	}
+
+	// Count warnings and conflicts
+	warningCount := 0
+	conflictCount := len(result.Conflicts)
+	stateIssueCount := len(result.StateIssues)
 
 	// Print unmanaged tools by category
 	for category, tools := range result.UnmanagedTools {
@@ -84,20 +105,33 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 			continue
 		}
 
-		cmd.Printf("[%s]\n", category)
+		warningCount += len(tools)
+
+		// Get category path (if available)
+		categoryPath := ""
+		if len(tools) > 0 && tools[0].Path != "" {
+			categoryPath = tools[0].Path
+		}
+
+		if categoryPath != "" {
+			cmd.Printf("[%s] %s\n", color.New(color.FgYellow).Sprint(category), style.path.Sprint(categoryPath))
+		} else {
+			cmd.Printf("[%s]\n", color.New(color.FgYellow).Sprint(category))
+		}
+
 		for _, tool := range tools {
-			cmd.Printf("  %-20s unmanaged\n", tool.Name)
+			cmd.Printf("  %s %-16s unmanaged\n", style.warnMark, tool.Name)
 		}
 		cmd.Println()
 	}
 
 	// Print conflicts
 	if len(result.Conflicts) > 0 {
-		cmd.Println("[Conflicts]")
+		cmd.Printf("[%s]\n", color.New(color.FgRed).Sprint("Conflicts"))
 		for _, conflict := range result.Conflicts {
-			cmd.Printf("  %s: found in %s\n", conflict.Name, strings.Join(conflict.Locations, ", "))
+			cmd.Printf("  %s %s: found in %s\n", style.failMark, conflict.Name, strings.Join(conflict.Locations, ", "))
 			if conflict.ResolvedTo != "" {
-				cmd.Printf("         PATH resolves to: %s\n", conflict.ResolvedTo)
+				cmd.Printf("       PATH resolves to: %s\n", style.path.Sprint(conflict.ResolvedTo))
 			}
 		}
 		cmd.Println()
@@ -105,17 +139,33 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 
 	// Print state issues
 	if len(result.StateIssues) > 0 {
-		cmd.Println("[State Issues]")
+		cmd.Printf("[%s]\n", color.New(color.FgRed).Sprint("State Issues"))
 		for _, issue := range result.StateIssues {
-			cmd.Printf("  %s: %s\n", issue.Name, issue.Message())
+			cmd.Printf("  %s %s: %s\n", style.failMark, issue.Name, issue.Message())
 		}
+		cmd.Println()
+	}
+
+	// Print summary
+	summaryParts := []string{}
+	if warningCount > 0 {
+		summaryParts = append(summaryParts, color.New(color.FgYellow).Sprintf("%d warnings", warningCount))
+	}
+	if conflictCount > 0 {
+		summaryParts = append(summaryParts, color.New(color.FgRed).Sprintf("%d conflicts", conflictCount))
+	}
+	if stateIssueCount > 0 {
+		summaryParts = append(summaryParts, color.New(color.FgRed).Sprintf("%d state issues", stateIssueCount))
+	}
+	if len(summaryParts) > 0 {
+		cmd.Printf("Summary: %s\n", strings.Join(summaryParts, ", "))
 		cmd.Println()
 	}
 
 	// Print suggestions
 	unmanagedNames := result.UnmanagedToolNames()
 	if len(unmanagedNames) > 0 {
-		cmd.Println("[Suggestions]")
-		cmd.Printf("  toto adopt %s\n", strings.Join(unmanagedNames, " "))
+		style.header.Fprintln(cmd.OutOrStdout(), "Suggestions:")
+		cmd.Printf("  %s\n", style.success.Sprintf("toto adopt %s", strings.Join(unmanagedNames, " ")))
 	}
 }
