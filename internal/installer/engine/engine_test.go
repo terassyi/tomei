@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
@@ -43,6 +44,8 @@ func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
 
 func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
+func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
+
 // mockRuntimeInstaller is a mock implementation for testing.
 type mockRuntimeInstaller struct {
 	installFunc func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error)
@@ -69,6 +72,8 @@ func (m *mockRuntimeInstaller) Remove(ctx context.Context, st *resource.RuntimeS
 	}
 	return nil
 }
+
+func (m *mockRuntimeInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
 func TestNewEngine(t *testing.T) {
 	tmpDir := t.TempDir()

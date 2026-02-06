@@ -13,11 +13,18 @@ import (
 	"github.com/terassyi/toto/internal/resource"
 )
 
+// ProgressCallback is called during download to report progress.
+// total is -1 if Content-Length is unknown.
+type ProgressCallback func(downloaded, total int64)
+
 // Downloader defines the interface for downloading and verifying artifacts.
 type Downloader interface {
 	// Download downloads a file from the given URL to destPath.
 	// Returns the path to the downloaded file.
 	Download(ctx context.Context, url, destPath string) (string, error)
+
+	// DownloadWithProgress downloads a file with progress callback.
+	DownloadWithProgress(ctx context.Context, url, destPath string, callback ProgressCallback) (string, error)
 
 	// Verify verifies the checksum of a downloaded file.
 	// checksum can be nil (skip verification), have a direct value, or a URL to fetch.
@@ -39,6 +46,11 @@ func NewDownloader() Downloader {
 // Download downloads a file from the given URL to destPath.
 // Returns the path to the downloaded file.
 func (d *httpDownloader) Download(ctx context.Context, url, destPath string) (string, error) {
+	return d.DownloadWithProgress(ctx, url, destPath, nil)
+}
+
+// DownloadWithProgress downloads a file with optional progress callback.
+func (d *httpDownloader) DownloadWithProgress(ctx context.Context, url, destPath string, callback ProgressCallback) (string, error) {
 	slog.Debug("downloading file", "url", url, "dest", destPath)
 
 	// Create HTTP request
@@ -75,8 +87,19 @@ func (d *httpDownloader) Download(ctx context.Context, url, destPath string) (st
 		os.Remove(tmpPath) // Clean up on error
 	}()
 
-	// Download
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	// Download with progress
+	total := resp.ContentLength
+	var reader io.Reader = resp.Body
+
+	if callback != nil {
+		reader = &progressReader{
+			reader:   resp.Body,
+			total:    total,
+			callback: callback,
+		}
+	}
+
+	if _, err := io.Copy(f, reader); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
@@ -92,6 +115,23 @@ func (d *httpDownloader) Download(ctx context.Context, url, destPath string) (st
 
 	slog.Debug("download completed", "path", destPath)
 	return destPath, nil
+}
+
+// progressReader wraps an io.Reader and reports progress.
+type progressReader struct {
+	reader     io.Reader
+	total      int64
+	downloaded int64
+	callback   ProgressCallback
+}
+
+func (r *progressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.downloaded += int64(n)
+		r.callback(r.downloaded, r.total)
+	}
+	return n, err
 }
 
 // Verify verifies the checksum of a downloaded file.

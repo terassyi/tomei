@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/terassyi/toto/internal/graph"
+	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/executor"
 	"github.com/terassyi/toto/internal/installer/reconciler"
 	"github.com/terassyi/toto/internal/installer/tool"
@@ -19,27 +20,60 @@ type ToolInstaller interface {
 	Remove(ctx context.Context, st *resource.ToolState, name string) error
 	RegisterRuntime(name string, info *tool.RuntimeInfo)
 	RegisterInstaller(name string, info *tool.InstallerInfo)
+	SetProgressCallback(callback download.ProgressCallback)
 }
 
 // RuntimeInstaller defines the interface for installing runtimes.
 type RuntimeInstaller interface {
 	Install(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error)
 	Remove(ctx context.Context, st *resource.RuntimeState, name string) error
+	SetProgressCallback(callback download.ProgressCallback)
 }
 
 // ResolverConfigurer is a callback to configure the tool resolver after state is loaded.
 // This allows resolver setup to happen after the lock is acquired and state is read.
 type ResolverConfigurer func(st *state.UserState) error
 
+// EventType represents the type of engine event.
+type EventType int
+
+const (
+	// EventStart is emitted when an action starts.
+	EventStart EventType = iota
+	// EventProgress is emitted during download to report progress.
+	EventProgress
+	// EventComplete is emitted when an action completes successfully.
+	EventComplete
+	// EventError is emitted when an action fails.
+	EventError
+)
+
+// Event represents an engine event for progress reporting.
+type Event struct {
+	Type       EventType
+	Kind       resource.Kind
+	Name       string
+	Version    string
+	Action     resource.ActionType
+	Error      error
+	Downloaded int64 // bytes downloaded (for EventProgress)
+	Total      int64 // total bytes (-1 if unknown, for EventProgress)
+}
+
+// EventHandler is a callback for engine events.
+type EventHandler func(event Event)
+
 // Engine orchestrates the apply process.
 type Engine struct {
 	store              *state.Store[state.UserState]
 	toolInstaller      ToolInstaller
+	runtimeInstaller   RuntimeInstaller
 	runtimeReconciler  *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
 	runtimeExecutor    *executor.Executor[*resource.Runtime, *resource.RuntimeState]
 	toolReconciler     *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
 	toolExecutor       *executor.Executor[*resource.Tool, *resource.ToolState]
 	resolverConfigurer ResolverConfigurer
+	eventHandler       EventHandler
 }
 
 // NewEngine creates a new Engine.
@@ -53,6 +87,7 @@ func NewEngine(
 	return &Engine{
 		store:             store,
 		toolInstaller:     toolInstaller,
+		runtimeInstaller:  runtimeInstaller,
 		runtimeReconciler: reconciler.NewRuntimeReconciler(),
 		runtimeExecutor:   executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
 		toolReconciler:    reconciler.NewToolReconciler(),
@@ -64,6 +99,18 @@ func NewEngine(
 // This ensures resolver configuration happens while holding the state lock.
 func (e *Engine) SetResolverConfigurer(configurer ResolverConfigurer) {
 	e.resolverConfigurer = configurer
+}
+
+// SetEventHandler sets a callback for engine events.
+func (e *Engine) SetEventHandler(handler EventHandler) {
+	e.eventHandler = handler
+}
+
+// emitEvent emits an event to the handler if set.
+func (e *Engine) emitEvent(event Event) {
+	if e.eventHandler != nil {
+		e.eventHandler(event)
+	}
 }
 
 // ToolAction is an alias for tool-specific action type.
@@ -220,7 +267,7 @@ func (e *Engine) executeNode(
 // executeRuntimeNode executes a runtime action.
 func (e *Engine) executeRuntimeNode(
 	ctx context.Context,
-	runtime *resource.Runtime,
+	rt *resource.Runtime,
 	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
@@ -232,12 +279,12 @@ func (e *Engine) executeRuntimeNode(
 	// Build a single-runtime state map to avoid removing other runtimes
 	// during per-node reconciliation
 	singleRuntimeState := make(map[string]*resource.RuntimeState)
-	if rs, exists := st.Runtimes[runtime.Name()]; exists {
-		singleRuntimeState[runtime.Name()] = rs
+	if rs, exists := st.Runtimes[rt.Name()]; exists {
+		singleRuntimeState[rt.Name()] = rs
 	}
 
 	// Reconcile single runtime against its own state only
-	actions := e.runtimeReconciler.Reconcile([]*resource.Runtime{runtime}, singleRuntimeState)
+	actions := e.runtimeReconciler.Reconcile([]*resource.Runtime{rt}, singleRuntimeState)
 	if len(actions) == 0 {
 		return nil
 	}
@@ -247,9 +294,47 @@ func (e *Engine) executeRuntimeNode(
 		return nil
 	}
 
+	// Set progress callback for this runtime installation
+	e.runtimeInstaller.SetProgressCallback(func(downloaded, total int64) {
+		e.emitEvent(Event{
+			Type:       EventProgress,
+			Kind:       resource.KindRuntime,
+			Name:       action.Name,
+			Version:    rt.RuntimeSpec.Version,
+			Action:     action.Type,
+			Downloaded: downloaded,
+			Total:      total,
+		})
+	})
+	defer e.runtimeInstaller.SetProgressCallback(nil) // Clear after installation
+
+	// Emit start event
+	e.emitEvent(Event{
+		Type:    EventStart,
+		Kind:    resource.KindRuntime,
+		Name:    action.Name,
+		Version: rt.RuntimeSpec.Version,
+		Action:  action.Type,
+	})
+
 	if err := e.runtimeExecutor.Execute(ctx, action); err != nil {
+		e.emitEvent(Event{
+			Type:   EventError,
+			Kind:   resource.KindRuntime,
+			Name:   action.Name,
+			Action: action.Type,
+			Error:  err,
+		})
 		return fmt.Errorf("failed to execute action %s for runtime %s: %w", action.Type, action.Name, err)
 	}
+
+	// Emit complete event
+	e.emitEvent(Event{
+		Type:   EventComplete,
+		Kind:   resource.KindRuntime,
+		Name:   action.Name,
+		Action: action.Type,
+	})
 
 	*totalActions++
 
@@ -264,19 +349,19 @@ func (e *Engine) executeRuntimeNode(
 // executeToolNode executes a tool action.
 func (e *Engine) executeToolNode(
 	ctx context.Context,
-	tool *resource.Tool,
+	t *resource.Tool,
 	st *state.UserState,
 	totalActions *int,
 ) error {
 	// Build a single-tool state map to avoid removing other tools
 	// during per-node reconciliation
 	singleToolState := make(map[string]*resource.ToolState)
-	if ts, exists := st.Tools[tool.Name()]; exists {
-		singleToolState[tool.Name()] = ts
+	if ts, exists := st.Tools[t.Name()]; exists {
+		singleToolState[t.Name()] = ts
 	}
 
 	// Reconcile single tool against its own state only
-	actions := e.toolReconciler.Reconcile([]*resource.Tool{tool}, singleToolState)
+	actions := e.toolReconciler.Reconcile([]*resource.Tool{t}, singleToolState)
 	if len(actions) == 0 {
 		return nil
 	}
@@ -286,9 +371,47 @@ func (e *Engine) executeToolNode(
 		return nil
 	}
 
+	// Set progress callback for this tool installation
+	e.toolInstaller.SetProgressCallback(func(downloaded, total int64) {
+		e.emitEvent(Event{
+			Type:       EventProgress,
+			Kind:       resource.KindTool,
+			Name:       action.Name,
+			Version:    t.ToolSpec.Version,
+			Action:     action.Type,
+			Downloaded: downloaded,
+			Total:      total,
+		})
+	})
+	defer e.toolInstaller.SetProgressCallback(nil) // Clear after installation
+
+	// Emit start event
+	e.emitEvent(Event{
+		Type:    EventStart,
+		Kind:    resource.KindTool,
+		Name:    action.Name,
+		Version: t.ToolSpec.Version,
+		Action:  action.Type,
+	})
+
 	if err := e.toolExecutor.Execute(ctx, action); err != nil {
+		e.emitEvent(Event{
+			Type:   EventError,
+			Kind:   resource.KindTool,
+			Name:   action.Name,
+			Action: action.Type,
+			Error:  err,
+		})
 		return fmt.Errorf("failed to execute action %s for tool %s: %w", action.Type, action.Name, err)
 	}
+
+	// Emit complete event
+	e.emitEvent(Event{
+		Type:   EventComplete,
+		Kind:   resource.KindTool,
+		Name:   action.Name,
+		Action: action.Type,
+	})
 
 	*totalActions++
 	return nil

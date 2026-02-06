@@ -17,8 +17,9 @@ import (
 
 // Installer installs runtimes using the download pattern.
 type Installer struct {
-	downloader  download.Downloader
-	runtimesDir string
+	downloader       download.Downloader
+	runtimesDir      string
+	progressCallback download.ProgressCallback
 }
 
 // NewInstaller creates a new runtime Installer.
@@ -27,6 +28,11 @@ func NewInstaller(downloader download.Downloader, runtimesDir string) *Installer
 		downloader:  downloader,
 		runtimesDir: runtimesDir,
 	}
+}
+
+// SetProgressCallback sets a callback for download progress.
+func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
+	i.progressCallback = callback
 }
 
 // Install installs a runtime according to the resource and returns its state.
@@ -75,7 +81,7 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 	urlFilename := filepath.Base(spec.Source.URL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
-	_, err = i.downloader.Download(ctx, spec.Source.URL, archivePath)
+	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, i.progressCallback)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}

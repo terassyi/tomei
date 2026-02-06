@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
 	"github.com/terassyi/toto/internal/installer/download"
@@ -33,13 +35,23 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
 	RunE: runApply,
 }
 
-var syncRegistry bool
+var (
+	syncRegistry  bool
+	applyNoColor  bool
+	applyNoOutput bool
+)
 
 func init() {
 	applyCmd.Flags().BoolVar(&syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
+	applyCmd.Flags().BoolVar(&applyNoColor, "no-color", false, "Disable colored output")
+	applyCmd.Flags().BoolVar(&applyNoOutput, "quiet", false, "Suppress progress output")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
+	if applyNoColor {
+		color.NoColor = true
+	}
+
 	if systemMode {
 		cmd.Printf("Applying system-level resources from %v\n", args)
 		// TODO: implement system apply in Phase 4
@@ -48,10 +60,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Printf("Applying user-level resources from %v\n", args)
-	return runUserApply(cmd.Context(), args)
+	return runUserApply(cmd.Context(), args, cmd.OutOrStdout())
 }
 
-func runUserApply(ctx context.Context, paths []string) error {
+func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(paths)
@@ -102,8 +114,22 @@ func runUserApply(ctx context.Context, paths []string) error {
 	toolInstaller := tool.NewInstaller(downloader, placer)
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 
-	// Create engine
+	// Create engine with event handler for progress display
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
+
+	// Track results for summary
+	results := &applyResults{}
+
+	// Create progress manager for download progress bars
+	pm := newProgressManager(w)
+	defer pm.Wait()
+
+	// Set event handler for progress display
+	if !applyNoOutput {
+		eng.SetEventHandler(func(event engine.Event) {
+			pm.handleEvent(event, results)
+		})
+	}
 
 	// Set resolver configurer to be called after lock is acquired and state is loaded
 	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
@@ -119,6 +145,11 @@ func runUserApply(ctx context.Context, paths []string) error {
 	// Run engine
 	if err := eng.Apply(ctx, resources); err != nil {
 		return fmt.Errorf("apply failed: %w", err)
+	}
+
+	// Print summary
+	if !applyNoOutput {
+		printApplySummary(w, results)
 	}
 
 	return nil

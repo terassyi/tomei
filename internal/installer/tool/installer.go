@@ -36,13 +36,14 @@ type InstallerInfo struct {
 
 // Installer installs tools using download or delegation patterns.
 type Installer struct {
-	downloader  download.Downloader
-	placer      place.Placer
-	cmdExecutor *command.Executor
-	runtimes    map[string]*RuntimeInfo   // name -> RuntimeInfo
-	installers  map[string]*InstallerInfo // name -> InstallerInfo
-	resolver    *aqua.Resolver            // aqua-registry resolver (optional)
-	registryRef aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
+	downloader       download.Downloader
+	placer           place.Placer
+	cmdExecutor      *command.Executor
+	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
+	installers       map[string]*InstallerInfo // name -> InstallerInfo
+	resolver         *aqua.Resolver            // aqua-registry resolver (optional)
+	registryRef      aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
+	progressCallback download.ProgressCallback // optional progress callback
 }
 
 // NewInstaller creates a new tool Installer.
@@ -77,6 +78,11 @@ func (i *Installer) SetResolver(resolver *aqua.Resolver, registryRef aqua.Regist
 // Returns nil if resolver is not configured.
 func (i *Installer) Resolver() *aqua.Resolver {
 	return i.resolver
+}
+
+// SetProgressCallback sets a callback for download progress.
+func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
+	i.progressCallback = callback
 }
 
 // Install installs a tool according to the resource and returns its state.
@@ -164,7 +170,9 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	// Use original filename from URL for checksum matching
 	urlFilename := filepath.Base(spec.Source.URL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
-	_, err = i.downloader.Download(ctx, spec.Source.URL, archivePath)
+
+	// Download with progress callback if set
+	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, i.progressCallback)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}
