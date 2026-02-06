@@ -1042,6 +1042,206 @@ goRuntime: {
 	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
 }
 
+// TestEngine_Apply_ToolSet_InstallerRef tests ToolSet expansion with installerRef (download pattern).
+func TestEngine_Apply_ToolSet_InstallerRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: type: "download"
+}
+
+cliTools: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "ToolSet"
+	metadata: name: "cli-tools"
+	spec: {
+		installerRef: "aqua"
+		tools: {
+			fd:  { version: "9.0.0" }
+			bat: { version: "0.24.0" }
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "toolset.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	mockTool.mu.Lock()
+	assert.Contains(t, mockTool.installed, "fd")
+	assert.Contains(t, mockTool.installed, "bat")
+	assert.Equal(t, "9.0.0", mockTool.installed["fd"].Version)
+	assert.Equal(t, "0.24.0", mockTool.installed["bat"].Version)
+	assert.Equal(t, "aqua", mockTool.installed["fd"].InstallerRef)
+	mockTool.mu.Unlock()
+}
+
+// TestEngine_Apply_ToolSet_RuntimeRef tests ToolSet expansion with runtimeRef (delegation pattern).
+func TestEngine_Apply_ToolSet_RuntimeRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.23.5"
+		source: {
+			url: "https://go.dev/dl/go1.23.5.linux-amd64.tar.gz"
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		env: {
+			GOROOT: "~/.local/share/toto/runtimes/go/1.23.5"
+			GOBIN: "~/go/bin"
+		}
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+			remove: "rm -f {{.BinPath}}"
+		}
+	}
+}
+
+goInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "go"
+	spec: {
+		type: "delegation"
+		runtimeRef: "go"
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+		}
+	}
+}
+
+goTools: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "ToolSet"
+	metadata: name: "go-tools"
+	spec: {
+		runtimeRef: "go"
+		tools: {
+			gopls:     { package: "golang.org/x/tools/gopls", version: "v0.21.0" }
+			goimports: { package: "golang.org/x/tools/cmd/goimports", version: "v0.31.0" }
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "toolset.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	mockTool.mu.Lock()
+	assert.Contains(t, mockTool.installed, "gopls")
+	assert.Contains(t, mockTool.installed, "goimports")
+	assert.Equal(t, "v0.21.0", mockTool.installed["gopls"].Version)
+	assert.Equal(t, "go", mockTool.installed["gopls"].RuntimeRef)
+	mockTool.mu.Unlock()
+
+	mockRuntime.mu.Lock()
+	assert.Contains(t, mockRuntime.installed, "go")
+	mockRuntime.mu.Unlock()
+}
+
+// TestEngine_Apply_ToolSet_MixedWithStandalone tests ToolSet alongside standalone Tools.
+func TestEngine_Apply_ToolSet_MixedWithStandalone(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: type: "download"
+}
+
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "rg"
+	spec: {
+		installerRef: "aqua"
+		version: "14.1.1"
+		source: url: "https://example.com/rg.tar.gz"
+	}
+}
+
+cliTools: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "ToolSet"
+	metadata: name: "cli-tools"
+	spec: {
+		installerRef: "aqua"
+		tools: {
+			fd:  { version: "9.0.0" }
+			bat: { version: "0.24.0" }
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "toolset.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	mockTool.mu.Lock()
+	assert.Contains(t, mockTool.installed, "rg")
+	assert.Contains(t, mockTool.installed, "fd")
+	assert.Contains(t, mockTool.installed, "bat")
+	assert.Equal(t, "14.1.1", mockTool.installed["rg"].Version)
+	assert.Equal(t, "9.0.0", mockTool.installed["fd"].Version)
+	assert.Equal(t, "0.24.0", mockTool.installed["bat"].Version)
+	mockTool.mu.Unlock()
+}
+
 // TestEngine_Apply_ToolProgressCallback tests that the engine injects per-node progress callbacks
 // into context and that those callbacks generate correct engine events with node-specific data.
 func TestEngine_Apply_ToolProgressCallback(t *testing.T) {

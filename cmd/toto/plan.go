@@ -75,6 +75,12 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Expand set resources (ToolSet, etc.) into individual resources
+	resources, err = resource.ExpandSets(resources)
+	if err != nil {
+		return fmt.Errorf("failed to expand sets: %w", err)
+	}
+
 	// Build a set of defined resource IDs for filtering
 	definedResources := make(map[string]struct{})
 	resourceMap := make(map[graph.NodeID]resource.Resource)

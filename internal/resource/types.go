@@ -56,6 +56,15 @@ type Resource interface {
 	Spec() Spec
 }
 
+// Expandable is a resource that can be expanded into multiple individual resources.
+// Set-type resources (ToolSet, SystemPackageSet, etc.) implement this interface.
+type Expandable interface {
+	Resource
+	// Expand returns the individual resources expanded from this set resource.
+	// The set resource itself should not be included in the result.
+	Expand() ([]Resource, error)
+}
+
 // Metadata holds resource identification information.
 type Metadata struct {
 	Name   string            `json:"name"`

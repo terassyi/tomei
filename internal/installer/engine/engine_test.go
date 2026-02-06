@@ -1856,3 +1856,146 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 		}
 	})
 }
+
+func TestEngine_Apply_ToolSet(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installedTools := make(map[string]*resource.ToolState)
+	var mu sync.Mutex
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			st := &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}
+			mu.Lock()
+			installedTools[name] = st
+			mu.Unlock()
+			return st, nil
+		},
+	}
+	runtimeMock := &mockRuntimeInstaller{}
+
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	resources := []resource.Resource{
+		&resource.Installer{
+			BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: "aqua"}},
+			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload},
+		},
+		&resource.ToolSet{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindToolSet, Metadata: resource.Metadata{Name: "cli-tools"}},
+			ToolSetSpec: &resource.ToolSetSpec{
+				InstallerRef: "aqua",
+				Tools: map[string]resource.ToolItem{
+					"fd":  {Version: "9.0.0"},
+					"bat": {Version: "0.24.0"},
+				},
+			},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Both tools should be installed
+	mu.Lock()
+	assert.Contains(t, installedTools, "fd")
+	assert.Contains(t, installedTools, "bat")
+	assert.Equal(t, "9.0.0", installedTools["fd"].Version)
+	assert.Equal(t, "0.24.0", installedTools["bat"].Version)
+	mu.Unlock()
+
+	// Verify state
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err := store.Load()
+	require.NoError(t, err)
+	assert.NotNil(t, st.Tools["fd"])
+	assert.NotNil(t, st.Tools["bat"])
+}
+
+func TestEngine_Apply_ToolSet_DisabledItem(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installedTools := make(map[string]bool)
+	var mu sync.Mutex
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+	runtimeMock := &mockRuntimeInstaller{}
+
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	disabled := false
+	resources := []resource.Resource{
+		&resource.Installer{
+			BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: "aqua"}},
+			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload},
+		},
+		&resource.ToolSet{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindToolSet, Metadata: resource.Metadata{Name: "cli-tools"}},
+			ToolSetSpec: &resource.ToolSetSpec{
+				InstallerRef: "aqua",
+				Tools: map[string]resource.ToolItem{
+					"fd":  {Version: "9.0.0"},
+					"bat": {Version: "0.24.0", Enabled: &disabled},
+				},
+			},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	mu.Lock()
+	assert.True(t, installedTools["fd"])
+	assert.False(t, installedTools["bat"], "disabled tool should not be installed")
+	mu.Unlock()
+}
+
+func TestEngine_Apply_ToolSet_NameConflict(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	toolMock := &mockToolInstaller{}
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	resources := []resource.Resource{
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "fd"}},
+			ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "9.0.0"},
+		},
+		&resource.ToolSet{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindToolSet, Metadata: resource.Metadata{Name: "cli-tools"}},
+			ToolSetSpec: &resource.ToolSetSpec{
+				InstallerRef: "aqua",
+				Tools: map[string]resource.ToolItem{
+					"fd": {Version: "10.0.0"},
+				},
+			},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name conflict")
+}
