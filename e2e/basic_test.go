@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("toto on Ubuntu", Ordered, func() {
+func basicTests() {
 
 	Context("Basic Commands", func() {
 		It("displays version information", func() {
@@ -367,4 +367,4 @@ var _ = Describe("toto on Ubuntu", Ordered, func() {
 			Expect(output).To(ContainSubstring("go1.25.7"))
 		})
 	})
-})
+}

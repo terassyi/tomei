@@ -29,3 +29,11 @@ var _ = AfterSuite(func() {
 		testExec.Cleanup()
 	}
 })
+
+// Single top-level Describe with Ordered to guarantee execution order across all contexts.
+var _ = Describe("toto E2E", Ordered, func() {
+	Context("Basic", basicTests)
+	Context("ToolSet", toolsetTests)
+	Context("Aqua Registry", registryTests)
+	Context("Dependency Resolution", dependencyTests)
+})

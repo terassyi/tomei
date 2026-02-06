@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Aqua Registry", Ordered, func() {
+func registryTests() {
 
 	BeforeAll(func() {
 		By("Running toto init to ensure state.json exists")
@@ -247,4 +247,4 @@ var _ = Describe("Aqua Registry", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
-})
+}

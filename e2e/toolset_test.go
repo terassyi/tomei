@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("ToolSet", Ordered, func() {
+func toolsetTests() {
 
 	BeforeAll(func() {
 		By("Initializing environment")
@@ -74,4 +74,4 @@ var _ = Describe("ToolSet", Ordered, func() {
 			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 	})
-})
+}

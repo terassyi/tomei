@@ -9,13 +9,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Dependency Resolution", Ordered, func() {
+func dependencyTests() {
 	BeforeAll(func() {
 		// Initialize toto (may already be initialized by other tests, ignore errors)
 		_, _ = testExec.Exec("toto", "init", "--yes")
 	})
 
-	Describe("Circular Dependency Detection", func() {
+	Context("Circular Dependency Detection", func() {
 		It("detects circular dependency between installer and tool", func() {
 			By("Running toto validate on circular.cue - should detect cycle")
 			output, err := testExec.Exec("toto", "validate", "~/dependency-test/circular.cue")
@@ -39,7 +39,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 		})
 	})
 
-	Describe("Parallel Tool Installation", func() {
+	Context("Parallel Tool Installation", func() {
 		BeforeAll(func() {
 			// Reset state.json and clean up tools/symlinks to ensure clean state
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
@@ -86,7 +86,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 		})
 	})
 
-	Describe("Parallel Flag Behavior", func() {
+	Context("Parallel Flag Behavior", func() {
 		BeforeAll(func() {
 			// Reset state.json and clean up tools/symlinks to ensure clean state
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
@@ -141,7 +141,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 		})
 	})
 
-	Describe("Runtime and Tool Mixed Parallel Execution", func() {
+	Context("Runtime and Tool Mixed Parallel Execution", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
@@ -170,7 +170,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 		})
 	})
 
-	Describe("Tool as Installer Dependency (ToolRef)", func() {
+	Context("Tool as Installer Dependency (ToolRef)", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
@@ -200,7 +200,7 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 		})
 	})
 
-	Describe("Runtime to Tool Dependency Chain", func() {
+	Context("Runtime to Tool Dependency Chain", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
@@ -235,4 +235,4 @@ var _ = Describe("Dependency Resolution", Ordered, func() {
 			Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
 		})
 	})
-})
+}
