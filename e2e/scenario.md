@@ -266,15 +266,16 @@ graph LR
    - `~/.local/bin/gh` symlink no longer exists
    - state.json does not contain `"gh"`
 
-#### Runtime and Dependent Tool Removed Together
-1. Hide both runtime and delegation manifests:
+#### Runtime and All Dependent Tools Removed Together
+1. Hide runtime, delegation, and toolset manifests:
    ```bash
    mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden
    mv ~/manifests/delegation.cue ~/manifests/delegation.cue.hidden
+   mv ~/manifests/toolset.cue ~/manifests/toolset.cue.hidden
    ```
 2. Run `toto apply ~/manifests/`
 3. Verify:
-   - Apply succeeds (no blocking — both removed)
+   - Apply succeeds (no blocking — all dependents removed)
    - `~/go/bin/go` symlink no longer exists
    - `~/go/bin/gopls` binary no longer exists
    - state.json does not contain `"go"` or `"gopls"`

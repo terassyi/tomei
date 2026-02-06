@@ -371,6 +371,12 @@ func basicTests() {
 	})
 
 	Context("Resource Removal", func() {
+		AfterAll(func() {
+			By("Restoring all hidden manifests for subsequent test suites")
+			// Ignore error in case no .hidden files exist
+			_, _ = testExec.ExecBash("for f in ~/manifests/*.hidden; do mv \"$f\" \"${f%.hidden}\"; done")
+		})
+
 		It("rejects removing runtime when dependent tools remain", func() {
 			By("Hiding runtime manifest so runtime is no longer in spec")
 			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden")
@@ -407,13 +413,15 @@ func basicTests() {
 		})
 
 		It("removes runtime and dependent tools together", func() {
-			By("Hiding runtime and delegation manifests")
+			By("Hiding runtime, delegation, and toolset manifests")
 			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = testExec.ExecBash("mv ~/manifests/delegation.cue ~/manifests/delegation.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("mv ~/manifests/toolset.cue ~/manifests/toolset.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply — should succeed since both are removed")
+			By("Running toto apply — should succeed since all dependents are removed")
 			_, err = testExec.Exec("toto", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
