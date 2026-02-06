@@ -1,5 +1,9 @@
 package manifests
 
+_rgVersionOld: "14.1.1"
+_fdVersionOld: "v10.2.0"
+_jqVersionOld: "jq-1.7.1"
+
 // ripgrep - Install via aqua registry (older version for upgrade test)
 ripgrep: {
 	apiVersion: "toto.terassyi.net/v1beta1"
@@ -7,7 +11,7 @@ ripgrep: {
 	metadata: name: "rg"
 	spec: {
 		installerRef: "aqua"
-		version:      "14.1.1"
+		version:      _rgVersionOld
 		package:      "BurntSushi/ripgrep"
 	}
 }
@@ -19,7 +23,7 @@ fd: {
 	metadata: name: "fd"
 	spec: {
 		installerRef: "aqua"
-		version:      "v10.2.0"
+		version:      _fdVersionOld
 		package:      "sharkdp/fd"
 	}
 }
@@ -31,7 +35,7 @@ jq: {
 	metadata: name: "jq"
 	spec: {
 		installerRef: "aqua"
-		version:      "jq-1.7.1"
+		version:      _jqVersionOld
 		package:      "jqlang/jq"
 	}
 }

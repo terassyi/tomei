@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -72,7 +74,7 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking ripgrep version output")
-			Expect(output).To(ContainSubstring("ripgrep 15.1.0"))
+			Expect(output).To(ContainSubstring("ripgrep " + versions.RegRgVersion))
 		})
 
 		It("installs fd via aqua registry", func() {
@@ -85,7 +87,7 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking fd version output")
-			Expect(output).To(ContainSubstring("fd 10.3.0"))
+			Expect(output).To(ContainSubstring("fd " + versions.RegFdVersion))
 		})
 
 		It("installs jq via aqua registry", func() {
@@ -98,7 +100,7 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking jq version output")
-			Expect(output).To(ContainSubstring("jq-1.8.1"))
+			Expect(output).To(ContainSubstring(versions.RegJqVersion))
 		})
 
 		It("OS/arch is correctly resolved", func() {
@@ -168,23 +170,23 @@ func registryTests() {
 			By("Checking ripgrep still works")
 			output, err := testExec.ExecBash("~/.local/bin/rg --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("ripgrep 15.1.0"))
+			Expect(output).To(ContainSubstring("ripgrep " + versions.RegRgVersion))
 
 			By("Checking fd still works")
 			output, err = testExec.ExecBash("~/.local/bin/fd --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("fd 10.3.0"))
+			Expect(output).To(ContainSubstring("fd " + versions.RegFdVersion))
 
 			By("Checking jq still works")
 			output, err = testExec.ExecBash("~/.local/bin/jq --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("jq-1.8.1"))
+			Expect(output).To(ContainSubstring(versions.RegJqVersion))
 		})
 	})
 
 	Context("Version Upgrade", func() {
 		It("downgrades to older version", func() {
-			By("Swapping manifest to older version (15.1.0 -> 14.1.1, etc)")
+			By(fmt.Sprintf("Swapping manifest to older version (%s -> %s, etc)", versions.RegRgVersion, versions.RegRgVersionOld))
 			_, err := testExec.ExecBash("mv ~/manifests/registry/tools.cue ~/manifests/registry/tools.cue.new")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = testExec.ExecBash("mv ~/manifests/registry/tools.cue.old ~/manifests/registry/tools.cue")
@@ -196,20 +198,20 @@ func registryTests() {
 		})
 
 		It("verifies older versions are installed", func() {
-			By("Checking ripgrep downgraded to 14.1.1")
+			By("Checking ripgrep downgraded to " + versions.RegRgVersionOld)
 			output, err := testExec.ExecBash("~/.local/bin/rg --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("ripgrep 14.1.1"))
+			Expect(output).To(ContainSubstring("ripgrep " + versions.RegRgVersionOld))
 
-			By("Checking fd downgraded to 10.2.0")
+			By("Checking fd downgraded to " + versions.RegFdVersionOld)
 			output, err = testExec.ExecBash("~/.local/bin/fd --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("fd 10.2.0"))
+			Expect(output).To(ContainSubstring("fd " + versions.RegFdVersionOld))
 
-			By("Checking jq downgraded to 1.7.1")
+			By("Checking jq downgraded to " + versions.RegJqVersionOld)
 			output, err = testExec.ExecBash("~/.local/bin/jq --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("jq-1.7.1"))
+			Expect(output).To(ContainSubstring(versions.RegJqVersionOld))
 		})
 
 		It("upgrades back to newer version", func() {
@@ -225,20 +227,20 @@ func registryTests() {
 		})
 
 		It("verifies newer versions are installed after upgrade", func() {
-			By("Checking ripgrep upgraded to 15.1.0")
+			By("Checking ripgrep upgraded to " + versions.RegRgVersion)
 			output, err := testExec.ExecBash("~/.local/bin/rg --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("ripgrep 15.1.0"))
+			Expect(output).To(ContainSubstring("ripgrep " + versions.RegRgVersion))
 
-			By("Checking fd upgraded to 10.3.0")
+			By("Checking fd upgraded to " + versions.RegFdVersion)
 			output, err = testExec.ExecBash("~/.local/bin/fd --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("fd 10.3.0"))
+			Expect(output).To(ContainSubstring("fd " + versions.RegFdVersion))
 
-			By("Checking jq upgraded to 1.8.1")
+			By("Checking jq upgraded to " + versions.RegJqVersion)
 			output, err = testExec.ExecBash("~/.local/bin/jq --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("jq-1.8.1"))
+			Expect(output).To(ContainSubstring(versions.RegJqVersion))
 		})
 
 		It("is idempotent after version changes", func() {

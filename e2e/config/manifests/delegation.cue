@@ -1,6 +1,9 @@
 package toto
 
 // gopls - Go language server installed via go install (Runtime Delegation)
+
+_goplsVersion: "v0.21.0"
+
 gopls: {
 	apiVersion: "toto.terassyi.net/v1beta1"
 	kind:       "Tool"
@@ -8,6 +11,6 @@ gopls: {
 	spec: {
 		runtimeRef: "go"
 		package:    "golang.org/x/tools/gopls"
-		version:    "v0.21.0"
+		version:    _goplsVersion
 	}
 }

@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -61,17 +62,17 @@ func dependencyTests() {
 			By("Verifying rg works")
 			output, err = testExec.ExecBash("~/.local/bin/rg --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("ripgrep 14.1.1"))
+			Expect(output).To(ContainSubstring("ripgrep " + versions.DepRgVersion))
 
 			By("Verifying fd works")
 			output, err = testExec.ExecBash("~/.local/bin/fd --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("fd 10.2.0"))
+			Expect(output).To(ContainSubstring("fd " + versions.DepFdVersion))
 
 			By("Verifying bat works")
 			output, err = testExec.ExecBash("~/.local/bin/bat --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("bat 0.26.1"))
+			Expect(output).To(ContainSubstring("bat " + versions.DepBatVersion))
 		})
 
 		It("is idempotent - second apply reports no changes", func() {
@@ -102,17 +103,17 @@ func dependencyTests() {
 			By("Verifying rg works")
 			rgOut, err := testExec.ExecBash("~/.local/bin/rg --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(rgOut).To(ContainSubstring("ripgrep 14.1.1"))
+			Expect(rgOut).To(ContainSubstring("ripgrep " + versions.DepRgVersion))
 
 			By("Verifying fd works")
 			fdOut, err := testExec.ExecBash("~/.local/bin/fd --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(fdOut).To(ContainSubstring("fd 10.2.0"))
+			Expect(fdOut).To(ContainSubstring("fd " + versions.DepFdVersion))
 
 			By("Verifying bat works")
 			batOut, err := testExec.ExecBash("~/.local/bin/bat --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(batOut).To(ContainSubstring("bat 0.26.1"))
+			Expect(batOut).To(ContainSubstring("bat " + versions.DepBatVersion))
 
 			By("Verifying non-TTY output has Commands: header exactly once")
 			Expect(strings.Count(output, "Commands:")).To(Equal(1))
@@ -153,9 +154,9 @@ func dependencyTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying go runtime is installed")
-			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version")
+			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/%s/bin/go version", versions.DepGoVersion))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("go1.23"))
+			Expect(output).To(ContainSubstring("go" + versions.DepGoVersion))
 
 			By("Verifying gopls is installed (depends on go runtime)")
 			output, err = testExec.ExecBash("~/go/bin/gopls version")
@@ -196,7 +197,7 @@ func dependencyTests() {
 			By("Verifying jq is installed and works")
 			output, err := testExec.ExecBash("~/.local/bin/jq --version")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("jq-1.7"))
+			Expect(output).To(ContainSubstring("jq-" + versions.DepJqVersion))
 		})
 	})
 
@@ -223,11 +224,11 @@ func dependencyTests() {
 			_, err := testExec.Exec("toto", "apply", "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Verifying go runtime 1.23.5 is installed in expected location")
+			By(fmt.Sprintf("Verifying go runtime %s is installed in expected location", versions.DepGoVersion))
 			// Set GOTOOLCHAIN=local to prevent auto-upgrade to newer Go version
-			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version")
+			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/%s/bin/go version", versions.DepGoVersion))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("go1.23"))
+			Expect(output).To(ContainSubstring("go" + versions.DepGoVersion))
 
 			By("Verifying gopls is installed")
 			output, err = testExec.ExecBash("~/go/bin/gopls version")
