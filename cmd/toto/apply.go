@@ -20,6 +20,16 @@ import (
 	"github.com/terassyi/toto/internal/ui"
 )
 
+// applyConfig holds configuration for the apply command.
+type applyConfig struct {
+	syncRegistry bool
+	noColor      bool
+	quiet        bool
+	parallel     int
+}
+
+var applyCfg applyConfig
+
 var applyCmd = &cobra.Command{
 	Use:   "apply <files or directories...>",
 	Short: "Apply the configuration",
@@ -36,20 +46,15 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
 	RunE: runApply,
 }
 
-var (
-	syncRegistry  bool
-	applyNoColor  bool
-	applyNoOutput bool
-)
-
 func init() {
-	applyCmd.Flags().BoolVar(&syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
-	applyCmd.Flags().BoolVar(&applyNoColor, "no-color", false, "Disable colored output")
-	applyCmd.Flags().BoolVar(&applyNoOutput, "quiet", false, "Suppress progress output")
+	applyCmd.Flags().BoolVar(&applyCfg.syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
+	applyCmd.Flags().BoolVar(&applyCfg.noColor, "no-color", false, "Disable colored output")
+	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
+	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
-	if applyNoColor {
+	if applyCfg.noColor {
 		color.NoColor = true
 	}
 
@@ -61,10 +66,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Printf("Applying user-level resources from %v\n", args)
-	return runUserApply(cmd.Context(), args, cmd.OutOrStdout())
+	return runUserApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg)
 }
 
-func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
+func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(paths)
@@ -73,13 +78,13 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	}
 
 	// Load config from fixed path (~/.config/toto/config.cue)
-	cfg, err := config.LoadConfig(config.DefaultConfigDir)
+	appCfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Setup paths from config
-	pathConfig, err := path.NewFromConfig(cfg)
+	pathConfig, err := path.NewFromConfig(appCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %w", err)
 	}
@@ -99,7 +104,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	}
 
 	// Sync registry if --sync flag is set
-	if syncRegistry {
+	if cfg.syncRegistry {
 		if err := aqua.SyncRegistry(ctx, store); err != nil {
 			slog.Warn("failed to sync aqua registry", "error", err)
 		}
@@ -117,6 +122,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 
 	// Create engine with event handler for progress display
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
+	eng.SetParallelism(cfg.parallel)
 
 	// Track results for summary
 	results := &ui.ApplyResults{}
@@ -126,7 +132,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	defer pm.Wait()
 
 	// Set event handler for progress display
-	if !applyNoOutput {
+	if !cfg.quiet {
 		eng.SetEventHandler(func(event engine.Event) {
 			pm.HandleEvent(event, results)
 		})
@@ -149,7 +155,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer) error {
 	}
 
 	// Print summary
-	if !applyNoOutput {
+	if !cfg.quiet {
 		ui.PrintApplySummary(w, results)
 	}
 

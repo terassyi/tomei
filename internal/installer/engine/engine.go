@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"sync"
+	"sync/atomic"
 
 	"github.com/terassyi/toto/internal/graph"
 	"github.com/terassyi/toto/internal/installer/download"
@@ -12,6 +15,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
+	"golang.org/x/sync/semaphore"
 )
 
 // ToolInstaller defines the interface for installing tools.
@@ -21,7 +25,7 @@ type ToolInstaller interface {
 	RegisterRuntime(name string, info *tool.RuntimeInfo)
 	RegisterInstaller(name string, info *tool.InstallerInfo)
 	SetProgressCallback(callback download.ProgressCallback)
-	SetOutputCallback(callback func(line string))
+	SetOutputCallback(callback download.OutputCallback)
 }
 
 // RuntimeInstaller defines the interface for installing runtimes.
@@ -68,6 +72,14 @@ type Event struct {
 // EventHandler is a callback for engine events.
 type EventHandler func(event Event)
 
+const (
+	// DefaultParallelism is the default number of concurrent installations.
+	DefaultParallelism = 5
+
+	// MaxParallelism is the maximum allowed parallelism.
+	MaxParallelism = 20
+)
+
 // Engine orchestrates the apply process.
 type Engine struct {
 	store              *state.Store[state.UserState]
@@ -79,6 +91,7 @@ type Engine struct {
 	toolExecutor       *executor.Executor[*resource.Tool, *resource.ToolState]
 	resolverConfigurer ResolverConfigurer
 	eventHandler       EventHandler
+	parallelism        int
 }
 
 // NewEngine creates a new Engine.
@@ -87,8 +100,9 @@ func NewEngine(
 	runtimeInstaller RuntimeInstaller,
 	store *state.Store[state.UserState],
 ) *Engine {
-	toolStore := executor.NewToolStateStore(store)
-	runtimeStore := executor.NewRuntimeStateStore(store)
+	storeFactory := executor.NewStateStoreFactory(store)
+	toolStore := storeFactory.ToolStore()
+	runtimeStore := storeFactory.RuntimeStore()
 	return &Engine{
 		store:             store,
 		toolInstaller:     toolInstaller,
@@ -97,7 +111,20 @@ func NewEngine(
 		runtimeExecutor:   executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
 		toolReconciler:    reconciler.NewToolReconciler(),
 		toolExecutor:      executor.New(resource.KindTool, toolInstaller, toolStore),
+		parallelism:       DefaultParallelism,
 	}
+}
+
+// SetParallelism sets the number of concurrent installations.
+// Values are clamped to [1, MaxParallelism].
+func (e *Engine) SetParallelism(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > MaxParallelism {
+		n = MaxParallelism
+	}
+	e.parallelism = n
 }
 
 // SetResolverConfigurer sets a callback to configure the resolver after state is loaded.
@@ -220,8 +247,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 }
 
 // executeLayer executes all nodes in a layer.
-// Note: Currently executes sequentially due to state file write conflicts.
-// TODO: Implement parallel execution with proper state synchronization.
+// Nodes are split by kind: Runtime/Installer execute in parallel first (always before Tools),
+// then Tool nodes execute in parallel. Both phases use semaphore-based concurrency limiting.
+// If any node fails, all running parallel nodes are canceled immediately.
 func (e *Engine) executeLayer(
 	ctx context.Context,
 	layer graph.Layer,
@@ -230,13 +258,160 @@ func (e *Engine) executeLayer(
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
+	// Split nodes by kind: Runtime/Installer vs Tool
+	var runtimeNodes, toolNodes []*graph.Node
 	for _, node := range layer.Nodes {
-		if err := e.executeNode(ctx, node, resourceMap, st, updatedRuntimes, totalActions); err != nil {
-			return err
+		switch node.Kind {
+		case resource.KindRuntime, resource.KindInstaller:
+			runtimeNodes = append(runtimeNodes, node)
+		default:
+			toolNodes = append(toolNodes, node)
 		}
 	}
 
-	return nil
+	// Phase 1: Execute Runtime/Installer nodes in parallel (always before Tools)
+	if err := e.executeNodeGroup(ctx, runtimeNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+		return err
+	}
+
+	// Phase 2: Execute Tool nodes in parallel
+	return e.executeNodeGroup(ctx, toolNodes, resourceMap, st, updatedRuntimes, totalActions)
+}
+
+// executeNodeGroup executes a group of nodes, using parallel execution when there are
+// multiple nodes and sequential execution for single or empty groups.
+func (e *Engine) executeNodeGroup(
+	ctx context.Context,
+	nodes []*graph.Node,
+	resourceMap map[string]resource.Resource,
+	st *state.UserState,
+	updatedRuntimes map[string]bool,
+	totalActions *int,
+) error {
+	if len(nodes) <= 1 {
+		for _, node := range nodes {
+			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
+			if err := e.executeNode(nodeCtx, node, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return e.executeNodesParallel(ctx, nodes, resourceMap, st, updatedRuntimes, totalActions)
+}
+
+// executeNodesParallel executes nodes concurrently with cancel-on-error semantics.
+// When any node fails, the context is canceled to abort all running nodes.
+func (e *Engine) executeNodesParallel(
+	ctx context.Context,
+	nodes []*graph.Node,
+	resourceMap map[string]resource.Resource,
+	st *state.UserState,
+	updatedRuntimes map[string]bool,
+	totalActions *int,
+) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sem := semaphore.NewWeighted(int64(e.parallelism))
+
+	var (
+		atomicTotal atomic.Int64
+		mu          sync.Mutex // protects updatedRuntimes and firstErr
+		firstErr    error
+		wg          sync.WaitGroup
+	)
+
+	for _, node := range nodes {
+		// Acquire semaphore before launching goroutine to respect concurrency limit.
+		// Check context before blocking on semaphore to exit early on cancellation.
+		if err := sem.Acquire(ctx, 1); err != nil {
+			// Context was canceled (another goroutine failed)
+			break
+		}
+
+		wg.Go(func() {
+			defer sem.Release(1)
+
+			localUpdated := make(map[string]bool)
+			var localActions int
+
+			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
+
+			if err := e.executeNode(nodeCtx, node, resourceMap, st, localUpdated, &localActions); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				cancel() // Cancel all other running nodes
+				return
+			}
+
+			atomicTotal.Add(int64(localActions))
+
+			if len(localUpdated) > 0 {
+				mu.Lock()
+				maps.Copy(updatedRuntimes, localUpdated)
+				mu.Unlock()
+			}
+		})
+	}
+
+	wg.Wait()
+
+	*totalActions += int(atomicTotal.Load())
+
+	return firstErr
+}
+
+// buildNodeContext creates a context with per-node progress and output callbacks.
+// This enables parallel execution where each node has its own isolated callbacks.
+func (e *Engine) buildNodeContext(ctx context.Context, node *graph.Node, resourceMap map[string]resource.Resource) context.Context {
+	res, ok := resourceMap[graph.NewNodeID(node.Kind, node.Name).String()]
+	if !ok {
+		return ctx
+	}
+
+	switch node.Kind {
+	case resource.KindTool:
+		t := res.(*resource.Tool)
+		method := e.determineInstallMethod(t)
+		ctx = download.WithCallback(ctx, download.ProgressCallback(func(downloaded, total int64) {
+			e.emitEvent(Event{
+				Type:       EventProgress,
+				Kind:       resource.KindTool,
+				Name:       node.Name,
+				Version:    t.ToolSpec.Version,
+				Downloaded: downloaded,
+				Total:      total,
+				Method:     method,
+			})
+		}))
+		ctx = download.WithCallback(ctx, download.OutputCallback(func(line string) {
+			e.emitEvent(Event{
+				Type:    EventOutput,
+				Kind:    resource.KindTool,
+				Name:    node.Name,
+				Version: t.ToolSpec.Version,
+				Output:  line,
+				Method:  method,
+			})
+		}))
+	case resource.KindRuntime:
+		rt := res.(*resource.Runtime)
+		ctx = download.WithCallback(ctx, download.ProgressCallback(func(downloaded, total int64) {
+			e.emitEvent(Event{
+				Type:       EventProgress,
+				Kind:       resource.KindRuntime,
+				Name:       node.Name,
+				Version:    rt.RuntimeSpec.Version,
+				Downloaded: downloaded,
+				Total:      total,
+			})
+		}))
+	}
+	return ctx
 }
 
 // executeNode executes a single node based on its kind.
@@ -298,20 +473,6 @@ func (e *Engine) executeRuntimeNode(
 	if action.Type == resource.ActionNone {
 		return nil
 	}
-
-	// Set progress callback for this runtime installation
-	e.runtimeInstaller.SetProgressCallback(func(downloaded, total int64) {
-		e.emitEvent(Event{
-			Type:       EventProgress,
-			Kind:       resource.KindRuntime,
-			Name:       action.Name,
-			Version:    rt.RuntimeSpec.Version,
-			Action:     action.Type,
-			Downloaded: downloaded,
-			Total:      total,
-		})
-	})
-	defer e.runtimeInstaller.SetProgressCallback(nil) // Clear after installation
 
 	// Emit start event
 	e.emitEvent(Event{
@@ -378,35 +539,6 @@ func (e *Engine) executeToolNode(
 
 	// Determine install method
 	method := e.determineInstallMethod(t)
-
-	// Set progress callback for download pattern
-	e.toolInstaller.SetProgressCallback(func(downloaded, total int64) {
-		e.emitEvent(Event{
-			Type:       EventProgress,
-			Kind:       resource.KindTool,
-			Name:       action.Name,
-			Version:    t.ToolSpec.Version,
-			Action:     action.Type,
-			Downloaded: downloaded,
-			Total:      total,
-			Method:     method,
-		})
-	})
-	defer e.toolInstaller.SetProgressCallback(nil)
-
-	// Set output callback for delegation pattern
-	e.toolInstaller.SetOutputCallback(func(line string) {
-		e.emitEvent(Event{
-			Type:    EventOutput,
-			Kind:    resource.KindTool,
-			Name:    action.Name,
-			Version: t.ToolSpec.Version,
-			Action:  action.Type,
-			Output:  line,
-			Method:  method,
-		})
-	})
-	defer e.toolInstaller.SetOutputCallback(nil)
 
 	// Emit start event
 	e.emitEvent(Event{

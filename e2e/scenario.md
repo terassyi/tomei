@@ -17,7 +17,78 @@ This document describes the scenarios verified by toto's E2E tests.
 |-------|-------|-------------|
 | toto on Ubuntu | 27 | Basic commands, installation, idempotency, doctor, runtime upgrade |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
-| Dependency Resolution | 12 | Circular dependency detection, parallel installation, dependency chains, toolRef chain |
+| Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
+
+## Scenario Flow
+
+```mermaid
+flowchart TD
+    subgraph S1["1. toto on Ubuntu"]
+        direction TB
+        S1_1["1.1 Basic Commands<br/>version / init / validate / plan"]
+        S1_2["1.2 Apply<br/>Runtime(go 1.25.5) + Tool(gh) + Tool(gopls)"]
+        S1_3["1.3-1.5 Verify<br/>directories / symlinks / state.json"]
+        S1_6["1.6 Idempotency<br/>total_actions=0"]
+        S1_7["1.7 Delegation<br/>gopls via go install"]
+        S1_8["1.8 Doctor<br/>unmanaged tool detection"]
+        S1_9["1.9 Runtime Upgrade<br/>go 1.25.5 → 1.25.6 + taint"]
+
+        S1_1 --> S1_2 --> S1_3 --> S1_6 --> S1_7 --> S1_8 --> S1_9
+    end
+
+    subgraph S2["2. Aqua Registry"]
+        direction TB
+        S2_1["2.1 Init<br/>registry ref in state.json"]
+        S2_2["2.2 Install<br/>rg 15.1.0 / fd 10.3.0 / jq 1.8.1"]
+        S2_3["2.3-2.5 Verify<br/>arch / state / --sync"]
+        S2_6["2.6 Idempotency"]
+        S2_7["2.7 Upgrade/Downgrade<br/>version switch + idempotency"]
+
+        S2_1 --> S2_2 --> S2_3 --> S2_6 --> S2_7
+    end
+
+    subgraph S3["3. Dependency Resolution"]
+        direction TB
+        S3_1["3.1 Circular Detection<br/>2-node / 3-node / invalid"]
+        S3_2["3.2 Parallel Install<br/>rg + fd + bat (download)"]
+        S3_2_1["3.2.1 --parallel Flag<br/>--parallel 1 (seq) / default<br/>Downloads: header once"]
+        S3_2_2["3.2.2 Mixed Parallel<br/>Runtime(go) → Tool(gopls)<br/>dependency order in parallel"]
+        S3_3["3.3 ToolRef Chain<br/>aqua → jq → jq-installer"]
+        S3_4["3.4 Tool→Installer→Tool<br/>gh → gh-installer → toto-src"]
+        S3_5["3.5 Runtime→Tool Chain<br/>go → go-installer → gopls"]
+
+        S3_1 --> S3_2 --> S3_2_1 --> S3_2_2 --> S3_3 --> S3_4 --> S3_5
+    end
+
+    S1 --> S2 --> S3
+```
+
+### Dependency Graph Patterns
+
+```mermaid
+graph LR
+    subgraph P1["Download Pattern"]
+        I1[Installer/aqua] --> T1[Tool/rg]
+        I1 --> T2[Tool/fd]
+        I1 --> T3[Tool/bat]
+    end
+
+    subgraph P2["Delegation Pattern"]
+        R1[Runtime/go] --> I2[Installer/go]
+        I2 --> T4[Tool/gopls]
+    end
+
+    subgraph P3["ToolRef Chain"]
+        I3[Installer/aqua] --> T5[Tool/jq]
+        T5 -.->|toolRef| I4[Installer/jq-installer]
+    end
+
+    subgraph P4["Mixed Chain"]
+        I5[Installer/download] --> T6[Tool/gh]
+        T6 -.->|toolRef| I6[Installer/gh]
+        I6 --> T7[Tool/toto-src]
+    end
+```
 
 ---
 
@@ -300,6 +371,37 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 
 #### Idempotency
 - Second apply outputs "total_actions=0" or "no changes"
+
+### 3.2.1 `--parallel` Flag Behavior
+
+#### Sequential Execution (`--parallel 1`)
+- `toto apply --parallel 1 ~/dependency-test/parallel.cue`
+- All 3 tools (rg, fd, bat) installed correctly
+- Version verification:
+  - `~/.local/bin/rg --version` → "ripgrep 14.1.1"
+  - `~/.local/bin/fd --version` → "fd 10.2.0"
+  - `~/.local/bin/bat --version` → "bat 0.26.1"
+- Non-TTY output contains "Commands:" header exactly once
+
+#### Default Parallelism (`--parallel 5`)
+- `toto apply ~/dependency-test/parallel.cue` (no flag, default)
+- All 3 tools installed correctly
+- Non-TTY output contains "Commands:" header exactly once (no duplicates from concurrent writes)
+
+### 3.2.2 Runtime and Tool Mixed Parallel Execution
+
+#### Configuration
+```
+Runtime(go) → Installer(go) → Tool(gopls)
+```
+- Same as runtime-chain.cue but executed with default parallelism
+
+#### Verification
+1. `toto apply ~/dependency-test/runtime-chain.cue` succeeds
+2. Go runtime installed before gopls (dependency order preserved in parallel mode):
+   - `GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version` → "go1.23"
+   - `~/go/bin/gopls version` → "golang.org/x/tools/gopls"
+3. state.json records both "go" and "gopls"
 
 ### 3.3 ToolRef Dependency Chain
 

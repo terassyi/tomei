@@ -2,9 +2,14 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,6 +18,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/resource"
 	"github.com/terassyi/toto/internal/state"
+	"pgregory.net/rapid"
 )
 
 // mockToolInstaller is a mock implementation for testing.
@@ -46,7 +52,7 @@ func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {
 
 func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
-func (m *mockToolInstaller) SetOutputCallback(_ func(line string)) {}
+func (m *mockToolInstaller) SetOutputCallback(_ download.OutputCallback) {}
 
 // mockRuntimeInstaller is a mock implementation for testing.
 type mockRuntimeInstaller struct {
@@ -536,7 +542,8 @@ biomeTool: {
 	resources, err := loader.Load(configDir)
 	require.NoError(t, err)
 
-	// Track execution order
+	// Track execution order (protected by mutex for parallel execution)
+	var mu sync.Mutex
 	var executionOrder []string
 
 	// Setup store
@@ -546,7 +553,9 @@ biomeTool: {
 
 	runtimeMock := &mockRuntimeInstaller{
 		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			mu.Lock()
 			executionOrder = append(executionOrder, "Runtime:"+name)
+			mu.Unlock()
 			return &resource.RuntimeState{
 				Type:        res.RuntimeSpec.Type,
 				Version:     res.RuntimeSpec.Version,
@@ -561,7 +570,9 @@ biomeTool: {
 
 	toolMock := &mockToolInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			mu.Lock()
 			executionOrder = append(executionOrder, "Tool:"+name)
+			mu.Unlock()
 			return &resource.ToolState{
 				InstallerRef: res.ToolSpec.InstallerRef,
 				Version:      res.ToolSpec.Version,
@@ -723,11 +734,33 @@ bat: {
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
+	var mu sync.Mutex
 	installedTools := make(map[string]bool)
+
+	// Track concurrent execution
+	var concurrentCount atomic.Int32
+	var maxConcurrent atomic.Int32
 
 	toolMock := &mockToolInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			current := concurrentCount.Add(1)
+			defer concurrentCount.Add(-1)
+
+			// Update max concurrent (CAS loop)
+			for {
+				old := maxConcurrent.Load()
+				if current <= old || maxConcurrent.CompareAndSwap(old, current) {
+					break
+				}
+			}
+
+			// Simulate work to allow overlap
+			time.Sleep(50 * time.Millisecond)
+
+			mu.Lock()
 			installedTools[name] = true
+			mu.Unlock()
+
 			return &resource.ToolState{
 				InstallerRef: res.ToolSpec.InstallerRef,
 				Version:      res.ToolSpec.Version,
@@ -747,6 +780,447 @@ bat: {
 	assert.True(t, installedTools["ripgrep"])
 	assert.True(t, installedTools["fd"])
 	assert.True(t, installedTools["bat"])
+
+	// Verify actual parallelism occurred
+	assert.Greater(t, maxConcurrent.Load(), int32(1), "expected concurrent execution of independent tools")
+}
+
+func TestEngine_Apply_ParallelExecution_CancelOnError(t *testing.T) {
+	// Test that when one tool fails in a parallel layer, other tools are canceled
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: {
+		pattern: "download"
+	}
+}
+
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "ripgrep"
+	spec: {
+		installerRef: "aqua"
+		version: "14.0.0"
+		source: {
+			url: "https://example.com/ripgrep.tar.gz"
+			checksum: { value: "sha256:rg" }
+		}
+	}
+}
+
+fd: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fd"
+	spec: {
+		installerRef: "aqua"
+		version: "9.0.0"
+		source: {
+			url: "https://example.com/fd.tar.gz"
+			checksum: { value: "sha256:fd" }
+		}
+	}
+}
+
+bat: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "aqua"
+		version: "0.24.0"
+		source: {
+			url: "https://example.com/bat.tar.gz"
+			checksum: { value: "sha256:bat" }
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+	var canceledCount atomic.Int32
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			// fd fails immediately
+			if name == "fd" {
+				return nil, fmt.Errorf("simulated install failure for fd")
+			}
+
+			// Other tools simulate work and check for cancellation
+			select {
+			case <-ctx.Done():
+				canceledCount.Add(1)
+				return nil, ctx.Err()
+			case <-time.After(200 * time.Millisecond):
+			}
+
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+	// Run Apply - should return error
+	err = eng.Apply(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fd")
+
+	// fd should not be installed
+	assert.False(t, installedTools["fd"], "fd should not be installed")
+}
+
+func TestEngine_Apply_RuntimeBeforeTool_SameLayer(t *testing.T) {
+	// Test that Runtime nodes always execute before Tool nodes even in the same layer
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.25.0"
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: { value: "sha256:go" }
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+ripgrep: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "ripgrep"
+	spec: {
+		installerRef: "download"
+		version: "14.0.0"
+		source: {
+			url: "https://example.com/ripgrep.tar.gz"
+			checksum: { value: "sha256:rg" }
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	var executionOrder []string
+
+	runtimeMock := &mockRuntimeInstaller{
+		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			mu.Lock()
+			executionOrder = append(executionOrder, "Runtime:"+name)
+			mu.Unlock()
+			return &resource.RuntimeState{
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name,
+				Binaries:    res.RuntimeSpec.Binaries,
+				ToolBinPath: res.RuntimeSpec.ToolBinPath,
+			}, nil
+		},
+	}
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			mu.Lock()
+			executionOrder = append(executionOrder, "Tool:"+name)
+			mu.Unlock()
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, runtimeMock, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Runtime must always come before Tool
+	goIndex := -1
+	rgIndex := -1
+	for i, item := range executionOrder {
+		switch item {
+		case "Runtime:go":
+			goIndex = i
+		case "Tool:ripgrep":
+			rgIndex = i
+		}
+	}
+
+	assert.NotEqual(t, -1, goIndex, "go runtime should be installed")
+	assert.NotEqual(t, -1, rgIndex, "ripgrep tool should be installed")
+	assert.Less(t, goIndex, rgIndex, "runtime must be installed before tool even without dependency")
+}
+
+func TestEngine_Apply_ParallelRuntimeExecution(t *testing.T) {
+	// Test that multiple independent runtimes are executed in parallel
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+goRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		pattern: "download"
+		version: "1.25.0"
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: { value: "sha256:go" }
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+rustRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "rust"
+	spec: {
+		pattern: "download"
+		version: "1.80.0"
+		source: {
+			url: "https://example.com/rust.tar.gz"
+			checksum: { value: "sha256:rust" }
+		}
+		binaries: ["rustc", "cargo"]
+		toolBinPath: "~/.cargo/bin"
+	}
+}
+
+nodeRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "node"
+	spec: {
+		pattern: "download"
+		version: "22.0.0"
+		source: {
+			url: "https://example.com/node.tar.gz"
+			checksum: { value: "sha256:node" }
+		}
+		binaries: ["node", "npm"]
+		toolBinPath: "~/.npm/bin"
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var concurrentCount atomic.Int32
+	var maxConcurrent atomic.Int32
+	var mu sync.Mutex
+	installedRuntimes := make(map[string]bool)
+
+	runtimeMock := &mockRuntimeInstaller{
+		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			current := concurrentCount.Add(1)
+			defer concurrentCount.Add(-1)
+
+			for {
+				old := maxConcurrent.Load()
+				if current <= old || maxConcurrent.CompareAndSwap(old, current) {
+					break
+				}
+			}
+
+			time.Sleep(50 * time.Millisecond)
+
+			mu.Lock()
+			installedRuntimes[name] = true
+			mu.Unlock()
+
+			return &resource.RuntimeState{
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name,
+				Binaries:    res.RuntimeSpec.Binaries,
+				ToolBinPath: res.RuntimeSpec.ToolBinPath,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(&mockToolInstaller{}, runtimeMock, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// All runtimes should be installed
+	assert.True(t, installedRuntimes["go"])
+	assert.True(t, installedRuntimes["rust"])
+	assert.True(t, installedRuntimes["node"])
+
+	// Verify actual parallelism occurred
+	assert.Greater(t, maxConcurrent.Load(), int32(1), "expected concurrent execution of independent runtimes")
+}
+
+func TestEngine_SetParallelism(t *testing.T) {
+	tests := []struct {
+		name  string
+		input int
+		want  int
+	}{
+		{name: "default", input: 5, want: 5},
+		{name: "minimum clamped", input: 0, want: 1},
+		{name: "negative clamped", input: -1, want: 1},
+		{name: "maximum clamped", input: 100, want: MaxParallelism},
+		{name: "valid value", input: 10, want: 10},
+		{name: "one", input: 1, want: 1},
+		{name: "max boundary", input: MaxParallelism, want: MaxParallelism},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			store, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+			eng.SetParallelism(tt.input)
+			assert.Equal(t, tt.want, eng.parallelism)
+		})
+	}
+}
+
+func TestEngine_Apply_ParallelismLimit(t *testing.T) {
+	// Test that parallelism is limited to the configured value
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+
+	// Create 6 tools to exceed parallelism limit of 2
+	var sb strings.Builder
+	sb.WriteString(`package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: { pattern: "download" }
+}
+`)
+	toolDefs := []struct{ cueKey, name string }{
+		{"toolA", "tool-a"}, {"toolB", "tool-b"}, {"toolC", "tool-c"},
+		{"toolD", "tool-d"}, {"toolE", "tool-e"}, {"toolF", "tool-f"},
+	}
+	for _, td := range toolDefs {
+		fmt.Fprintf(&sb, `
+%s: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "%s"
+	spec: {
+		installerRef: "aqua"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/%s.tar.gz"
+			checksum: { value: "sha256:%s" }
+		}
+	}
+}
+`, td.cueKey, td.name, td.name, td.name)
+	}
+
+	err := os.WriteFile(cueFile, []byte(sb.String()), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var concurrentCount atomic.Int32
+	var maxConcurrent atomic.Int32
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			current := concurrentCount.Add(1)
+			defer concurrentCount.Add(-1)
+
+			for {
+				old := maxConcurrent.Load()
+				if current <= old || maxConcurrent.CompareAndSwap(old, current) {
+					break
+				}
+			}
+
+			time.Sleep(50 * time.Millisecond)
+
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng.SetParallelism(2) // Limit to 2 concurrent
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Max concurrent should not exceed the parallelism limit
+	assert.LessOrEqual(t, maxConcurrent.Load(), int32(2), "concurrent execution should not exceed parallelism limit")
+	assert.Positive(t, maxConcurrent.Load(), "should have some concurrent execution")
 }
 
 func TestEngine_ResolverConfigurer(t *testing.T) {
@@ -966,4 +1440,419 @@ tool: {
 	require.Len(t, toolActions, 1)
 	assert.Equal(t, resource.ActionInstall, toolActions[0].Type)
 	assert.Equal(t, "test-tool", toolActions[0].Name)
+}
+
+// --- CUE manifest generation helpers for property tests ---
+
+// generateToolsCUE generates a CUE manifest with an Installer and N tools.
+func generateToolsCUE(toolNames []string) string {
+	var sb strings.Builder
+	sb.WriteString(`package toto
+
+aquaInstaller: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: { pattern: "download" }
+}
+`)
+	for _, name := range toolNames {
+		fmt.Fprintf(&sb, `
+%s: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "%s"
+	spec: {
+		installerRef: "aqua"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/%s.tar.gz"
+			checksum: { value: "sha256:%s" }
+		}
+	}
+}
+`, name, name, name, name)
+	}
+	return sb.String()
+}
+
+// generateRuntimesAndToolsCUE generates a CUE manifest with N runtimes and M tools.
+func generateRuntimesAndToolsCUE(runtimeNames, toolNames []string) string {
+	var sb strings.Builder
+	sb.WriteString("package toto\n")
+
+	for _, name := range runtimeNames {
+		fmt.Fprintf(&sb, `
+%sRuntime: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "%s"
+	spec: {
+		pattern: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/%s.tar.gz"
+			checksum: { value: "sha256:%s" }
+		}
+		binaries: ["%s"]
+		toolBinPath: "~/%s/bin"
+	}
+}
+`, name, name, name, name, name, name)
+	}
+
+	for _, name := range toolNames {
+		fmt.Fprintf(&sb, `
+%s: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "%s"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/%s.tar.gz"
+			checksum: { value: "sha256:%s" }
+		}
+	}
+}
+`, name, name, name, name)
+	}
+
+	return sb.String()
+}
+
+// newStoreForRapid creates a locked state store for rapid tests.
+func newStoreForRapid(t *rapid.T) *state.Store[state.UserState] {
+	dir, err := os.MkdirTemp("", "engine-prop-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	store, err := state.NewStore[state.UserState](dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// --- Property-Based Tests ---
+
+func TestEngine_Property_ParallelSafety(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(2, 15).Draw(t, "numTools")
+		toolNames := make([]string, n)
+		for i := range n {
+			toolNames[i] = fmt.Sprintf("tool%d", i)
+		}
+
+		cue := generateToolsCUE(toolNames)
+		configDir, err := os.MkdirTemp("", "engine-prop-config-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(configDir) })
+		if err := os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cue), 0644); err != nil {
+			t.Fatal(err)
+		}
+		loader := config.NewLoader(nil)
+		resources, err := loader.Load(configDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		store := newStoreForRapid(t)
+
+		var mu sync.Mutex
+		installed := make(map[string]bool)
+
+		toolMock := &mockToolInstaller{
+			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+				time.Sleep(5 * time.Millisecond)
+				mu.Lock()
+				installed[name] = true
+				mu.Unlock()
+				return &resource.ToolState{
+					InstallerRef: res.ToolSpec.InstallerRef,
+					Version:      res.ToolSpec.Version,
+					InstallPath:  "/tools/" + name,
+					BinPath:      "/bin/" + name,
+				}, nil
+			},
+		}
+
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+		if err := eng.Apply(context.Background(), resources); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		// Property: every tool must be installed
+		for _, name := range toolNames {
+			if !installed[name] {
+				t.Fatalf("tool %s not installed", name)
+			}
+		}
+
+		// Property: state must contain all tools
+		if err := store.Lock(); err != nil {
+			t.Fatal(err)
+		}
+		st, err := store.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = store.Unlock()
+
+		for _, name := range toolNames {
+			if _, ok := st.Tools[name]; !ok {
+				t.Fatalf("tool %s missing from state", name)
+			}
+		}
+	})
+}
+
+func TestEngine_Property_RuntimeBeforeTool(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		nRuntimes := rapid.IntRange(1, 5).Draw(t, "numRuntimes")
+		nTools := rapid.IntRange(1, 5).Draw(t, "numTools")
+
+		runtimeNames := make([]string, nRuntimes)
+		for i := range nRuntimes {
+			runtimeNames[i] = fmt.Sprintf("rt%d", i)
+		}
+		toolNames := make([]string, nTools)
+		for i := range nTools {
+			toolNames[i] = fmt.Sprintf("tl%d", i)
+		}
+
+		cue := generateRuntimesAndToolsCUE(runtimeNames, toolNames)
+		configDir, err := os.MkdirTemp("", "engine-prop-config-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(configDir) })
+		if err := os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cue), 0644); err != nil {
+			t.Fatal(err)
+		}
+		loader := config.NewLoader(nil)
+		resources, err := loader.Load(configDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		store := newStoreForRapid(t)
+
+		var mu sync.Mutex
+		var order []string
+
+		runtimeMock := &mockRuntimeInstaller{
+			installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+				time.Sleep(5 * time.Millisecond)
+				mu.Lock()
+				order = append(order, "R:"+name)
+				mu.Unlock()
+				return &resource.RuntimeState{
+					Type:        res.RuntimeSpec.Type,
+					Version:     res.RuntimeSpec.Version,
+					InstallPath: "/runtimes/" + name,
+					Binaries:    res.RuntimeSpec.Binaries,
+					ToolBinPath: res.RuntimeSpec.ToolBinPath,
+				}, nil
+			},
+		}
+
+		toolMock := &mockToolInstaller{
+			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+				mu.Lock()
+				order = append(order, "T:"+name)
+				mu.Unlock()
+				return &resource.ToolState{
+					InstallerRef: res.ToolSpec.InstallerRef,
+					Version:      res.ToolSpec.Version,
+					InstallPath:  "/tools/" + name,
+					BinPath:      "/bin/" + name,
+				}, nil
+			},
+		}
+
+		eng := NewEngine(toolMock, runtimeMock, store)
+
+		if err := eng.Apply(context.Background(), resources); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		// Property: all runtime entries must appear before all tool entries
+		lastRuntimeIdx := -1
+		firstToolIdx := len(order)
+		for i, entry := range order {
+			if strings.HasPrefix(entry, "R:") {
+				if i > lastRuntimeIdx {
+					lastRuntimeIdx = i
+				}
+			}
+			if strings.HasPrefix(entry, "T:") {
+				if i < firstToolIdx {
+					firstToolIdx = i
+				}
+			}
+		}
+
+		if lastRuntimeIdx >= firstToolIdx {
+			t.Fatalf("runtime executed after tool: order=%v lastRuntime=%d firstTool=%d", order, lastRuntimeIdx, firstToolIdx)
+		}
+	})
+}
+
+func TestEngine_Property_ParallelismLimit(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		nTools := rapid.IntRange(2, 20).Draw(t, "numTools")
+		parallelism := rapid.IntRange(1, 10).Draw(t, "parallelism")
+
+		toolNames := make([]string, nTools)
+		for i := range nTools {
+			toolNames[i] = fmt.Sprintf("tool%d", i)
+		}
+
+		cue := generateToolsCUE(toolNames)
+		configDir, err := os.MkdirTemp("", "engine-prop-config-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(configDir) })
+		if err := os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cue), 0644); err != nil {
+			t.Fatal(err)
+		}
+		loader := config.NewLoader(nil)
+		resources, err := loader.Load(configDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		store := newStoreForRapid(t)
+
+		var concurrentCount atomic.Int32
+		var maxConcurrent atomic.Int32
+
+		toolMock := &mockToolInstaller{
+			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+				current := concurrentCount.Add(1)
+				defer concurrentCount.Add(-1)
+
+				for {
+					old := maxConcurrent.Load()
+					if current <= old || maxConcurrent.CompareAndSwap(old, current) {
+						break
+					}
+				}
+
+				time.Sleep(5 * time.Millisecond)
+
+				return &resource.ToolState{
+					InstallerRef: res.ToolSpec.InstallerRef,
+					Version:      res.ToolSpec.Version,
+					InstallPath:  "/tools/" + name,
+					BinPath:      "/bin/" + name,
+				}, nil
+			},
+		}
+
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+		eng.SetParallelism(parallelism)
+
+		if err := eng.Apply(context.Background(), resources); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		// Property: maxConcurrent must never exceed parallelism
+		if int(maxConcurrent.Load()) > parallelism {
+			t.Fatalf("maxConcurrent %d exceeded parallelism %d", maxConcurrent.Load(), parallelism)
+		}
+	})
+}
+
+func TestEngine_Property_CancelOnError(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		n := rapid.IntRange(2, 10).Draw(t, "numTools")
+		failIdx := rapid.IntRange(0, n-1).Draw(t, "failIdx")
+
+		toolNames := make([]string, n)
+		for i := range n {
+			toolNames[i] = fmt.Sprintf("tool%d", i)
+		}
+		failName := toolNames[failIdx]
+
+		cue := generateToolsCUE(toolNames)
+		configDir, err := os.MkdirTemp("", "engine-prop-config-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.RemoveAll(configDir) })
+		if err := os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cue), 0644); err != nil {
+			t.Fatal(err)
+		}
+		loader := config.NewLoader(nil)
+		resources, err := loader.Load(configDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		store := newStoreForRapid(t)
+
+		var mu sync.Mutex
+		installed := make(map[string]bool)
+
+		toolMock := &mockToolInstaller{
+			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+				if name == failName {
+					return nil, fmt.Errorf("simulated failure for %s", name)
+				}
+
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(50 * time.Millisecond):
+				}
+
+				mu.Lock()
+				installed[name] = true
+				mu.Unlock()
+
+				return &resource.ToolState{
+					InstallerRef: res.ToolSpec.InstallerRef,
+					Version:      res.ToolSpec.Version,
+					InstallPath:  "/tools/" + name,
+					BinPath:      "/bin/" + name,
+				}, nil
+			},
+		}
+
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+
+		err = eng.Apply(context.Background(), resources)
+
+		// Property: Apply must return an error
+		if err == nil {
+			t.Fatal("expected error from Apply")
+		}
+
+		// Property: the failed tool must NOT be in installed map
+		if installed[failName] {
+			t.Fatalf("failed tool %s should not be installed", failName)
+		}
+
+		// Property: the failed tool must NOT be in state
+		if lockErr := store.Lock(); lockErr != nil {
+			t.Fatal(lockErr)
+		}
+		st, loadErr := store.Load()
+		if loadErr != nil {
+			t.Fatal(loadErr)
+		}
+		_ = store.Unlock()
+
+		if _, ok := st.Tools[failName]; ok {
+			t.Fatalf("failed tool %s should not be in state", failName)
+		}
+	})
 }

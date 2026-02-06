@@ -44,7 +44,7 @@ type Installer struct {
 	resolver         *aqua.Resolver            // aqua-registry resolver (optional)
 	registryRef      aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
 	progressCallback download.ProgressCallback // optional progress callback
-	outputCallback   func(line string)         // optional output callback for delegation
+	outputCallback   download.OutputCallback   // optional output callback for delegation
 }
 
 // NewInstaller creates a new tool Installer.
@@ -87,7 +87,7 @@ func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
 }
 
 // SetOutputCallback sets a callback for command output lines (delegation pattern).
-func (i *Installer) SetOutputCallback(callback func(line string)) {
+func (i *Installer) SetOutputCallback(callback download.OutputCallback) {
 	i.outputCallback = callback
 }
 
@@ -177,8 +177,12 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	urlFilename := filepath.Base(spec.Source.URL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
 
-	// Download with progress callback if set
-	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, i.progressCallback)
+	// Download with progress callback if set (prefer context callback for parallel execution)
+	progressCb := download.CallbackFromContext[download.ProgressCallback](ctx)
+	if progressCb == nil {
+		progressCb = i.progressCallback
+	}
+	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, progressCb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}
@@ -415,8 +419,13 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Execute install command with runtime's environment and output streaming
-	if i.outputCallback != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, i.outputCallback); err != nil {
+	// Prefer context callback for parallel execution
+	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
+	if outputCb == nil {
+		outputCb = i.outputCallback
+	}
+	if outputCb != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
 			return nil, fmt.Errorf("failed to execute install command: %w", err)
 		}
 	} else {
@@ -455,8 +464,13 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 	// Execute install command with output streaming
 	// Note: Installer no longer references Runtime directly.
 	// Tools that need runtime environment should use runtimeRef on the Tool itself.
-	if i.outputCallback != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, nil, i.outputCallback); err != nil {
+	// Prefer context callback for parallel execution
+	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
+	if outputCb == nil {
+		outputCb = i.outputCallback
+	}
+	if outputCb != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, nil, command.OutputCallback(outputCb)); err != nil {
 			return nil, fmt.Errorf("failed to execute install command: %w", err)
 		}
 	} else {
