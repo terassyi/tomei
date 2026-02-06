@@ -369,4 +369,75 @@ func basicTests() {
 			Expect(output).To(ContainSubstring("go" + versions.GoVersionUpgrade))
 		})
 	})
+
+	Context("Resource Removal", func() {
+		AfterAll(func() {
+			By("Restoring all hidden manifests for subsequent test suites")
+			// Ignore error in case no .hidden files exist
+			_, _ = testExec.ExecBash("for f in ~/manifests/*.hidden; do mv \"$f\" \"${f%.hidden}\"; done")
+		})
+
+		It("rejects removing runtime when dependent tools remain", func() {
+			By("Hiding runtime manifest so runtime is no longer in spec")
+			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running toto apply — should fail because gopls depends on go runtime")
+			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			Expect(err).To(HaveOccurred())
+			Expect(output).To(ContainSubstring("cannot remove runtime"))
+			Expect(output).To(ContainSubstring("gopls"))
+
+			By("Restoring runtime manifest")
+			_, err = testExec.ExecBash("mv ~/manifests/runtime.cue.hidden ~/manifests/runtime.cue")
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("removes a tool when its manifest is removed", func() {
+			By("Hiding tool manifest")
+			_, err := testExec.ExecBash("mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running toto apply")
+			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying tool symlink is removed")
+			_, err = testExec.ExecBash("test -L ~/.local/bin/gh")
+			Expect(err).To(HaveOccurred())
+
+			By("Verifying tool is removed from state")
+			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).NotTo(MatchRegexp(`"gh"\s*:`))
+		})
+
+		It("removes runtime and dependent tools together", func() {
+			By("Hiding runtime, delegation, and toolset manifests")
+			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("mv ~/manifests/delegation.cue ~/manifests/delegation.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("mv ~/manifests/toolset.cue ~/manifests/toolset.cue.hidden")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running toto apply — should succeed since all dependents are removed")
+			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying runtime symlink is removed")
+			_, err = testExec.ExecBash("test -L ~/go/bin/go")
+			Expect(err).To(HaveOccurred())
+
+			By("Verifying gopls is removed")
+			_, err = testExec.ExecBash("test -f ~/go/bin/gopls")
+			Expect(err).To(HaveOccurred())
+
+			By("Verifying state.json has no runtime or gopls")
+			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).NotTo(MatchRegexp(`"go"\s*:`))
+			Expect(output).NotTo(MatchRegexp(`"gopls"\s*:`))
+		})
+	})
 }
