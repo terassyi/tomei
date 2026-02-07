@@ -116,10 +116,13 @@ type BootstrapSpec = CommandSet
 type CommandsSpec = CommandSet
 
 // InstallerState represents the persisted state of an installer.
-// Currently minimal as installers themselves don't have much state to track.
 type InstallerState struct {
 	// Version tracks the installer version (if applicable).
 	Version string `json:"version"`
+
+	// ToolRef is the tool this installer delegates to (if any).
+	// Used to resolve tool binary paths for delegation commands during removal.
+	ToolRef string `json:"toolRef,omitempty"`
 
 	// UpdatedAt is the timestamp when this installer was last configured.
 	UpdatedAt time.Time `json:"updatedAt"`

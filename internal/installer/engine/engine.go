@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/terassyi/toto/internal/graph"
 	"github.com/terassyi/toto/internal/installer/download"
@@ -232,7 +233,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Build resource maps for quick lookup
 	resourceMap := buildResourceMap(resources)
 
-	// Register installers for delegation type
+	// Register installers for delegation type and save to state
 	for _, res := range resources {
 		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
 			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
@@ -240,7 +241,18 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				ToolRef:  inst.InstallerSpec.ToolRef,
 				Commands: inst.InstallerSpec.Commands,
 			})
+			// Persist installer state (including ToolRef) for removal lookup
+			if st.Installers == nil {
+				st.Installers = make(map[string]*resource.InstallerState)
+			}
+			st.Installers[inst.Name()] = &resource.InstallerState{
+				ToolRef:   inst.InstallerSpec.ToolRef,
+				UpdatedAt: time.Now(),
+			}
 		}
+	}
+	if err := e.store.Save(st); err != nil {
+		return fmt.Errorf("failed to save installer state: %w", err)
 	}
 
 	// Track updated runtimes for taint logic
@@ -573,9 +585,12 @@ func (e *Engine) executeRuntimeNode(
 }
 
 // updateToolBinPaths builds and sets the mapping from installer name to tool bin directory.
-// This ensures InstallerRepository delegation commands can find toolRef binaries in PATH.
+// This ensures delegation commands can find toolRef binaries in PATH.
+// It first checks resources (for install/apply), then falls back to state (for removals
+// where the Installer resource may no longer be in the manifest).
 func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st *state.UserState) {
 	toolBinPaths := make(map[string]string)
+	// From resources (available during install/apply)
 	for _, res := range resourceMap {
 		inst, ok := res.(*resource.Installer)
 		if !ok || inst.InstallerSpec == nil || inst.InstallerSpec.ToolRef == "" {
@@ -583,6 +598,18 @@ func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st
 		}
 		if ts, exists := st.Tools[inst.InstallerSpec.ToolRef]; exists && ts.BinPath != "" {
 			toolBinPaths[inst.Name()] = filepath.Dir(ts.BinPath)
+		}
+	}
+	// From state (fallback for removals when Installer is no longer in manifest)
+	for name, instState := range st.Installers {
+		if _, already := toolBinPaths[name]; already {
+			continue
+		}
+		if instState.ToolRef == "" {
+			continue
+		}
+		if ts, exists := st.Tools[instState.ToolRef]; exists && ts.BinPath != "" {
+			toolBinPaths[name] = filepath.Dir(ts.BinPath)
 		}
 	}
 	e.installerRepoInstaller.SetToolBinPaths(toolBinPaths)
