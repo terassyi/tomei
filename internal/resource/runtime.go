@@ -176,6 +176,10 @@ type RuntimeState struct {
 	// Used when executing tools that depend on this runtime.
 	Env map[string]string `json:"env,omitempty"`
 
+	// RemoveCommand is the shell command to uninstall a delegation-pattern runtime.
+	// Stored in state because Remove() only receives state (no spec).
+	RemoveCommand string `json:"removeCommand,omitempty"`
+
 	// UpdatedAt is the timestamp when this runtime was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`
 }

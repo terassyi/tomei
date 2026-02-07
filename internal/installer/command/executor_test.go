@@ -240,3 +240,45 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 		assert.Contains(t, lines, "before_fail")
 	})
 }
+
+func TestExecutor_ExecuteCapture(t *testing.T) {
+	e := NewExecutor("")
+	ctx := context.Background()
+
+	t.Run("captures stdout", func(t *testing.T) {
+		result, err := e.ExecuteCapture(ctx, "echo hello", Vars{}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", result)
+	})
+
+	t.Run("trims whitespace", func(t *testing.T) {
+		result, err := e.ExecuteCapture(ctx, "echo '  1.83.0  '", Vars{}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "1.83.0", result)
+	})
+
+	t.Run("with variables", func(t *testing.T) {
+		result, err := e.ExecuteCapture(ctx, "echo {{.Version}}", Vars{Version: "stable"}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "stable", result)
+	})
+
+	t.Run("with environment", func(t *testing.T) {
+		env := map[string]string{"MY_VER": "2.0.0"}
+		result, err := e.ExecuteCapture(ctx, "echo $MY_VER", Vars{}, env)
+		require.NoError(t, err)
+		assert.Equal(t, "2.0.0", result)
+	})
+
+	t.Run("failing command", func(t *testing.T) {
+		_, err := e.ExecuteCapture(ctx, "exit 1", Vars{}, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "command failed")
+	})
+
+	t.Run("stderr not captured in result", func(t *testing.T) {
+		result, err := e.ExecuteCapture(ctx, "echo stdout; echo stderr >&2", Vars{}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "stdout", result)
+	})
+}
