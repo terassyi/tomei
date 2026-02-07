@@ -375,6 +375,8 @@ eval "$(toto env)"
 
 **Note:** `toto apply` 時の delegation コマンド実行では、toto が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `toto env` はユーザーのシェル環境用。
 
+**toolRef の PATH 伝搬:** Installer が `toolRef` を持つ場合（例: Installer/binstall が Tool/cargo-binstall に依存）、toto は delegation コマンド実行時に参照先 Tool の bin ディレクトリを自動的に PATH に追加する。これは Tool のインストールコマンド（例: `cargo binstall ripgrep`）と InstallerRepository のコマンド（例: `helm repo add`）の両方に適用される。ユーザーのシェル PATH に Tool の bin ディレクトリが含まれていなくても、delegation コマンドが依存する Tool バイナリを見つけられる。
+
 ---
 
 ## 5. State 管理
@@ -442,6 +444,15 @@ System State:
         "CARGO_HOME": "~/.cargo",
         "RUSTUP_HOME": "~/.rustup"
       },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "installers": {
+    "aqua": {
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "binstall": {
+      "toolRef": "cargo-binstall",
       "updatedAt": "2025-01-28T12:00:00Z"
     }
   },
@@ -567,11 +578,12 @@ kind: "Installer"
 metadata: name: "binstall"
 spec: {
     pattern: "delegation"
-    toolRef: "cargo-binstall"  // ← Tool に依存
+    toolRef: "cargo-binstall"  // ← Tool に依存; bin ディレクトリが PATH に追加される
     commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
 }
 
 // 4. ripgrep Tool (binstall installer でインストール)
+// install コマンド実行時、toto が cargo-binstall の bin ディレクトリを PATH に追加する。
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
