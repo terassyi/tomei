@@ -915,20 +915,24 @@ Mode:
 └── Version extraction from CUE (single source of truth)
 ```
 
-### Phase 6: Userland Commands (Next)
-
-1. **toto adopt** — bring unmanaged tools (detected by doctor) under toto management
-2. **toto env** — export runtime environment variables for shell (`eval $(toto env)`)
-
-### Phase 7: Runtime Delegation & Version Resolution
+### Phase 6: Userland Commands (Completed)
 
 ```
-├── Delegation pattern for runtime installation (rustup, nvm bootstrap)
-├── Version alias resolution ("stable", "latest" → actual version)
-└── Auto-update latest-specified tools on --sync
+├── toto adopt — bring unmanaged tools (detected by doctor) under toto management
+└── toto env — export runtime environment variables for shell (eval $(toto env))
 ```
 
-### Phase 8: Configuration & Registry
+### Phase 7: Runtime Delegation & Version Resolution (Completed)
+
+```
+├── Delegation pattern for runtime installation (rustup bootstrap)
+├── VersionKind type for version classification (exact/latest/alias)
+├── Version alias resolution in reconciler (SpecVersion comparison)
+├── Auto-update latest-specified tools on --sync (taint-based)
+└── E2E tests for Rust delegation runtime with cargo install
+```
+
+### Phase 8: Configuration & Registry (Next)
 
 ```
 ├── CUE presets/overlay — environment-based conditional branching (_env.os, _env.arch)

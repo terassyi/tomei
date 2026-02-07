@@ -916,20 +916,24 @@ Mode:
 └── CUE からのバージョン抽出 (single source of truth)
 ```
 
-### Phase 6: ユーザランドコマンド (次)
-
-1. **toto adopt** — doctor が検出した未管理ツールを toto の管理下に取り込む
-2. **toto env** — ランタイムの環境変数をシェルにエクスポート (`eval $(toto env)`)
-
-### Phase 7: Runtime Delegation & バージョン解決
+### Phase 6: ユーザランドコマンド (完了)
 
 ```
-├── Delegation パターンによるランタイムインストール (rustup, nvm ブートストラップ)
-├── バージョンエイリアス解決 ("stable", "latest" → 実バージョン)
-└── --sync 時の latest 指定ツール自動更新
+├── toto adopt — doctor が検出した未管理ツールを toto の管理下に取り込む
+└── toto env — ランタイムの環境変数をシェルにエクスポート (eval $(toto env))
 ```
 
-### Phase 8: 設定 & レジストリ
+### Phase 7: Runtime Delegation & バージョン解決 (完了)
+
+```
+├── Delegation パターンによるランタイムインストール (rustup ブートストラップ)
+├── VersionKind 型によるバージョン分類 (exact/latest/alias)
+├── Reconciler でのバージョンエイリアス解決 (SpecVersion 比較)
+├── --sync 時の latest 指定ツール自動更新 (taint ベース)
+└── Rust delegation ランタイムの E2E テスト (cargo install)
+```
+
+### Phase 8: 設定 & レジストリ (次)
 
 ```
 ├── CUE プリセット/オーバーレイ — 環境別条件分岐 (_env.os, _env.arch)
