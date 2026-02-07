@@ -160,6 +160,8 @@ func (m *mockInstallerRepositoryInstaller) Remove(_ context.Context, _ *resource
 	return nil
 }
 
+func (m *mockInstallerRepositoryInstaller) SetToolBinPaths(_ map[string]string) {}
+
 // loadResources is a helper to load resources from a config directory.
 func loadResources(t *testing.T, configDir string) []resource.Resource {
 	t.Helper()

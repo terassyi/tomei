@@ -17,6 +17,7 @@ import (
 // This enables testing with mocks instead of real command execution.
 type commandRunner interface {
 	Execute(ctx context.Context, cmdStr string, vars command.Vars) error
+	ExecuteWithEnv(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) error
 	Check(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) bool
 }
 
@@ -45,9 +46,10 @@ func (g *goGitRunner) Exists(localPath string) bool {
 
 // Installer installs/manages installer repositories.
 type Installer struct {
-	cmdRunner commandRunner
-	gitRunner gitRunner
-	reposDir  string // base directory for git-cloned repos
+	cmdRunner    commandRunner
+	gitRunner    gitRunner
+	reposDir     string            // base directory for git-cloned repos
+	toolBinPaths map[string]string // installer name → tool bin directory (e.g., "helm" → "~/.local/bin")
 }
 
 // NewInstaller creates a new repository Installer.
@@ -65,6 +67,27 @@ func newInstallerWithRunners(reposDir string, cmdRunner commandRunner, gitRunner
 		cmdRunner: cmdRunner,
 		gitRunner: gitRunner,
 		reposDir:  reposDir,
+	}
+}
+
+// SetToolBinPaths sets the mapping from installer name to tool bin directory.
+// This is used to add the tool's bin directory to PATH when executing delegation commands.
+func (i *Installer) SetToolBinPaths(paths map[string]string) {
+	i.toolBinPaths = paths
+}
+
+// buildEnvWithToolPath builds an environment map with the tool's bin directory prepended to PATH.
+func (i *Installer) buildEnvWithToolPath(installerRef string) map[string]string {
+	if i.toolBinPaths == nil {
+		return nil
+	}
+	binDir, ok := i.toolBinPaths[installerRef]
+	if !ok || binDir == "" {
+		return nil
+	}
+	currentPath := os.Getenv("PATH")
+	return map[string]string{
+		"PATH": binDir + string(os.PathListSeparator) + currentPath,
 	}
 }
 
@@ -100,11 +123,12 @@ func (i *Installer) Remove(ctx context.Context, st *resource.InstallerRepository
 
 func (i *Installer) installDelegation(ctx context.Context, spec *resource.InstallerRepositorySpec, name string) (*resource.InstallerRepositoryState, error) {
 	commands := spec.Source.Commands
+	env := i.buildEnvWithToolPath(spec.InstallerRef)
 
 	// Check if already installed
 	if commands.Check != "" {
 		vars := command.Vars{Name: name}
-		if i.cmdRunner.Check(ctx, commands.Check, vars, nil) {
+		if i.cmdRunner.Check(ctx, commands.Check, vars, env) {
 			slog.Debug("installer repository already configured", "name", name)
 			return i.buildDelegationState(spec), nil
 		}
@@ -112,7 +136,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Instal
 
 	// Execute install command
 	vars := command.Vars{Name: name}
-	if err := i.cmdRunner.Execute(ctx, commands.Install, vars); err != nil {
+	if err := i.cmdRunner.ExecuteWithEnv(ctx, commands.Install, vars, env); err != nil {
 		return nil, fmt.Errorf("failed to install repository %s: %w", name, err)
 	}
 
@@ -149,8 +173,9 @@ func (i *Installer) removeDelegation(ctx context.Context, st *resource.Installer
 		slog.Warn("no remove command for repository, skipping", "name", name)
 		return nil
 	}
+	env := i.buildEnvWithToolPath(st.InstallerRef)
 	vars := command.Vars{Name: name}
-	return i.cmdRunner.Execute(ctx, st.RemoveCommand, vars)
+	return i.cmdRunner.ExecuteWithEnv(ctx, st.RemoveCommand, vars, env)
 }
 
 func (i *Installer) removeGit(st *resource.InstallerRepositoryState, name string) error {

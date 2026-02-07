@@ -107,6 +107,8 @@ func (m *mockInstallerRepositoryInstaller) Remove(ctx context.Context, st *resou
 	return nil
 }
 
+func (m *mockInstallerRepositoryInstaller) SetToolBinPaths(_ map[string]string) {}
+
 func TestNewEngine(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](tmpDir)

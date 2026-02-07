@@ -33,6 +33,11 @@ func (m *mockCommandRunner) Execute(_ context.Context, cmdStr string, vars comma
 	return m.executeErr
 }
 
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) error {
+	m.executeCalls = append(m.executeCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	return m.executeErr
+}
+
 func (m *mockCommandRunner) Check(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) bool {
 	m.checkCalls = append(m.checkCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
 	return m.checkResult

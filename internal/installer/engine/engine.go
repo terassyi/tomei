@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,7 @@ type RuntimeInstaller interface {
 type InstallerRepositoryInstaller interface {
 	Install(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error)
 	Remove(ctx context.Context, st *resource.InstallerRepositoryState, name string) error
+	SetToolBinPaths(paths map[string]string)
 }
 
 // ResolverConfigurer is a callback to configure the tool resolver after state is loaded.
@@ -320,6 +322,10 @@ func (e *Engine) executeLayer(
 		return err
 	}
 
+	// Update tool bin paths for InstallerRepository delegation commands.
+	// After Phase 1, toolRef targets are installed and their binPaths are in state.
+	e.updateToolBinPaths(resourceMap, st)
+
 	// Phase 2: Execute InstallerRepository nodes in parallel (after installers, before tools)
 	if err := e.executeNodeGroup(ctx, repoNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
 		return err
@@ -565,6 +571,22 @@ func (e *Engine) executeRuntimeNode(
 	return nil
 }
 
+// updateToolBinPaths builds and sets the mapping from installer name to tool bin directory.
+// This ensures InstallerRepository delegation commands can find toolRef binaries in PATH.
+func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st *state.UserState) {
+	toolBinPaths := make(map[string]string)
+	for _, res := range resourceMap {
+		inst, ok := res.(*resource.Installer)
+		if !ok || inst.InstallerSpec == nil || inst.InstallerSpec.ToolRef == "" {
+			continue
+		}
+		if ts, exists := st.Tools[inst.InstallerSpec.ToolRef]; exists && ts.BinPath != "" {
+			toolBinPaths[inst.Name()] = filepath.Dir(ts.BinPath)
+		}
+	}
+	e.installerRepoInstaller.SetToolBinPaths(toolBinPaths)
+}
+
 // executeInstallerRepositoryNode executes an installer repository action.
 func (e *Engine) executeInstallerRepositoryNode(
 	ctx context.Context,
@@ -791,6 +813,9 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		}
 		*totalActions++
 	}
+
+	// Update tool bin paths for InstallerRepository remove commands (e.g., helm repo remove)
+	e.updateToolBinPaths(buildResourceMap(resources), st)
 
 	// Execute remove actions for installer repositories (after tools, before runtimes)
 	for _, action := range repoActions {
