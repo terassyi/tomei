@@ -137,8 +137,14 @@ type RuntimeState struct {
 	// This is the actual resolved version, not an alias like "stable".
 	Version string `json:"version"`
 
+	// VersionKind classifies how the version was specified in the manifest.
+	// Used by the reconciler to determine the correct comparison strategy.
+	VersionKind VersionKind `json:"versionKind"`
+
 	// SpecVersion records the original version specified in the spec.
-	// Used to determine if this runtime should check for updates (when "stable" or "latest").
+	// For VersionExact: same as Version.
+	// For VersionLatest: empty string.
+	// For VersionAlias: the alias string (e.g., "stable").
 	SpecVersion string `json:"specVersion,omitempty"`
 
 	// Digest is the SHA256 hash of the downloaded archive (download pattern only).

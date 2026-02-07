@@ -457,6 +457,16 @@ type ToolState struct {
 	// Used to determine if the tool needs reinstallation when the runtime is upgraded.
 	RuntimeRef string `json:"runtimeRef,omitempty"`
 
+	// VersionKind classifies how the version was specified in the manifest.
+	// Used by the reconciler to determine the correct comparison strategy.
+	VersionKind VersionKind `json:"versionKind"`
+
+	// SpecVersion records the original version specified in the spec.
+	// For VersionExact: same as Version.
+	// For VersionLatest: empty string.
+	// For VersionAlias: the alias string (e.g., "stable").
+	SpecVersion string `json:"specVersion,omitempty"`
+
 	// TaintReason indicates why this tool needs reinstallation.
 	// Common reasons: "runtime_upgraded" (runtime was updated).
 	// Empty string means the tool is not tainted.

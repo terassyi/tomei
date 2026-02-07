@@ -212,7 +212,8 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 	return &resource.RuntimeState{
 		Type:        spec.Type,
 		Version:     spec.Version,
-		SpecVersion: spec.Version, // TODO: resolve aliases like "stable" to actual version
+		VersionKind: resource.ClassifyVersion(spec.Version),
+		SpecVersion: spec.Version,
 		Digest:      digest,
 		InstallPath: installPath,
 		Binaries:    spec.Binaries,

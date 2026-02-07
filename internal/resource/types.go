@@ -96,6 +96,40 @@ func (t InstallType) IsDelegation() bool {
 	return t == InstallTypeDelegation
 }
 
+// VersionKind classifies how a version was specified in the manifest.
+// This enables correct reconciliation: the comparator can determine
+// whether a spec change requires reinstallation based on the kind of
+// version that was originally specified.
+type VersionKind string
+
+const (
+	// VersionExact indicates a specific version string (e.g., "14.1.1", "2.86.0").
+	// Reconciler compares spec.Version against state.Version directly.
+	VersionExact VersionKind = "exact"
+
+	// VersionLatest indicates the version was unspecified (empty string),
+	// meaning "use the latest available". Updates are driven by --sync.
+	// Reconciler treats this as unchanged unless the spec switches to
+	// a non-empty (exact or alias) version.
+	VersionLatest VersionKind = "latest"
+
+	// VersionAlias indicates a named alias (e.g., "stable", "lts").
+	// The actual version is resolved at install time and stored in state.Version,
+	// while the alias is stored in state.SpecVersion.
+	// Reconciler compares spec.Version against state.SpecVersion.
+	VersionAlias VersionKind = "alias"
+)
+
+// ClassifyVersion determines the VersionKind for a given spec version string.
+// Empty string → VersionLatest, otherwise VersionExact.
+// VersionAlias is only assigned by runtime installers that use ResolveVersion.
+func ClassifyVersion(specVersion string) VersionKind {
+	if specVersion == "" {
+		return VersionLatest
+	}
+	return VersionExact
+}
+
 // CommandSet defines a set of shell commands for install/check/remove operations.
 // This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
 // Commands may support Go template variables depending on the context.
