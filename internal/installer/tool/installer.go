@@ -329,8 +329,10 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		return nil, err
 	}
 
-	// Update state to include package info
+	// Update state to include package info and original spec version
 	state.Package = spec.Package
+	state.VersionKind = resource.ClassifyVersion(spec.Version)
+	state.SpecVersion = spec.Version // preserve original spec version (e.g., "" for latest)
 
 	return state, nil
 }
@@ -340,6 +342,8 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
+		VersionKind:  resource.ClassifyVersion(spec.Version),
+		SpecVersion:  spec.Version,
 		Digest:       digest,
 		InstallPath:  i.placer.BinaryPath(target),
 		BinPath:      i.placer.LinkPath(target),
@@ -489,6 +493,8 @@ func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
+		VersionKind:  resource.ClassifyVersion(spec.Version),
+		SpecVersion:  spec.Version,
 		BinPath:      binPath,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,

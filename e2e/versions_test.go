@@ -20,6 +20,8 @@ type e2eVersions struct {
 	GoVersionUpgrade string // runtime.cue.upgrade → Runtime/go
 	GhVersion        string // tools.cue → Tool/gh
 	GoplsVersion     string // delegation.cue → Tool/gopls
+	RustVersion      string // rust-runtime.cue → Runtime/rust
+	SdVersion        string // rust-delegation.cue → Tool/sd
 
 	// Dependency test manifests (e2e/config/dependency-test/)
 	DepGoVersion  string // runtime-chain.cue → Runtime/go (1.23.5)
@@ -48,6 +50,7 @@ func loadVersions() (*e2eVersions, error) {
 	}
 	e2eDir := filepath.Dir(filename)
 	manifestsDir := filepath.Join(e2eDir, "config", "manifests")
+	delegationTestDir := filepath.Join(e2eDir, "config", "delegation-test")
 	depTestDir := filepath.Join(e2eDir, "config", "dependency-test")
 	registryDir := filepath.Join(e2eDir, "config", "registry")
 
@@ -77,6 +80,18 @@ func loadVersions() (*e2eVersions, error) {
 		return nil, fmt.Errorf("delegation.cue: %w", err)
 	} else {
 		v.GoplsVersion = ver
+	}
+
+	if ver, err := loadVersion(loader, filepath.Join(delegationTestDir, "rust-runtime.cue"), resource.KindRuntime, "rust"); err != nil {
+		return nil, fmt.Errorf("rust-runtime.cue: %w", err)
+	} else {
+		v.RustVersion = ver
+	}
+
+	if ver, err := loadVersion(loader, filepath.Join(delegationTestDir, "rust-delegation.cue"), resource.KindTool, "sd"); err != nil {
+		return nil, fmt.Errorf("rust-delegation.cue: %w", err)
+	} else {
+		v.SdVersion = ver
 	}
 
 	// Dependency test manifests

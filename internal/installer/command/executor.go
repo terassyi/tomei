@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"text/template"
 )
 
@@ -163,6 +164,41 @@ func (e *Executor) Check(ctx context.Context, cmdStr string, vars Vars, env map[
 	}
 
 	return cmd.Run() == nil
+}
+
+// ExecuteCapture runs a command and returns its stdout as a trimmed string.
+// Useful for commands that output a single value (e.g., version resolution).
+func (e *Executor) ExecuteCapture(ctx context.Context, cmdStr string, vars Vars, env map[string]string) (string, error) {
+	expanded, err := e.expand(cmdStr, vars)
+	if err != nil {
+		return "", err
+	}
+
+	slog.Debug("executing command (capture)", "command", expanded)
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
+
+	if e.workDir != "" {
+		cmd.Dir = e.workDir
+	}
+
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		slog.Error("command failed", "command", expanded, "error", err, "stderr", stderr.String())
+		return "", fmt.Errorf("command failed: %s: %w", expanded, err)
+	}
+
+	result := strings.TrimSpace(stdout.String())
+	slog.Debug("command captured output", "command", expanded, "output", result)
+	return result, nil
 }
 
 // expand substitutes variables in the command string using text/template.

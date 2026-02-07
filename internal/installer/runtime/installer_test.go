@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/toto/internal/installer/command"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/resource"
 )
@@ -181,27 +183,192 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, installPath, state.InstallPath)
 	})
 
-	t.Run("delegation pattern not supported yet", func(t *testing.T) {
+	t.Run("delegation basic", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
+		binDir := filepath.Join(tmpDir, "bin")
 
-		runtime := &resource.Runtime{
+		runner := &mockCommandRunner{
+			checkResult: true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "1.0.0",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: "install-cmd {{.Version}}",
+						Check:   "check-cmd",
+						Remove:  "remove-cmd",
+					},
+				},
+				Commands: &resource.CommandsSpec{
+					Install: "tool-install {{.Name}}",
+				},
+			},
+		}
+
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, resource.InstallTypeDelegation, state.Type)
+		assert.Equal(t, "1.0.0", state.Version)
+		assert.Equal(t, resource.VersionExact, state.VersionKind)
+		assert.Equal(t, "1.0.0", state.SpecVersion)
+		assert.Equal(t, binDir, state.ToolBinPath)
+		assert.Equal(t, "remove-cmd", state.RemoveCommand)
+		assert.NotNil(t, state.Commands)
+
+		// Verify install command was called
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "install-cmd {{.Version}}", runner.executeWithEnvCalls[0].cmdStr)
+		assert.Equal(t, "1.0.0", runner.executeWithEnvCalls[0].vars.Version)
+
+		// Verify check command was called
+		require.Len(t, runner.checkCalls, 1)
+		assert.Equal(t, "check-cmd", runner.checkCalls[0].cmdStr)
+	})
+
+	t.Run("delegation with ResolveVersion", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureResult: "1.83.0",
+			checkResult:   true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:        resource.InstallTypeDelegation,
 				Version:     "stable",
-				ToolBinPath: "~/.cargo/bin",
+				ToolBinPath: binDir,
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y",
-						Check:   "rustc --version",
+						Install: "install-cmd {{.Version}}",
+						Check:   "check-cmd",
+					},
+					ResolveVersion: "resolve-cmd",
+				},
+			},
+		}
+
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "1.83.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+		assert.Equal(t, "stable", state.SpecVersion)
+
+		// Verify resolve was called
+		require.Len(t, runner.captureCalls, 1)
+		assert.Equal(t, "resolve-cmd", runner.captureCalls[0].cmdStr)
+
+		// Verify install was called with resolved version
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
+	})
+
+	t.Run("delegation check fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{
+			checkResult: false,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "1.0.0",
+				ToolBinPath: filepath.Join(tmpDir, "bin"),
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: "install-cmd",
+						Check:   "check-cmd",
 					},
 				},
 			},
 		}
 
-		_, err := installer.Install(context.Background(), runtime, "rust")
+		_, err := installer.Install(context.Background(), rt, "mock")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "not yet implemented")
+		assert.Contains(t, err.Error(), "bootstrap check failed")
+	})
+
+	t.Run("delegation ResolveVersion fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{
+			captureErr: fmt.Errorf("command failed: exit 1"),
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: filepath.Join(tmpDir, "bin"),
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: "install-cmd",
+						Check:   "check-cmd",
+					},
+					ResolveVersion: "resolve-cmd",
+				},
+			},
+		}
+
+		_, err := installer.Install(context.Background(), rt, "mock")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to resolve version")
+	})
+
+	t.Run("delegation install command fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{
+			executeErr: fmt.Errorf("command failed: install error"),
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "1.0.0",
+				ToolBinPath: filepath.Join(tmpDir, "bin"),
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: "install-cmd",
+						Check:   "check-cmd",
+					},
+				},
+			},
+		}
+
+		_, err := installer.Install(context.Background(), rt, "mock")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bootstrap install failed")
+	})
+
+	t.Run("delegation missing bootstrap", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		installer := NewInstaller(download.NewDownloader(), tmpDir)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "1.0.0",
+				ToolBinPath: filepath.Join(tmpDir, "bin"),
+			},
+		}
+
+		_, err := installer.Install(context.Background(), rt, "mock")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bootstrap is required")
 	})
 
 	t.Run("missing source URL", func(t *testing.T) {
@@ -253,6 +420,62 @@ func TestInstaller_Remove(t *testing.T) {
 		// Verify removal
 		assert.NoDirExists(t, installPath)
 		assert.NoFileExists(t, filepath.Join(binDir, "mybin"))
+	})
+
+	t.Run("delegation remove with command", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		st := &resource.RuntimeState{
+			Type:          resource.InstallTypeDelegation,
+			Version:       "1.0.0",
+			RemoveCommand: "remove-cmd",
+			Env:           map[string]string{"KEY": "val"},
+		}
+
+		err := installer.Remove(context.Background(), st, "mock")
+		require.NoError(t, err)
+
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "remove-cmd", runner.executeWithEnvCalls[0].cmdStr)
+		assert.Equal(t, map[string]string{"KEY": "val"}, runner.executeWithEnvCalls[0].env)
+	})
+
+	t.Run("delegation remove without command", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		st := &resource.RuntimeState{
+			Type:    resource.InstallTypeDelegation,
+			Version: "1.0.0",
+		}
+
+		err := installer.Remove(context.Background(), st, "mock")
+		require.NoError(t, err)
+		assert.Empty(t, runner.executeWithEnvCalls) // No command executed
+	})
+
+	t.Run("delegation remove command fails", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		runner := &mockCommandRunner{
+			executeErr: fmt.Errorf("remove failed"),
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		st := &resource.RuntimeState{
+			Type:          resource.InstallTypeDelegation,
+			Version:       "1.0.0",
+			RemoveCommand: "remove-cmd",
+		}
+
+		err := installer.Remove(context.Background(), st, "mock")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "bootstrap remove failed")
 	})
 
 	t.Run("successful remove without BinDir", func(t *testing.T) {
@@ -339,6 +562,39 @@ func TestFindBinary(t *testing.T) {
 		path := findBinary(tmpDir, "notexist")
 		assert.Empty(t, path)
 	})
+}
+
+// --- mockCommandRunner ---
+
+type cmdCall struct {
+	cmdStr string
+	vars   command.Vars
+	env    map[string]string
+}
+
+type mockCommandRunner struct {
+	executeErr          error
+	captureResult       string
+	captureErr          error
+	checkResult         bool
+	executeWithEnvCalls []cmdCall
+	captureCalls        []cmdCall
+	checkCalls          []cmdCall
+}
+
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) error {
+	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) (string, error) {
+	m.captureCalls = append(m.captureCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	return m.captureResult, m.captureErr
+}
+
+func (m *mockCommandRunner) Check(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) bool {
+	m.checkCalls = append(m.checkCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	return m.checkResult
 }
 
 // Helper types and functions

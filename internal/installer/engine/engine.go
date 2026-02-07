@@ -93,6 +93,7 @@ type Engine struct {
 	resolverConfigurer ResolverConfigurer
 	eventHandler       EventHandler
 	parallelism        int
+	syncMode           bool
 }
 
 // NewEngine creates a new Engine.
@@ -137,6 +138,12 @@ func (e *Engine) SetResolverConfigurer(configurer ResolverConfigurer) {
 // SetEventHandler sets a callback for engine events.
 func (e *Engine) SetEventHandler(handler EventHandler) {
 	e.eventHandler = handler
+}
+
+// SetSyncMode enables sync mode, which taints latest-specified tools for re-resolution.
+// When enabled, tools with VersionKind=latest will be reinstalled to pick up newer versions.
+func (e *Engine) SetSyncMode(enabled bool) {
+	e.syncMode = enabled
 }
 
 // emitEvent emits an event to the handler if set.
@@ -192,6 +199,13 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	if e.resolverConfigurer != nil {
 		if err := e.resolverConfigurer(st); err != nil {
 			slog.Warn("failed to configure resolver", "error", err)
+		}
+	}
+
+	// Taint latest-specified tools for re-resolution in sync mode
+	if e.syncMode {
+		if err := e.taintLatestTools(st); err != nil {
+			slog.Warn("failed to taint latest tools for sync", "error", err)
 		}
 	}
 
@@ -764,6 +778,29 @@ func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[st
 			return fmt.Errorf("failed to save tainted state: %w", err)
 		}
 		slog.Debug("tainted tools for reinstallation", "count", taintedCount)
+	}
+
+	return nil
+}
+
+// taintLatestTools marks tools with VersionKind=latest for reinstallation.
+// This is used in sync mode to force re-resolution of latest versions.
+// Note: Must be called while holding the store lock.
+func (e *Engine) taintLatestTools(st *state.UserState) error {
+	taintedCount := 0
+	for name, toolState := range st.Tools {
+		if toolState.VersionKind == resource.VersionLatest {
+			toolState.Taint("sync_update")
+			taintedCount++
+			slog.Debug("tainted latest-specified tool for sync", "tool", name)
+		}
+	}
+
+	if taintedCount > 0 {
+		if err := e.store.Save(st); err != nil {
+			return fmt.Errorf("failed to save tainted state: %w", err)
+		}
+		slog.Debug("tainted latest tools for sync", "count", taintedCount)
 	}
 
 	return nil

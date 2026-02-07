@@ -9,15 +9,25 @@ import (
 	"time"
 
 	"github.com/terassyi/toto/internal/checksum"
+	"github.com/terassyi/toto/internal/installer/command"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/extract"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/resource"
 )
 
-// Installer installs runtimes using the download pattern.
+// CommandRunner is the interface for executing shell commands.
+// This enables testing with mocks instead of real command execution.
+type CommandRunner interface {
+	ExecuteWithEnv(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) error
+	ExecuteCapture(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) (string, error)
+	Check(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) bool
+}
+
+// Installer installs runtimes using the download or delegation pattern.
 type Installer struct {
 	downloader       download.Downloader
+	cmdExecutor      CommandRunner
 	runtimesDir      string
 	progressCallback download.ProgressCallback
 }
@@ -26,6 +36,16 @@ type Installer struct {
 func NewInstaller(downloader download.Downloader, runtimesDir string) *Installer {
 	return &Installer{
 		downloader:  downloader,
+		cmdExecutor: command.NewExecutor(""),
+		runtimesDir: runtimesDir,
+	}
+}
+
+// NewInstallerWithRunner creates a new runtime Installer with a custom CommandRunner (for testing).
+func NewInstallerWithRunner(downloader download.Downloader, runtimesDir string, runner CommandRunner) *Installer {
+	return &Installer{
+		downloader:  downloader,
+		cmdExecutor: runner,
 		runtimesDir: runtimesDir,
 	}
 }
@@ -160,9 +180,13 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 // Remove removes an installed runtime.
 func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name string) error {
-	slog.Debug("removing runtime", "name", name, "version", st.Version)
+	slog.Debug("removing runtime", "name", name, "version", st.Version, "type", st.Type)
 
-	// Remove symlinks (only if BinDir was set)
+	if st.Type.IsDelegation() {
+		return i.removeDelegation(ctx, st, name)
+	}
+
+	// Download pattern: remove symlinks and install directory
 	if st.BinDir != "" {
 		for _, binary := range st.Binaries {
 			linkPath := filepath.Join(st.BinDir, binary)
@@ -172,7 +196,6 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 		}
 	}
 
-	// Remove install directory
 	if st.InstallPath != "" {
 		if err := os.RemoveAll(st.InstallPath); err != nil {
 			return fmt.Errorf("failed to remove install directory: %w", err)
@@ -183,6 +206,21 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 	}
 
 	slog.Debug("runtime removed", "name", name)
+	return nil
+}
+
+// removeDelegation removes a delegation-pattern runtime by executing its remove command.
+func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeState, name string) error {
+	if st.RemoveCommand == "" {
+		slog.Warn("no remove command for delegation runtime, skipping", "name", name)
+		return nil
+	}
+
+	if err := i.cmdExecutor.ExecuteWithEnv(ctx, st.RemoveCommand, command.Vars{}, st.Env); err != nil {
+		return fmt.Errorf("bootstrap remove failed: %w", err)
+	}
+
+	slog.Debug("delegation runtime removed", "name", name)
 	return nil
 }
 
@@ -212,7 +250,8 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 	return &resource.RuntimeState{
 		Type:        spec.Type,
 		Version:     spec.Version,
-		SpecVersion: spec.Version, // TODO: resolve aliases like "stable" to actual version
+		VersionKind: resource.ClassifyVersion(spec.Version),
+		SpecVersion: spec.Version,
 		Digest:      digest,
 		InstallPath: installPath,
 		Binaries:    spec.Binaries,
@@ -225,7 +264,7 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 }
 
 // installDelegation installs a runtime using the delegation pattern.
-func (i *Installer) installDelegation(_ context.Context, spec *resource.RuntimeSpec, _ string) (*resource.RuntimeState, error) {
+func (i *Installer) installDelegation(ctx context.Context, spec *resource.RuntimeSpec, name string) (*resource.RuntimeState, error) {
 	// Validate spec
 	if spec.Bootstrap == nil {
 		return nil, fmt.Errorf("bootstrap is required for delegation pattern")
@@ -234,9 +273,76 @@ func (i *Installer) installDelegation(_ context.Context, spec *resource.RuntimeS
 		return nil, fmt.Errorf("bootstrap.install is required for delegation pattern")
 	}
 
-	// TODO: Implement delegation pattern (execute bootstrap commands)
-	// For now, return an error as it's not yet implemented
-	return nil, fmt.Errorf("delegation pattern is not yet implemented")
+	resolvedVersion := spec.Version
+	versionKind := resource.ClassifyVersion(spec.Version)
+
+	// Resolve version alias if configured
+	if spec.Bootstrap.ResolveVersion != "" {
+		slog.Debug("resolving version alias", "name", name, "alias", spec.Version)
+		resolved, err := i.cmdExecutor.ExecuteCapture(ctx, spec.Bootstrap.ResolveVersion, command.Vars{Version: spec.Version}, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve version: %w", err)
+		}
+		if resolved != "" {
+			slog.Debug("version resolved", "name", name, "alias", spec.Version, "resolved", resolved)
+			resolvedVersion = resolved
+			versionKind = resource.VersionAlias
+		}
+	}
+
+	// Prepare environment
+	env := make(map[string]string)
+	for k, v := range spec.Env {
+		if expanded, err := path.Expand(v); err == nil {
+			env[k] = expanded
+		} else {
+			env[k] = v
+		}
+	}
+
+	// Execute bootstrap install command
+	vars := command.Vars{Version: resolvedVersion}
+	if err := i.cmdExecutor.ExecuteWithEnv(ctx, spec.Bootstrap.Install, vars, env); err != nil {
+		return nil, fmt.Errorf("bootstrap install failed: %w", err)
+	}
+
+	// Verify installation with check command
+	if spec.Bootstrap.Check != "" {
+		if !i.cmdExecutor.Check(ctx, spec.Bootstrap.Check, command.Vars{}, env) {
+			return nil, fmt.Errorf("bootstrap check failed after install")
+		}
+	}
+
+	// Expand paths
+	toolBinPath := spec.ToolBinPath
+	if expanded, err := path.Expand(toolBinPath); err == nil {
+		toolBinPath = expanded
+	}
+
+	binDir := spec.BinDir
+	if binDir != "" {
+		if expanded, err := path.Expand(binDir); err == nil {
+			binDir = expanded
+		}
+	} else {
+		binDir = toolBinPath
+	}
+
+	slog.Debug("runtime installed via delegation", "name", name, "version", resolvedVersion)
+
+	return &resource.RuntimeState{
+		Type:          spec.Type,
+		Version:       resolvedVersion,
+		VersionKind:   versionKind,
+		SpecVersion:   spec.Version,
+		Binaries:      spec.Binaries,
+		BinDir:        binDir,
+		ToolBinPath:   toolBinPath,
+		Commands:      spec.Commands,
+		Env:           env,
+		RemoveCommand: spec.Bootstrap.Remove,
+		UpdatedAt:     time.Now(),
+	}, nil
 }
 
 // resolveBinDir determines where to create symlinks for runtime binaries.

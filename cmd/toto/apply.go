@@ -130,6 +130,9 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Create engine with event handler for progress display
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
 	eng.SetParallelism(cfg.parallel)
+	if cfg.syncRegistry {
+		eng.SetSyncMode(true)
+	}
 
 	// Track results for summary
 	results := &ui.ApplyResults{}

@@ -188,6 +188,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy registry: %w", err)
 	}
 
+	// Copy delegation-test configs
+	if err := copyDir(filepath.Join(configDir, "delegation-test"), filepath.Join(e.testHome, "delegation-test")); err != nil {
+		return fmt.Errorf("failed to copy delegation-test: %w", err)
+	}
+
 	// Copy dependency-test configs
 	if err := copyDir(filepath.Join(configDir, "dependency-test"), filepath.Join(e.testHome, "dependency-test")); err != nil {
 		return fmt.Errorf("failed to copy dependency-test: %w", err)

@@ -3,7 +3,10 @@ FROM ubuntu:24.04
 # Install minimal dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    file
+    curl \
+    file \
+    gcc \
+    libc6-dev
 
 # Create test user
 RUN useradd -m -s /bin/bash testuser
@@ -26,6 +29,8 @@ COPY --chown=testuser:testuser config/manifests/runtime.cue.upgrade /home/testus
 COPY --chown=testuser:testuser config/manifests/tools.cue /home/testuser/manifests/tools.cue
 COPY --chown=testuser:testuser config/manifests/delegation.cue /home/testuser/manifests/delegation.cue
 COPY --chown=testuser:testuser config/manifests/toolset.cue /home/testuser/manifests/toolset.cue
+# Copy delegation test manifests (separate directory to avoid affecting basic tests)
+COPY --chown=testuser:testuser config/delegation-test/ /home/testuser/delegation-test/
 
 # Copy registry test manifests
 # tools.cue.old contains older versions for upgrade/downgrade tests

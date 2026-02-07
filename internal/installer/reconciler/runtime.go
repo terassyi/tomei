@@ -7,7 +7,7 @@ import (
 // RuntimeComparator returns a comparator for Runtime resources.
 func RuntimeComparator() Comparator[*resource.Runtime, *resource.RuntimeState] {
 	return func(res *resource.Runtime, state *resource.RuntimeState) (bool, string) {
-		if res.RuntimeSpec.Version != state.Version {
+		if specVersionChanged(res.RuntimeSpec.Version, state.VersionKind, state.Version, state.SpecVersion) {
 			return true, "version changed: " + state.Version + " -> " + res.RuntimeSpec.Version
 		}
 		return false, ""
