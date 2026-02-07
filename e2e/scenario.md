@@ -254,7 +254,7 @@ graph LR
 3. Verify:
    - Displayed in "[go]" section
    - "goimports" detected as "unmanaged"
-   - "toto adopt" is suggested
+   - Suggestions section is shown
 
 ### 1.9 Runtime Upgrade (1.25.5 → 1.25.6)
 

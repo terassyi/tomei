@@ -167,6 +167,8 @@ func printDoctorResult(cmd *cobra.Command, result *doctor.Result) {
 	unmanagedNames := result.UnmanagedToolNames()
 	if len(unmanagedNames) > 0 {
 		style.Header.Fprintln(cmd.OutOrStdout(), "Suggestions:")
-		cmd.Printf("  %s\n", style.Success.Sprintf("toto adopt %s", strings.Join(unmanagedNames, " ")))
+		for _, name := range unmanagedNames {
+			cmd.Printf("  %s consider adding %q to your manifest\n", style.WarnMark, name)
+		}
 	}
 }

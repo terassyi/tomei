@@ -343,8 +343,8 @@ func basicTests() {
 			Expect(output).To(ContainSubstring("goimports"))
 			Expect(output).To(ContainSubstring("unmanaged"))
 
-			By("Checking doctor suggests toto adopt")
-			Expect(output).To(ContainSubstring("toto adopt"))
+			By("Checking doctor shows suggestions")
+			Expect(output).To(ContainSubstring("Suggestions"))
 		})
 	})
 
