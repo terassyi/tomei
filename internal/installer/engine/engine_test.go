@@ -2293,3 +2293,247 @@ placeholder: {
 	assert.True(t, removedTools["gopls"], "gopls should be removed")
 	assert.True(t, removedRuntimes["go"], "go runtime should be removed")
 }
+
+func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
+	tests := []struct {
+		name           string
+		tools          map[string]*resource.ToolState
+		wantTainted    []string
+		wantNotTainted []string
+	}{
+		{
+			name: "latest tool is tainted",
+			tools: map[string]*resource.ToolState{
+				"fd": {
+					InstallerRef: "aqua",
+					Version:      "9.0.0",
+					VersionKind:  resource.VersionLatest,
+					InstallPath:  "/tools/fd",
+					BinPath:      "/bin/fd",
+				},
+			},
+			wantTainted: []string{"fd"},
+		},
+		{
+			name: "exact version tool is not tainted",
+			tools: map[string]*resource.ToolState{
+				"rg": {
+					InstallerRef: "aqua",
+					Version:      "14.0.0",
+					VersionKind:  resource.VersionExact,
+					InstallPath:  "/tools/rg",
+					BinPath:      "/bin/rg",
+				},
+			},
+			wantNotTainted: []string{"rg"},
+		},
+		{
+			name: "alias version tool is not tainted",
+			tools: map[string]*resource.ToolState{
+				"rustc": {
+					Version:     "1.83.0",
+					VersionKind: resource.VersionAlias,
+					SpecVersion: "stable",
+				},
+			},
+			wantNotTainted: []string{"rustc"},
+		},
+		{
+			name: "mixed: only latest tools are tainted",
+			tools: map[string]*resource.ToolState{
+				"fd": {
+					InstallerRef: "aqua",
+					Version:      "9.0.0",
+					VersionKind:  resource.VersionLatest,
+					InstallPath:  "/tools/fd",
+					BinPath:      "/bin/fd",
+				},
+				"rg": {
+					InstallerRef: "aqua",
+					Version:      "14.0.0",
+					VersionKind:  resource.VersionExact,
+					InstallPath:  "/tools/rg",
+					BinPath:      "/bin/rg",
+				},
+				"bat": {
+					InstallerRef: "aqua",
+					Version:      "0.24.0",
+					VersionKind:  resource.VersionLatest,
+					InstallPath:  "/tools/bat",
+					BinPath:      "/bin/bat",
+				},
+			},
+			wantTainted:    []string{"fd", "bat"},
+			wantNotTainted: []string{"rg"},
+		},
+		{
+			name:  "no tools",
+			tools: map[string]*resource.ToolState{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			store, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			// Pre-populate state
+			require.NoError(t, store.Lock())
+			initialState := state.NewUserState()
+			initialState.Tools = tt.tools
+			require.NoError(t, store.Save(initialState))
+			require.NoError(t, store.Unlock())
+
+			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+			eng.SetSyncMode(true)
+
+			// Call taintLatestTools directly
+			require.NoError(t, store.Lock())
+			st, err := store.Load()
+			require.NoError(t, err)
+			err = eng.taintLatestTools(st)
+			require.NoError(t, err)
+			require.NoError(t, store.Unlock())
+
+			// Verify tainted
+			for _, name := range tt.wantTainted {
+				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
+				assert.Equal(t, "sync_update", st.Tools[name].TaintReason)
+			}
+
+			// Verify not tainted
+			for _, name := range tt.wantNotTainted {
+				assert.False(t, st.Tools[name].IsTainted(), "tool %s should not be tainted", name)
+			}
+		})
+	}
+}
+
+func TestEngine_SyncMode_Apply(t *testing.T) {
+	// End-to-end: sync mode triggers reinstall of latest-specified tool
+	configDir := t.TempDir()
+	stateDir := t.TempDir()
+
+	cueContent := `package toto
+
+fd: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fd"
+	spec: {
+		installerRef: "download"
+		version: "9.0.0"
+		source: {
+			url: "https://example.com/fd.tar.gz"
+			checksum: { value: "sha256:fd" }
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state with latest-specified tool (already installed)
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Tools["fd"] = &resource.ToolState{
+		InstallerRef: "download",
+		Version:      "9.0.0",
+		VersionKind:  resource.VersionLatest,
+		InstallPath:  "/tools/fd",
+		BinPath:      "/bin/fd",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	installCalled := false
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installCalled = true
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng.SetSyncMode(true)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Tool should be reinstalled because it was tainted by sync mode
+	assert.True(t, installCalled, "latest tool should be reinstalled in sync mode")
+}
+
+func TestEngine_SyncMode_ExactVersionNotReinstalled(t *testing.T) {
+	// Sync mode should NOT reinstall tools with exact version
+	configDir := t.TempDir()
+	stateDir := t.TempDir()
+
+	cueContent := `package toto
+
+rg: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "rg"
+	spec: {
+		installerRef: "download"
+		version: "14.0.0"
+		source: {
+			url: "https://example.com/rg.tar.gz"
+			checksum: { value: "sha256:rg" }
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state with exact version tool
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Tools["rg"] = &resource.ToolState{
+		InstallerRef: "download",
+		Version:      "14.0.0",
+		VersionKind:  resource.VersionExact,
+		InstallPath:  "/tools/rg",
+		BinPath:      "/bin/rg",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	installCalled := false
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, _ *resource.Tool, _ string) (*resource.ToolState, error) {
+			installCalled = true
+			return nil, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng.SetSyncMode(true)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	assert.False(t, installCalled, "exact version tool should not be reinstalled in sync mode")
+}
