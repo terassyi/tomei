@@ -216,6 +216,11 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		return fmt.Errorf("failed to load state: %w", err)
 	}
 
+	// Backup state before changes (non-fatal if fails)
+	if err := state.CreateBackup(e.store); err != nil {
+		slog.Warn("failed to create state backup", "error", err)
+	}
+
 	// Configure resolver after state is loaded (while holding lock)
 	if e.resolverConfigurer != nil {
 		if err := e.resolverConfigurer(st); err != nil {

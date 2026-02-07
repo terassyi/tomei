@@ -151,7 +151,7 @@ func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resourc
 		if err == nil {
 			store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
 			if err == nil {
-				loaded, err := store.Load()
+				loaded, err := store.LoadReadOnly()
 				if err == nil {
 					userState = loaded
 				}
