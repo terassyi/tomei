@@ -67,6 +67,8 @@ func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
 
 func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
+func (m *mockToolInstaller) SetToolBinPaths(_ map[string]string) {}
+
 func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
 func (m *mockToolInstaller) SetOutputCallback(_ download.OutputCallback) {}

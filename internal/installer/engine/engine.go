@@ -26,6 +26,7 @@ type ToolInstaller interface {
 	Remove(ctx context.Context, st *resource.ToolState, name string) error
 	RegisterRuntime(name string, info *tool.RuntimeInfo)
 	RegisterInstaller(name string, info *tool.InstallerInfo)
+	SetToolBinPaths(paths map[string]string)
 	SetProgressCallback(callback download.ProgressCallback)
 	SetOutputCallback(callback download.OutputCallback)
 }
@@ -585,6 +586,7 @@ func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st
 		}
 	}
 	e.installerRepoInstaller.SetToolBinPaths(toolBinPaths)
+	e.toolInstaller.SetToolBinPaths(toolBinPaths)
 }
 
 // executeInstallerRepositoryNode executes an installer repository action.
