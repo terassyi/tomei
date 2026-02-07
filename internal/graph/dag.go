@@ -144,13 +144,15 @@ func (g *dag) detectCycle() []NodeID {
 // kindPriority returns the priority of a resource kind.
 // Lower values are processed first within the same layer.
 // Values are spaced apart to allow future insertions between existing kinds.
-// Order: Runtime (100) -> Installer (200) -> Tool (300) -> others (1000)
+// Order: Runtime (100) -> Installer (200) -> InstallerRepository (250) -> Tool (300) -> others (1000)
 func kindPriority(kind resource.Kind) int {
 	switch kind {
 	case resource.KindRuntime:
 		return 100
 	case resource.KindInstaller:
 		return 200
+	case resource.KindInstallerRepository:
+		return 250
 	case resource.KindTool:
 		return 300
 	default:

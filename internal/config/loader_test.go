@@ -566,3 +566,102 @@ spec: {
 		})
 	}
 }
+
+func TestLoader_LoadFile_InstallerRepository_Delegation(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "repo.cue")
+
+	content := `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "bitnami"
+spec: {
+    installerRef: "helm"
+    source: {
+        type: "delegation"
+        commands: {
+            install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
+            check:   "helm repo list | grep bitnami"
+            remove:  "helm repo remove bitnami"
+        }
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(nil)
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+
+	res := resources[0]
+	if res.Kind() != resource.KindInstallerRepository {
+		t.Errorf("expected kind InstallerRepository, got %s", res.Kind())
+	}
+	if res.Name() != "bitnami" {
+		t.Errorf("expected name bitnami, got %s", res.Name())
+	}
+
+	repo, ok := res.(*resource.InstallerRepository)
+	if !ok {
+		t.Fatalf("expected *resource.InstallerRepository, got %T", res)
+	}
+	if repo.InstallerRepositorySpec.InstallerRef != "helm" {
+		t.Errorf("expected installerRef helm, got %s", repo.InstallerRepositorySpec.InstallerRef)
+	}
+	if repo.InstallerRepositorySpec.Source.Type != resource.InstallerRepositorySourceDelegation {
+		t.Errorf("expected source type delegation, got %s", repo.InstallerRepositorySpec.Source.Type)
+	}
+	if repo.InstallerRepositorySpec.Source.Commands.Install != "helm repo add bitnami https://charts.bitnami.com/bitnami" {
+		t.Errorf("unexpected install command: %s", repo.InstallerRepositorySpec.Source.Commands.Install)
+	}
+}
+
+func TestLoader_LoadFile_InstallerRepository_Git(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "repo.cue")
+
+	content := `
+apiVersion: "toto.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "custom-registry"
+spec: {
+    installerRef: "aqua"
+    source: {
+        type: "git"
+        url:  "https://github.com/my-org/aqua-registry"
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(nil)
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+
+	repo := resources[0].(*resource.InstallerRepository)
+	if repo.InstallerRepositorySpec.InstallerRef != "aqua" {
+		t.Errorf("expected installerRef aqua, got %s", repo.InstallerRepositorySpec.InstallerRef)
+	}
+	if repo.InstallerRepositorySpec.Source.Type != resource.InstallerRepositorySourceGit {
+		t.Errorf("expected source type git, got %s", repo.InstallerRepositorySpec.Source.Type)
+	}
+	if repo.InstallerRepositorySpec.Source.URL != "https://github.com/my-org/aqua-registry" {
+		t.Errorf("unexpected URL: %s", repo.InstallerRepositorySpec.Source.URL)
+	}
+}

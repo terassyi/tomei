@@ -17,6 +17,8 @@ This document describes the scenarios verified by toto's E2E tests.
 |-------|-------|-------------|
 | toto on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
+| Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
+| Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 
 ## Scenario Flow
@@ -49,20 +51,38 @@ flowchart TD
         S2_1 --> S2_2 --> S2_3 --> S2_6 --> S2_7
     end
 
-    subgraph S3["3. Dependency Resolution"]
+    subgraph S3["3. Delegation Runtime"]
         direction TB
-        S3_1["3.1 Circular Detection<br/>2-node / 3-node / invalid"]
-        S3_2["3.2 Parallel Install<br/>rg + fd + bat (download)"]
-        S3_2_1["3.2.1 --parallel Flag<br/>--parallel 1 (seq) / default<br/>Downloads: header once"]
-        S3_2_2["3.2.2 Mixed Parallel<br/>Runtime(go) → Tool(gopls)<br/>dependency order in parallel"]
-        S3_3["3.3 ToolRef Chain<br/>aqua → jq → jq-installer"]
-        S3_4["3.4 Tool→Installer→Tool<br/>gh → gh-installer → toto-src"]
-        S3_5["3.5 Runtime→Tool Chain<br/>go → go-installer → gopls"]
+        S3_1["3.1 Rust Runtime<br/>delegation install + cargo"]
+        S3_2["3.2 Cargo Install Tool<br/>sd via cargo install"]
+        S3_3["3.3 Idempotency<br/>subsequent applies"]
 
-        S3_1 --> S3_2 --> S3_2_1 --> S3_2_2 --> S3_3 --> S3_4 --> S3_5
+        S3_1 --> S3_2 --> S3_3
     end
 
-    S1 --> S2 --> S3
+    subgraph S4["4. Installer Repository"]
+        direction TB
+        S4_1["4.1 Delegation: Helm Repository<br/>aqua → helm tool → bitnami repo"]
+        S4_2["4.2 Dependency Chain<br/>InstallerRepository → Tool (helm pull)"]
+        S4_3["4.3 Removal<br/>bitnami repo + common-chart removal"]
+
+        S4_1 --> S4_2 --> S4_3
+    end
+
+    subgraph S5["5. Dependency Resolution"]
+        direction TB
+        S5_1["5.1 Circular Detection<br/>2-node / 3-node / invalid"]
+        S5_2["5.2 Parallel Install<br/>rg + fd + bat (download)"]
+        S5_2_1["5.2.1 --parallel Flag<br/>--parallel 1 (seq) / default<br/>Downloads: header once"]
+        S5_2_2["5.2.2 Mixed Parallel<br/>Runtime(go) → Tool(gopls)<br/>dependency order in parallel"]
+        S5_3["5.3 ToolRef Chain<br/>aqua → jq → jq-installer"]
+        S5_4["5.4 Tool→Installer→Tool<br/>gh → gh-installer → toto-src"]
+        S5_5["5.5 Runtime→Tool Chain<br/>go → go-installer → gopls"]
+
+        S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
+    end
+
+    S1 --> S2 --> S3 --> S4 --> S5
 ```
 
 ### Dependency Graph Patterns
@@ -89,6 +109,13 @@ graph LR
         I5[Installer/download] --> T6[Tool/gh]
         T6 -.->|toolRef| I6[Installer/gh]
         I6 --> T7[Tool/toto-src]
+    end
+
+    subgraph P5["InstallerRepository Chain"]
+        T8[Tool/helm via aqua]
+        T8 -.->|toolRef| I8[Installer/helm]
+        I8 --> IR1[InstallerRepository/bitnami]
+        IR1 -.->|repositoryRef| T9[Tool/common-chart]
     end
 ```
 
@@ -394,9 +421,97 @@ graph LR
 
 ---
 
-## 3. Dependency Resolution
+## 4. Installer Repository
 
-### 3.1 Circular Dependency Detection
+### 4.1 Delegation: Helm Repository
+
+#### Configuration
+- Tool/helm: latest (aqua registry, package: helm/helm)
+- Installer/helm: delegation pattern, toolRef → Tool/helm, commands: helm repo add
+- InstallerRepository/bitnami: delegation source, helm repo add/check/remove
+
+#### Dependency Chain
+```
+Tool/helm (aqua) → Installer/helm (toolRef) → InstallerRepository/bitnami
+```
+
+#### Validation
+- `toto validate ~/installer-repo-test/helm-repo.cue` succeeds
+- Recognizes Tool/helm, InstallerRepository/bitnami
+
+#### Installation
+- `toto apply ~/installer-repo-test/helm-repo.cue` installs helm and adds bitnami repository
+
+#### Helm Binary Verification
+- `~/.local/bin/helm version` is executable
+- Contains "Version:"
+
+#### Repository Registration
+- `helm repo list` → output contains "bitnami"
+
+#### State Recording
+- state.json `installerRepositories` section contains:
+  - `"bitnami"` entry
+  - `"sourceType": "delegation"`
+  - `"installerRef": "helm"`
+
+#### Idempotency
+- Second `toto apply ~/installer-repo-test/helm-repo.cue` succeeds
+- `helm repo list` still contains "bitnami"
+
+### 4.2 Dependency Chain: InstallerRepository → Tool (helm pull)
+
+#### Configuration
+- Same base as 4.1 (helm latest via aqua → bitnami)
+- Installer/helm: delegation pattern, commands use `helm pull bitnami/{{.Package}}`
+- Tool/common-chart: `package: "common"` (latest), `repositoryRef: "bitnami"`
+
+#### Full Dependency Chain
+```
+Tool/helm (aqua) → Installer/helm (toolRef)
+                        ↓
+                InstallerRepository/bitnami
+                        ↓ (repositoryRef)
+                Tool/common-chart (helm pull bitnami/common)
+```
+
+#### Validation
+- `toto validate ~/installer-repo-test/repo-with-tool.cue` succeeds
+- Recognizes Tool/helm, InstallerRepository/bitnami, Tool/common-chart
+
+#### Installation
+- `toto apply ~/installer-repo-test/repo-with-tool.cue` succeeds
+- InstallerRepository installed before dependent Tool (ordering guaranteed by repositoryRef)
+
+#### Repository Registration
+- `helm repo list` → output contains "bitnami"
+
+#### Chart Download Verification
+- `/tmp/toto-e2e-charts/common-*.tgz` file exists (latest version)
+
+#### State Recording
+- state.json `tools` section contains `"common-chart"`
+- state.json `installerRepositories` section contains `"bitnami"`
+
+#### Idempotency
+- Second `toto apply ~/installer-repo-test/repo-with-tool.cue` succeeds without errors
+
+### 4.3 Removal
+
+#### Manifest Reduction
+1. Apply a reduced manifest containing only Tool/helm (no InstallerRepository, no common-chart)
+2. `toto apply ~/installer-repo-test/helm-only.cue` succeeds
+
+#### Verification
+- `helm repo list` does NOT contain "bitnami" (repository removed)
+- state.json does NOT contain `"bitnami"` in installerRepositories
+- state.json does NOT contain `"common-chart"` in tools
+
+---
+
+## 5. Dependency Resolution
+
+### 5.1 Circular Dependency Detection
 
 #### Two-Node Cycle
 ```
@@ -420,7 +535,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 - `toto validate` returns error
 - Error message contains "runtimeRef" and "toolRef"
 
-### 3.2 Parallel Tool Installation
+### 5.2 Parallel Tool Installation
 
 #### Configuration
 - aqua installer (download pattern)
@@ -440,7 +555,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 #### Idempotency
 - Second apply outputs "total_actions=0" or "no changes"
 
-### 3.2.1 `--parallel` Flag Behavior
+### 5.2.1 `--parallel` Flag Behavior
 
 #### Sequential Execution (`--parallel 1`)
 - `toto apply --parallel 1 ~/dependency-test/parallel.cue`
@@ -456,7 +571,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 - All 3 tools installed correctly
 - Non-TTY output contains "Commands:" header exactly once (no duplicates from concurrent writes)
 
-### 3.2.2 Runtime and Tool Mixed Parallel Execution
+### 5.2.2 Runtime and Tool Mixed Parallel Execution
 
 #### Configuration
 ```
@@ -471,7 +586,7 @@ Runtime(go) → Installer(go) → Tool(gopls)
    - `~/go/bin/gopls version` → "golang.org/x/tools/gopls"
 3. state.json records both "go" and "gopls"
 
-### 3.3 ToolRef Dependency Chain
+### 5.3 ToolRef Dependency Chain
 
 #### Configuration
 ```
@@ -489,7 +604,7 @@ Installer(aqua) → Tool(jq) → Installer(jq-installer)
 2. `toto apply` installs jq
 3. `~/.local/bin/jq --version` → contains "jq-1.7"
 
-### 3.4 Tool → Installer → Tool Chain (gh clone)
+### 5.4 Tool → Installer → Tool Chain (gh clone)
 
 #### Configuration
 ```
@@ -511,7 +626,7 @@ Tool(gh) → Installer(gh) [toolRef] → Tool(toto-src)
    - `~/repos/toto-src/go.mod` exists
    - `~/repos/toto-src/cmd/toto/main.go` exists
 
-### 3.5 Runtime → Tool Dependency Chain
+### 5.5 Runtime → Tool Dependency Chain
 
 #### Configuration
 ```
@@ -616,3 +731,19 @@ Aqua registry-based tool definitions:
 - ripgrep 15.1.0 (package: BurntSushi/ripgrep)
 - fd v10.3.0 (package: sharkdp/fd)
 - jq jq-1.8.1 (package: jqlang/jq)
+
+### `e2e/config/installer-repo-test/helm-repo.cue`
+Helm repository management test:
+- Tool/helm latest (aqua registry, package: helm/helm)
+- Installer/helm (delegation, toolRef → helm, commands: helm repo add)
+- InstallerRepository/bitnami (delegation source, helm repo add/check/remove)
+
+### `e2e/config/installer-repo-test/repo-with-tool.cue`
+Full dependency chain test:
+- Tool/helm latest (aqua), InstallerRepository/bitnami (same base)
+- Installer/helm (delegation, commands: helm pull bitnami/{{.Package}})
+- Tool/common-chart (package: common, latest, repositoryRef: bitnami)
+
+### `e2e/config/installer-repo-test/helm-only.cue`
+Reduced manifest for removal test:
+- Tool/helm latest (aqua) only (no InstallerRepository, no common-chart)

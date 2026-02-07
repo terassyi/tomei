@@ -12,6 +12,7 @@ import (
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/place"
+	"github.com/terassyi/toto/internal/installer/repository"
 	"github.com/terassyi/toto/internal/installer/runtime"
 	"github.com/terassyi/toto/internal/installer/tool"
 	"github.com/terassyi/toto/internal/path"
@@ -126,9 +127,11 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	placer := place.NewPlacer(toolsDir, binDir)
 	toolInstaller := tool.NewInstaller(downloader, placer)
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
+	reposDir := pathConfig.UserDataDir() + "/repositories"
+	repoInstaller := repository.NewInstaller(reposDir)
 
 	// Create engine with event handler for progress display
-	eng := engine.NewEngine(toolInstaller, runtimeInstaller, store)
+	eng := engine.NewEngine(toolInstaller, runtimeInstaller, repoInstaller, store)
 	eng.SetParallelism(cfg.parallel)
 	if cfg.syncRegistry {
 		eng.SetSyncMode(true)

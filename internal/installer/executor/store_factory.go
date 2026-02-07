@@ -28,3 +28,8 @@ func (f *StateStoreFactory) ToolStore() *ToolStateStore {
 func (f *StateStoreFactory) RuntimeStore() *RuntimeStateStore {
 	return &RuntimeStateStore{mu: &f.mu, store: f.store}
 }
+
+// InstallerRepositoryStore creates an InstallerRepositoryStateStore with the shared mutex.
+func (f *StateStoreFactory) InstallerRepositoryStore() *InstallerRepositoryStateStore {
+	return &InstallerRepositoryStateStore{mu: &f.mu, store: f.store}
+}

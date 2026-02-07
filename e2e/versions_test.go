@@ -37,6 +37,7 @@ type e2eVersions struct {
 	RegRgVersionOld string // tools.cue.old → Tool/rg (older)
 	RegFdVersionOld string // tools.cue.old → Tool/fd (older)
 	RegJqVersionOld string // tools.cue.old → Tool/jq (older)
+
 }
 
 // versions is the global version holder, populated in BeforeSuite.
@@ -53,7 +54,6 @@ func loadVersions() (*e2eVersions, error) {
 	delegationTestDir := filepath.Join(e2eDir, "config", "delegation-test")
 	depTestDir := filepath.Join(e2eDir, "config", "dependency-test")
 	registryDir := filepath.Join(e2eDir, "config", "registry")
-
 	loader := config.NewLoader(nil)
 	v := &e2eVersions{}
 

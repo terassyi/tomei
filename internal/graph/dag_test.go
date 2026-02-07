@@ -368,6 +368,7 @@ func TestKindPriority(t *testing.T) {
 	}{
 		{resource.KindRuntime, 100},
 		{resource.KindInstaller, 200},
+		{resource.KindInstallerRepository, 250},
 		{resource.KindTool, 300},
 		{resource.Kind("Unknown"), 1000},
 	}
@@ -380,7 +381,8 @@ func TestKindPriority(t *testing.T) {
 
 	// Verify ordering is maintained (lower value = higher priority)
 	assert.Less(t, kindPriority(resource.KindRuntime), kindPriority(resource.KindInstaller))
-	assert.Less(t, kindPriority(resource.KindInstaller), kindPriority(resource.KindTool))
+	assert.Less(t, kindPriority(resource.KindInstaller), kindPriority(resource.KindInstallerRepository))
+	assert.Less(t, kindPriority(resource.KindInstallerRepository), kindPriority(resource.KindTool))
 	assert.Less(t, kindPriority(resource.KindTool), kindPriority(resource.Kind("Unknown")))
 }
 

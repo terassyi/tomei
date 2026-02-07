@@ -27,20 +27,22 @@ type AquaRegistryState struct {
 
 // UserState represents the state for user-privilege resources.
 type UserState struct {
-	Version    string                              `json:"version"`
-	Registry   *RegistryState                      `json:"registry,omitempty"`
-	Installers map[string]*resource.InstallerState `json:"installers,omitempty"`
-	Runtimes   map[string]*resource.RuntimeState   `json:"runtimes,omitempty"`
-	Tools      map[string]*resource.ToolState      `json:"tools,omitempty"`
+	Version               string                                        `json:"version"`
+	Registry              *RegistryState                                `json:"registry,omitempty"`
+	Installers            map[string]*resource.InstallerState           `json:"installers,omitempty"`
+	InstallerRepositories map[string]*resource.InstallerRepositoryState `json:"installerRepositories,omitempty"`
+	Runtimes              map[string]*resource.RuntimeState             `json:"runtimes,omitempty"`
+	Tools                 map[string]*resource.ToolState                `json:"tools,omitempty"`
 }
 
 // NewUserState creates a new empty UserState.
 func NewUserState() *UserState {
 	return &UserState{
-		Version:    Version,
-		Installers: make(map[string]*resource.InstallerState),
-		Runtimes:   make(map[string]*resource.RuntimeState),
-		Tools:      make(map[string]*resource.ToolState),
+		Version:               Version,
+		Installers:            make(map[string]*resource.InstallerState),
+		InstallerRepositories: make(map[string]*resource.InstallerRepositoryState),
+		Runtimes:              make(map[string]*resource.RuntimeState),
+		Tools:                 make(map[string]*resource.ToolState),
 	}
 }
 

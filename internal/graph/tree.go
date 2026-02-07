@@ -59,9 +59,10 @@ func NewTreePrinter(w io.Writer, noColor bool) *TreePrinter {
 		removeColor:    color.New(color.FgRed),
 		noChangeColor:  color.New(color.FgWhite),
 		kindColors: map[resource.Kind]*color.Color{
-			resource.KindRuntime:   color.New(color.FgBlue),
-			resource.KindInstaller: color.New(color.FgYellow),
-			resource.KindTool:      color.New(color.FgGreen),
+			resource.KindRuntime:             color.New(color.FgBlue),
+			resource.KindInstaller:           color.New(color.FgYellow),
+			resource.KindInstallerRepository: color.New(color.FgCyan),
+			resource.KindTool:                color.New(color.FgGreen),
 		},
 	}
 }

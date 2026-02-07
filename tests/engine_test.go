@@ -122,6 +122,44 @@ func (m *mockRuntimeInstaller) Remove(_ context.Context, _ *resource.RuntimeStat
 
 func (m *mockRuntimeInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
+// mockInstallerRepositoryInstaller is a thread-safe mock implementation of engine.InstallerRepositoryInstaller.
+type mockInstallerRepositoryInstaller struct {
+	mu          sync.Mutex
+	installed   map[string]*resource.InstallerRepositoryState
+	removed     map[string]bool
+	installFunc func(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error)
+}
+
+func newMockInstallerRepositoryInstaller() *mockInstallerRepositoryInstaller {
+	return &mockInstallerRepositoryInstaller{
+		installed: make(map[string]*resource.InstallerRepositoryState),
+		removed:   make(map[string]bool),
+	}
+}
+
+func (m *mockInstallerRepositoryInstaller) Install(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error) {
+	if m.installFunc != nil {
+		return m.installFunc(ctx, res, name)
+	}
+	st := &resource.InstallerRepositoryState{
+		InstallerRef: res.InstallerRepositorySpec.InstallerRef,
+		SourceType:   res.InstallerRepositorySpec.Source.Type,
+		URL:          res.InstallerRepositorySpec.Source.URL,
+	}
+	m.mu.Lock()
+	m.installed[name] = st
+	m.mu.Unlock()
+	return st, nil
+}
+
+func (m *mockInstallerRepositoryInstaller) Remove(_ context.Context, _ *resource.InstallerRepositoryState, name string) error {
+	m.mu.Lock()
+	m.removed[name] = true
+	delete(m.installed, name)
+	m.mu.Unlock()
+	return nil
+}
+
 // loadResources is a helper to load resources from a config directory.
 func loadResources(t *testing.T, configDir string) []resource.Resource {
 	t.Helper()
@@ -163,10 +201,10 @@ ripgrep: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 
 	assert.Empty(t, runtimeActions)
@@ -208,10 +246,10 @@ goRuntime: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 
 	assert.Len(t, runtimeActions, 1)
@@ -251,7 +289,7 @@ jq: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -309,7 +347,7 @@ goRuntime: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -362,7 +400,7 @@ fd: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -372,7 +410,7 @@ fd: {
 	assert.Len(t, mockTool.installed, 1)
 
 	// Second apply - should be no-op
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Empty(t, toolActions)
@@ -411,7 +449,7 @@ bat: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -441,7 +479,7 @@ bat: {
 	resourcesV2 := loadResources(t, configDir)
 
 	// Plan should show upgrade
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resourcesV2)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resourcesV2)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 1)
@@ -494,7 +532,7 @@ fzf: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -525,7 +563,7 @@ other: {
 	resourcesV2 := loadResources(t, configDir)
 
 	// Plan should show remove for fzf and install for other
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resourcesV2)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resourcesV2)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 2) // remove fzf + install other
@@ -603,12 +641,12 @@ jq: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 1)
@@ -682,7 +720,7 @@ bat: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -758,12 +796,12 @@ gopls: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 1)
@@ -840,12 +878,12 @@ jq: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Empty(t, runtimeActions)
 	assert.Len(t, toolActions, 1)
@@ -948,12 +986,12 @@ staticcheck: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
 	// Plan
-	runtimeActions, toolActions, err := eng.PlanAll(ctx, resources)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
 	require.NoError(t, err)
 	assert.Len(t, runtimeActions, 1)
 	assert.Len(t, toolActions, 3)
@@ -1023,7 +1061,7 @@ goRuntime: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -1090,7 +1128,7 @@ gopls: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 
@@ -1122,7 +1160,7 @@ gopls: {
 	assert.Contains(t, err.Error(), "gopls")
 
 	// PlanAll should also fail
-	_, _, err = eng.PlanAll(ctx, resourcesV2)
+	_, _, _, err = eng.PlanAll(ctx, resourcesV2)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot remove runtime")
 
@@ -1196,7 +1234,7 @@ cliTools: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1277,7 +1315,7 @@ goTools: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1343,7 +1381,7 @@ cliTools: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1407,7 +1445,7 @@ ripgrep: {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	// Capture events to verify callback generates correct engine events
 	var mu sync.Mutex
@@ -1489,7 +1527,7 @@ jq: {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	var mu sync.Mutex
 	var outputEvents []engine.Event
@@ -1576,7 +1614,7 @@ goRuntime: {
 	}
 
 	mockTool := newMockToolInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	var mu sync.Mutex
 	var progressEvents []engine.Event
@@ -1682,7 +1720,7 @@ bat: {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	var mu sync.Mutex
 	eventsByTool := make(map[string][]engine.Event)
@@ -1805,7 +1843,7 @@ bat: {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1908,7 +1946,7 @@ bat: {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.Error(t, err)
@@ -1978,7 +2016,7 @@ func TestEngine_Apply_ParallelismLimit(t *testing.T) {
 	}
 
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 	eng.SetParallelism(2)
 
 	err = eng.Apply(context.Background(), resources)
@@ -2080,7 +2118,7 @@ ripgrep: {
 		},
 	}
 
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -2192,7 +2230,7 @@ nodeRuntime: {
 	}
 
 	mockTool := newMockToolInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -2246,7 +2284,7 @@ goRuntime: {
 
 	mockTool := newMockToolInstaller()
 	mockRuntime := newMockRuntimeInstaller()
-	eng := engine.NewEngine(mockTool, mockRuntime, store)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
 
 	ctx := context.Background()
 

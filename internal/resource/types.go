@@ -10,10 +10,11 @@ const (
 	KindSystemPackageSet        Kind = "SystemPackageSet"
 
 	// User privilege resources
-	KindInstaller Kind = "Installer"
-	KindRuntime   Kind = "Runtime"
-	KindTool      Kind = "Tool"
-	KindToolSet   Kind = "ToolSet"
+	KindInstaller           Kind = "Installer"
+	KindInstallerRepository Kind = "InstallerRepository"
+	KindRuntime             Kind = "Runtime"
+	KindTool                Kind = "Tool"
+	KindToolSet             Kind = "ToolSet"
 )
 
 const (

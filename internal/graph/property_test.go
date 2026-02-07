@@ -512,13 +512,15 @@ func TestProperty_Manifest_KindOrderWithinLayer(t *testing.T) {
 }
 
 // kindPriorityForTest mirrors the kindPriority function for test assertions.
-// Runtime (100) -> Installer (200) -> Tool (300) -> others (1000)
+// Runtime (100) -> Installer (200) -> InstallerRepository (250) -> Tool (300) -> others (1000)
 func kindPriorityForTest(kind resource.Kind) int {
 	switch kind {
 	case resource.KindRuntime:
 		return 100
 	case resource.KindInstaller:
 		return 200
+	case resource.KindInstallerRepository:
+		return 250
 	case resource.KindTool:
 		return 300
 	default:
