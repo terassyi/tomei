@@ -36,7 +36,7 @@ func TestResolver_Resolve_GitHubRelease(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	// Test
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v2.86.0", "darwin", "arm64")
@@ -66,7 +66,7 @@ func TestResolver_Resolve_HTTP(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
 
@@ -94,7 +94,7 @@ func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.5.0", "linux", "amd64")
 
@@ -124,7 +124,7 @@ func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "windows", "amd64")
 
@@ -153,7 +153,7 @@ func TestResolver_Resolve_WithReplacements(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v14.0.0", "linux", "amd64")
 
@@ -180,7 +180,7 @@ func TestResolver_Resolve_UnsupportedEnv(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "windows", "amd64")
 
@@ -209,7 +209,7 @@ func TestResolver_Resolve_SupportedEnv(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "arm64")
 
@@ -233,7 +233,7 @@ func TestResolver_Resolve_PackageNotFound(t *testing.T) {
 		},
 	}
 
-	resolver := NewResolver(cacheDir).WithHTTPClient(mockClient)
+	resolver := NewResolver(cacheDir, nil).WithHTTPClient(mockClient)
 
 	_, err := resolver.ResolveWithOS(context.Background(), RegistryRef("v4.465.0"), "nonexistent/pkg", "v1.0.0", "linux", "amd64")
 
@@ -258,7 +258,7 @@ func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	// Resolve() should work with the current runtime's OS/Arch
 	result, err := resolver.Resolve(context.Background(), ref, pkg, "v2.86.0")
@@ -270,7 +270,7 @@ func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
 
 func TestResolver_VersionClient(t *testing.T) {
 	cacheDir := t.TempDir()
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	// VersionClient() should return a non-nil client
 	client := resolver.VersionClient()
@@ -298,7 +298,7 @@ func TestResolver_Resolve_NoChecksum(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
 
@@ -325,7 +325,7 @@ func TestResolver_Resolve_UnsupportedType(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	_, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
 
@@ -351,7 +351,7 @@ func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
-	resolver := NewResolver(cacheDir)
+	resolver := NewResolver(cacheDir, nil)
 
 	// Any OS/Arch should work with "all"
 	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "freebsd", "386")

@@ -36,10 +36,20 @@ type httpDownloader struct {
 	client *http.Client
 }
 
-// NewDownloader creates a new Downloader.
+// NewDownloader creates a new Downloader with the default HTTP client.
 func NewDownloader() Downloader {
 	return &httpDownloader{
 		client: http.DefaultClient,
+	}
+}
+
+// NewDownloaderWithClient creates a new Downloader with the given HTTP client.
+func NewDownloaderWithClient(client *http.Client) Downloader {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	return &httpDownloader{
+		client: client,
 	}
 }
 

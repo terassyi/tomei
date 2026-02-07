@@ -73,32 +73,33 @@ type Resolver struct {
 	versionClient *VersionClient
 }
 
-// NewResolver creates a new Resolver with the specified cache directory.
+// NewResolver creates a new Resolver with the specified cache directory and HTTP client.
 //
 // The cache directory is used to store fetched registry.yaml files.
 // Files are cached per registry ref (e.g., ~/.cache/toto/registry/aqua/v4.465.0/pkgs/cli/cli/registry.yaml).
-func NewResolver(cacheDir string) *Resolver {
-	f := newFetcher(cacheDir)
+// If client is nil, a default HTTP client with timeout is used.
+func NewResolver(cacheDir string, client *http.Client) *Resolver {
+	f := newFetcher(cacheDir, client)
 	return &Resolver{
 		fetcher:       f,
-		versionClient: newVersionClientWithHTTPClient(f.httpClient),
+		versionClient: NewVersionClient(client),
 	}
 }
 
 // NewResolverWithBaseURL creates a new Resolver with a custom base URL.
 // This is primarily for testing with mock HTTP servers.
 func NewResolverWithBaseURL(cacheDir, baseURL string) *Resolver {
-	f := newFetcher(cacheDir).withBaseURL(baseURL)
+	f := newFetcher(cacheDir, nil).withBaseURL(baseURL)
 	return &Resolver{
 		fetcher:       f,
-		versionClient: newVersionClientWithHTTPClient(f.httpClient),
+		versionClient: NewVersionClient(nil),
 	}
 }
 
 // WithHTTPClient sets the HTTP client (for testing).
 func (r *Resolver) WithHTTPClient(client *http.Client) *Resolver {
 	r.fetcher = r.fetcher.withHTTPClient(client)
-	r.versionClient = newVersionClientWithHTTPClient(client)
+	r.versionClient = NewVersionClient(client)
 	return r
 }
 

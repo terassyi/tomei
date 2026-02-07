@@ -30,10 +30,14 @@ type fetcher struct {
 }
 
 // newFetcher creates a new fetcher.
-func newFetcher(cacheDir string) *fetcher {
+// If client is nil, a default HTTP client with timeout is used.
+func newFetcher(cacheDir string, client *http.Client) *fetcher {
+	if client == nil {
+		client = &http.Client{Timeout: defaultHTTPTimeout}
+	}
 	return &fetcher{
 		cacheDir:   cacheDir,
-		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
+		httpClient: client,
 		baseURL:    defaultBaseURL,
 	}
 }

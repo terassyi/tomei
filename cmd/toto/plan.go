@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/github"
 	"github.com/terassyi/toto/internal/graph"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
@@ -247,5 +248,6 @@ func syncRegistryForPlan(ctx context.Context) error {
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
-	return aqua.SyncRegistry(ctx, store)
+	ghClient := github.NewHTTPClient(github.TokenFromEnv())
+	return aqua.SyncRegistry(ctx, store, ghClient)
 }

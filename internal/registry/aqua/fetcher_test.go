@@ -63,7 +63,7 @@ func TestFetcher_Fetch_CacheHit(t *testing.T) {
 	}
 
 	// Test
-	f := newFetcher(cacheDir).withHTTPClient(mockClient)
+	f := newFetcher(cacheDir, mockClient)
 	info, err := f.fetch(context.Background(), ref, pkg)
 
 	// Assert
@@ -98,8 +98,7 @@ func TestFetcher_Fetch_CacheMiss(t *testing.T) {
 	}
 
 	// Test
-	f := newFetcher(cacheDir).
-		withHTTPClient(mockClient).
+	f := newFetcher(cacheDir, mockClient).
 		withBaseURL("https://example.com")
 	info, err := f.fetch(context.Background(), ref, pkg)
 
@@ -130,8 +129,7 @@ func TestFetcher_Fetch_NotFound(t *testing.T) {
 	}
 
 	// Test
-	f := newFetcher(cacheDir).
-		withHTTPClient(mockClient).
+	f := newFetcher(cacheDir, mockClient).
 		withBaseURL("https://example.com")
 	_, err := f.fetch(context.Background(), ref, pkg)
 
@@ -155,8 +153,7 @@ func TestFetcher_Fetch_ServerError(t *testing.T) {
 	}
 
 	// Test
-	f := newFetcher(cacheDir).
-		withHTTPClient(mockClient).
+	f := newFetcher(cacheDir, mockClient).
 		withBaseURL("https://example.com")
 	_, err := f.fetch(context.Background(), ref, pkg)
 
@@ -166,7 +163,7 @@ func TestFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestFetcher_cachePath(t *testing.T) {
-	f := newFetcher("/home/user/.cache/toto/registry/aqua")
+	f := newFetcher("/home/user/.cache/toto/registry/aqua", nil)
 
 	tests := []struct {
 		ref      string
@@ -196,7 +193,7 @@ func TestFetcher_cachePath(t *testing.T) {
 
 func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 	cacheDir := t.TempDir()
-	f := newFetcher(cacheDir)
+	f := newFetcher(cacheDir, nil)
 
 	path := filepath.Join(cacheDir, "test", "registry.yaml")
 	data := []byte("test data")
@@ -217,7 +214,7 @@ func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 }
 
 func TestFetcher_cachePath_PathTraversal(t *testing.T) {
-	f := newFetcher("/home/user/.cache/toto/registry/aqua")
+	f := newFetcher("/home/user/.cache/toto/registry/aqua", nil)
 
 	tests := []struct {
 		name    string

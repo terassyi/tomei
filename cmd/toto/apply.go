@@ -9,6 +9,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/github"
 	"github.com/terassyi/toto/internal/installer/download"
 	"github.com/terassyi/toto/internal/installer/engine"
 	"github.com/terassyi/toto/internal/installer/place"
@@ -111,15 +112,18 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
+	// Create GitHub-aware HTTP client (uses GITHUB_TOKEN/GH_TOKEN if available)
+	ghClient := github.NewHTTPClient(github.TokenFromEnv())
+
 	// Sync registry if --sync flag is set
 	if cfg.syncRegistry {
-		if err := aqua.SyncRegistry(ctx, store); err != nil {
+		if err := aqua.SyncRegistry(ctx, store, ghClient); err != nil {
 			slog.Warn("failed to sync aqua registry", "error", err)
 		}
 	}
 
 	// Create installers
-	downloader := download.NewDownloader()
+	downloader := download.NewDownloaderWithClient(ghClient)
 	toolsDir := pathConfig.UserDataDir() + "/tools"
 	runtimesDir := pathConfig.UserDataDir() + "/runtimes"
 	binDir := pathConfig.UserBinDir()
@@ -155,7 +159,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
 	eng.SetResolverConfigurer(func(st *state.UserState) error {
 		if st.Registry != nil && st.Registry.Aqua != nil {
-			resolver := aqua.NewResolver(cacheDir)
+			resolver := aqua.NewResolver(cacheDir, ghClient)
 			toolInstaller.SetResolver(resolver, aqua.RegistryRef(st.Registry.Aqua.Ref))
 			slog.Debug("configured aqua-registry resolver", "ref", st.Registry.Aqua.Ref)
 		}
