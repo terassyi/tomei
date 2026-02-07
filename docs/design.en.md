@@ -372,6 +372,8 @@ eval "$(toto env)"
 
 **Note:** During `toto apply`, delegation commands are automatically executed with the `env` field's environment variables set by toto. Therefore, `toto env` is for the user's shell environment.
 
+**PATH propagation for toolRef:** When an Installer has a `toolRef` (e.g., Installer/binstall depends on Tool/cargo-binstall), toto automatically prepends the referenced Tool's bin directory to PATH when executing delegation commands. This applies to both Tool installation commands (e.g., `cargo binstall ripgrep`) and InstallerRepository commands (e.g., `helm repo add`). This ensures that delegation commands can find their dependent tool binaries even when the user's shell PATH does not include the tool's bin directory.
+
 ---
 
 ## 5. State Management
@@ -441,6 +443,15 @@ System State:
         "CARGO_HOME": "~/.cargo",
         "RUSTUP_HOME": "~/.rustup"
       },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "installers": {
+    "aqua": {
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "binstall": {
+      "toolRef": "cargo-binstall",
       "updatedAt": "2025-01-28T12:00:00Z"
     }
   },
@@ -566,11 +577,12 @@ kind: "Installer"
 metadata: name: "binstall"
 spec: {
     type: "delegation"
-    toolRef: "cargo-binstall"  // ← depends on Tool
+    toolRef: "cargo-binstall"  // ← depends on Tool; bin dir is added to PATH
     commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
 }
 
 // 4. ripgrep Tool (installed via binstall installer)
+// When executing the install command, toto prepends cargo-binstall's bin directory to PATH.
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -915,20 +927,24 @@ Mode:
 └── Version extraction from CUE (single source of truth)
 ```
 
-### Phase 6: Userland Commands (Next)
-
-1. **toto adopt** — bring unmanaged tools (detected by doctor) under toto management
-2. **toto env** — export runtime environment variables for shell (`eval $(toto env)`)
-
-### Phase 7: Runtime Delegation & Version Resolution
+### Phase 6: Userland Commands (Completed)
 
 ```
-├── Delegation pattern for runtime installation (rustup, nvm bootstrap)
-├── Version alias resolution ("stable", "latest" → actual version)
-└── Auto-update latest-specified tools on --sync
+├── toto adopt — bring unmanaged tools (detected by doctor) under toto management
+└── toto env — export runtime environment variables for shell (eval $(toto env))
 ```
 
-### Phase 8: Configuration & Registry
+### Phase 7: Runtime Delegation & Version Resolution (Completed)
+
+```
+├── Delegation pattern for runtime installation (rustup bootstrap)
+├── VersionKind type for version classification (exact/latest/alias)
+├── Version alias resolution in reconciler (SpecVersion comparison)
+├── Auto-update latest-specified tools on --sync (taint-based)
+└── E2E tests for Rust delegation runtime with cargo install
+```
+
+### Phase 8: Configuration & Registry (Next)
 
 ```
 ├── CUE presets/overlay — environment-based conditional branching (_env.os, _env.arch)

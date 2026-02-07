@@ -333,6 +333,79 @@ func TestToolStateStore_Property_SaveDeleteConsistency(t *testing.T) {
 	})
 }
 
+// --- InstallerRepository StateStore Tests ---
+
+func TestInstallerRepositoryStateStore_SaveAndLoad(t *testing.T) {
+	f := newLockedFactory(t)
+	irs := f.InstallerRepositoryStore()
+
+	repoState := &resource.InstallerRepositoryState{
+		InstallerRef:  "helm",
+		SourceType:    resource.InstallerRepositorySourceDelegation,
+		RemoveCommand: "helm repo remove bitnami",
+	}
+
+	require.NoError(t, irs.Save("bitnami", repoState))
+
+	loaded, exists, err := irs.Load("bitnami")
+	require.NoError(t, err)
+	assert.True(t, exists)
+	assert.Equal(t, "helm", loaded.InstallerRef)
+	assert.Equal(t, resource.InstallerRepositorySourceDelegation, loaded.SourceType)
+}
+
+func TestInstallerRepositoryStateStore_Delete(t *testing.T) {
+	f := newLockedFactory(t)
+	irs := f.InstallerRepositoryStore()
+
+	require.NoError(t, irs.Save("bitnami", &resource.InstallerRepositoryState{InstallerRef: "helm"}))
+	require.NoError(t, irs.Delete("bitnami"))
+
+	_, exists, err := irs.Load("bitnami")
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestInstallerRepositoryStateStore_LoadNotFound(t *testing.T) {
+	f := newLockedFactory(t)
+	irs := f.InstallerRepositoryStore()
+
+	_, exists, err := irs.Load("nonexistent")
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestInstallerRepositoryStateStore_ConcurrentSave(t *testing.T) {
+	f := newLockedFactory(t)
+	irs := f.InstallerRepositoryStore()
+
+	const n = 10
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+
+	for i := range n {
+		wg.Go(func() {
+			name := fmt.Sprintf("repo-%d", i)
+			errs[i] = irs.Save(name, &resource.InstallerRepositoryState{
+				InstallerRef: "helm",
+				SourceType:   resource.InstallerRepositorySourceDelegation,
+			})
+		})
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.NoError(t, err, "save failed for repo-%d", i)
+	}
+
+	for i := range n {
+		name := fmt.Sprintf("repo-%d", i)
+		_, exists, err := irs.Load(name)
+		require.NoError(t, err)
+		assert.True(t, exists, "repo %s missing", name)
+	}
+}
+
 func TestToolStateStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		f := newLockedFactoryRapid(t)

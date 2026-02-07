@@ -39,5 +39,6 @@ var _ = Describe("toto E2E", Ordered, func() {
 	Context("ToolSet", toolsetTests)
 	Context("Aqua Registry", registryTests)
 	Context("Delegation Runtime", delegationTests)
+	Context("Installer Repository", installerRepositoryTests)
 	Context("Dependency Resolution", dependencyTests)
 })

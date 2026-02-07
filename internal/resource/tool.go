@@ -208,6 +208,12 @@ type ToolSpec struct {
 	// Either InstallerRef or RuntimeRef must be specified.
 	InstallerRef string `json:"installerRef,omitempty"`
 
+	// RepositoryRef references an InstallerRepository resource by name.
+	// Used when the tool is installed from a third-party repository
+	// (e.g., a Helm chart from a custom repo, a krew plugin from a custom index).
+	// The referenced InstallerRepository must be configured before this tool can be installed.
+	RepositoryRef string `json:"repositoryRef,omitempty"`
+
 	// Version specifies the tool version to install.
 	// Format depends on the tool (e.g., "2.62.0", "v2.62.0", "latest").
 	// Required for download pattern with Source; optional for registry pattern (defaults to latest).
@@ -278,6 +284,9 @@ func (s *ToolSpec) Dependencies() []Ref {
 	if s.InstallerRef != "" {
 		deps = append(deps, Ref{Kind: KindInstaller, Name: s.InstallerRef})
 	}
+	if s.RepositoryRef != "" {
+		deps = append(deps, Ref{Kind: KindInstallerRepository, Name: s.RepositoryRef})
+	}
 	if s.RuntimeRef != "" {
 		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
 	}
@@ -313,6 +322,10 @@ type ToolSetSpec struct {
 	// Either InstallerRef or RuntimeRef must be specified (mutually exclusive).
 	InstallerRef string `json:"installerRef,omitempty"`
 
+	// RepositoryRef references an InstallerRepository resource for all tools in this set.
+	// Optional. When set, all tools will depend on this repository being configured first.
+	RepositoryRef string `json:"repositoryRef,omitempty"`
+
 	// RuntimeRef references a Runtime resource for installation.
 	// When set, all tools in this set will be installed via the runtime's commands.install.
 	// Either InstallerRef or RuntimeRef must be specified (mutually exclusive).
@@ -344,6 +357,9 @@ func (s *ToolSetSpec) Dependencies() []Ref {
 	var deps []Ref
 	if s.InstallerRef != "" {
 		deps = append(deps, Ref{Kind: KindInstaller, Name: s.InstallerRef})
+	}
+	if s.RepositoryRef != "" {
+		deps = append(deps, Ref{Kind: KindInstallerRepository, Name: s.RepositoryRef})
 	}
 	if s.RuntimeRef != "" {
 		deps = append(deps, Ref{Kind: KindRuntime, Name: s.RuntimeRef})
@@ -378,11 +394,12 @@ func (ts *ToolSet) Expand() ([]Resource, error) {
 				Metadata:     Metadata{Name: name},
 			},
 			ToolSpec: &ToolSpec{
-				InstallerRef: ts.ToolSetSpec.InstallerRef,
-				RuntimeRef:   ts.ToolSetSpec.RuntimeRef,
-				Version:      item.Version,
-				Source:       item.Source,
-				Package:      item.Package,
+				InstallerRef:  ts.ToolSetSpec.InstallerRef,
+				RepositoryRef: ts.ToolSetSpec.RepositoryRef,
+				RuntimeRef:    ts.ToolSetSpec.RuntimeRef,
+				Version:       item.Version,
+				Source:        item.Source,
+				Package:       item.Package,
 			},
 		}
 		tools = append(tools, tool)
@@ -426,6 +443,9 @@ func (t *ToolItem) IsEnabled() bool {
 type ToolState struct {
 	// InstallerRef is the installer that was used to install this tool.
 	InstallerRef string `json:"installerRef"`
+
+	// RepositoryRef is the installer repository used for this tool (if any).
+	RepositoryRef string `json:"repositoryRef,omitempty"`
 
 	// Version is the installed version of the tool.
 	Version string `json:"version"`

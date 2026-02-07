@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/terassyi/toto/internal/graph"
 	"github.com/terassyi/toto/internal/installer/download"
@@ -25,6 +27,7 @@ type ToolInstaller interface {
 	Remove(ctx context.Context, st *resource.ToolState, name string) error
 	RegisterRuntime(name string, info *tool.RuntimeInfo)
 	RegisterInstaller(name string, info *tool.InstallerInfo)
+	SetToolBinPaths(paths map[string]string)
 	SetProgressCallback(callback download.ProgressCallback)
 	SetOutputCallback(callback download.OutputCallback)
 }
@@ -34,6 +37,13 @@ type RuntimeInstaller interface {
 	Install(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error)
 	Remove(ctx context.Context, st *resource.RuntimeState, name string) error
 	SetProgressCallback(callback download.ProgressCallback)
+}
+
+// InstallerRepositoryInstaller defines the interface for installing installer repositories.
+type InstallerRepositoryInstaller interface {
+	Install(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error)
+	Remove(ctx context.Context, st *resource.InstallerRepositoryState, name string) error
+	SetToolBinPaths(paths map[string]string)
 }
 
 // ResolverConfigurer is a callback to configure the tool resolver after state is loaded.
@@ -83,37 +93,45 @@ const (
 
 // Engine orchestrates the apply process.
 type Engine struct {
-	store              *state.Store[state.UserState]
-	toolInstaller      ToolInstaller
-	runtimeInstaller   RuntimeInstaller
-	runtimeReconciler  *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
-	runtimeExecutor    *executor.Executor[*resource.Runtime, *resource.RuntimeState]
-	toolReconciler     *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
-	toolExecutor       *executor.Executor[*resource.Tool, *resource.ToolState]
-	resolverConfigurer ResolverConfigurer
-	eventHandler       EventHandler
-	parallelism        int
-	syncMode           bool
+	store                   *state.Store[state.UserState]
+	toolInstaller           ToolInstaller
+	runtimeInstaller        RuntimeInstaller
+	installerRepoInstaller  InstallerRepositoryInstaller
+	runtimeReconciler       *reconciler.Reconciler[*resource.Runtime, *resource.RuntimeState]
+	runtimeExecutor         *executor.Executor[*resource.Runtime, *resource.RuntimeState]
+	toolReconciler          *reconciler.Reconciler[*resource.Tool, *resource.ToolState]
+	toolExecutor            *executor.Executor[*resource.Tool, *resource.ToolState]
+	installerRepoReconciler *reconciler.Reconciler[*resource.InstallerRepository, *resource.InstallerRepositoryState]
+	installerRepoExecutor   *executor.Executor[*resource.InstallerRepository, *resource.InstallerRepositoryState]
+	resolverConfigurer      ResolverConfigurer
+	eventHandler            EventHandler
+	parallelism             int
+	syncMode                bool
 }
 
 // NewEngine creates a new Engine.
 func NewEngine(
 	toolInstaller ToolInstaller,
 	runtimeInstaller RuntimeInstaller,
+	installerRepoInstaller InstallerRepositoryInstaller,
 	store *state.Store[state.UserState],
 ) *Engine {
 	storeFactory := executor.NewStateStoreFactory(store)
 	toolStore := storeFactory.ToolStore()
 	runtimeStore := storeFactory.RuntimeStore()
+	repoStore := storeFactory.InstallerRepositoryStore()
 	return &Engine{
-		store:             store,
-		toolInstaller:     toolInstaller,
-		runtimeInstaller:  runtimeInstaller,
-		runtimeReconciler: reconciler.NewRuntimeReconciler(),
-		runtimeExecutor:   executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
-		toolReconciler:    reconciler.NewToolReconciler(),
-		toolExecutor:      executor.New(resource.KindTool, toolInstaller, toolStore),
-		parallelism:       DefaultParallelism,
+		store:                   store,
+		toolInstaller:           toolInstaller,
+		runtimeInstaller:        runtimeInstaller,
+		installerRepoInstaller:  installerRepoInstaller,
+		runtimeReconciler:       reconciler.NewRuntimeReconciler(),
+		runtimeExecutor:         executor.New(resource.KindRuntime, runtimeInstaller, runtimeStore),
+		toolReconciler:          reconciler.NewToolReconciler(),
+		toolExecutor:            executor.New(resource.KindTool, toolInstaller, toolStore),
+		installerRepoReconciler: reconciler.NewInstallerRepositoryReconciler(),
+		installerRepoExecutor:   executor.New(resource.KindInstallerRepository, installerRepoInstaller, repoStore),
+		parallelism:             DefaultParallelism,
 	}
 }
 
@@ -158,6 +176,9 @@ type ToolAction = reconciler.Action[*resource.Tool, *resource.ToolState]
 
 // RuntimeAction is an alias for runtime-specific action type.
 type RuntimeAction = reconciler.Action[*resource.Runtime, *resource.RuntimeState]
+
+// InstallerRepositoryAction is an alias for installer-repository-specific action type.
+type InstallerRepositoryAction = reconciler.Action[*resource.InstallerRepository, *resource.InstallerRepositoryState]
 
 // Apply reconciles resources with state and executes actions using DAG-based ordering.
 func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
@@ -212,7 +233,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Build resource maps for quick lookup
 	resourceMap := buildResourceMap(resources)
 
-	// Register installers for delegation type
+	// Register installers for delegation type and save to state
 	for _, res := range resources {
 		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
 			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
@@ -220,7 +241,18 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				ToolRef:  inst.InstallerSpec.ToolRef,
 				Commands: inst.InstallerSpec.Commands,
 			})
+			// Persist installer state (including ToolRef) for removal lookup
+			if st.Installers == nil {
+				st.Installers = make(map[string]*resource.InstallerState)
+			}
+			st.Installers[inst.Name()] = &resource.InstallerState{
+				ToolRef:   inst.InstallerSpec.ToolRef,
+				UpdatedAt: time.Now(),
+			}
 		}
+	}
+	if err := e.store.Save(st); err != nil {
+		return fmt.Errorf("failed to save installer state: %w", err)
 	}
 
 	// Track updated runtimes for taint logic
@@ -269,8 +301,13 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 }
 
 // executeLayer executes all nodes in a layer.
-// Nodes are split by kind: Runtime/Installer execute in parallel first (always before Tools),
-// then Tool nodes execute in parallel. Both phases use semaphore-based concurrency limiting.
+// Nodes are split by kind into three phases:
+//
+//	Phase 1: Runtime/Installer nodes (always first)
+//	Phase 2: InstallerRepository nodes (after installers are ready)
+//	Phase 3: Tool nodes (after repositories are configured)
+//
+// Each phase uses semaphore-based concurrency limiting.
 // If any node fails, all running parallel nodes are canceled immediately.
 func (e *Engine) executeLayer(
 	ctx context.Context,
@@ -280,23 +317,34 @@ func (e *Engine) executeLayer(
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
-	// Split nodes by kind: Runtime/Installer vs Tool
-	var runtimeNodes, toolNodes []*graph.Node
+	// Split nodes by kind into three groups
+	var runtimeNodes, repoNodes, toolNodes []*graph.Node
 	for _, node := range layer.Nodes {
 		switch node.Kind {
 		case resource.KindRuntime, resource.KindInstaller:
 			runtimeNodes = append(runtimeNodes, node)
+		case resource.KindInstallerRepository:
+			repoNodes = append(repoNodes, node)
 		default:
 			toolNodes = append(toolNodes, node)
 		}
 	}
 
-	// Phase 1: Execute Runtime/Installer nodes in parallel (always before Tools)
+	// Phase 1: Execute Runtime/Installer nodes in parallel (always before repos and tools)
 	if err := e.executeNodeGroup(ctx, runtimeNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
 		return err
 	}
 
-	// Phase 2: Execute Tool nodes in parallel
+	// Update tool bin paths for InstallerRepository delegation commands.
+	// After Phase 1, toolRef targets are installed and their binPaths are in state.
+	e.updateToolBinPaths(resourceMap, st)
+
+	// Phase 2: Execute InstallerRepository nodes in parallel (after installers, before tools)
+	if err := e.executeNodeGroup(ctx, repoNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+		return err
+	}
+
+	// Phase 3: Execute Tool nodes in parallel
 	return e.executeNodeGroup(ctx, toolNodes, resourceMap, st, updatedRuntimes, totalActions)
 }
 
@@ -458,6 +506,8 @@ func (e *Engine) executeNode(
 	case resource.KindInstaller:
 		// Installers don't need execution - they're just registered
 		return nil
+	case resource.KindInstallerRepository:
+		return e.executeInstallerRepositoryNode(ctx, res.(*resource.InstallerRepository), st, totalActions)
 	case resource.KindTool:
 		return e.executeToolNode(ctx, res.(*resource.Tool), st, totalActions)
 	default:
@@ -531,6 +581,97 @@ func (e *Engine) executeRuntimeNode(
 		updatedRuntimes[action.Name] = true
 	}
 
+	return nil
+}
+
+// updateToolBinPaths builds and sets the mapping from installer name to tool bin directory.
+// This ensures delegation commands can find toolRef binaries in PATH.
+// It first checks resources (for install/apply), then falls back to state (for removals
+// where the Installer resource may no longer be in the manifest).
+func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st *state.UserState) {
+	toolBinPaths := make(map[string]string)
+	// From resources (available during install/apply)
+	for _, res := range resourceMap {
+		inst, ok := res.(*resource.Installer)
+		if !ok || inst.InstallerSpec == nil || inst.InstallerSpec.ToolRef == "" {
+			continue
+		}
+		if ts, exists := st.Tools[inst.InstallerSpec.ToolRef]; exists && ts.BinPath != "" {
+			toolBinPaths[inst.Name()] = filepath.Dir(ts.BinPath)
+		}
+	}
+	// From state (fallback for removals when Installer is no longer in manifest)
+	for name, instState := range st.Installers {
+		if _, already := toolBinPaths[name]; already {
+			continue
+		}
+		if instState.ToolRef == "" {
+			continue
+		}
+		if ts, exists := st.Tools[instState.ToolRef]; exists && ts.BinPath != "" {
+			toolBinPaths[name] = filepath.Dir(ts.BinPath)
+		}
+	}
+	e.installerRepoInstaller.SetToolBinPaths(toolBinPaths)
+	e.toolInstaller.SetToolBinPaths(toolBinPaths)
+}
+
+// executeInstallerRepositoryNode executes an installer repository action.
+func (e *Engine) executeInstallerRepositoryNode(
+	ctx context.Context,
+	repo *resource.InstallerRepository,
+	st *state.UserState,
+	totalActions *int,
+) error {
+	if e.installerRepoExecutor == nil {
+		return fmt.Errorf("installer repository executor not configured")
+	}
+
+	// Build a single-repo state map to avoid removing other repos
+	singleRepoState := make(map[string]*resource.InstallerRepositoryState)
+	if rs, exists := st.InstallerRepositories[repo.Name()]; exists {
+		singleRepoState[repo.Name()] = rs
+	}
+
+	// Reconcile single repo against its own state only
+	actions := e.installerRepoReconciler.Reconcile([]*resource.InstallerRepository{repo}, singleRepoState)
+	if len(actions) == 0 {
+		return nil
+	}
+
+	action := actions[0]
+	if action.Type == resource.ActionNone {
+		return nil
+	}
+
+	// Emit start event
+	e.emitEvent(Event{
+		Type:   EventStart,
+		Kind:   resource.KindInstallerRepository,
+		Name:   action.Name,
+		Action: action.Type,
+	})
+
+	if err := e.installerRepoExecutor.Execute(ctx, action); err != nil {
+		e.emitEvent(Event{
+			Type:   EventError,
+			Kind:   resource.KindInstallerRepository,
+			Name:   action.Name,
+			Action: action.Type,
+			Error:  err,
+		})
+		return fmt.Errorf("failed to execute action %s for installer repository %s: %w", action.Type, action.Name, err)
+	}
+
+	// Emit complete event
+	e.emitEvent(Event{
+		Type:   EventComplete,
+		Kind:   resource.KindInstallerRepository,
+		Name:   action.Name,
+		Action: action.Type,
+	})
+
+	*totalActions++
 	return nil
 }
 
@@ -661,6 +802,7 @@ func buildResourceMap(resources []resource.Resource) map[string]resource.Resourc
 }
 
 // handleRemovals processes resources that are in state but not in the config.
+// Removal order: Tools first, then InstallerRepositories, then Runtimes.
 func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resource, totalActions *int) error {
 	// Reload state to get latest
 	st, err := e.store.Load()
@@ -671,8 +813,10 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	// Get full reconciliation to detect removals
 	tools := extractTools(resources)
 	runtimes := extractRuntimes(resources)
+	repos := extractInstallerRepositories(resources)
 
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
+	repoActions := e.installerRepoReconciler.Reconcile(repos, st.InstallerRepositories)
 	runtimeActions := e.runtimeReconciler.Reconcile(runtimes, st.Runtimes)
 
 	// Validate no remaining tools depend on runtimes being removed
@@ -688,7 +832,7 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		}
 	}
 
-	// Execute remove actions for tools
+	// Execute remove actions for tools (first, since they depend on repos)
 	for _, action := range toolActions {
 		if action.Type != resource.ActionRemove {
 			continue
@@ -699,7 +843,21 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		*totalActions++
 	}
 
-	// Execute remove actions for runtimes
+	// Update tool bin paths for InstallerRepository remove commands (e.g., helm repo remove)
+	e.updateToolBinPaths(buildResourceMap(resources), st)
+
+	// Execute remove actions for installer repositories (after tools, before runtimes)
+	for _, action := range repoActions {
+		if action.Type != resource.ActionRemove {
+			continue
+		}
+		if err := e.installerRepoExecutor.Execute(ctx, action); err != nil {
+			return fmt.Errorf("failed to remove installer repository %s: %w", action.Name, err)
+		}
+		*totalActions++
+	}
+
+	// Execute remove actions for runtimes (last)
 	for _, action := range runtimeActions {
 		if action.Type != resource.ActionRemove {
 			continue
@@ -713,24 +871,25 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	return nil
 }
 
-// PlanAll returns both runtime and tool actions based on resources and current state.
-func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]RuntimeAction, []ToolAction, error) {
+// PlanAll returns runtime, installer repository, and tool actions based on resources and current state.
+func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]RuntimeAction, []InstallerRepositoryAction, []ToolAction, error) {
 	slog.Debug("planning configuration", "resources", len(resources))
 
 	// Extract resources
 	runtimes := extractRuntimes(resources)
+	repos := extractInstallerRepositories(resources)
 	tools := extractTools(resources)
 
 	// Acquire lock for state read
 	if err := e.store.Lock(); err != nil {
-		return nil, nil, fmt.Errorf("failed to acquire lock: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
 
 	// Load current state
 	st, err := e.store.Load()
 	if err != nil {
 		_ = e.store.Unlock()
-		return nil, nil, fmt.Errorf("failed to load state: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to load state: %w", err)
 	}
 
 	_ = e.store.Unlock()
@@ -739,6 +898,12 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 	var runtimeActions []RuntimeAction
 	if e.runtimeReconciler != nil {
 		runtimeActions = e.runtimeReconciler.Reconcile(runtimes, st.Runtimes)
+	}
+
+	// Reconcile installer repositories
+	var repoActions []InstallerRepositoryAction
+	if e.installerRepoReconciler != nil {
+		repoActions = e.installerRepoReconciler.Reconcile(repos, st.InstallerRepositories)
 	}
 
 	// Reconcile tools
@@ -753,12 +918,12 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 	}
 	if len(runtimeRemovals) > 0 {
 		if err := checkRemovalDependencies(runtimeRemovals, tools); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 
-	slog.Debug("plan completed", "runtimeActions", len(runtimeActions), "toolActions", len(toolActions))
-	return runtimeActions, toolActions, nil
+	slog.Debug("plan completed", "runtimeActions", len(runtimeActions), "repoActions", len(repoActions), "toolActions", len(toolActions))
+	return runtimeActions, repoActions, toolActions, nil
 }
 
 // taintDependentTools marks tools that depend on the updated runtimes for reinstallation.
@@ -815,6 +980,17 @@ func extractRuntimes(resources []resource.Resource) []*resource.Runtime {
 		}
 	}
 	return runtimes
+}
+
+// extractInstallerRepositories filters InstallerRepository resources from a list of resources.
+func extractInstallerRepositories(resources []resource.Resource) []*resource.InstallerRepository {
+	var repos []*resource.InstallerRepository
+	for _, res := range resources {
+		if repo, ok := res.(*resource.InstallerRepository); ok {
+			repos = append(repos, repo)
+		}
+	}
+	return repos
 }
 
 // extractTools filters Tool resources from a list of resources.

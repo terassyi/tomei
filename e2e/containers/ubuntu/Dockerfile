@@ -40,5 +40,8 @@ COPY --chown=testuser:testuser config/registry/tools.cue.old /home/testuser/mani
 # Copy dependency test manifests
 COPY --chown=testuser:testuser config/dependency-test/ /home/testuser/dependency-test/
 
+# Copy installer-repo-test manifests
+COPY --chown=testuser:testuser config/installer-repo-test/ /home/testuser/installer-repo-test/
+
 # Default command
 CMD ["toto", "version"]

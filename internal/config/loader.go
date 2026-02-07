@@ -346,6 +346,8 @@ func (l *Loader) parseResource(value cue.Value) (resource.Resource, error) {
 		return unmarshalResource[*resource.Runtime](jsonBytes)
 	case resource.KindInstaller:
 		return unmarshalResource[*resource.Installer](jsonBytes)
+	case resource.KindInstallerRepository:
+		return unmarshalResource[*resource.InstallerRepository](jsonBytes)
 	case resource.KindSystemInstaller:
 		return unmarshalResource[*resource.SystemInstaller](jsonBytes)
 	case resource.KindSystemPackageRepository:

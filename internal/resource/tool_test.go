@@ -387,6 +387,32 @@ func TestToolSpec_Dependencies(t *testing.T) {
 			},
 		},
 		{
+			name: "with repositoryRef",
+			spec: &ToolSpec{
+				InstallerRef:  "helm",
+				RepositoryRef: "bitnami",
+				Package:       &Package{Name: "bitnami/nginx"},
+			},
+			want: []Ref{
+				{Kind: KindInstaller, Name: "helm"},
+				{Kind: KindInstallerRepository, Name: "bitnami"},
+			},
+		},
+		{
+			name: "installerRef and repositoryRef and runtimeRef",
+			spec: &ToolSpec{
+				InstallerRef:  "aqua",
+				RepositoryRef: "custom-registry",
+				RuntimeRef:    "go",
+				Package:       &Package{Name: "example.com/tool"},
+			},
+			want: []Ref{
+				{Kind: KindInstaller, Name: "aqua"},
+				{Kind: KindInstallerRepository, Name: "custom-registry"},
+				{Kind: KindRuntime, Name: "go"},
+			},
+		},
+		{
 			name: "neither (empty deps)",
 			spec: &ToolSpec{
 				Version: "1.0.0",
@@ -486,6 +512,80 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.want, &got)
 		})
 	}
+}
+
+func TestToolSetSpec_Dependencies(t *testing.T) {
+	tests := []struct {
+		name string
+		spec *ToolSetSpec
+		want []Ref
+	}{
+		{
+			name: "installerRef only",
+			spec: &ToolSetSpec{
+				InstallerRef: "aqua",
+				Tools:        map[string]ToolItem{"rg": {Version: "14.0.0"}},
+			},
+			want: []Ref{{Kind: KindInstaller, Name: "aqua"}},
+		},
+		{
+			name: "with repositoryRef",
+			spec: &ToolSetSpec{
+				InstallerRef:  "helm",
+				RepositoryRef: "bitnami",
+				Tools:         map[string]ToolItem{"nginx": {Version: "1.0.0"}},
+			},
+			want: []Ref{
+				{Kind: KindInstaller, Name: "helm"},
+				{Kind: KindInstallerRepository, Name: "bitnami"},
+			},
+		},
+		{
+			name: "runtimeRef only",
+			spec: &ToolSetSpec{
+				RuntimeRef: "go",
+				Tools:      map[string]ToolItem{"gopls": {Version: "v0.17.1"}},
+			},
+			want: []Ref{{Kind: KindRuntime, Name: "go"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.spec.Dependencies()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestToolSet_Expand_WithRepositoryRef(t *testing.T) {
+	ts := &ToolSet{
+		BaseResource: BaseResource{
+			APIVersion:   GroupVersion,
+			ResourceKind: KindToolSet,
+			Metadata:     Metadata{Name: "helm-tools"},
+		},
+		ToolSetSpec: &ToolSetSpec{
+			InstallerRef:  "helm",
+			RepositoryRef: "bitnami",
+			Tools: map[string]ToolItem{
+				"nginx": {
+					Version: "1.0.0",
+					Package: &Package{Name: "bitnami/nginx"},
+				},
+			},
+		},
+	}
+
+	resources, err := ts.Expand()
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	tool := resources[0].(*Tool)
+	assert.Equal(t, "nginx", tool.Name())
+	assert.Equal(t, "helm", tool.ToolSpec.InstallerRef)
+	assert.Equal(t, "bitnami", tool.ToolSpec.RepositoryRef)
+	assert.Equal(t, "1.0.0", tool.ToolSpec.Version)
 }
 
 func TestIsRegistryFormat(t *testing.T) {

@@ -41,6 +41,7 @@ type Installer struct {
 	cmdExecutor      *command.Executor
 	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
 	installers       map[string]*InstallerInfo // name -> InstallerInfo
+	toolBinPaths     map[string]string         // installer name -> tool bin directory
 	resolver         *aqua.Resolver            // aqua-registry resolver (optional)
 	registryRef      aqua.RegistryRef          // aqua-registry version ref (e.g., "v4.465.0")
 	progressCallback download.ProgressCallback // optional progress callback
@@ -66,6 +67,28 @@ func (i *Installer) RegisterRuntime(name string, info *RuntimeInfo) {
 // RegisterInstaller registers an installer for tool delegation.
 func (i *Installer) RegisterInstaller(name string, info *InstallerInfo) {
 	i.installers[name] = info
+}
+
+// SetToolBinPaths sets the mapping from installer name to tool bin directory.
+// This is used to add the tool's bin directory to PATH when executing installer delegation commands.
+func (i *Installer) SetToolBinPaths(paths map[string]string) {
+	i.toolBinPaths = paths
+}
+
+// buildEnvWithToolPath builds an environment map with the tool's bin directory prepended to PATH.
+// This ensures installer delegation commands (e.g., helm pull) can find their toolRef binary.
+func (i *Installer) buildEnvWithToolPath(installerName string) map[string]string {
+	if i.toolBinPaths == nil {
+		return nil
+	}
+	binDir, ok := i.toolBinPaths[installerName]
+	if !ok || binDir == "" {
+		return nil
+	}
+	currentPath := os.Getenv("PATH")
+	return map[string]string{
+		"PATH": binDir + string(os.PathListSeparator) + currentPath,
+	}
 }
 
 // SetResolver sets the aqua-registry resolver and registry ref.
@@ -465,20 +488,21 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		BinPath: "", // installer manages the path
 	}
 
+	// Build environment with PATH including the installer's toolRef binary directory
+	env := i.buildEnvWithToolPath(spec.InstallerRef)
+
 	// Execute install command with output streaming
-	// Note: Installer no longer references Runtime directly.
-	// Tools that need runtime environment should use runtimeRef on the Tool itself.
 	// Prefer context callback for parallel execution
 	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
 	if outputCb == nil {
 		outputCb = i.outputCallback
 	}
 	if outputCb != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, nil, command.OutputCallback(outputCb)); err != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
 			return nil, fmt.Errorf("failed to execute install command: %w", err)
 		}
 	} else {
-		if err := i.cmdExecutor.Execute(ctx, info.Commands.Install, vars); err != nil {
+		if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
 			return nil, fmt.Errorf("failed to execute install command: %w", err)
 		}
 	}

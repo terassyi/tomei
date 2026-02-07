@@ -50,6 +50,8 @@ func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
 
 func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
 
+func (m *mockToolInstaller) SetToolBinPaths(_ map[string]string) {}
+
 func (m *mockToolInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
 func (m *mockToolInstaller) SetOutputCallback(_ download.OutputCallback) {}
@@ -83,6 +85,32 @@ func (m *mockRuntimeInstaller) Remove(ctx context.Context, st *resource.RuntimeS
 
 func (m *mockRuntimeInstaller) SetProgressCallback(_ download.ProgressCallback) {}
 
+// mockInstallerRepositoryInstaller is a mock implementation for testing.
+type mockInstallerRepositoryInstaller struct {
+	installFunc func(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error)
+	removeFunc  func(ctx context.Context, st *resource.InstallerRepositoryState, name string) error
+}
+
+func (m *mockInstallerRepositoryInstaller) Install(ctx context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error) {
+	if m.installFunc != nil {
+		return m.installFunc(ctx, res, name)
+	}
+	return &resource.InstallerRepositoryState{
+		InstallerRef: res.InstallerRepositorySpec.InstallerRef,
+		SourceType:   res.InstallerRepositorySpec.Source.Type,
+		URL:          res.InstallerRepositorySpec.Source.URL,
+	}, nil
+}
+
+func (m *mockInstallerRepositoryInstaller) Remove(ctx context.Context, st *resource.InstallerRepositoryState, name string) error {
+	if m.removeFunc != nil {
+		return m.removeFunc(ctx, st, name)
+	}
+	return nil
+}
+
+func (m *mockInstallerRepositoryInstaller) SetToolBinPaths(_ map[string]string) {}
+
 func TestNewEngine(t *testing.T) {
 	tmpDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](tmpDir)
@@ -90,7 +118,7 @@ func TestNewEngine(t *testing.T) {
 
 	toolMock := &mockToolInstaller{}
 	runtimeMock := &mockRuntimeInstaller{}
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	assert.NotNil(t, engine)
 }
@@ -146,7 +174,7 @@ tool: {
 	}
 	runtimeMock := &mockRuntimeInstaller{}
 
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply
 	err = engine.Apply(context.Background(), resources)
@@ -223,7 +251,7 @@ tool: {
 	}
 	runtimeMock := &mockRuntimeInstaller{}
 
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply
 	err = engine.Apply(context.Background(), resources)
@@ -321,7 +349,7 @@ tool: {
 		},
 	}
 
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply
 	err = engine.Apply(context.Background(), resources)
@@ -442,7 +470,7 @@ tool: {
 		},
 	}
 
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply - should upgrade runtime and reinstall tainted tools
 	err = engine.Apply(context.Background(), resources)
@@ -582,7 +610,7 @@ biomeTool: {
 		},
 	}
 
-	engine := NewEngine(toolMock, runtimeMock, store)
+	engine := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply
 	err = engine.Apply(context.Background(), resources)
@@ -656,7 +684,7 @@ toolB: {
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
-	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply - should fail due to circular dependency
 	err = engine.Apply(context.Background(), resources)
@@ -770,7 +798,7 @@ bat: {
 		},
 	}
 
-	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply
 	err = engine.Apply(context.Background(), resources)
@@ -885,7 +913,7 @@ bat: {
 		},
 	}
 
-	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run Apply - should return error
 	err = eng.Apply(context.Background(), resources)
@@ -975,7 +1003,7 @@ ripgrep: {
 		},
 	}
 
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1095,7 +1123,7 @@ nodeRuntime: {
 		},
 	}
 
-	eng := NewEngine(&mockToolInstaller{}, runtimeMock, store)
+	eng := NewEngine(&mockToolInstaller{}, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -1130,7 +1158,7 @@ func TestEngine_SetParallelism(t *testing.T) {
 			store, err := state.NewStore[state.UserState](stateDir)
 			require.NoError(t, err)
 
-			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 			eng.SetParallelism(tt.input)
 			assert.Equal(t, tt.want, eng.parallelism)
 		})
@@ -1212,7 +1240,7 @@ aquaInstaller: {
 		},
 	}
 
-	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 	eng.SetParallelism(2) // Limit to 2 concurrent
 
 	err = eng.Apply(context.Background(), resources)
@@ -1291,7 +1319,7 @@ tool: {
 		},
 	}
 
-	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	// Set resolver configurer
 	engine.SetResolverConfigurer(func(st *state.UserState) error {
@@ -1361,7 +1389,7 @@ tool: {
 		},
 	}
 
-	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	engine := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	engine.SetResolverConfigurer(func(st *state.UserState) error {
 		configurerCalled = true
@@ -1425,10 +1453,10 @@ tool: {
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
 
-	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+	engine := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 	// Run PlanAll
-	runtimeActions, toolActions, err := engine.PlanAll(context.Background(), resources)
+	runtimeActions, _, toolActions, err := engine.PlanAll(context.Background(), resources)
 	require.NoError(t, err)
 
 	// Should have one runtime install action
@@ -1581,7 +1609,7 @@ func TestEngine_Property_ParallelSafety(t *testing.T) {
 			},
 		}
 
-		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 		if err := eng.Apply(context.Background(), resources); err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -1676,7 +1704,7 @@ func TestEngine_Property_RuntimeBeforeTool(t *testing.T) {
 			},
 		}
 
-		eng := NewEngine(toolMock, runtimeMock, store)
+		eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 		if err := eng.Apply(context.Background(), resources); err != nil {
 			t.Fatalf("Apply failed: %v", err)
@@ -1757,7 +1785,7 @@ func TestEngine_Property_ParallelismLimit(t *testing.T) {
 			},
 		}
 
-		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 		eng.SetParallelism(parallelism)
 
 		if err := eng.Apply(context.Background(), resources); err != nil {
@@ -1827,7 +1855,7 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 			},
 		}
 
-		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
 		err = eng.Apply(context.Background(), resources)
 
@@ -1880,7 +1908,7 @@ func TestEngine_Apply_ToolSet(t *testing.T) {
 	}
 	runtimeMock := &mockRuntimeInstaller{}
 
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	resources := []resource.Resource{
 		&resource.Installer{
@@ -1941,7 +1969,7 @@ func TestEngine_Apply_ToolSet_DisabledItem(t *testing.T) {
 	}
 	runtimeMock := &mockRuntimeInstaller{}
 
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	disabled := false
 	resources := []resource.Resource{
@@ -1977,7 +2005,7 @@ func TestEngine_Apply_ToolSet_NameConflict(t *testing.T) {
 
 	toolMock := &mockToolInstaller{}
 	runtimeMock := &mockRuntimeInstaller{}
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	resources := []resource.Resource{
 		&resource.Tool{
@@ -2110,7 +2138,7 @@ gopls: {
 
 	toolMock := &mockToolInstaller{}
 	runtimeMock := &mockRuntimeInstaller{}
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// First apply: install both
 	err = eng.Apply(context.Background(), resources)
@@ -2193,9 +2221,9 @@ gopls: {
 
 	toolMock := &mockToolInstaller{}
 	runtimeMock := &mockRuntimeInstaller{}
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
-	_, _, err = eng.PlanAll(context.Background(), resources)
+	_, _, _, err = eng.PlanAll(context.Background(), resources)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot remove runtime")
 	assert.Contains(t, err.Error(), "gopls")
@@ -2260,7 +2288,7 @@ gopls: {
 			return nil
 		},
 	}
-	eng := NewEngine(toolMock, runtimeMock, store)
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
 
 	// First apply: install both
 	err = eng.Apply(context.Background(), resources)
@@ -2385,7 +2413,7 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 			require.NoError(t, store.Save(initialState))
 			require.NoError(t, store.Unlock())
 
-			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, store)
+			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 			eng.SetSyncMode(true)
 
 			// Call taintLatestTools directly
@@ -2467,7 +2495,7 @@ fd: {
 		},
 	}
 
-	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 	eng.SetSyncMode(true)
 
 	err = eng.Apply(context.Background(), resources)
@@ -2529,11 +2557,235 @@ rg: {
 		},
 	}
 
-	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, store)
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 	eng.SetSyncMode(true)
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
 	assert.False(t, installCalled, "exact version tool should not be reinstalled in sync mode")
+}
+
+func TestEngine_Apply_InstallerRepository(t *testing.T) {
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+repo: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "InstallerRepository"
+	metadata: name: "bitnami"
+	spec: {
+		installerRef: "helm"
+		source: {
+			type: "delegation"
+			url:  "https://charts.bitnami.com/bitnami"
+			commands: {
+				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
+				check:   "helm repo list | grep bitnami"
+				remove:  "helm repo remove bitnami"
+			}
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installedRepos := make(map[string]*resource.InstallerRepositoryState)
+	repoMock := &mockInstallerRepositoryInstaller{
+		installFunc: func(_ context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error) {
+			st := &resource.InstallerRepositoryState{
+				InstallerRef: res.InstallerRepositorySpec.InstallerRef,
+				SourceType:   res.InstallerRepositorySpec.Source.Type,
+				URL:          res.InstallerRepositorySpec.Source.URL,
+			}
+			installedRepos[name] = st
+			return st, nil
+		},
+	}
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, repoMock, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	require.Contains(t, installedRepos, "bitnami")
+	assert.Equal(t, "helm", installedRepos["bitnami"].InstallerRef)
+	assert.Equal(t, resource.InstallerRepositorySourceDelegation, installedRepos["bitnami"].SourceType)
+	assert.Equal(t, "https://charts.bitnami.com/bitnami", installedRepos["bitnami"].URL)
+}
+
+func TestEngine_Apply_InstallerRepositoryWithTool(t *testing.T) {
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+repo: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "InstallerRepository"
+	metadata: name: "bitnami"
+	spec: {
+		installerRef: "helm"
+		source: {
+			type: "delegation"
+			url:  "https://charts.bitnami.com/bitnami"
+			commands: {
+				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
+				check:   "helm repo list | grep bitnami"
+				remove:  "helm repo remove bitnami"
+			}
+		}
+	}
+}
+
+tool: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "nginx"
+	spec: {
+		installerRef: "download"
+		repositoryRef: "bitnami"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/nginx.tar.gz"
+			checksum: value: "sha256:abc123"
+			archiveType: "tar.gz"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Track execution order
+	var execOrder []string
+	var mu sync.Mutex
+
+	repoMock := &mockInstallerRepositoryInstaller{
+		installFunc: func(_ context.Context, res *resource.InstallerRepository, name string) (*resource.InstallerRepositoryState, error) {
+			mu.Lock()
+			execOrder = append(execOrder, "repo:"+name)
+			mu.Unlock()
+			return &resource.InstallerRepositoryState{
+				InstallerRef: res.InstallerRepositorySpec.InstallerRef,
+				SourceType:   res.InstallerRepositorySpec.Source.Type,
+				URL:          res.InstallerRepositorySpec.Source.URL,
+			}, nil
+		},
+	}
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			mu.Lock()
+			execOrder = append(execOrder, "tool:"+name)
+			mu.Unlock()
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, repoMock, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// InstallerRepository must be installed before Tool
+	require.Len(t, execOrder, 2)
+	assert.Equal(t, "repo:bitnami", execOrder[0])
+	assert.Equal(t, "tool:nginx", execOrder[1])
+}
+
+func TestEngine_Apply_InstallerRepository_Remove(t *testing.T) {
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state with an installer repository
+	require.NoError(t, store.Lock())
+	st := state.NewUserState()
+	st.InstallerRepositories["bitnami"] = &resource.InstallerRepositoryState{
+		InstallerRef: "helm",
+		SourceType:   resource.InstallerRepositorySourceDelegation,
+		URL:          "https://charts.bitnami.com/bitnami",
+	}
+	require.NoError(t, store.Save(st))
+
+	removedRepos := make(map[string]bool)
+	repoMock := &mockInstallerRepositoryInstaller{
+		removeFunc: func(_ context.Context, _ *resource.InstallerRepositoryState, name string) error {
+			removedRepos[name] = true
+			return nil
+		},
+	}
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, repoMock, store)
+	eng.SetSyncMode(true)
+
+	// Apply with empty resources - should trigger removal
+	err = eng.Apply(context.Background(), []resource.Resource{})
+	require.NoError(t, err)
+
+	assert.True(t, removedRepos["bitnami"])
+}
+
+func TestEngine_PlanAll_InstallerRepository(t *testing.T) {
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package toto
+
+repo: {
+	apiVersion: "toto.terassyi.net/v1beta1"
+	kind: "InstallerRepository"
+	metadata: name: "bitnami"
+	spec: {
+		installerRef: "helm"
+		source: {
+			type: "delegation"
+			url:  "https://charts.bitnami.com/bitnami"
+			commands: {
+				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
+				check:   "helm repo list | grep bitnami"
+				remove:  "helm repo remove bitnami"
+			}
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	runtimeActions, repoActions, toolActions, err := eng.PlanAll(context.Background(), resources)
+	require.NoError(t, err)
+
+	assert.Empty(t, runtimeActions)
+	assert.Empty(t, toolActions)
+	require.Len(t, repoActions, 1)
+	assert.Equal(t, "bitnami", repoActions[0].Name)
+	assert.Equal(t, resource.ActionInstall, repoActions[0].Type)
 }
