@@ -1,245 +1,1307 @@
-# Toto: Technical Design & Implementation Detail
+# Tomei 設計ドキュメント v2
 
-**Version:** 2.0 (Implementation Ready)  
-**Target:** Go 1.25+, CUE v0.9+
-
----
-
-## 1. プロジェクト構造 (Project Layout)
-
-Goの標準的なディレクトリ構成に従い、責務を明確に分離します。
-
-```
-toto/
-├── cmd/toto/
-│   ├── main.go               # エントリポイント
-│   ├── root.go               # ルートコマンド
-│   ├── version.go            # version サブコマンド
-│   ├── apply.go              # apply サブコマンド
-│   └── diff.go               # diff サブコマンド
-├── internal/
-│   ├── config/               # CUE Loader & Schema Validation
-│   ├── resource/             # Core Types (ID, Type, Spec, State)
-│   ├── engine/               # DAG Scheduler & Execution Logic
-│   ├── state/                # ACID State Manager (JSON + Locking)
-│   ├── registry/             # Aqua YAML Parser & Checksum
-│   └── provider/             # Resource Installers
-│       ├── binary/           # Tool Installer (Symlink)
-│       ├── runtime/          # Language Runtimes (Go/Node/Rust)
-│       └── system/           # Apt/Brew Wrapper (Secure)
-├── templates/
-│   └── schema.cue            # Embedded CUE Schema
-├── Makefile
-├── .golangci.yml             # golangci-lint v2 設定
-└── go.mod
-```
+**Version:** 2.0  
+**Date:** 2025-01-28
 
 ---
 
-## 2. コアデータ構造 (Resource Models)
+## 1. 概要
 
-Kubernetesの **Spec/Status パターン** を採用し、構成情報（Spec）と実状態（State）を厳密に区別します。
+Tomei は宣言的な開発環境セットアップツール。Kubernetes の Spec/State reconciliation パターンを採用し、ローカル環境のツール、ランタイム、システムパッケージを管理する。
 
-### internal/resource/types.go
+### 設計哲学
 
-```go
-package resource
-
-// ResourceID uniquely identifies a resource (e.g., "tool:ripgrep", "sys:docker")
-type ResourceID string
-
-// ResourceType defines the installer strategy
-type ResourceType string
-
-const (
-    TypeTool    ResourceType = "tool"     // Aqua-based Binary
-    TypeRuntime ResourceType = "runtime"  // Go, Node, Rustup
-    TypeSysPkg  ResourceType = "sys_pkg"  // Apt, Brew
-    TypeSysRepo ResourceType = "sys_repo" // Apt Repository
-)
-
-// Spec: CUEから読み込んだ「あるべき姿」
-type Spec struct {
-    ID          ResourceID
-    Type        ResourceType
-    Name        string
-    Version     string
-    Registry    string            // For tools (default: "standard")
-    Deps        []ResourceID      // Dependency Graph (e.g., gopls -> go)
-    SysRepoConf *SysRepoConfig    // For TypeSysRepo
-}
-
-// SysRepoConfig: Aptリポジトリの詳細設定
-type SysRepoConfig struct {
-    URL          string
-    KeyURL       string
-    KeyHash      string   // Optional pinning
-    Distribution string
-    Components   []string
-    SignedBy     bool     // Enforce signed-by option
-}
-
-// State: ディスク上の「現在の状態」
-type ResourceState struct {
-    ID          ResourceID        `json:"id"`
-    Version     string            `json:"version"`
-    Digest      string            `json:"digest"`       // File SHA256 (Integrity)
-    InstallPath string            `json:"install_path"` // Real path
-    UpdatedAt   string            `json:"updated_at"`   // ISO8601
-    
-    // Taint: 依存関係更新による再ビルド要求フラグ
-    TaintReason string            `json:"taint_reason,omitempty"` 
-    
-    // Metadata: ETagやSystem Packageの状態など
-    Meta        map[string]string `json:"meta,omitempty"`
-}
-```
+- **宣言的管理**: 望む状態を定義し、tomei が実現する
+- **サンドボックス不使用**: 仮想化やコンテナを使わず、実環境を直接セットアップ
+- **CUE による型安全**: スキーマ検証と柔軟な設定
+- **シンプルさ**: nix ほど複雑にせず、既存ツール (apt, go install) を活用
 
 ---
 
-## 3. CUE スキーマ詳細 (Schema Definition)
+## 2. インストーラパターン
 
-CUEの**強力な検証機能**を活かした `schema.cue` です。これをバイナリに埋め込み (embed)、実行時に読み込みます。
+tomei は2つのインストーラパターンをサポートする。
 
-### templates/schema.cue
+### 2.1 Delegation Pattern
+
+外部コマンドに処理を委譲するパターン。
+
+```
+例:
+├── apt install <package>
+├── brew install <package>
+├── go install <package>
+├── cargo install <package>
+└── npm install -g <package>
+```
+
+tomei は「何をインストールするか」を指示し、実際の処理は外部ツールが行う。
+
+### 2.2 Download Pattern
+
+tomei が直接ダウンロードして配置するパターン。
+
+```
+例:
+├── GitHub Release からバイナリ取得
+├── go.dev から Go tarball 取得
+└── Aqua registry 形式のツール
+```
+
+チェックサム検証、展開、symlink 作成まで tomei が担当。
+
+---
+
+## 3. リソース定義
+
+### 3.1 権限による分類
+
+```
+User 権限 (tomei apply):
+├── Installer  - ユーザー権限インストーラ定義 (aqua, go, cargo, npm, brew)
+├── Runtime    - 言語ランタイム (Go, Rust, Node)
+├── Tool       - 単体ツール
+└── ToolSet    - 複数ツールのセット
+
+System 権限 (sudo tomei apply --system):
+├── SystemInstaller         - パッケージマネージャ定義 (apt)
+├── SystemPackageRepository - サードパーティリポジトリ
+└── SystemPackageSet        - パッケージセット
+```
+
+### 3.2 各リソースの構造
+
+#### SystemInstaller
+
+パッケージマネージャの定義。apt は tomei が builtin として CUE マニフェストを提供。
 
 ```cue
-package config
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "SystemInstaller"
+metadata: name: "apt"
+spec: {
+    pattern: "delegation"
+    privileged: true
+    commands: {
+        install: {command: "apt-get", verb: "install -y"}
+        remove: {command: "apt-get", verb: "remove -y"}
+        check: {command: "dpkg", verb: "-l"}
+        update: "apt-get update"
+    }
+}
+```
 
-// --- Definitions ---
+#### SystemPackageRepository
 
-#Tool: {
-    name:     string
-    version:  string
-    registry: string | *"standard"
-    // 依存ランタイムの指定（Taint Check用）
-    built_with?: "go" | "rust" | "python" | "node"
+サードパーティリポジトリの定義。
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "SystemPackageRepository"
+metadata: name: "docker"
+spec: {
+    installerRef: "apt"
+    source: {
+        url: "https://download.docker.com/linux/ubuntu"
+        keyUrl: "https://download.docker.com/linux/ubuntu/gpg"
+        keyHash: "sha256:..."  // optional
+        options: {
+            distribution: "noble"
+            components: "stable"
+            arch: "amd64"
+        }
+    }
+}
+```
+
+#### SystemPackageSet
+
+パッケージのセット。
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "SystemPackageSet"
+metadata: name: "docker"
+spec: {
+    installerRef: "apt"
+    repositoryRef: "docker"  // optional
+    packages: ["docker-ce", "docker-ce-cli", "containerd.io"]
+}
+```
+
+#### Installer
+
+ユーザー権限のインストーラ定義。Runtime を持たないツール（aqua, brew）や、Tool に依存するインストーラ（binstall）に使用。
+
+**Note:** Runtime 経由でインストールする Tool（go install, cargo install）は Installer 不要。Tool から直接 `runtimeRef` で Runtime を参照する。
+
+```cue
+// Download Pattern (aqua) - GitHub Releases 等から直接ダウンロード
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
 }
 
-#Runtime: {
-    // バージョン番号形式の簡易チェック
-    version: string & =~"^[1-9]+\\.[1-9]+\\.[1-9]+$" | "stable" | "latest"
+// Delegation Pattern (binstall) - Tool に依存
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "binstall"
+spec: {
+    pattern: "delegation"
+    toolRef: "cargo-binstall"  // cargo-binstall Tool に依存 (cargo install でインストール済み)
+    commands: {
+        install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
+        check: "cargo binstall --info {{.Package}}"
+        remove: "cargo uninstall {{.Package}}"
+    }
 }
 
-#SysRepo: {
-    url:          string & =~"^https://" // HTTPS強制
-    key_url?:     string & =~"^https://"
-    key_hash?:    string & =~"^sha256:[a-f0-9]{64}$" // セキュリティ強化
-    distribution: string | *""  // 空文字なら自動検出(lsb_release)
-    components:   [...string] | *["main"]
-    arch:         string | *"amd64"
+// Delegation Pattern (brew) - Runtime 不要、bootstrap で自己インストール
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "brew"
+spec: {
+    pattern: "delegation"
+    bootstrap: {
+        install: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""
+        check: "command -v brew"
+        remove: "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""
+    }
+    commands: {
+        install: "brew install {{.Package}}"
+        check: "brew list {{.Package}}"
+        remove: "brew uninstall {{.Package}}"
+    }
+}
+```
+
+#### Runtime
+
+言語ランタイム。2 つのパターンをサポート。
+
+##### Download Pattern
+
+tomei が直接 tarball をダウンロードして展開するパターン。Go などの tarball 配布に適用。
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "go"
+spec: {
+    pattern: "download"
+    version: "1.25.1"
+    source: {
+        url: "https://go.dev/dl/go{{.Version}}.{{.OS}}-{{.Arch}}.tar.gz"
+        checksum: "sha256:..."
+        archiveType: "tar.gz"
+    }
+    binaries: ["go", "gofmt"]       // optional: 省略時は bin/ 内の実行可能ファイルを自動検出
+    binDir: "{{.InstallPath}}/bin"  // optional: 省略時は {{.InstallPath}}/bin
+    toolBinPath: "~/go/bin"         // go install でインストールされる Tool の配置先
+    commands: {
+        install: "go install {{.Package}}@{{.Version}}"  // Tool インストール用
+    }
+    env: {
+        GOROOT: "{{.InstallPath}}"
+        GOBIN: "~/go/bin"
+    }
+}
+```
+
+##### Delegation Pattern
+
+外部スクリプトやインストーラに処理を委譲するパターン。rustup や nvm のようなインストーラスクリプトを使用するランタイムに適用。
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    pattern: "delegation"
+    version: "stable"  // "stable", "latest", or specific version "1.83.0"
+    bootstrap: {
+        install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
+        check: "rustc --version"
+        remove: "rustup self uninstall -y"
+        resolveVersion: "rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"  // optional: resolve "stable"/"latest" to actual version
+    }
+    commands: {
+        install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}"  // Tool インストール用
+    }
+    // binaries: 省略可能 - delegation pattern では外部インストーラが配置
+    // binDir: 省略時は toolBinPath と同じ
+    toolBinPath: "~/.cargo/bin" // cargo install でインストールされる Tool の配置先
+    env: {
+        CARGO_HOME: "~/.cargo"
+        RUSTUP_HOME: "~/.rustup"
+    }
+}
+```
+
+**Note:** 
+- `bootstrap`: Runtime 自体のインストール/チェック/削除を定義（delegation pattern のみ）
+- `commands`: この Runtime を使った Tool のインストールコマンドを定義（両パターン共通）
+
+##### パターン比較
+
+| パターン | 説明 | 例 |
+|---------|------|-----|
+| Download | tomei が tarball をダウンロード・展開 | Go, Node (tarball) |
+| Delegation | 外部スクリプト/インストーラに委譲 | Rust (rustup), Node (nvm) |
+
+#### Tool (単体)
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "aqua"
+    version: "14.0.0"
+    source: {
+        url: "https://github.com/BurntSushi/ripgrep/releases/..."
+        checksum: "sha256:..."
+        archiveType: "tar.gz"
+    }
+}
+```
+
+#### ToolSet
+
+複数ツールのセット。冗長さを解消。
+
+```cue
+// Download Pattern
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "ToolSet"
+metadata: name: "cli-tools"
+spec: {
+    installerRef: "aqua"
+    tools: {
+        ripgrep: { version: "14.0.0" }
+        fd: { version: "9.0.0" }
+        jq: { version: "1.7" }
+    }
 }
 
-// --- User Configuration ---
-
-tools: [...#Tool]
-
-runtimes: {
-    go?:     #Runtime
-    node?:   #Runtime
-    rust?:   { channel: "stable" | "nightly" }
-    python?: { version: string }
+// Runtime 経由でインストール (Installer 不要)
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "ToolSet"
+metadata: name: "go-tools"
+spec: {
+    runtimeRef: "go"  // Runtime の commands.install を使用
+    tools: {
+        gopls: { package: "golang.org/x/tools/gopls" }
+        staticcheck: { package: "honnef.co/go/tools/cmd/staticcheck" }
+    }
 }
-
-sys_repos: [Name=string]: #SysRepo
-sys_packages: [...string]
-sys_user_groups: [...string]
-
-// バリデーションルール: バージョンが空文字でないこと
-#Tool & { version: !="" }
 ```
 
 ---
 
-## 4. エンジンロジック (Engine Logic)
+## 4. コマンド体系
 
-Totoの中核となる **DAG（有向非巡回グラフ）スケジューラー** の設計です。
+### 4.1 権限の分離
 
-### 実行フェーズ (Pipeline)
+```bash
+# User 権限 (Runtime, Tool)
+tomei apply
 
-1. **Load Phase:**
-   - CUE Config をロード → `resource.Spec` のリストに変換
-   - `state.json` をロード → `resource.State` マップに変換
+# System 権限 (SystemPackage*)
+sudo tomei apply --system
+```
 
-2. **Diff Phase:**
-   - Spec と State を比較し、必要なアクションを決定します
-   - `toto diff` コマンドで差分を確認可能
+実行順序: `sudo tomei apply --system` → `tomei apply`
 
-3. **Graph Phase:**
-   - 依存関係に基づき、インストール順序を決定します
-   - **Layer 0:** Runtimes (Go, Rust), System Repos
-   - **Layer 1:** Tools (gopls, cargo-tools), System Packages
+### 4.2 コマンド一覧
 
-4. **Apply Phase (Parallel):**
-   - `errgroup` を使用し、同レイヤー内のタスクを並列実行します（最大5並列）
-   - **重要:** 各タスク完了ごとに State を更新し、アトミックにファイル保存します
+```bash
+tomei init        # 初期化 (config.cue, ディレクトリ, state.json)
+tomei validate    # CUE 構文 + 循環参照チェック
+tomei plan        # validate + 実行計画表示
+tomei apply       # plan + 実行
+tomei env         # 環境変数を出力 (eval 用)
+tomei doctor      # 未管理ツール検知、競合検知
+
+tomei version     # バージョン表示
+```
+
+### 4.3 tomei init
+
+環境の初期化を行う。
+
+```bash
+# 対話的に初期化 (config.cue がなければ作成確認)
+tomei init
+
+# 対話スキップで初期化
+tomei init --yes
+
+# 強制的に再初期化 (state.json をリセット)
+tomei init --force
+```
+
+実行内容:
+1. `~/.config/tomei/` ディレクトリ作成
+2. `config.cue` が存在しない場合、デフォルト値で作成（対話確認または `--yes`）
+3. `config.cue` からパス設定を読み込み
+4. データディレクトリ (`dataDir`) 作成
+5. `dataDir/tools/`, `dataDir/runtimes/` 作成
+6. bin ディレクトリ (`binDir`) 作成
+7. `dataDir/state.json` 初期化
+
+### 4.4 tomei env
+
+Runtime の `env` フィールドで定義された環境変数を出力する。
+
+```bash
+$ tomei env
+export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.1"
+export GOBIN="$HOME/go/bin"
+export CARGO_HOME="$HOME/.cargo"
+export RUSTUP_HOME="$HOME/.rustup"
+export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
+```
+
+**使用方法:**
+
+シェルの profile (`~/.bashrc`, `~/.zshrc` など) に以下を追加:
+
+```bash
+eval "$(tomei env)"
+```
+
+**Note:** `tomei apply` 時の delegation コマンド実行では、tomei が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `tomei env` はユーザーのシェル環境用。
+
+**toolRef の PATH 伝搬:** Installer が `toolRef` を持つ場合（例: Installer/binstall が Tool/cargo-binstall に依存）、tomei は delegation コマンド実行時に参照先 Tool の bin ディレクトリを自動的に PATH に追加する。これは Tool のインストールコマンド（例: `cargo binstall ripgrep`）と InstallerRepository のコマンド（例: `helm repo add`）の両方に適用される。ユーザーのシェル PATH に Tool の bin ディレクトリが含まれていなくても、delegation コマンドが依存する Tool バイナリを見つけられる。
 
 ---
 
-## 5. インストーラー詳細実装 (Providers)
+## 5. State 管理
 
-### A. System Repository (Secure Apt)
+### 5.1 ファイル構成
 
-Ubuntuの最新仕様に準拠した `providers/system/apt_repo.go` のロジックです。
+```
+User State:
+~/.local/share/tomei/
+├── state.lock  (PID を書き込み、flock 用)
+└── state.json  (状態データ)
 
-- **非推奨:** `apt-key add` コマンドは一切実行しません
+System State:
+/var/lib/tomei/
+├── state.lock
+└── state.json
+```
 
-**実装フロー:**
+### 5.2 ロック機構
 
-1. **Key Fetch:** KeyURL から鍵をダウンロード
-   - `http.Head` で ETag を確認し、Stateと比較（変更がなければスキップ）
-   - ダウンロードした内容のハッシュを計算し、KeyHash (あれば) と検証
+- **flock (advisory lock)** を使用
+- state.lock に対して flock を取得
+- 取得成功時に自身の PID を書き込む
+- tomei 同士の同時実行を防止
+- 手動編集 (vim 等) は防げない (advisory lock の性質)
 
-2. **Key Placement:** `/etc/apt/keyrings/toto-<name>.asc` に保存
+### 5.3 書き込みフロー
 
-3. **Source List Gen:** `/etc/apt/sources.list.d/toto-<name>.list` を作成
+```
+1. state.lock を flock (TryLock)
+2. 失敗 → PID を読んで「PID 12345 が実行中」エラー
+3. 成功 → 自身の PID を書き込む
+4. state.json を読む
+5. state.json.tmp に書く
+6. rename(state.json.tmp, state.json) ← アトミック
+7. state.lock を unlock
+```
 
-4. **Update Trigger:** ファイルに変更があった場合のみ、最後に `apt-get update` フラグを立てる
+### 5.4 state.json 構造
 
-### B. Hybrid Runtimes
+#### User State
 
-公式ツールへの委譲と、バイナリ直接配置を使い分けます。
+```json
+{
+  "version": "1",
+  "runtimes": {
+    "go": {
+      "pattern": "download",
+      "version": "1.25.1",
+      "digest": "sha256:abc123...",
+      "installPath": "~/.local/share/tomei/runtimes/go/1.25.1",
+      "binaries": ["go", "gofmt"],
+      "toolBinPath": "~/go/bin",
+      "env": {
+        "GOROOT": "~/.local/share/tomei/runtimes/go/1.25.1"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "rust": {
+      "pattern": "delegation",
+      "version": "1.83.0",
+      "specVersion": "stable",
+      "toolBinPath": "~/.cargo/bin",
+      "env": {
+        "CARGO_HOME": "~/.cargo",
+        "RUSTUP_HOME": "~/.rustup"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "installers": {
+    "aqua": {
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "binstall": {
+      "toolRef": "cargo-binstall",
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "tools": {
+    "ripgrep": {
+      "installerRef": "aqua",
+      "version": "14.0.0",
+      "digest": "sha256:def456...",
+      "installPath": "~/.local/share/tomei/tools/ripgrep/14.0.0",
+      "binPath": "~/.local/bin/rg",
+      "source": {
+        "url": "https://github.com/BurntSushi/ripgrep/releases/...",
+        "archiveType": "tar.gz"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    },
+    "gopls": {
+      "installerRef": "go",
+      "runtimeRef": "go",
+      "version": "0.16.0",
+      "digest": "sha256:ghi789...",
+      "installPath": "~/go/bin/gopls",
+      "binPath": "~/.local/bin/gopls",
+      "package": "golang.org/x/tools/gopls",
+      "taintReason": "",
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  }
+}
+```
 
-#### Go (`providers/runtime/go.go`)
+#### System State
 
-- **URL:** `https://go.dev/dl/go1.22.0.linux-amd64.tar.gz`
-- **Action:** `~/.local/share/toto/runtimes/go` に展開
-- **No Shim:** 環境変数 `GOROOT` の設定をユーザーのシェル設定 (`env.fish`等) に追記するよう促すのみ
-
-#### Rust (`providers/runtime/rust.go`)
-
-- **Check:** `rustup` コマンドが `~/.local/bin` にあるか確認。なければ `rustup-init` をダウンロードして実行
-- **Action:** `rustup toolchain install stable` を `exec.Command` で叩く
-- **State:** Rustのバージョンは `rustc --version` の出力をパースして State に記録
-
-### C. Adopter (`toto scan`)
-
-既存環境を取り込むための `internal/scanner` のロジックです。
-
-- **Target:** `GOPATH/bin` 内のバイナリ
-- **Algorithm:** バイナリの検出と照合
-- **Mapping:** 取得したパスを Aqua Registry のデータベース（YAML）と照合し、一致すれば `tools` 設定のCUEコードを生成して標準出力します
+```json
+{
+  "version": "1",
+  "systemInstallers": {
+    "apt": {
+      "version": "1",
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "systemPackageRepositories": {
+    "docker": {
+      "installerRef": "apt",
+      "source": {
+        "url": "https://download.docker.com/linux/ubuntu",
+        "keyUrl": "https://download.docker.com/linux/ubuntu/gpg",
+        "keyDigest": "sha256:..."
+      },
+      "installedFiles": [
+        "/etc/apt/keyrings/tomei-docker.asc",
+        "/etc/apt/sources.list.d/tomei-docker.list"
+      ],
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  },
+  "systemPackages": {
+    "docker": {
+      "installerRef": "apt",
+      "repositoryRef": "docker",
+      "packages": ["docker-ce", "docker-ce-cli", "containerd.io"],
+      "installedVersions": {
+        "docker-ce": "24.0.0",
+        "docker-ce-cli": "24.0.0",
+        "containerd.io": "1.6.0"
+      },
+      "updatedAt": "2025-01-28T12:00:00Z"
+    }
+  }
+}
+```
 
 ---
 
-## 6. 安全性担保の仕組み (Safety Mechanisms)
+## 6. 依存グラフ
 
-### Integrity Check (完全性)
+### 6.1 依存関係の種類
 
-- **Checksum Database:** Aqua Registryはチェックサムを持っています。ダウンロード時に必ず SHA256 を計算し、一致しなければ即座にエラーとし、ファイルシステムには書き込みません
+```
+明示的に書く:
+├── runtimeRef: Tool → Runtime (Runtime の commands.install を使用)
+├── installerRef: Tool → Installer (Installer の commands.install を使用)
+├── toolRef: Installer → Tool (Tool に依存する Installer)
+├── repositoryRef: SystemPackage → SystemPackageRepository
+└── deps: Installer → パッケージ名 (best effort)
+```
 
-### Atomic Swap (アトミック性)
+**Note:** Tool は `runtimeRef` または `installerRef` のどちらか一方を指定する（排他的）。
 
-ファイルの破損を防ぐため、すべての書き込み操作は以下の手順で行います：
+### 6.2 ツールチェーン依存
 
-1. 一時ディレクトリ (`.tmp/`) にダウンロード・展開
-2. Symlink や Rename を使って一瞬で切り替え
+Tool は Runtime を直接参照できる。Installer が必要なのは Runtime を持たないケース（aqua, brew）や Tool に依存するケース（binstall）のみ。
 
-### Taint Logic (汚染チェック)
+**例: Tool を Installer として使用**
 
-ランタイム更新時のロジック詳細：
+```
+Runtime(rust) → Tool(cargo-binstall) → Installer(binstall) → Tool(ripgrep)
+```
 
-1. `go` ランタイムが `1.21` → `1.22` に更新される
-2. State内の全ツールをスキャン
-3. Specで `built_with: "go"` と定義されているツールの State に `TaintReason: "runtime_upgraded"` をセット
-4. 次のループで、Taintされたツールが「再インストール対象」として検出される
+```cue
+// 1. Rust Runtime (commands.install で cargo install を定義)
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+    version: "stable"
+    bootstrap: { install: "curl ... | sh", check: "rustc --version", remove: "..." }
+    commands: { install: "cargo install {{.Package}}{{if .Version}} --version {{.Version}}{{end}}" }
+    ...
+}
+
+// 2. cargo-binstall Tool (Runtime を直接参照)
+kind: "Tool"
+metadata: name: "cargo-binstall"
+spec: {
+    runtimeRef: "rust"  // Runtime の commands.install を使用
+    package: "cargo-binstall"
+    version: "1.6.4"
+}
+
+// 3. binstall Installer (cargo-binstall Tool に依存)
+kind: "Installer"
+metadata: name: "binstall"
+spec: {
+    pattern: "delegation"
+    toolRef: "cargo-binstall"  // ← Tool に依存; bin ディレクトリが PATH に追加される
+    commands: { install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}" }
+}
+
+// 4. ripgrep Tool (binstall installer でインストール)
+// install コマンド実行時、tomei が cargo-binstall の bin ディレクトリを PATH に追加する。
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "binstall"
+    package: "ripgrep"
+    version: "14.1.0"
+}
+```
+
+### 6.3 DAG データ構造
+
+依存グラフは有向非巡回グラフ (DAG) として表現される。
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            dag (internal)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│ nodes: map[string]*Node                                              │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Runtime/rust"       → {Kind: Runtime, Name: "rust"}        │   │
+│   │ "Tool/cargo-binstall"→ {Kind: Tool, Name: "cargo-binstall"} │   │
+│   │ "Installer/binstall" → {Kind: Installer, Name: "binstall"}  │   │
+│   │ "Tool/ripgrep"       → {Kind: Tool, Name: "ripgrep"}        │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ edges: map[string][]string  (ノード → 依存先)                       │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │ "Tool/cargo-binstall" → ["Runtime/rust"]                    │   │
+│   │ "Installer/binstall"  → ["Tool/cargo-binstall"]             │   │
+│   │ "Tool/ripgrep"        → ["Installer/binstall"]              │   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│ inDegree: map[string]int  (依存数)                                   │
+│   Runtime/rust: 0, Tool/cargo-binstall: 1, Installer/binstall: 1, ..
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.4 循環参照の検出
+
+**アルゴリズム: DFS + 3色マーキング (Three-Color Marking)**
+
+グラフのサイクル検出における標準的な手法。
+
+```
+色:
+├── 白 (white): 未訪問
+├── グレー (gray): 訪問中 (DFS スタック上、現在のパスに含まれる)
+└── 黒 (black): 訪問完了 (全ての子孫を処理済み)
+
+手順:
+1. 全ノードを白に初期化
+2. 各白ノードから DFS を開始
+3. ノードに入る時にグレーにマーク
+4. グレーノードへの辺を発見 → back edge → 循環検出!
+5. DFS 完了時に黒にマーク
+```
+
+**例: 循環検出**
+
+```
+正常ケース:                   循環ケース:
+  A → B → C                     A → B
+                                ↑   ↓
+  A: 白→グレー→黒               └── C
+  B: 白→グレー→黒
+  C: 白→グレー→黒               A: グレー, B: グレー, C: グレー
+                                C → A で A がグレー → back edge → 循環!
+```
+
+`tomei validate` で事前に検出し、エラーメッセージで循環パスを表示。
+
+### 6.5 トポロジカルソート
+
+ノードをレイヤーに分けて実行順序を決定。
+
+```
+Step 1: inDegree=0 のノードを探す
+┌───────────────────────────────────────────┐
+│ Queue: [Runtime/rust]                     │
+│ inDegree: {Tool/cargo-binstall: 1, ...}   │
+└───────────────────────────────────────────┘
+
+Step 2: デキュー、レイヤーに追加、依存先の inDegree を減算
+┌───────────────────────────────────────────┐
+│ Layer 0: [Runtime/rust]                   │
+│ Queue: [Tool/cargo-binstall] (inDegree→0) │
+└───────────────────────────────────────────┘
+
+Step 3-4: 繰り返し
+┌───────────────────────────────────────────┐
+│ Layer 1: [Tool/cargo-binstall]            │
+│ Layer 2: [Installer/binstall]             │
+│ Layer 3: [Tool/ripgrep]                   │
+└───────────────────────────────────────────┘
+```
+
+**結果: 実行レイヤー**
+
+```
+Layer 0: [Runtime/rust]         ← 依存なし
+Layer 1: [Tool/cargo-binstall]  ← Runtime/rust に依存
+Layer 2: [Installer/binstall]   ← Tool/cargo-binstall に依存
+Layer 3: [Tool/ripgrep]         ← Installer/binstall に依存
+```
+
+### 6.6 並列実行
+
+同一レイヤー内のノードは相互依存がないため並列実行可能。
+
+```
+                    ┌─────────────┐
+                    │Installer/aqua│  Layer 0
+                    └──────┬──────┘
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌──────────┐    ┌──────────┐    ┌──────────┐
+    │Tool/ripgrep│  │ Tool/fd  │    │ Tool/bat │  Layer 1
+    └──────────┘    └──────────┘    └──────────┘
+    
+    → 同一レイヤー = 相互依存なし
+    → 並列実行可能
+```
+
+**Note:** 現在は state ファイルの書き込み競合のため逐次実行。
+将来的にレイヤー完了後のバッチ更新で並列化予定。
+
+### 6.7 実行順序まとめ
+
+```
+System 権限 (sudo tomei apply --system):
+  Layer 0: SystemInstaller
+  Layer 1: SystemPackageRepository
+  Layer 2: SystemPackageSet
+
+User 権限 (tomei apply):
+  DAG トポロジカルソートで決定:
+  - Runtime (依存なし)
+  - Installer (Runtime または Tool に依存)
+  - Tool (Installer に依存)
+```
+
+---
+
+## 7. Taint Logic
+
+Runtime 更新時に依存する Tool を再インストールする仕組み。
+
+### 7.1 フロー
+
+```
+1. Runtime (go) が 1.25.1 → 1.26.0 に更新
+2. runtimeRef: "go" を持つ Tool を検索
+3. 該当 Tool に taintReason: "runtime_upgraded" をセット
+4. 次の apply で再インストール
+```
+
+### 7.2 対象
+
+```
+go 更新 → go install でインストールした Tool
+rust 更新 → cargo install でインストールした Tool
+node 更新 → npm install -g でインストールした Tool
+```
+
+---
+
+## 8. tomei doctor
+
+未管理ツールの検出と競合検知。
+
+### 8.1 検知対象
+
+```
+Runtime 別:
+├── go:   ~/go/bin/ (GOBIN)
+├── rust: ~/.cargo/bin/
+└── node: ~/.npm-global/bin/
+
+共通:
+└── ~/.local/bin/ 内の未管理ファイル
+```
+
+### 8.2 出力例
+
+```
+$ tomei doctor
+
+[go] ~/go/bin/
+  gopls        unmanaged
+  staticcheck  unmanaged
+
+[rust] ~/.cargo/bin/
+  cargo-edit   unmanaged
+
+[Conflicts]
+  gopls: found in both ~/.local/bin (tomei) and ~/go/bin (unmanaged)
+         PATH resolves to: ~/go/bin/gopls
+
+[Suggestions]
+  consider adding "gopls" to your manifest
+  consider adding "staticcheck" to your manifest
+  consider adding "cargo-edit" to your manifest
+```
+
+---
+
+## 9. CUE スキーマ設計
+
+### 9.1 基本構造 (K8s スタイル)
+
+```cue
+#Resource: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: string
+    metadata: {
+        name: string
+        labels?: [string]: string
+    }
+    spec: {...}
+}
+```
+
+### 9.2 デフォルト値と enabled フラグ
+
+```cue
+#Tool: {
+    version: string
+    enabled: bool | *true  // デフォルト true
+    ...
+}
+```
+
+### 9.3 環境変数の注入
+
+```cue
+// tomei が自動注入
+_env: {
+    os: "linux" | "darwin"
+    arch: "amd64" | "arm64"
+    headless: bool
+}
+```
+
+### 9.4 条件分岐 (方式 A)
+
+```cue
+tools: {
+    ripgrep: { version: "14.0.0" }
+    
+    if _env.os == "darwin" {
+        pbpaste: {}
+    }
+    
+    if _env.headless {
+        vscode: enabled: false
+    }
+}
+```
+
+### 9.5 Overlay (方式 B)
+
+```
+base/tools.cue
+overlays/darwin/tools.cue
+overlays/headless/tools.cue
+```
+
+CUE の同一パッケージ自動マージ機能を活用。tomei が環境に応じてファイルを選択してロード。
+
+### 9.6 除外の表現
+
+```cue
+// enabled: false で無効化
+tools: vscode: enabled: false
+```
+
+---
+
+## 10. 対象環境
+
+```
+OS:
+├── linux
+└── darwin
+(Windows は対象外)
+
+Arch:
+├── amd64
+└── arm64
+
+Mode:
+├── headless (サーバー、CI)
+└── desktop (GUI あり)
+```
+
+---
+
+## 11. 実装フェーズ
+
+### Phase 1: 基盤 (完了)
+
+```
+├── internal/resource/ (types, action)
+├── internal/state/ (state.json 読み書き、flock)
+├── internal/config/ (CUE ローダー基盤)
+├── internal/graph/ (DAG、循環検出、トポロジカルソート)
+└── CLI 骨格 (cobra: apply, validate, version, init, plan, doctor)
+```
+
+### Phase 2: User 権限の最小セット (完了)
+
+```
+├── Tool (Download Pattern) チェックサム検証付き
+├── Aqua Registry 統合 (パッケージ解決、--sync)
+├── tomei apply でツールインストール
+├── ~/.local/bin への symlink
+└── state.json の更新
+```
+
+### Phase 3: Runtime (完了)
+
+```
+├── Runtime (Go, Rust, Node.js)
+├── Tool の Runtime Delegation (go install, cargo install, npm install -g)
+├── Taint Logic (ランタイムアップグレード時にツール再インストール)
+├── tomei doctor (未管理ツール検出、コンフリクト検出)
+└── 削除時の依存ガード (依存ツールが残っている場合ランタイム削除を拒否)
+```
+
+### Phase 4: 並列実行 & UI (完了)
+
+```
+├── DAG ベースの並列実行エンジン (1-20 並列数設定可能)
+├── mpb によるプログレス UI (マルチバーダウンロード進捗)
+├── イベント駆動型の進捗トラッキング
+└── --parallel, --quiet, --no-color フラグ
+```
+
+### Phase 5: ToolSet & E2E (完了)
+
+```
+├── ToolSet 展開 (Expandable インターフェース)
+├── E2E テスト基盤 (コンテナベース、Ginkgo v2)
+└── CUE からのバージョン抽出 (single source of truth)
+```
+
+### Phase 6: ユーザランドコマンド (完了)
+
+```
+└── tomei env — ランタイムの環境変数をシェルにエクスポート (eval $(tomei env))
+```
+
+### Phase 7: Runtime Delegation & バージョン解決 (完了)
+
+```
+├── Delegation パターンによるランタイムインストール (rustup ブートストラップ)
+├── VersionKind 型によるバージョン分類 (exact/latest/alias)
+├── Reconciler でのバージョンエイリアス解決 (SpecVersion 比較)
+├── --sync 時の latest 指定ツール自動更新 (taint ベース)
+└── Rust delegation ランタイムの E2E テスト (cargo install)
+```
+
+### Phase 8: 設定 & レジストリ (次)
+
+```
+├── CUE プリセット/オーバーレイ — 環境別条件分岐 (_env.os, _env.arch)
+├── InstallerRepository — ツールメタデータのリポジトリ管理
+└── 認証・トークン — GitHub API レート制限対策、プライベートリポジトリ
+```
+
+### Phase 9: パフォーマンス
+
+```
+└── 実行レイヤー単位の state バッチ書き込み (並列実行最適化)
+```
+
+### Phase 10: System 権限 (後回し)
+
+```
+├── SystemInstaller (apt builtin)
+├── SystemPackageRepository
+├── SystemPackageSet
+└── tomei apply --system
+```
+
+---
+
+## 12. ディレクトリ構成
+
+```
+~/.config/tomei/           # 設定ディレクトリ (固定)
+├── config.cue            # パス設定 (必須)
+├── tools.cue             # ツール定義
+├── runtimes.cue          # ランタイム定義
+├── overlays/             # 環境別オーバーレイ
+│   ├── darwin/
+│   ├── linux/
+│   ├── headless/
+│   └── desktop/
+└── system/               # システムレベル設定
+    ├── repos.cue
+    └── packages.cue
+
+~/.local/share/tomei/      # データディレクトリ (config.cue で変更可)
+├── state.lock
+├── state.json
+├── runtimes/
+│   └── go/1.25.1/
+└── tools/
+    └── ripgrep/14.0.0/
+
+~/.local/bin/             # symlink 配置先 (config.cue で変更可)
+
+/var/lib/tomei/            # System State
+├── state.lock
+└── state.json
+```
+
+### 12.1 config.cue
+
+パス設定ファイル。`~/.config/tomei/config.cue` に固定。
+
+```cue
+package tomei
+
+config: {
+    // データディレクトリ (tools, runtimes, state.json の保存先)
+    dataDir: "~/.local/share/tomei"
+    
+    // symlink 配置先
+    binDir: "~/.local/bin"
+}
+```
+
+デフォルト値:
+- `dataDir`: `~/.local/share/tomei`
+- `binDir`: `~/.local/bin`
+
+`tomei init` で config.cue が存在しない場合、対話的にデフォルト値で作成する。
+
+---
+
+## 13. セキュリティ考慮事項
+
+- ダウンロード時は必ずチェックサム検証
+- HTTPS のみ許可 (CUE スキーマで強制)
+- apt-key add は使用禁止、/etc/apt/keyrings/ + signed-by を使用
+- シェルインジェクション防止: exec.Command で明示的引数
+- アトミック書き込み: tmp → rename で破損防止
+
+---
+
+## 13.1 ロギング
+
+`log/slog` を使用した構造化ログで、人間が読みやすい形式で出力する。
+
+### ログレベル
+
+| レベル | 用途 | 例 |
+|--------|------|-----|
+| Debug | 詳細なデバッグ情報 | HTTP レスポンスステータス、ファイルサイズ |
+| Info | 正常な操作の開始/完了 | ダウンロード開始、チェックサム検証完了 |
+| Warn | 復旧可能な問題、スキップ | チェックサムファイルが見つからない |
+| Error | 機能に影響する失敗 | ダウンロード失敗、検証失敗 |
+
+### 実装例
+
+```go
+import "log/slog"
+
+// Debug: 詳細なデバッグ情報
+slog.Debug("http response received", "status", resp.StatusCode, "contentLength", resp.ContentLength)
+slog.Debug("trying checksum algorithm", "algorithm", alg, "url", checksumURL)
+
+// Info: 操作の開始/完了
+slog.Info("downloading file", "url", url, "dest", destPath)
+slog.Info("checksum verified", "algorithm", alg)
+
+// Warn: 復旧可能な問題
+slog.Warn("checksum file not found, skipping verification", "url", checksumURL)
+
+// Error: 失敗 (通常は error も返す)
+slog.Error("failed to download", "url", url, "error", err)
+```
+
+### ガイドライン
+
+- 構造化されたキー/バリューペアでコンテキストを提供
+- メッセージは簡潔で人間が読める形式に
+- Debug: 開発時やトラブルシューティングに有用な詳細情報
+- Info: 操作の開始と完了を対で記録
+- Warn: 重要な決定やスキップした処理
+- Error: 機能に影響する失敗（通常は error も返す）
+
+---
+
+## 14. テスト戦略
+
+### 14.1 テストピラミッド
+
+```
+                    ┌─────────┐
+                    │   E2E   │  ← Docker コンテナ、実際のダウンロード
+                   ┌┴─────────┴┐
+                   │ 結合テスト │  ← コンポーネント結合、モックインストーラ
+                  ┌┴───────────┴┐
+                  │ ユニットテスト │  ← 単一コンポーネント、独立
+                 └──────────────┘
+```
+
+### 14.2 ユニットテスト
+
+**配置:** `internal/*/..._test.go`
+
+**スコープ:**
+- 単一コンポーネントの独立したテスト
+- 依存関係にはモック/スタブを使用
+- ネットワークアクセスなし
+- ファイルシステムへの副作用なし（`t.TempDir()` を使用）
+
+**例:**
+- `internal/checksum/checksum_test.go` - チェックサム検証ロジック
+- `internal/installer/reconciler/reconciler_test.go` - アクション決定
+- `internal/state/store_test.go` - 状態永続化
+
+**要件:**
+- 高速実行（テストあたり 1 秒未満）
+- 外部依存なし
+- 決定論的な結果
+
+### 14.3 結合テスト
+
+**配置:** `tests/`
+
+**スコープ:**
+- 複数コンポーネントの結合
+- CUE 設定 → Resource → State のフロー
+- モックインストーラ（実際のダウンロードなし）
+- 実際のファイルシステム操作（一時ディレクトリ内）
+
+**テストファイル:**
+
+| ファイル | 目的 |
+|---------|------|
+| `tests/resource_test.go` | CUE ローディング、リソースストア、依存解決 |
+| `tests/engine_test.go` | モックインストーラを使った Engine（Plan, Apply, Upgrade, Remove） |
+| `tests/state_test.go` | 状態永続化、Taint ロジック、並行アクセス |
+
+**要件:**
+- ネットワークアクセスなし
+- 実際のツールインストールなし
+- `t.TempDir()` を使用して分離
+- テスト後のクリーンアップ（ローカル環境を汚さない）
+
+**モックインストーラ:**
+```go
+type mockToolInstaller struct {
+    installed map[string]*resource.ToolState
+    removed   map[string]bool
+}
+
+func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+    // 呼び出しを記録し、モック状態を返す
+}
+```
+
+### 14.4 E2E テスト
+
+**配置:** `e2e/`
+
+**スコープ:**
+- Docker コンテナ内でのフルシステムテスト
+- 実際のダウンロードとインストール
+- 実際のバイナリ実行検証
+- `tomei apply` コマンドのエンドツーエンドテスト
+
+**要件:**
+- 分離された Docker コンテナ内で実行
+- `TOMEI_E2E_CONTAINER` 環境変数が必要
+- linux/amd64 のみ
+- 実際のダウンロードのためネットワークアクセスあり
+
+**実行方法:**
+```bash
+cd e2e
+make test          # コンテナ内で E2E テスト実行
+make exec          # テストコンテナにシェルで入る
+```
+
+### 14.5 テストコマンド
+
+```bash
+# ユニットテストのみ
+make test
+
+# 結合テストを含む全テスト
+go test ./...
+
+# 特定パッケージのテスト
+go test -v ./internal/installer/engine/...
+
+# E2E テスト（Docker 必要）
+cd e2e && make test
+```
+
+### 14.6 テストガイドライン
+
+1. **分離**: 各テストは独立しており、他のテストに影響を与えない
+2. **クリーンアップ**: 自動クリーンアップのため `t.TempDir()` を使用
+3. **副作用なし**: テストは開発者のローカル環境を変更しない
+4. **決定論的**: テストは繰り返し実行しても同じ結果を生成
+5. **速度**: ユニットテストは高速に。遅いテストは E2E に配置
+
+---
+
+## 15. 将来の設計検討事項
+
+### 15.1 InstallerRepository
+
+aqua registry のように、ツールのメタデータ（URL パターン、アーキテクチャ別ファイル名など）を提供するリポジトリ。SystemPackageRepository と同様の役割。
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "aqua-registry"
+spec: {
+    installerRef: "aqua"
+    source: {
+        type: "git"  // or "local"
+        url: "https://github.com/aquaproj/aqua-registry"
+        // branch: "main"
+        // localPath: "/path/to/local/registry"
+    }
+}
+```
+
+これにより Tool 定義がシンプルになる:
+
+```cue
+// InstallerRepository があれば source 不要
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+    installerRef: "aqua"
+    repositoryRef: "aqua-registry"  // optional, default を使う場合は省略可
+    version: "14.1.1"
+    // source 不要 - registry から自動解決
+}
+```
+
+### 15.2 認証・トークン
+
+GitHub API のレートリミット対策、プライベートリポジトリへのアクセス、認証付きレジストリ対応。
+
+**Option A: Installer に持たせる**
+
+```cue
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    auth: {
+        tokenEnvVar: "GITHUB_TOKEN"  // 環境変数から取得
+        // or tokenFile: "~/.config/tomei/github-token"
+    }
+}
+```
+
+**Option B: 別リソース (Credential)**
+
+```cue
+kind: "Credential"
+metadata: name: "github"
+spec: {
+    type: "token"
+    envVar: "GITHUB_TOKEN"
+    // or file: "~/.config/tomei/github-token"
+    // or secretRef: "..." (外部シークレット管理との連携)
+}
+
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+    pattern: "download"
+    credentialRef: "github"
+}
+```
+
+**検討ポイント:**
+- シンプルさ vs 再利用性
+- 複数 Installer で同じ認証を使う場合
+- シークレット管理のベストプラクティス
+
+---
+
+## 16. TODO
+
+### 16.1 `--sync` 時の latest 指定ツール自動更新
+
+**概要:**
+`tomei apply --sync` 実行時、aqua-registry の ref が更新された場合、`latest` 指定のツールについて最新バージョンを再取得し、インストール済みバージョンと異なれば自動的に再インストールする機能。
+
+**現状:**
+- `--sync` は state.json の `registry.aqua.ref` を更新するのみ
+- `latest` 指定のツールは初回インストール時に解決されたバージョンが state に記録される
+- 2回目以降の apply では state のバージョンと比較するため、最新バージョンが変わっても検知しない
+
+**期待される動作:**
+1. `tomei apply --sync` 実行
+2. aqua-registry の最新 ref を取得
+3. ref が変わっていたら state を更新
+4. `latest` 指定のツールについて：
+   - 新しい ref で最新バージョンを再取得
+   - インストール済みバージョンと比較
+   - 異なれば再インストール
+
+**実装検討:**
+- ToolState に `latestSpec: bool` のようなフィールドを追加して latest 指定かどうかを記録
+- または ToolSpec の version が空だった場合に latest として扱う
+- `--sync` 時のみ再チェックを行う（通常の apply では state のバージョンを信頼）

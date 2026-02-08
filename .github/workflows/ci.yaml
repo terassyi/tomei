@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build
+        uses: ./.github/actions/build
+
+  unit-test:
+    name: Unit Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Unit Test
+        uses: ./.github/actions/unit-test
+
+  lint:
+    name: Lint
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Lint
+        uses: ./.github/actions/lint
+
+  integration-test:
+    name: Integration Test
+    needs: [unit-test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Integration Test
+        uses: ./.github/actions/integration-test
+
+  build-e2e:
+    name: Build E2E (${{ matrix.os }}/${{ matrix.arch }})
+    needs: integration-test
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build E2E binaries
+        uses: ./.github/actions/build-tomei
+        with:
+          os: ${{ matrix.os }}
+          arch: ${{ matrix.arch }}
+
+  e2e-test:
+    name: E2E Test (${{ matrix.os }}/${{ matrix.arch }}, ${{ matrix.mode }})
+    needs: build-e2e
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # Native mode
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            mode: native
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            mode: native
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            mode: native
+          # Container mode (Linux only)
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+            mode: container
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            mode: container
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download E2E artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+
+      - name: E2E Test
+        uses: ./.github/actions/e2e-test
+        with:
+          os: ${{ matrix.os }}
+          arch: ${{ matrix.arch }}
+          mode: ${{ matrix.mode }}

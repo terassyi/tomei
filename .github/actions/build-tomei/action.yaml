@@ -1,0 +1,43 @@
+name: Build tomei and E2E test binaries
+description: Build tomei binary, e2e test binary, and ginkgo CLI for the current platform
+
+inputs:
+  os:
+    description: 'Target OS (linux or darwin)'
+    required: true
+  arch:
+    description: 'Target architecture (amd64 or arm64)'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25.6'
+        cache: true
+
+    - name: Download dependencies
+      shell: bash
+      run: go mod download
+
+    - name: Build tomei binary
+      shell: bash
+      run: go build -o dist/tomei ./cmd/tomei
+
+    - name: Build e2e test binary
+      shell: bash
+      run: go test -c -tags=e2e -o dist/e2e.test ./e2e/
+
+    - name: Build ginkgo CLI
+      shell: bash
+      run: |
+        GOBIN=$(pwd)/dist go install github.com/onsi/ginkgo/v2/ginkgo@v2.28.1
+
+    - name: Upload E2E artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-binaries-${{ inputs.os }}-${{ inputs.arch }}
+        path: dist/
+        retention-days: 1

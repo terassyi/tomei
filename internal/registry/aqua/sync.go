@@ -1,0 +1,65 @@
+package aqua
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/terassyi/tomei/internal/state"
+)
+
+// Store is an interface for state storage operations.
+type Store interface {
+	Lock() error
+	Unlock() error
+	Load() (*state.UserState, error)
+	Save(*state.UserState) error
+}
+
+// SyncRegistry fetches the latest aqua-registry ref and updates state if changed.
+// If httpClient is nil, a default HTTP client is used.
+func SyncRegistry(ctx context.Context, store Store, httpClient *http.Client) error {
+	if err := store.Lock(); err != nil {
+		return fmt.Errorf("failed to acquire lock: %w", err)
+	}
+	defer func() { _ = store.Unlock() }()
+
+	currentState, err := store.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	client := NewVersionClient(httpClient)
+	newRef, err := client.GetLatestRef(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get latest aqua registry ref: %w", err)
+	}
+
+	// Check if registry needs update
+	var oldRef string
+	if currentState.Registry != nil && currentState.Registry.Aqua != nil {
+		oldRef = currentState.Registry.Aqua.Ref
+	}
+
+	if oldRef == newRef {
+		slog.Debug("aqua registry is up to date", "ref", newRef)
+		return nil
+	}
+
+	// Update registry state
+	currentState.Registry = &state.RegistryState{
+		Aqua: &state.AquaRegistryState{
+			Ref:       newRef,
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	if err := store.Save(currentState); err != nil {
+		return fmt.Errorf("failed to save state: %w", err)
+	}
+
+	slog.Debug("aqua registry updated", "from", oldRef, "to", newRef)
+	return nil
+}
