@@ -139,7 +139,7 @@ tool: {
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
 			checksum: {
-				value: "sha256:abc123"
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			}
 			archiveType: "tar.gz"
 		}
@@ -209,7 +209,7 @@ tool: {
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
 			checksum: {
-				value: "sha256:abc123"
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			}
 			archiveType: "tar.gz"
 		}
@@ -272,12 +272,12 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "myruntime"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/myruntime-1.0.0.tar.gz"
 			checksum: {
-				value: "sha256:abc123"
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			}
 		}
 		binaries: ["mybin"]
@@ -298,7 +298,7 @@ tool: {
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
 			checksum: {
-				value: "sha256:def456"
+				value: "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
 			}
 			archiveType: "tar.gz"
 		}
@@ -384,12 +384,12 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.26.0"
 		source: {
 			url: "https://example.com/go-1.26.0.tar.gz"
 			checksum: {
-				value: "sha256:abc123"
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			}
 		}
 		binaries: ["go", "gofmt"]
@@ -509,11 +509,11 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.23.0"
 		source: {
 			url: "https://example.com/go-1.23.0.tar.gz"
-			checksum: { value: "sha256:abc123" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
@@ -543,7 +543,7 @@ pnpmInstaller: {
 	kind: "Installer"
 	metadata: name: "pnpm"
 	spec: {
-		pattern: "delegation"
+		type: "delegation"
 		toolRef: "pnpm"
 		commands: {
 			install: "pnpm add -g {{.Package}}@{{.Version}}"
@@ -653,7 +653,7 @@ installerA: {
 	kind: "Installer"
 	metadata: name: "installer-a"
 	spec: {
-		pattern: "delegation"
+		type: "delegation"
 		toolRef: "tool-b"
 		commands: {
 			install: "install-a {{.Package}}"
@@ -703,7 +703,7 @@ aquaInstaller: {
 	kind: "Installer"
 	metadata: name: "aqua"
 	spec: {
-		pattern: "download"
+		type: "download"
 	}
 }
 
@@ -716,7 +716,7 @@ ripgrep: {
 		version: "14.0.0"
 		source: {
 			url: "https://example.com/ripgrep.tar.gz"
-			checksum: { value: "sha256:rg" }
+			checksum: { value: "sha256:1111111111111111111111111111111111111111111111111111111111111111" }
 		}
 	}
 }
@@ -730,7 +730,7 @@ fd: {
 		version: "9.0.0"
 		source: {
 			url: "https://example.com/fd.tar.gz"
-			checksum: { value: "sha256:fd" }
+			checksum: { value: "sha256:2222222222222222222222222222222222222222222222222222222222222222" }
 		}
 	}
 }
@@ -744,7 +744,7 @@ bat: {
 		version: "0.24.0"
 		source: {
 			url: "https://example.com/bat.tar.gz"
-			checksum: { value: "sha256:bat" }
+			checksum: { value: "sha256:3333333333333333333333333333333333333333333333333333333333333333" }
 		}
 	}
 }
@@ -824,7 +824,7 @@ aquaInstaller: {
 	kind: "Installer"
 	metadata: name: "aqua"
 	spec: {
-		pattern: "download"
+		type: "download"
 	}
 }
 
@@ -837,7 +837,7 @@ ripgrep: {
 		version: "14.0.0"
 		source: {
 			url: "https://example.com/ripgrep.tar.gz"
-			checksum: { value: "sha256:rg" }
+			checksum: { value: "sha256:1111111111111111111111111111111111111111111111111111111111111111" }
 		}
 	}
 }
@@ -851,7 +851,7 @@ fd: {
 		version: "9.0.0"
 		source: {
 			url: "https://example.com/fd.tar.gz"
-			checksum: { value: "sha256:fd" }
+			checksum: { value: "sha256:2222222222222222222222222222222222222222222222222222222222222222" }
 		}
 	}
 }
@@ -865,7 +865,7 @@ bat: {
 		version: "0.24.0"
 		source: {
 			url: "https://example.com/bat.tar.gz"
-			checksum: { value: "sha256:bat" }
+			checksum: { value: "sha256:3333333333333333333333333333333333333333333333333333333333333333" }
 		}
 	}
 }
@@ -935,11 +935,11 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.25.0"
 		source: {
 			url: "https://example.com/go.tar.gz"
-			checksum: { value: "sha256:go" }
+			checksum: { value: "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
 		}
 		binaries: ["go"]
 		toolBinPath: "~/go/bin"
@@ -955,7 +955,7 @@ ripgrep: {
 		version: "14.0.0"
 		source: {
 			url: "https://example.com/ripgrep.tar.gz"
-			checksum: { value: "sha256:rg" }
+			checksum: { value: "sha256:1111111111111111111111111111111111111111111111111111111111111111" }
 		}
 	}
 }
@@ -1036,11 +1036,11 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.25.0"
 		source: {
 			url: "https://example.com/go.tar.gz"
-			checksum: { value: "sha256:go" }
+			checksum: { value: "sha256:4444444444444444444444444444444444444444444444444444444444444444" }
 		}
 		binaries: ["go"]
 		toolBinPath: "~/go/bin"
@@ -1052,11 +1052,11 @@ rustRuntime: {
 	kind: "Runtime"
 	metadata: name: "rust"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.80.0"
 		source: {
 			url: "https://example.com/rust.tar.gz"
-			checksum: { value: "sha256:rust" }
+			checksum: { value: "sha256:5555555555555555555555555555555555555555555555555555555555555555" }
 		}
 		binaries: ["rustc", "cargo"]
 		toolBinPath: "~/.cargo/bin"
@@ -1068,11 +1068,11 @@ nodeRuntime: {
 	kind: "Runtime"
 	metadata: name: "node"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "22.0.0"
 		source: {
 			url: "https://example.com/node.tar.gz"
-			checksum: { value: "sha256:node" }
+			checksum: { value: "sha256:6666666666666666666666666666666666666666666666666666666666666666" }
 		}
 		binaries: ["node", "npm"]
 		toolBinPath: "~/.npm/bin"
@@ -1178,7 +1178,7 @@ aquaInstaller: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "aqua"
-	spec: { pattern: "download" }
+	spec: { type: "download" }
 }
 `)
 	toolDefs := []struct{ cueKey, name string }{
@@ -1196,11 +1196,11 @@ aquaInstaller: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/%s.tar.gz"
-			checksum: { value: "sha256:%s" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 	}
 }
-`, td.cueKey, td.name, td.name, td.name)
+`, td.cueKey, td.name, td.name)
 	}
 
 	err := os.WriteFile(cueFile, []byte(sb.String()), 0644)
@@ -1268,7 +1268,7 @@ tool: {
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
 			checksum: {
-				value: "sha256:abc123"
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			}
 			archiveType: "tar.gz"
 		}
@@ -1357,7 +1357,7 @@ tool: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
-			checksum: { value: "sha256:abc123" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 	}
 }
@@ -1415,11 +1415,11 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "myruntime"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/myruntime.tar.gz"
-			checksum: { value: "sha256:abc" }
+			checksum: { value: "sha256:7777777777777777777777777777777777777777777777777777777777777777" }
 		}
 		binaries: ["mybin"]
 		toolBinPath: "~/bin"
@@ -1435,7 +1435,7 @@ tool: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/test-tool.tar.gz"
-			checksum: { value: "sha256:def" }
+			checksum: { value: "sha256:8888888888888888888888888888888888888888888888888888888888888888" }
 		}
 	}
 }
@@ -1481,7 +1481,7 @@ aquaInstaller: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "aqua"
-	spec: { pattern: "download" }
+	spec: { type: "download" }
 }
 `)
 	for _, name := range toolNames {
@@ -1495,11 +1495,11 @@ aquaInstaller: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/%s.tar.gz"
-			checksum: { value: "sha256:%s" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 	}
 }
-`, name, name, name, name)
+`, name, name, name)
 	}
 	return sb.String()
 }
@@ -1516,17 +1516,17 @@ func generateRuntimesAndToolsCUE(runtimeNames, toolNames []string) string {
 	kind: "Runtime"
 	metadata: name: "%s"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/%s.tar.gz"
-			checksum: { value: "sha256:%s" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 		binaries: ["%s"]
 		toolBinPath: "~/%s/bin"
 	}
 }
-`, name, name, name, name, name, name)
+`, name, name, name, name, name)
 	}
 
 	for _, name := range toolNames {
@@ -1540,11 +1540,11 @@ func generateRuntimesAndToolsCUE(runtimeNames, toolNames []string) string {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/%s.tar.gz"
-			checksum: { value: "sha256:%s" }
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
 		}
 	}
 }
-`, name, name, name, name)
+`, name, name, name)
 	}
 
 	return sb.String()
@@ -2104,11 +2104,11 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/go.tar.gz"
-			checksum: value: "sha256:abc123"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 		}
 		binaries: ["go"]
 		toolBinPath: "~/go/bin"
@@ -2241,11 +2241,11 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/go.tar.gz"
-			checksum: value: "sha256:abc123"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 		}
 		binaries: ["go"]
 		toolBinPath: "~/go/bin"
@@ -2306,7 +2306,7 @@ placeholder: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/fzf.tar.gz"
-			checksum: value: "sha256:abc123"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 		}
 	}
 }
@@ -2454,7 +2454,7 @@ fd: {
 		version: "9.0.0"
 		source: {
 			url: "https://example.com/fd.tar.gz"
-			checksum: { value: "sha256:fd" }
+			checksum: { value: "sha256:2222222222222222222222222222222222222222222222222222222222222222" }
 		}
 	}
 }
@@ -2521,7 +2521,7 @@ rg: {
 		version: "14.0.0"
 		source: {
 			url: "https://example.com/rg.tar.gz"
-			checksum: { value: "sha256:rg" }
+			checksum: { value: "sha256:1111111111111111111111111111111111111111111111111111111111111111" }
 		}
 	}
 }
@@ -2656,7 +2656,7 @@ tool: {
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/nginx.tar.gz"
-			checksum: value: "sha256:abc123"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 			archiveType: "tar.gz"
 		}
 	}

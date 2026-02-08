@@ -11,12 +11,17 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 
+	"github.com/terassyi/tomei/internal/config/schema"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
 const (
 	// ConfigFileName is the name of the tomei config file that should be ignored when loading manifests.
 	ConfigFileName = "config.cue"
+	// envOverlayFileName is the virtual file name for the injected _env overlay.
+	envOverlayFileName = "_env.cue"
+	// schemaOverlayFileName is the virtual file name for the injected _schema overlay.
+	schemaOverlayFileName = "_schema.cue"
 )
 
 // Loader loads and parses CUE configuration files.
@@ -89,6 +94,19 @@ func (l *Loader) envCUEWithPackage(pkg string) string {
 	return fmt.Sprintf("package %s\n%s", pkg, l.envCUE())
 }
 
+// schemaCUEAfterPackage returns the schema content with the "package tomei" line stripped.
+// Used when injecting schema into files without a package declaration (LoadFile mode).
+func schemaCUEAfterPackage() string {
+	_, after, _ := strings.Cut(schema.SchemaCUE, "\n")
+	return after
+}
+
+// schemaCUEWithPackage returns the schema content with a custom package declaration.
+// Used when injecting schema into directories with a specific package name.
+func schemaCUEWithPackage(pkg string) string {
+	return fmt.Sprintf("package %s\n%s", pkg, schemaCUEAfterPackage())
+}
+
 // detectPackageName extracts the package name from CUE source code.
 // Returns empty string if no package declaration is found.
 func detectPackageName(source string) string {
@@ -151,20 +169,24 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Create overlay with _env.cue to inject environment variables
-	envFilePath := filepath.Join(absDir, "_env.cue")
-	var envContent string
+	// Create overlay with _env.cue and _schema.cue to inject environment variables and schema
+	envFilePath := filepath.Join(absDir, envOverlayFileName)
+	schemaFilePath := filepath.Join(absDir, schemaOverlayFileName)
+	var envContent, schemaContent string
 	if pkgName != "" {
 		envContent = l.envCUEWithPackage(pkgName)
+		schemaContent = schemaCUEWithPackage(pkgName)
 	} else {
 		envContent = l.envCUE()
+		schemaContent = schemaCUEAfterPackage()
 	}
 	overlay := map[string]load.Source{
-		envFilePath: load.FromString(envContent),
+		envFilePath:    load.FromString(envContent),
+		schemaFilePath: load.FromString(schemaContent),
 	}
 
-	// Add _env.cue to the list of files to load
-	cueFiles = append([]string{"_env.cue"}, cueFiles...)
+	// Add _env.cue and _schema.cue to the list of files to load
+	cueFiles = append([]string{envOverlayFileName, schemaOverlayFileName}, cueFiles...)
 
 	// Load CUE files with overlay
 	instances := load.Instances(cueFiles, &load.Config{
@@ -247,24 +269,25 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Inject _env definition to enable environment-specific configuration
-	// Must be inserted after package declaration if present
+	// Inject _env and schema definitions to enable environment-specific configuration
+	// and schema validation. Must be inserted after package declaration if present.
 	source := string(data)
+	schemaInject := schemaCUEAfterPackage()
 	var dataWithEnv string
 
 	if pkgName := detectPackageName(source); pkgName != "" {
-		// Insert _env after package declaration
+		// Insert _env and schema after package declaration
 		pkgDecl := "package " + pkgName
 		idx := strings.Index(source, pkgDecl)
 		if idx >= 0 {
 			afterPkg := idx + len(pkgDecl)
-			dataWithEnv = source[:afterPkg] + "\n" + l.envCUE() + source[afterPkg:]
+			dataWithEnv = source[:afterPkg] + "\n" + l.envCUE() + "\n" + schemaInject + source[afterPkg:]
 		} else {
-			dataWithEnv = l.envCUE() + "\n" + source
+			dataWithEnv = l.envCUE() + "\n" + schemaInject + "\n" + source
 		}
 	} else {
-		// No package declaration, prepend _env
-		dataWithEnv = l.envCUE() + "\n" + source
+		// No package declaration, prepend _env and schema
+		dataWithEnv = l.envCUE() + "\n" + schemaInject + "\n" + source
 	}
 
 	value := l.ctx.CompileString(dataWithEnv, cue.Filename(path))
@@ -275,13 +298,31 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 	return l.parseResources(value)
 }
 
+// validateResource validates a resource value against the #Resource schema definition.
+// If the schema is not available (e.g., for backward compatibility), it returns the original value.
+func (l *Loader) validateResource(root cue.Value, field cue.Value, name string) (cue.Value, error) {
+	resourceDef := root.LookupPath(cue.ParsePath("#Resource"))
+	if !resourceDef.Exists() {
+		return field, nil
+	}
+	unified := field.Unify(resourceDef)
+	if err := unified.Validate(cue.Concrete(true)); err != nil {
+		return field, fmt.Errorf("schema validation failed for %q: %w", name, err)
+	}
+	return unified, nil
+}
+
 func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 	var resources []resource.Resource
 
 	// Check if value is a list (multiple resources)
 	if iter, err := value.List(); err == nil {
 		for iter.Next() {
-			res, err := l.parseResource(iter.Value())
+			validated, err := l.validateResource(value, iter.Value(), "")
+			if err != nil {
+				return nil, err
+			}
+			res, err := l.parseResource(validated)
 			if err != nil {
 				return nil, err
 			}
@@ -292,7 +333,11 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 
 	// Check if it has apiVersion (single resource at top level)
 	if value.LookupPath(cue.ParsePath("apiVersion")).Exists() {
-		res, err := l.parseResource(value)
+		validated, err := l.validateResource(value, value, "")
+		if err != nil {
+			return nil, err
+		}
+		res, err := l.parseResource(validated)
 		if err != nil {
 			return nil, err
 		}
@@ -311,7 +356,11 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 		if !fieldValue.LookupPath(cue.ParsePath("apiVersion")).Exists() {
 			continue
 		}
-		res, err := l.parseResource(fieldValue)
+		validated, err := l.validateResource(value, fieldValue, iter.Selector().String())
+		if err != nil {
+			return nil, err
+		}
+		res, err := l.parseResource(validated)
 		if err != nil {
 			return nil, err
 		}

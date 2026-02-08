@@ -86,10 +86,15 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	// Load config from fixed path (~/.config/toto/config.cue)
+	// Load config from fixed path (~/.config/tomei/config.cue)
 	appCfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Sync schema.cue if it exists on disk
+	if err := config.SyncSchema(appCfg, config.DefaultConfigDir); err != nil {
+		return fmt.Errorf("failed to sync schema: %w", err)
 	}
 
 	// Setup paths from config
