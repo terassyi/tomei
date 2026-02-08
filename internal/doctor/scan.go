@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // executableBits is the Unix permission bitmask for executable files (owner/group/other execute).
@@ -68,7 +68,7 @@ func (d *Doctor) scanPath(category, binPath string) ([]UnmanagedTool, error) {
 			continue
 		}
 
-		// Check if this tool is managed by toto
+		// Check if this tool is managed by tomei
 		if !d.isManagedTool(name, category) {
 			unmanaged = append(unmanaged, UnmanagedTool{
 				Name: name,
@@ -80,7 +80,7 @@ func (d *Doctor) scanPath(category, binPath string) ([]UnmanagedTool, error) {
 	return unmanaged, nil
 }
 
-// isManagedTool checks if a tool is managed by toto.
+// isManagedTool checks if a tool is managed by tomei.
 func (d *Doctor) isManagedTool(name, category string) bool {
 	if d.state == nil {
 		return false
@@ -102,9 +102,9 @@ func (d *Doctor) isManagedTool(name, category string) bool {
 		return false
 	}
 
-	// For toto category, check if the tool is managed with download pattern
+	// For tomei category, check if the tool is managed with download pattern
 	if category == resource.ProjectName {
-		// If tool exists in state and has no runtimeRef, it's managed by toto directly
+		// If tool exists in state and has no runtimeRef, it's managed by tomei directly
 		return tool.RuntimeRef == ""
 	}
 

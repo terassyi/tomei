@@ -12,16 +12,16 @@ import (
 func delegationTests() {
 
 	BeforeAll(func() {
-		// Initialize toto (may already be initialized by other tests, ignore errors)
-		_, _ = testExec.Exec("toto", "init", "--yes")
+		// Initialize tomei (may already be initialized by other tests, ignore errors)
+		_, _ = testExec.Exec("tomei", "init", "--yes")
 		// Reset state to avoid interference from previous test contexts
-		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
 	})
 
 	Context("Rust Runtime Installation (Delegation Pattern)", func() {
 		It("validates Rust runtime manifest", func() {
-			By("Running toto validate on delegation-test directory")
-			output, err := testExec.Exec("toto", "validate", "~/delegation-test/")
+			By("Running tomei validate on delegation-test directory")
+			output, err := testExec.Exec("tomei", "validate", "~/delegation-test/")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 			Expect(output).To(ContainSubstring("Runtime/rust"))
@@ -29,8 +29,8 @@ func delegationTests() {
 		})
 
 		It("installs Rust runtime and tool via delegation", func() {
-			By("Running toto apply on delegation-test directory")
-			_, err := testExec.Exec("toto", "apply", "~/delegation-test/")
+			By("Running tomei apply on delegation-test directory")
+			_, err := testExec.Exec("tomei", "apply", "~/delegation-test/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -57,7 +57,7 @@ func delegationTests() {
 
 		It("records delegation state in state.json", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking rust runtime is recorded")
@@ -79,8 +79,8 @@ func delegationTests() {
 		})
 
 		It("exports Rust environment variables", func() {
-			By("Running toto env")
-			output, err := testExec.Exec("toto", "env")
+			By("Running tomei env")
+			output, err := testExec.Exec("tomei", "env")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking CARGO_HOME export")
@@ -108,7 +108,7 @@ func delegationTests() {
 
 		It("records sd tool state in state.json", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking sd is in tools section")
@@ -121,8 +121,8 @@ func delegationTests() {
 
 	Context("Rust Delegation Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/delegation-test/")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/delegation-test/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rustc still works")

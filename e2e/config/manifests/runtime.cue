@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Go runtime for E2E testing
 // Initially installs Go 1.25.6, then can be upgraded to 1.25.7
@@ -7,7 +7,7 @@ package toto
 _goVersion: "1.25.6"
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -23,7 +23,7 @@ goRuntime: {
 		binDir:      "~/go/bin" // Runtime binaries go to GOBIN (same as toolBinPath)
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/\(spec.version)"
+			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
 			GOBIN:  "~/go/bin"
 		}
 		// Commands for tool installation via go install

@@ -30,7 +30,7 @@ func TestLoadConfig_WithConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.cue")
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 config: {
     dataDir: "~/my-data"
@@ -52,7 +52,7 @@ func TestLoadConfig_PartialConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.cue")
 
 	// Only dataDir specified
-	cueContent := `package toto
+	cueContent := `package tomei
 
 config: {
     dataDir: "~/custom-data"
@@ -74,7 +74,7 @@ func TestLoadConfig_NoConfigBlock(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.cue")
 
 	// config.cue exists but has no config block
-	cueContent := `package toto
+	cueContent := `package tomei
 
 somethingElse: "value"
 `
@@ -94,7 +94,7 @@ func TestLoadConfig_InvalidCue(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.cue")
 
 	// Invalid CUE syntax
-	cueContent := `package toto
+	cueContent := `package tomei
 config: {
     dataDir: "~/my-data"
     // missing closing brace
@@ -117,7 +117,7 @@ func TestConfig_ToCue(t *testing.T) {
 	require.NoError(t, err)
 
 	cueContent := string(cueBytes)
-	assert.Contains(t, cueContent, "package toto")
+	assert.Contains(t, cueContent, "package tomei")
 	assert.Contains(t, cueContent, "config")
 	assert.Contains(t, cueContent, "dataDir")
 	assert.Contains(t, cueContent, "~/my-data")

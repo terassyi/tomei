@@ -8,19 +8,19 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/github"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/engine"
-	"github.com/terassyi/toto/internal/installer/place"
-	"github.com/terassyi/toto/internal/installer/repository"
-	"github.com/terassyi/toto/internal/installer/runtime"
-	"github.com/terassyi/toto/internal/installer/tool"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/registry/aqua"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/github"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/installer/place"
+	"github.com/terassyi/tomei/internal/installer/repository"
+	"github.com/terassyi/tomei/internal/installer/runtime"
+	"github.com/terassyi/tomei/internal/installer/tool"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 // applyConfig holds configuration for the apply command.
@@ -39,12 +39,12 @@ var applyCmd = &cobra.Command{
 	Long: `Apply the configuration to install, upgrade, or remove resources.
 
 For user-level resources (Runtime, Tool, ToolSet):
-  toto apply .
-  toto apply tools.cue runtime.cue
-  toto apply ~/.config/toto/
+  tomei apply .
+  tomei apply tools.cue runtime.cue
+  tomei apply ~/.config/toto/
 
 For system-level resources (SystemPackageRepository, SystemPackageSet):
-  sudo toto apply --system .`,
+  sudo tomei apply --system .`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }

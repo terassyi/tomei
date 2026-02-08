@@ -3,8 +3,8 @@ package executor
 import (
 	"sync"
 
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // InstallerRepositoryStateStore adapts state.Store to the StateStore interface for InstallerRepositories.

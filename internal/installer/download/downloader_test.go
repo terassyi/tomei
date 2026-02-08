@@ -13,7 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestNewDownloader(t *testing.T) {

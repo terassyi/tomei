@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Runtime to Tool dependency chain test: go runtime -> go installer -> gopls
 
@@ -11,7 +11,7 @@ _goSource: {
 
 // Go Runtime
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -22,7 +22,7 @@ goRuntime: {
 		binDir:      "~/go/bin"
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/\(_goVersion)"
+			GOROOT: "~/.local/share/tomei/runtimes/go/\(_goVersion)"
 			GOBIN:  "~/go/bin"
 		}
 		commands: {
@@ -34,7 +34,7 @@ goRuntime: {
 
 // Go Installer - depends on Go Runtime via runtimeRef
 goInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "go"
 	spec: {
@@ -48,7 +48,7 @@ goInstaller: {
 
 // gopls Tool - installed via go installer
 gopls: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "gopls"
 	spec: {

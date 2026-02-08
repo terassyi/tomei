@@ -1,7 +1,7 @@
 package graph
 
 import (
-	"github.com/terassyi/toto/internal/errors"
+	"github.com/terassyi/tomei/internal/errors"
 )
 
 // NewCycleError creates a DependencyError for circular dependencies.

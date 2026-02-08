@@ -11,17 +11,17 @@ func toolsetTests() {
 
 	BeforeAll(func() {
 		By("Initializing environment")
-		_, err := testExec.Exec("toto", "init", "--yes", "--force")
+		_, err := testExec.Exec("tomei", "init", "--yes", "--force")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Cleaning previous state")
-		_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools ~/.local/bin/* ~/go/bin/*")
+		_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools ~/.local/bin/* ~/go/bin/*")
 	})
 
 	Context("Validation", func() {
 		It("validates ToolSet manifest with runtime", func() {
-			By("Running toto validate on toolset + runtime")
-			output, err := testExec.Exec("toto", "validate", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
+			By("Running tomei validate on toolset + runtime")
+			output, err := testExec.Exec("tomei", "validate", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking validation succeeded")
@@ -35,8 +35,8 @@ func toolsetTests() {
 
 	Context("Installation", func() {
 		It("installs all tools from ToolSet via runtime delegation", func() {
-			By("Running toto apply on toolset + runtime")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
+			By("Running tomei apply on toolset + runtime")
+			output, err := testExec.Exec("tomei", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking apply completed")
@@ -59,7 +59,7 @@ func toolsetTests() {
 
 		It("saved individual tool states", func() {
 			By("Checking state.json contains staticcheck and godoc")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring(`"staticcheck"`))
 			Expect(output).To(ContainSubstring(`"godoc"`))
@@ -68,8 +68,8 @@ func toolsetTests() {
 
 	Context("Re-apply (idempotent)", func() {
 		It("reports no changes on re-apply", func() {
-			By("Running toto apply again")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
+			By("Running tomei apply again")
+			output, err := testExec.Exec("tomei", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("No changes to apply"))
 		})

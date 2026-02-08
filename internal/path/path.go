@@ -5,22 +5,22 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/tomei/internal/config"
 )
 
 // Default path constants
 const (
-	DefaultSystemDataDir = "/var/lib/toto"
+	DefaultSystemDataDir = "/var/lib/tomei"
 )
 
 // Default path suffixes (relative to home directory)
 const (
-	defaultUserDataSuffix  = ".local/share/toto"
+	defaultUserDataSuffix  = ".local/share/tomei"
 	defaultUserBinSuffix   = ".local/bin"
-	defaultUserCacheSuffix = ".cache/toto"
+	defaultUserCacheSuffix = ".cache/tomei"
 )
 
-// Paths holds configurable paths for toto.
+// Paths holds configurable paths for tomei.
 type Paths struct {
 	userDataDir   string
 	userBinDir    string

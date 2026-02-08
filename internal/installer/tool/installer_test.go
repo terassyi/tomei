@@ -16,10 +16,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/place"
-	"github.com/terassyi/toto/internal/registry/aqua"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/place"
+	"github.com/terassyi/tomei/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestNewInstaller(t *testing.T) {

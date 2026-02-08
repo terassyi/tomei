@@ -1,8 +1,8 @@
 .PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run
 
-BINARY_NAME := toto
+BINARY_NAME := tomei
 BUILD_DIR := bin
-IMAGE_NAME := toto-dev
+IMAGE_NAME := tomei-dev
 
 # Version info
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -14,7 +14,7 @@ LDFLAGS := -X main.version=$(VERSION) \
            -X main.buildDate=$(BUILD_DATE)
 
 build: ## Build the binary
-	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/toto
+	go build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/tomei
 
 test: ## Run unit tests
 	go test -v -race ./internal/... ./cmd/...
@@ -42,7 +42,7 @@ fmt: ## Format code
 clean: ## Clean build artifacts
 	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
-	rm -f toto
+	rm -f tomei
 	$(MAKE) -C e2e clean
 
 help: ## Show this help

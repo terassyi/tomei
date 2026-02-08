@@ -8,10 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/env"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/env"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 var (
@@ -25,10 +25,10 @@ var envCmd = &cobra.Command{
 	Long: `Output environment variable statements for installed runtimes.
 
 Stdout mode (default):
-  eval "$(toto env)"
+  eval "$(tomei env)"
 
 File export mode:
-  toto env --export
+  tomei env --export
   source ~/.config/toto/env.sh
 
 Shell types:

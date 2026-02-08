@@ -14,13 +14,13 @@ import (
 
 // Default path constants
 const (
-	DefaultConfigDir = "~/.config/toto"
-	DefaultDataDir   = "~/.local/share/toto"
+	DefaultConfigDir = "~/.config/tomei"
+	DefaultDataDir   = "~/.local/share/tomei"
 	DefaultBinDir    = "~/.local/bin"
-	DefaultEnvDir    = "~/.config/toto"
+	DefaultEnvDir    = "~/.config/tomei"
 )
 
-// Config represents toto configuration.
+// Config represents tomei configuration.
 type Config struct {
 	DataDir string `json:"dataDir"`
 	BinDir  string `json:"binDir"`
@@ -102,5 +102,5 @@ func (c *Config) ToCue() ([]byte, error) {
 		return nil, fmt.Errorf("failed to format config: %w", err)
 	}
 
-	return append([]byte("package toto\n\n"), b...), nil
+	return append([]byte("package tomei\n\n"), b...), nil
 }

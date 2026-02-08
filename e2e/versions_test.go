@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // e2eVersions holds version strings extracted from CUE manifests.

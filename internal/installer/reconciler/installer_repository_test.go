@@ -6,14 +6,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestInstallerRepositoryReconciler_Install(t *testing.T) {
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindInstallerRepository,
 				Metadata:     resource.Metadata{Name: "bitnami"},
 			},
@@ -43,7 +43,7 @@ func TestInstallerRepositoryReconciler_NoChange(t *testing.T) {
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindInstallerRepository,
 				Metadata:     resource.Metadata{Name: "bitnami"},
 			},
@@ -74,7 +74,7 @@ func TestInstallerRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindInstallerRepository,
 				Metadata:     resource.Metadata{Name: "custom-registry"},
 			},
@@ -110,7 +110,7 @@ func TestInstallerRepositoryReconciler_Upgrade_TypeChanged(t *testing.T) {
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindInstallerRepository,
 				Metadata:     resource.Metadata{Name: "my-repo"},
 			},

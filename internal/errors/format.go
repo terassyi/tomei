@@ -101,7 +101,7 @@ func (f *Formatter) Format(err error) string {
 	case errors.As(err, &baseErr):
 		f.formatBaseError(&sb, baseErr)
 	default:
-		// Fallback for non-toto errors
+		// Fallback for non-tomei errors
 		sb.WriteString(f.errorColor.Sprint("Error: "))
 		sb.WriteString(err.Error())
 		sb.WriteString("\n")
@@ -147,7 +147,7 @@ func (f *Formatter) FormatJSON(err error) ([]byte, error) {
 	case errors.As(err, &baseErr):
 		return json.MarshalIndent(baseErr, "", "  ")
 	default:
-		// Fallback for non-toto errors
+		// Fallback for non-tomei errors
 		return json.MarshalIndent(map[string]string{"error": err.Error()}, "", "  ")
 	}
 }
@@ -366,7 +366,7 @@ func (f *Formatter) formatStateError(sb *strings.Builder, err *StateError) {
 
 	if err.LockPID > 0 {
 		sb.WriteString("  ")
-		sb.WriteString(f.dimColor.Sprint("Another toto process is running (PID: "))
+		sb.WriteString(f.dimColor.Sprint("Another tomei process is running (PID: "))
 		sb.WriteString(f.gotColor.Sprintf("%d", err.LockPID))
 		sb.WriteString(f.dimColor.Sprint(")"))
 		sb.WriteString("\n")

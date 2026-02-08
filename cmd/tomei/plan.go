@@ -9,13 +9,13 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/github"
-	"github.com/terassyi/toto/internal/graph"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/registry/aqua"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/github"
+	"github.com/terassyi/tomei/internal/graph"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 var planCmd = &cobra.Command{

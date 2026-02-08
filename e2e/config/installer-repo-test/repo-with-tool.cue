@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Full dependency chain test:
 // Tool/helm (aqua, latest) → Installer/helm (delegation) → InstallerRepository/bitnami → Tool/common-chart
@@ -9,7 +9,7 @@ package toto
 
 // Helm tool installed via aqua registry (latest version)
 helmTool: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "helm"
 	spec: {
@@ -21,21 +21,21 @@ helmTool: {
 // Helm installer: delegation pattern for pulling charts
 // {{.Package}} = spec.package (chart name), {{.Version}} = spec.version
 helmInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "helm"
 	spec: {
 		type:    "delegation"
 		toolRef: "helm"
 		commands: {
-			install: "mkdir -p /tmp/toto-e2e-charts && helm pull bitnami/{{.Package}} --destination /tmp/toto-e2e-charts"
+			install: "mkdir -p /tmp/tomei-e2e-charts && helm pull bitnami/{{.Package}} --destination /tmp/tomei-e2e-charts"
 		}
 	}
 }
 
 // Bitnami helm repository managed via delegation
 bitnamiRepo: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "InstallerRepository"
 	metadata: name: "bitnami"
 	spec: {
@@ -55,7 +55,7 @@ bitnamiRepo: {
 // Common chart: bitnami/common (helper-only chart, very small)
 // Installed via helm pull after bitnami repository is added
 commonChart: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "common-chart"
 	spec: {

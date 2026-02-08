@@ -8,11 +8,11 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/doctor"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/state"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/doctor"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/state"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 var doctorNoColor bool
@@ -24,7 +24,7 @@ var doctorCmd = &cobra.Command{
 
 Checks for:
   - Unmanaged tools in runtime bin paths (~/go/bin, ~/.cargo/bin)
-  - Conflicts between toto-managed and unmanaged tools
+  - Conflicts between tomei-managed and unmanaged tools
   - State file integrity`,
 	RunE: runDoctor,
 }

@@ -1,4 +1,4 @@
-// Package errors provides structured error types for toto.
+// Package errors provides structured error types for tomei.
 // These errors carry rich context information that can be formatted
 // for human-readable CLI output or machine-readable JSON.
 //
@@ -46,7 +46,7 @@ const (
 	CodeRegistryError Code = "E601"
 )
 
-// Error is the base error type for toto.
+// Error is the base error type for tomei.
 // It provides structured information that can be formatted for CLI output.
 type Error struct {
 	// Category classifies the error type.

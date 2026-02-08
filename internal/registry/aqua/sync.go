@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // Store is an interface for state storage operations.

@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 func TestNew(t *testing.T) {
@@ -53,8 +53,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 		unmanaged, err := doc.scanForUnmanaged()
 		require.NoError(t, err)
 
-		assert.Len(t, unmanaged["toto"], 1)
-		assert.Equal(t, "unmanaged-tool", unmanaged["toto"][0].Name)
+		assert.Len(t, unmanaged["tomei"], 1)
+		assert.Equal(t, "unmanaged-tool", unmanaged["tomei"][0].Name)
 	})
 
 	t.Run("does not detect managed tools", func(t *testing.T) {
@@ -84,7 +84,7 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 		unmanaged, err := doc.scanForUnmanaged()
 		require.NoError(t, err)
 
-		assert.Empty(t, unmanaged["toto"])
+		assert.Empty(t, unmanaged["tomei"])
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
@@ -393,7 +393,7 @@ func TestResult_HasIssues(t *testing.T) {
 	t.Run("has unmanaged tools", func(t *testing.T) {
 		result := &Result{
 			UnmanagedTools: map[string][]UnmanagedTool{
-				"toto": {{Name: "tool", Path: "/path"}},
+				"tomei": {{Name: "tool", Path: "/path"}},
 			},
 		}
 		assert.True(t, result.HasIssues())
@@ -419,8 +419,8 @@ func TestResult_HasIssues(t *testing.T) {
 func TestResult_UnmanagedToolNames(t *testing.T) {
 	result := &Result{
 		UnmanagedTools: map[string][]UnmanagedTool{
-			"toto": {{Name: "tool1", Path: "/path1"}},
-			"go":   {{Name: "tool2", Path: "/path2"}, {Name: "tool1", Path: "/path3"}}, // tool1 duplicate
+			"tomei": {{Name: "tool1", Path: "/path1"}},
+			"go":    {{Name: "tool2", Path: "/path2"}, {Name: "tool1", Path: "/path3"}}, // tool1 duplicate
 		},
 	}
 

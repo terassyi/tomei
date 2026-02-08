@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestGenerate(t *testing.T) {
@@ -45,14 +45,14 @@ func TestGenerate(t *testing.T) {
 					BinDir:      home + "/go/bin",
 					ToolBinPath: home + "/go/bin",
 					Env: map[string]string{
-						"GOROOT": home + "/.local/share/toto/runtimes/go/1.25.6",
+						"GOROOT": home + "/.local/share/tomei/runtimes/go/1.25.6",
 						"GOBIN":  home + "/go/bin",
 					},
 				},
 			},
 			shell: ShellPosix,
 			wantContains: []string{
-				`export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.6"`,
+				`export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.6"`,
 				`export GOBIN="$HOME/go/bin"`,
 				`$HOME/.local/bin`,
 				`$HOME/go/bin`,
@@ -67,13 +67,13 @@ func TestGenerate(t *testing.T) {
 					BinDir:      home + "/go/bin",
 					ToolBinPath: home + "/go/bin",
 					Env: map[string]string{
-						"GOROOT": home + "/.local/share/toto/runtimes/go/1.25.6",
+						"GOROOT": home + "/.local/share/tomei/runtimes/go/1.25.6",
 					},
 				},
 			},
 			shell: ShellFish,
 			wantContains: []string{
-				`set -gx GOROOT "$HOME/.local/share/toto/runtimes/go/1.25.6"`,
+				`set -gx GOROOT "$HOME/.local/share/tomei/runtimes/go/1.25.6"`,
 				`fish_add_path`,
 				`$HOME/go/bin`,
 			},
@@ -86,7 +86,7 @@ func TestGenerate(t *testing.T) {
 					BinDir:      home + "/go/bin",
 					ToolBinPath: home + "/go/bin",
 					Env: map[string]string{
-						"GOROOT": home + "/.local/share/toto/runtimes/go/1.25.6",
+						"GOROOT": home + "/.local/share/tomei/runtimes/go/1.25.6",
 					},
 				},
 				"rust": {
@@ -113,14 +113,14 @@ func TestGenerate(t *testing.T) {
 			runtimes: map[string]*resource.RuntimeState{
 				"go": {
 					Version:     "1.25.6",
-					BinDir:      home + "/.local/share/toto/runtimes/go/1.25.6/bin",
+					BinDir:      home + "/.local/share/tomei/runtimes/go/1.25.6/bin",
 					ToolBinPath: home + "/go/bin",
 					Env:         map[string]string{},
 				},
 			},
 			shell: ShellPosix,
 			wantContains: []string{
-				`$HOME/.local/share/toto/runtimes/go/1.25.6/bin`,
+				`$HOME/.local/share/tomei/runtimes/go/1.25.6/bin`,
 				`$HOME/go/bin`,
 			},
 		},
@@ -172,8 +172,8 @@ func TestToShellPath(t *testing.T) {
 		},
 		{
 			name:  "nested path under home",
-			input: home + "/.local/share/toto/runtimes/go/1.25.6",
-			want:  "$HOME/.local/share/toto/runtimes/go/1.25.6",
+			input: home + "/.local/share/tomei/runtimes/go/1.25.6",
+			want:  "$HOME/.local/share/tomei/runtimes/go/1.25.6",
 		},
 	}
 

@@ -23,14 +23,14 @@ runs:
       if: inputs.mode == 'native'
       shell: bash
       run: |
-        chmod +x dist/toto dist/e2e.test dist/ginkgo
+        chmod +x dist/tomei dist/e2e.test dist/ginkgo
 
     - name: E2E Test (Native Mode)
       if: inputs.mode == 'native'
       shell: bash
       run: |
-        TOTO_E2E_NATIVE=true \
-        TOTO_E2E_BINARY="$(pwd)/dist/toto" \
+        TOMEI_E2E_NATIVE=true \
+        TOMEI_E2E_BINARY="$(pwd)/dist/tomei" \
           ./dist/ginkgo -v ./dist/e2e.test
 
     # Container mode: setup-go is safe (tests run inside Docker, no PATH conflict)

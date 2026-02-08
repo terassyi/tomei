@@ -70,7 +70,7 @@ func NewChecksumError(resource, url, expected, got string) *ChecksumError {
 			Category: CategoryInstall,
 			Code:     CodeChecksumMismatch,
 			Message:  "checksum verification failed",
-			Hint:     "The file may have been corrupted during download.\nRun 'toto apply --force' to skip verification, or\nupdate the checksum in your manifest.",
+			Hint:     "The file may have been corrupted during download.\nRun 'tomei apply --force' to skip verification, or\nupdate the checksum in your manifest.",
 		},
 		Resource: resource,
 		URL:      url,

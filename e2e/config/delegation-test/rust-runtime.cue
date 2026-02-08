@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Rust runtime for E2E testing (delegation pattern via rustup)
 // Uses rustup to bootstrap the Rust toolchain, then cargo install for tools.
@@ -6,7 +6,7 @@ package toto
 _rustVersion: "stable"
 
 rustRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: name: "rust"
 	spec: {

@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/terassyi/toto/internal/graph"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/executor"
-	"github.com/terassyi/toto/internal/installer/reconciler"
-	"github.com/terassyi/toto/internal/installer/tool"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/graph"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/executor"
+	"github.com/terassyi/tomei/internal/installer/reconciler"
+	"github.com/terassyi/tomei/internal/installer/tool"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 	"golang.org/x/sync/semaphore"
 )
 

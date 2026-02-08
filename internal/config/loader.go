@@ -11,11 +11,11 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 const (
-	// ConfigFileName is the name of the toto config file that should be ignored when loading manifests.
+	// ConfigFileName is the name of the tomei config file that should be ignored when loading manifests.
 	ConfigFileName = "config.cue"
 )
 
@@ -106,7 +106,7 @@ func detectPackageName(source string) string {
 }
 
 // Load loads CUE configuration from the given directory.
-// config.cue files are excluded from loading as they contain toto configuration, not manifests.
+// config.cue files are excluded from loading as they contain tomei configuration, not manifests.
 func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	// Check if directory exists
 	info, err := os.Stat(dir)

@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	repository "github.com/terassyi/toto/internal/installer/repository"
-	"github.com/terassyi/toto/internal/resource"
+	repository "github.com/terassyi/tomei/internal/installer/repository"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // TestInstallerRepository_Delegation tests the real repository Installer

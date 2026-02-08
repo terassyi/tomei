@@ -10,9 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/runtime"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/runtime"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // TestRuntimeDelegation_Install tests the real runtime Installer with the delegation pattern

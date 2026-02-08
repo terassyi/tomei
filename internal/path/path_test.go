@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/tomei/internal/config"
 )
 
 func TestNew(t *testing.T) {
@@ -24,7 +24,7 @@ func TestNew(t *testing.T) {
 		{
 			name:            "default paths",
 			opts:            nil,
-			wantUserDataDir: filepath.Join(home, ".local/share/toto"),
+			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
 			wantSystemDir:   DefaultSystemDataDir,
 		},
@@ -38,14 +38,14 @@ func TestNew(t *testing.T) {
 		{
 			name:            "with custom user bin dir",
 			opts:            []Option{WithUserBinDir("/custom/bin")},
-			wantUserDataDir: filepath.Join(home, ".local/share/toto"),
+			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  "/custom/bin",
 			wantSystemDir:   DefaultSystemDataDir,
 		},
 		{
 			name:            "with custom system data dir",
 			opts:            []Option{WithSystemDataDir("/custom/system")},
-			wantUserDataDir: filepath.Join(home, ".local/share/toto"),
+			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
 			wantSystemDir:   "/custom/system",
 		},
@@ -91,10 +91,10 @@ func TestPaths_ToolInstallDir(t *testing.T) {
 		},
 		{
 			name:        "fd",
-			userDataDir: "/home/user/.local/share/toto",
+			userDataDir: "/home/user/.local/share/tomei",
 			toolName:    "fd",
 			version:     "9.0.0",
-			want:        "/home/user/.local/share/toto/tools/fd/9.0.0",
+			want:        "/home/user/.local/share/tomei/tools/fd/9.0.0",
 		},
 	}
 
@@ -223,8 +223,8 @@ func TestExpand(t *testing.T) {
 	}{
 		{
 			name: "expand tilde with path",
-			path: "~/.local/share/toto",
-			want: filepath.Join(home, ".local/share/toto"),
+			path: "~/.local/share/tomei",
+			want: filepath.Join(home, ".local/share/tomei"),
 		},
 		{
 			name: "expand tilde only",
@@ -277,7 +277,7 @@ func TestNewFromConfig(t *testing.T) {
 				DataDir: config.DefaultDataDir,
 				BinDir:  config.DefaultBinDir,
 			},
-			wantUserDataDir: filepath.Join(home, ".local/share/toto"),
+			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
 		},
 		{
@@ -292,11 +292,11 @@ func TestNewFromConfig(t *testing.T) {
 		{
 			name: "absolute paths",
 			cfg: &config.Config{
-				DataDir: "/opt/toto/data",
-				BinDir:  "/opt/toto/bin",
+				DataDir: "/opt/tomei/data",
+				BinDir:  "/opt/tomei/bin",
 			},
-			wantUserDataDir: "/opt/toto/data",
-			wantUserBinDir:  "/opt/toto/bin",
+			wantUserDataDir: "/opt/tomei/data",
+			wantUserBinDir:  "/opt/tomei/bin",
 		},
 	}
 

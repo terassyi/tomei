@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/spf13/cobra"
-	statecmd "github.com/terassyi/toto/cmd/toto/state"
+	statecmd "github.com/terassyi/tomei/cmd/tomei/state"
 )
 
 var (
@@ -10,15 +10,15 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "toto",
+	Use:   "tomei",
 	Short: "Declarative development environment setup tool",
-	Long: `Toto is a declarative development environment setup tool.
+	Long: `Tomei is a declarative development environment setup tool.
 It manages tools, language runtimes, and system packages
 using a Kubernetes-like Spec/State reconciliation pattern.
 
 Commands are separated by privilege level:
-  toto apply              Apply user-level resources (Runtime, Tool)
-  sudo toto apply --system  Apply system-level resources (SystemPackage)`,
+  tomei apply              Apply user-level resources (Runtime, Tool)
+  sudo tomei apply --system  Apply system-level resources (SystemPackage)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }

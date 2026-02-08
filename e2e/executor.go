@@ -40,8 +40,8 @@ func (e *containerExecutor) Exec(name string, args ...string) (string, error) {
 	cmdArgs := append([]string{"exec", e.containerName, name}, args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	output, err := cmd.CombinedOutput()
-	// Only output toto commands to GinkgoWriter
-	if name == "toto" {
+	// Only output tomei commands to GinkgoWriter
+	if name == "tomei" {
 		fmt.Fprintf(GinkgoWriter, "$ %s %v\n%s", name, args, output)
 		if err != nil {
 			fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
@@ -97,22 +97,22 @@ func (e *containerExecutor) Getenv(key string) string {
 // nativeExecutor executes commands directly on the host machine.
 // It uses a temporary HOME directory to isolate test state.
 type nativeExecutor struct {
-	testHome   string            // Temporary HOME directory for test isolation
-	totoBinary string            // Path to toto binary
-	envVars    map[string]string // Additional environment variables
+	testHome    string            // Temporary HOME directory for test isolation
+	tomeiBinary string            // Path to tomei binary
+	envVars     map[string]string // Additional environment variables
 }
 
 func (e *nativeExecutor) Exec(name string, args ...string) (string, error) {
 	var cmd *exec.Cmd
-	if name == "toto" {
-		cmd = exec.Command(e.totoBinary, args...)
+	if name == "tomei" {
+		cmd = exec.Command(e.tomeiBinary, args...)
 	} else {
 		cmd = exec.Command(name, args...)
 	}
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
-	// Only output toto commands to GinkgoWriter
-	if name == "toto" {
+	// Only output tomei commands to GinkgoWriter
+	if name == "tomei" {
 		fmt.Fprintf(GinkgoWriter, "$ %s %v\n%s", name, args, output)
 		if err != nil {
 			fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
@@ -142,7 +142,7 @@ func (e *nativeExecutor) buildEnv() []string {
 
 func (e *nativeExecutor) Setup() error {
 	var err error
-	e.testHome, err = os.MkdirTemp("", "toto-e2e-")
+	e.testHome, err = os.MkdirTemp("", "tomei-e2e-")
 	if err != nil {
 		return fmt.Errorf("failed to create temp home: %w", err)
 	}
@@ -150,9 +150,9 @@ func (e *nativeExecutor) Setup() error {
 	// Create necessary directory structure
 	dirs := []string{
 		filepath.Join(e.testHome, ".local", "bin"),
-		filepath.Join(e.testHome, ".local", "share", "toto", "tools"),
-		filepath.Join(e.testHome, ".local", "share", "toto", "runtimes"),
-		filepath.Join(e.testHome, ".config", "toto"),
+		filepath.Join(e.testHome, ".local", "share", "tomei", "tools"),
+		filepath.Join(e.testHome, ".local", "share", "tomei", "runtimes"),
+		filepath.Join(e.testHome, ".config", "tomei"),
 		filepath.Join(e.testHome, "go", "bin"),
 	}
 	for _, dir := range dirs {
@@ -261,31 +261,31 @@ func (e *nativeExecutor) Getenv(key string) string {
 // newExecutor creates an executor based on environment variables.
 //
 // Environment variables:
-//   - TOTO_E2E_CONTAINER: Container name for container mode
-//   - TOTO_E2E_NATIVE: Set to "true" for native mode
-//   - TOTO_E2E_BINARY: Path to toto binary (native mode, optional)
+//   - TOMEI_E2E_CONTAINER: Container name for container mode
+//   - TOMEI_E2E_NATIVE: Set to "true" for native mode
+//   - TOMEI_E2E_BINARY: Path to tomei binary (native mode, optional)
 func newExecutor() (executor, error) {
-	// 1. Container mode (TOTO_E2E_CONTAINER is set)
-	if container := os.Getenv("TOTO_E2E_CONTAINER"); container != "" {
+	// 1. Container mode (TOMEI_E2E_CONTAINER is set)
+	if container := os.Getenv("TOMEI_E2E_CONTAINER"); container != "" {
 		return &containerExecutor{containerName: container}, nil
 	}
 
-	// 2. Native mode (TOTO_E2E_NATIVE is set)
-	if os.Getenv("TOTO_E2E_NATIVE") == "true" {
-		binary := os.Getenv("TOTO_E2E_BINARY")
+	// 2. Native mode (TOMEI_E2E_NATIVE is set)
+	if os.Getenv("TOMEI_E2E_NATIVE") == "true" {
+		binary := os.Getenv("TOMEI_E2E_BINARY")
 		if binary == "" {
-			// Look for toto in PATH
+			// Look for tomei in PATH
 			var err error
-			binary, err = exec.LookPath("toto")
+			binary, err = exec.LookPath("tomei")
 			if err != nil {
-				return nil, fmt.Errorf("toto binary not found in PATH, set TOTO_E2E_BINARY")
+				return nil, fmt.Errorf("tomei binary not found in PATH, set TOMEI_E2E_BINARY")
 			}
 		}
-		return &nativeExecutor{totoBinary: binary}, nil
+		return &nativeExecutor{tomeiBinary: binary}, nil
 	}
 
 	// 3. Neither mode is set
-	return nil, fmt.Errorf("set TOTO_E2E_CONTAINER for container mode, or TOTO_E2E_NATIVE=true for native mode")
+	return nil, fmt.Errorf("set TOMEI_E2E_CONTAINER for container mode, or TOMEI_E2E_NATIVE=true for native mode")
 }
 
 // testExec is the global executor instance used by all tests

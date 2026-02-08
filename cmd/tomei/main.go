@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/terassyi/toto/internal/errors"
+	"github.com/terassyi/tomei/internal/errors"
 )
 
 var (

@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create test user
 RUN useradd -m -s /bin/bash testuser
 
-# Copy toto binary
-COPY toto /usr/local/bin/toto
-RUN chmod +x /usr/local/bin/toto
+# Copy tomei binary
+COPY tomei /usr/local/bin/tomei
+RUN chmod +x /usr/local/bin/tomei
 
 # Setup user environment
 USER testuser
@@ -23,7 +23,7 @@ WORKDIR /home/testuser
 ENV PATH="/home/testuser/.local/bin:/home/testuser/go/bin:${PATH}"
 
 # Copy resource definitions to ~/manifests directory
-# runtime.cue.upgrade is not a .cue file so toto won't load it until renamed
+# runtime.cue.upgrade is not a .cue file so tomei won't load it until renamed
 COPY --chown=testuser:testuser config/manifests/runtime.cue /home/testuser/manifests/runtime.cue
 COPY --chown=testuser:testuser config/manifests/runtime.cue.upgrade /home/testuser/manifests/runtime.cue.upgrade
 COPY --chown=testuser:testuser config/manifests/tools.cue /home/testuser/manifests/tools.cue
@@ -44,4 +44,4 @@ COPY --chown=testuser:testuser config/dependency-test/ /home/testuser/dependency
 COPY --chown=testuser:testuser config/installer-repo-test/ /home/testuser/installer-repo-test/
 
 # Default command
-CMD ["toto", "version"]
+CMD ["tomei", "version"]

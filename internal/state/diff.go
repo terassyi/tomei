@@ -3,7 +3,7 @@ package state
 import (
 	"sort"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // DiffType represents the type of change between two states.

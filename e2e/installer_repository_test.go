@@ -16,15 +16,15 @@ func installerRepositoryTests() {
 		// Clean up any pre-existing helm repos and binaries (before init resets state)
 		_, _ = testExec.ExecBash("helm repo remove bitnami 2>/dev/null || true")
 		_, _ = testExec.ExecBash("rm -f ~/.local/bin/helm")
-		_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools/helm")
-		// Initialize toto with --force: creates clean state.json with registry info (required for aqua resolver)
-		_, _ = testExec.Exec("toto", "init", "--yes", "--force")
+		_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/helm")
+		// Initialize tomei with --force: creates clean state.json with registry info (required for aqua resolver)
+		_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
 	})
 
 	Context("Delegation: Helm Repository", func() {
 		It("validates helm-repo manifest", func() {
-			By("Running toto validate on helm-repo.cue")
-			output, err := testExec.Exec("toto", "validate", "~/installer-repo-test/helm-repo.cue")
+			By("Running tomei validate on helm-repo.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/installer-repo-test/helm-repo.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 
@@ -36,8 +36,8 @@ func installerRepositoryTests() {
 		})
 
 		It("installs helm and adds bitnami repository", func() {
-			By("Running toto apply on helm-repo.cue")
-			_, err := testExec.Exec("toto", "apply", "~/installer-repo-test/helm-repo.cue")
+			By("Running tomei apply on helm-repo.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-repo.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -57,7 +57,7 @@ func installerRepositoryTests() {
 
 		It("records InstallerRepository in state.json", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bitnami is in installerRepositories section")
@@ -71,8 +71,8 @@ func installerRepositoryTests() {
 		})
 
 		It("is idempotent on subsequent apply", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/installer-repo-test/helm-repo.cue")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-repo.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bitnami still registered")
@@ -87,16 +87,16 @@ func installerRepositoryTests() {
 			// Clean up helm repos and binaries
 			_, _ = testExec.ExecBash("helm repo remove bitnami 2>/dev/null || true")
 			_, _ = testExec.ExecBash("rm -f ~/.local/bin/helm")
-			_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools/helm")
+			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/helm")
 			// Clean up chart download destination
-			_, _ = testExec.ExecBash("rm -rf /tmp/toto-e2e-charts")
-			// Re-initialize toto with --force: creates clean state.json with registry info
-			_, _ = testExec.Exec("toto", "init", "--yes", "--force")
+			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-e2e-charts")
+			// Re-initialize tomei with --force: creates clean state.json with registry info
+			_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
 		})
 
 		It("validates repo-with-tool manifest", func() {
-			By("Running toto validate on repo-with-tool.cue")
-			output, err := testExec.Exec("toto", "validate", "~/installer-repo-test/repo-with-tool.cue")
+			By("Running tomei validate on repo-with-tool.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/installer-repo-test/repo-with-tool.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 
@@ -111,8 +111,8 @@ func installerRepositoryTests() {
 		})
 
 		It("installs InstallerRepository then pulls chart via dependent Tool", func() {
-			By("Running toto apply on repo-with-tool.cue")
-			_, err := testExec.Exec("toto", "apply", "~/installer-repo-test/repo-with-tool.cue")
+			By("Running tomei apply on repo-with-tool.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/repo-with-tool.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -124,14 +124,14 @@ func installerRepositoryTests() {
 		})
 
 		It("chart tgz was downloaded", func() {
-			By("Checking /tmp/toto-e2e-charts/common-*.tgz exists")
-			_, err := testExec.ExecBash("ls /tmp/toto-e2e-charts/common-*.tgz")
+			By("Checking /tmp/tomei-e2e-charts/common-*.tgz exists")
+			_, err := testExec.ExecBash("ls /tmp/tomei-e2e-charts/common-*.tgz")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("state.json records common-chart tool and bitnami repository", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking common-chart is in tools")
@@ -142,8 +142,8 @@ func installerRepositoryTests() {
 		})
 
 		It("is idempotent on subsequent apply", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/installer-repo-test/repo-with-tool.cue")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/repo-with-tool.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -151,7 +151,7 @@ func installerRepositoryTests() {
 	Context("Removal", func() {
 		It("removes InstallerRepository and Tool when manifest reduced", func() {
 			By("Applying helm-only manifest (no InstallerRepository, no common-chart)")
-			_, err := testExec.Exec("toto", "apply", "~/installer-repo-test/helm-only.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-only.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bitnami is NOT in helm repo list")
@@ -159,7 +159,7 @@ func installerRepositoryTests() {
 			Expect(output).NotTo(ContainSubstring("bitnami"))
 
 			By("Checking state.json does not contain bitnami")
-			output, err = testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err = testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(ContainSubstring(`"bitnami"`))
 

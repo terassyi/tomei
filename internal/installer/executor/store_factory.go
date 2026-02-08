@@ -3,7 +3,7 @@ package executor
 import (
 	"sync"
 
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // StateStoreFactory creates StateStore instances that share a single mutex.

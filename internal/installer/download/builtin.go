@@ -1,6 +1,6 @@
 package download
 
-import "github.com/terassyi/toto/internal/resource"
+import "github.com/terassyi/tomei/internal/resource"
 
 // BuiltinInstaller is the builtin "download" installer definition.
 var BuiltinInstaller = &resource.Installer{

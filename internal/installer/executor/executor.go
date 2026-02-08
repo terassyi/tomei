@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/terassyi/toto/internal/installer/reconciler"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/reconciler"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Installer defines the interface for installing resources.

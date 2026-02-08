@@ -1,5 +1,5 @@
-name: Build toto and E2E test binaries
-description: Build toto binary, e2e test binary, and ginkgo CLI for the current platform
+name: Build tomei and E2E test binaries
+description: Build tomei binary, e2e test binary, and ginkgo CLI for the current platform
 
 inputs:
   os:
@@ -22,9 +22,9 @@ runs:
       shell: bash
       run: go mod download
 
-    - name: Build toto binary
+    - name: Build tomei binary
       shell: bash
-      run: go build -o dist/toto ./cmd/toto
+      run: go build -o dist/tomei ./cmd/tomei
 
     - name: Build e2e test binary
       shell: bash

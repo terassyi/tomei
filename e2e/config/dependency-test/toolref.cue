@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // ToolRef dependency test: aqua -> jq -> jq-installer
 
@@ -29,7 +29,7 @@ _jqSource: {
 
 // Base installer (download pattern)
 aquaInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "aqua"
 	spec: {
@@ -39,7 +39,7 @@ aquaInstaller: {
 
 // jq tool installed via aqua
 jqTool: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "jq"
 	spec: {
@@ -51,7 +51,7 @@ jqTool: {
 
 // jq-based installer - depends on jq tool via toolRef
 jqInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "jq-installer"
 	spec: {

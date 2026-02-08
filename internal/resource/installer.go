@@ -7,8 +7,8 @@ import (
 
 // InstallerSpec defines a user-level installer that can install tools.
 // Installers come in two patterns:
-//   - Download: toto directly downloads and places binaries (e.g., aqua for GitHub releases)
-//   - Delegation: toto delegates to external package managers (e.g., brew, cargo binstall)
+//   - Download: tomei directly downloads and places binaries (e.g., aqua for GitHub releases)
+//   - Delegation: tomei delegates to external package managers (e.g., brew, cargo binstall)
 //
 // Note: For tools installed via a Runtime (e.g., go install, cargo install),
 // use Tool.RuntimeRef directly instead of creating an Installer.

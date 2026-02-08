@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build E2E binaries
-        uses: ./.github/actions/build-toto
+        uses: ./.github/actions/build-tomei
         with:
           os: ${{ matrix.os }}
           arch: ${{ matrix.arch }}

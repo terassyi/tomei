@@ -69,8 +69,8 @@ func TestPosixFormatter(t *testing.T) {
 	f := posixFormatter{}
 
 	t.Run("ExportVar", func(t *testing.T) {
-		got := f.ExportVar("GOROOT", "$HOME/.local/share/toto/runtimes/go/1.25.6")
-		assert.Equal(t, `export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.6"`, got)
+		got := f.ExportVar("GOROOT", "$HOME/.local/share/tomei/runtimes/go/1.25.6")
+		assert.Equal(t, `export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.6"`, got)
 	})
 
 	t.Run("ExportPath", func(t *testing.T) {
@@ -87,8 +87,8 @@ func TestFishFormatter(t *testing.T) {
 	f := fishFormatter{}
 
 	t.Run("ExportVar", func(t *testing.T) {
-		got := f.ExportVar("GOROOT", "$HOME/.local/share/toto/runtimes/go/1.25.6")
-		assert.Equal(t, `set -gx GOROOT "$HOME/.local/share/toto/runtimes/go/1.25.6"`, got)
+		got := f.ExportVar("GOROOT", "$HOME/.local/share/tomei/runtimes/go/1.25.6")
+		assert.Equal(t, `set -gx GOROOT "$HOME/.local/share/tomei/runtimes/go/1.25.6"`, got)
 	})
 
 	t.Run("ExportPath", func(t *testing.T) {

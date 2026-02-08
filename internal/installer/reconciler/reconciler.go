@@ -1,7 +1,7 @@
 package reconciler
 
 import (
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Action represents a planned operation on a resource.

@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Go runtime upgraded to 1.25.7
 // Uses _env for OS/arch portability
@@ -6,7 +6,7 @@ package toto
 _goVersionUpgrade: "1.25.7"
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -22,7 +22,7 @@ goRuntime: {
 		binDir:      "~/go/bin"
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/\(spec.version)"
+			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
 			GOBIN:  "~/go/bin"
 		}
 		commands: {

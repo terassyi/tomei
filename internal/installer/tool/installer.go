@@ -9,19 +9,19 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/terassyi/toto/internal/checksum"
-	"github.com/terassyi/toto/internal/installer"
-	"github.com/terassyi/toto/internal/installer/command"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/extract"
-	"github.com/terassyi/toto/internal/installer/place"
-	"github.com/terassyi/toto/internal/registry/aqua"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/installer"
+	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/extract"
+	"github.com/terassyi/tomei/internal/installer/place"
+	"github.com/terassyi/tomei/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // RuntimeInfo contains the information needed to install tools via runtime delegation.
 type RuntimeInfo struct {
-	InstallPath string            // Path where runtime is installed (e.g., ~/.local/share/toto/runtimes/go/1.25.5)
+	InstallPath string            // Path where runtime is installed (e.g., ~/.local/share/tomei/runtimes/go/1.25.5)
 	ToolBinPath string            // Path where tools should be installed (e.g., ~/go/bin)
 	Env         map[string]string // Environment variables (e.g., GOROOT, GOBIN)
 	Commands    *resource.CommandsSpec
@@ -190,7 +190,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Download
-	tmpDir, err := os.MkdirTemp("", "toto-download-*")
+	tmpDir, err := os.MkdirTemp("", "tomei-download-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
@@ -279,7 +279,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		return nil, fmt.Errorf("aqua-registry resolver not configured")
 	}
 	if i.registryRef == "" {
-		return nil, fmt.Errorf("aqua-registry ref not configured; run 'toto init' first")
+		return nil, fmt.Errorf("aqua-registry ref not configured; run 'tomei init' first")
 	}
 
 	// Determine version: use spec.Version or fetch latest

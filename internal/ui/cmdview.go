@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // cmdTask represents a single command execution task.

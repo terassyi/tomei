@@ -6,7 +6,7 @@ _jqVersionOld: "jq-1.7.1"
 
 // ripgrep - Install via aqua registry (older version for upgrade test)
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "rg"
 	spec: {
@@ -18,7 +18,7 @@ ripgrep: {
 
 // fd - Install via aqua registry (older version for upgrade test)
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -30,7 +30,7 @@ fd: {
 
 // jq - Install via aqua registry (older version for upgrade test)
 jq: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "jq"
 	spec: {

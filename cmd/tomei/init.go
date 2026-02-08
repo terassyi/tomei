@@ -12,24 +12,24 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/github"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/registry/aqua"
-	"github.com/terassyi/toto/internal/state"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/github"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/state"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize toto directories and state",
-	Long: `Initialize toto directories and state file.
+	Short: "Initialize tomei directories and state",
+	Long: `Initialize tomei directories and state file.
 
 Creates the following directories:
-  - Config directory (~/.config/toto/)
-  - Data directory (~/.local/share/toto/)
-  - Tools directory (~/.local/share/toto/tools/)
-  - Runtimes directory (~/.local/share/toto/runtimes/)
+  - Config directory (~/.config/tomei/)
+  - Data directory (~/.local/share/tomei/)
+  - Tools directory (~/.local/share/tomei/tools/)
+  - Runtimes directory (~/.local/share/tomei/runtimes/)
   - Bin directory (~/.local/bin/)
 
 Also initializes an empty state.json file.
@@ -58,10 +58,10 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	style := ui.NewStyle()
 
-	cmd.Println("Initializing toto...")
+	cmd.Println("Initializing tomei...")
 	cmd.Println()
 
-	// Get config directory (fixed to ~/.config/toto)
+	// Get config directory (fixed to ~/.config/tomei)
 	cfgDir, err := path.Expand(config.DefaultConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to expand config directory: %w", err)
@@ -188,7 +188,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 	style.Header.Fprintln(cmd.OutOrStdout(), "Next steps:")
 	cmd.Printf("  %s Add %s to your PATH\n", style.Step.Sprint("1."), style.Path.Sprint(paths.UserBinDir()))
 	cmd.Printf("  %s Create manifest files (tools.cue, runtime.cue)\n", style.Step.Sprint("2."))
-	cmd.Printf("  %s Run '%s' to install\n", style.Step.Sprint("3."), style.Path.Sprint("toto apply ."))
+	cmd.Printf("  %s Run '%s' to install\n", style.Step.Sprint("3."), style.Path.Sprint("tomei apply ."))
 
 	return nil
 }

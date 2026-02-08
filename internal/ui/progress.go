@@ -8,8 +8,8 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/mattn/go-isatty"
-	"github.com/terassyi/toto/internal/installer/engine"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/resource"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 )

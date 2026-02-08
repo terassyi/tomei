@@ -6,7 +6,7 @@ import "github.com/spf13/cobra"
 var Cmd = &cobra.Command{
 	Use:   "state",
 	Short: "Manage state",
-	Long:  "Commands for inspecting and managing toto state.",
+	Long:  "Commands for inspecting and managing tomei state.",
 }
 
 func init() {

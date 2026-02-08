@@ -1,8 +1,8 @@
-package toto
+package tomei
 
 // ToolSet: multiple Go tools installed via runtime delegation
 goTools: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "ToolSet"
 	metadata: name: "go-tools"
 	spec: {

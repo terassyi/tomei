@@ -163,7 +163,7 @@ func TestFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestFetcher_cachePath(t *testing.T) {
-	f := newFetcher("/home/user/.cache/toto/registry/aqua", nil)
+	f := newFetcher("/home/user/.cache/tomei/registry/aqua", nil)
 
 	tests := []struct {
 		ref      string
@@ -173,12 +173,12 @@ func TestFetcher_cachePath(t *testing.T) {
 		{
 			ref:      "v4.465.0",
 			pkg:      "cli/cli",
-			expected: "/home/user/.cache/toto/registry/aqua/v4.465.0/pkgs/cli/cli/registry.yaml",
+			expected: "/home/user/.cache/tomei/registry/aqua/v4.465.0/pkgs/cli/cli/registry.yaml",
 		},
 		{
 			ref:      "v4.500.0",
 			pkg:      "BurntSushi/ripgrep",
-			expected: "/home/user/.cache/toto/registry/aqua/v4.500.0/pkgs/BurntSushi/ripgrep/registry.yaml",
+			expected: "/home/user/.cache/tomei/registry/aqua/v4.500.0/pkgs/BurntSushi/ripgrep/registry.yaml",
 		},
 	}
 
@@ -214,7 +214,7 @@ func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 }
 
 func TestFetcher_cachePath_PathTraversal(t *testing.T) {
-	f := newFetcher("/home/user/.cache/toto/registry/aqua", nil)
+	f := newFetcher("/home/user/.cache/tomei/registry/aqua", nil)
 
 	tests := []struct {
 		name    string

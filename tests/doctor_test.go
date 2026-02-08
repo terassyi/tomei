@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/doctor"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/doctor"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 func TestDoctor_Integration_UnmanagedTools(t *testing.T) {
@@ -95,7 +95,7 @@ func TestDoctor_Integration_UnmanagedTools(t *testing.T) {
 	assert.Contains(t, names, "staticcheck")
 
 	// managed-tool should not be in unmanaged
-	assert.Empty(t, result.UnmanagedTools["toto"])
+	assert.Empty(t, result.UnmanagedTools["tomei"])
 }
 
 func TestDoctor_Integration_Conflicts(t *testing.T) {

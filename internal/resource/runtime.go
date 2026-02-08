@@ -12,8 +12,8 @@ import (
 //   - Environment variables needed for the runtime to function
 //
 // Runtimes support two installation types:
-//   - Download: toto downloads and extracts a tarball (e.g., Go)
-//   - Delegation: toto executes an external installer script (e.g., Rust via rustup)
+//   - Download: tomei downloads and extracts a tarball (e.g., Go)
+//   - Delegation: tomei executes an external installer script (e.g., Rust via rustup)
 type RuntimeSpec struct {
 	// Type specifies how this runtime is installed.
 	// Must be either "download" or "delegation".
@@ -34,7 +34,7 @@ type RuntimeSpec struct {
 
 	// Binaries lists the executable names provided by this runtime.
 	// These binaries will be symlinked to BinDir for PATH access.
-	// Optional: if empty, toto auto-detects executables in the bin directory.
+	// Optional: if empty, tomei auto-detects executables in the bin directory.
 	// Example for Go: ["go", "gofmt"]
 	// Example for Rust: ["rustc", "cargo", "rustup"]
 	Binaries []string `json:"binaries,omitempty"`
@@ -152,7 +152,7 @@ type RuntimeState struct {
 	Digest string `json:"digest,omitempty"`
 
 	// InstallPath is the absolute path where the runtime is installed.
-	// For download pattern: ~/.local/share/toto/runtimes/go/1.25.1
+	// For download pattern: ~/.local/share/tomei/runtimes/go/1.25.1
 	// For delegation pattern: may be empty (managed by external tool)
 	InstallPath string `json:"installPath,omitempty"`
 

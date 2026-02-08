@@ -1,7 +1,7 @@
 package reconciler
 
 import (
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // specVersionChanged determines whether the spec's version specification

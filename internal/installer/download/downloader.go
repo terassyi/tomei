@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/terassyi/toto/internal/checksum"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // ProgressCallback is called during download to report progress.

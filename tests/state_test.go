@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // TestState_Persistence tests that state is correctly persisted and loaded.
@@ -39,11 +39,11 @@ func TestState_Persistence(t *testing.T) {
 			"go": {
 				Type:        resource.InstallTypeDownload,
 				Version:     "1.25.5",
-				InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+				InstallPath: "/home/user/.local/share/tomei/runtimes/go/1.25.5",
 				Binaries:    []string{"go", "gofmt"},
 				ToolBinPath: "/home/user/go/bin",
 				Env: map[string]string{
-					"GOROOT": "/home/user/.local/share/toto/runtimes/go/1.25.5",
+					"GOROOT": "/home/user/.local/share/tomei/runtimes/go/1.25.5",
 				},
 				UpdatedAt: time.Now().Truncate(time.Second),
 			},
@@ -192,7 +192,7 @@ func TestState_Taint(t *testing.T) {
 			"go": {
 				Type:        resource.InstallTypeDownload,
 				Version:     "1.25.5",
-				InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+				InstallPath: "/home/user/.local/share/tomei/runtimes/go/1.25.5",
 				Binaries:    []string{"go", "gofmt"},
 			},
 		},

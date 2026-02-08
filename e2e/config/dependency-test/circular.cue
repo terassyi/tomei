@@ -1,8 +1,8 @@
-package toto
+package tomei
 
 // Circular dependency test: Installer(a) -> Tool(b) -> Installer(a)
 installerA: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "installer-a"
 	spec: {
@@ -15,7 +15,7 @@ installerA: {
 }
 
 toolB: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "tool-b"
 	spec: {
