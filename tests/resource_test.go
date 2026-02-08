@@ -5,6 +5,7 @@ package tests
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +38,7 @@ apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-	installerRef: "download"
+	type: "download"
 	version: "1.25.1"
 	source: {
 		url: "https://go.dev/dl/go1.25.1.linux-amd64.tar.gz"
@@ -218,7 +219,7 @@ apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "go"
 spec: {
-	pattern: "delegation"
+	type: "delegation"
 	runtimeRef: "go"
 	commands: {
 		install: "go install {{.Package}}@{{.Version}}"
@@ -231,7 +232,7 @@ apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-	installerRef: "download"
+	type: "download"
 	version: "1.25.1"
 	source: {
 		url: "https://go.dev/dl/go1.25.1.linux-amd64.tar.gz"
@@ -284,4 +285,357 @@ spec: {
 	require.Len(t, installerDeps, 1)
 	assert.Equal(t, resource.KindRuntime, installerDeps[0].Kind)
 	assert.Equal(t, "go", installerDeps[0].Name)
+}
+
+// TestSchemaValidation_RejectsInvalid tests that the CUE schema validation
+// correctly rejects invalid manifests during loading (LoadFile mode).
+func TestSchemaValidation_RejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   string
+		errSubstr string
+	}{
+		{
+			name: "wrong apiVersion",
+			content: `
+apiVersion: "wrong/v1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+	installerRef: "download"
+	version: "1.0.0"
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "non-HTTPS URL in source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+	installerRef: "download"
+	version: "1.0.0"
+	source: {
+		url: "http://example.com/tool.tar.gz"
+	}
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "Runtime download type without source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "go"
+spec: {
+	type: "download"
+	version: "1.25.5"
+	toolBinPath: "~/go/bin"
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "Installer delegation type without commands",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "test"
+spec: {
+	type: "delegation"
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "invalid checksum format",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+	installerRef: "download"
+	version: "1.0.0"
+	source: {
+		url: "https://example.com/tool.tar.gz"
+		checksum: value: "sha256:abc123"
+	}
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "invalid archive type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+	installerRef: "download"
+	version: "1.0.0"
+	source: {
+		url: "https://example.com/tool.gz"
+		archiveType: "gzip"
+	}
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+		{
+			name: "invalid metadata name",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "UPPERCASE"
+spec: {
+	installerRef: "download"
+	version: "1.0.0"
+}
+`,
+			errSubstr: "schema validation failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "test.cue")
+			require.NoError(t, os.WriteFile(cueFile, []byte(tt.content), 0644))
+
+			loader := config.NewLoader(nil)
+			_, err := loader.LoadFile(cueFile)
+			require.Error(t, err)
+			assert.True(t, strings.Contains(err.Error(), tt.errSubstr),
+				"expected error containing %q, got: %s", tt.errSubstr, err.Error())
+		})
+	}
+}
+
+// TestSchemaValidation_DirectoryMode_RejectsInvalid tests that the CUE schema
+// validation works correctly in directory mode (Load with package declaration).
+func TestSchemaValidation_DirectoryMode_RejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name: "non-HTTPS URL",
+			content: `package tomei
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "test"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "http://example.com/tool.tar.gz"
+		}
+	}
+}
+`,
+		},
+		{
+			name: "Runtime download without source",
+			content: `package tomei
+
+goRuntime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.25.5"
+		toolBinPath: "~/go/bin"
+	}
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "test.cue"), []byte(tt.content), 0644))
+
+			loader := config.NewLoader(nil)
+			_, err := loader.Load(dir)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "schema validation failed")
+		})
+	}
+}
+
+// TestSchemaValidation_AcceptsValid tests that valid manifests for all resource
+// types pass schema validation through the full loading pipeline.
+func TestSchemaValidation_AcceptsValid(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantKind resource.Kind
+		wantName string
+	}{
+		{
+			name: "Tool with download source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "ripgrep"
+spec: {
+	installerRef: "download"
+	version: "14.0.0"
+	source: {
+		url: "https://example.com/rg.tar.gz"
+		checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		archiveType: "tar.gz"
+	}
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "ripgrep",
+		},
+		{
+			name: "Tool with runtime delegation",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "gopls"
+spec: {
+	runtimeRef: "go"
+	package: "golang.org/x/tools/gopls"
+	version: "v0.16.0"
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "gopls",
+		},
+		{
+			name: "Runtime download type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "go"
+spec: {
+	type: "download"
+	version: "1.25.5"
+	source: {
+		url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
+	}
+	binaries: ["go", "gofmt"]
+	toolBinPath: "~/go/bin"
+	env: {
+		GOROOT: "/opt/go/1.25.5"
+	}
+	commands: {
+		install: "go install {{.Package}}@{{.Version}}"
+	}
+}
+`,
+			wantKind: resource.KindRuntime,
+			wantName: "go",
+		},
+		{
+			name: "Runtime delegation type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "rust"
+spec: {
+	type: "delegation"
+	version: "stable"
+	toolBinPath: "~/.cargo/bin"
+	bootstrap: {
+		install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+		check: "rustup --version"
+	}
+	binaries: ["rustc", "cargo"]
+}
+`,
+			wantKind: resource.KindRuntime,
+			wantName: "rust",
+		},
+		{
+			name: "Installer download type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "aqua"
+spec: {
+	type: "download"
+}
+`,
+			wantKind: resource.KindInstaller,
+			wantName: "aqua",
+		},
+		{
+			name: "Installer delegation type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "brew"
+spec: {
+	type: "delegation"
+	commands: {
+		install: "brew install {{.Package}}"
+		remove: "brew uninstall {{.Package}}"
+	}
+}
+`,
+			wantKind: resource.KindInstaller,
+			wantName: "brew",
+		},
+		{
+			name: "InstallerRepository with git source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "InstallerRepository"
+metadata: name: "aqua-registry"
+spec: {
+	installerRef: "aqua"
+	source: {
+		type: "git"
+		url: "https://github.com/aquaproj/aqua-registry.git"
+	}
+}
+`,
+			wantKind: resource.KindInstallerRepository,
+			wantName: "aqua-registry",
+		},
+		{
+			name: "ToolSet with installerRef",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "ToolSet"
+metadata: name: "cli-tools"
+spec: {
+	installerRef: "aqua"
+	tools: {
+		fd:  { version: "9.0.0" }
+		bat: { version: "0.24.0" }
+	}
+}
+`,
+			wantKind: resource.KindToolSet,
+			wantName: "cli-tools",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "test.cue")
+			require.NoError(t, os.WriteFile(cueFile, []byte(tt.content), 0644))
+
+			loader := config.NewLoader(nil)
+			resources, err := loader.LoadFile(cueFile)
+			require.NoError(t, err)
+			require.Len(t, resources, 1)
+			assert.Equal(t, tt.wantKind, resources[0].Kind())
+			assert.Equal(t, tt.wantName, resources[0].Name())
+		})
+	}
 }

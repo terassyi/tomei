@@ -36,6 +36,13 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		color.NoColor = true
 	}
 
+	// Sync schema.cue if it exists on disk
+	if cfg, err := config.LoadConfig(config.DefaultConfigDir); err == nil {
+		if err := config.SyncSchema(cfg, config.DefaultConfigDir); err != nil {
+			return fmt.Errorf("failed to sync schema: %w", err)
+		}
+	}
+
 	style := ui.NewStyle()
 
 	cmd.Println("Validating configuration...")

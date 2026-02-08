@@ -13,6 +13,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/config/schema"
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/registry/aqua"
@@ -40,15 +41,17 @@ Use --yes to skip the prompt and create config.cue automatically.`,
 }
 
 var (
-	forceInit   bool
-	yesInit     bool
-	initNoColor bool
+	forceInit     bool
+	yesInit       bool
+	initNoColor   bool
+	initSchemaDir string
 )
 
 func init() {
 	initCmd.Flags().BoolVar(&forceInit, "force", false, "Force reinitialization (resets state.json)")
 	initCmd.Flags().BoolVarP(&yesInit, "yes", "y", false, "Skip confirmation prompt and create config.cue with defaults")
 	initCmd.Flags().BoolVar(&initNoColor, "no-color", false, "Disable color output")
+	initCmd.Flags().StringVar(&initSchemaDir, "schema-dir", "", "Directory to place schema.cue for CUE LSP support (default: config directory)")
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
@@ -90,14 +93,35 @@ func runInit(cmd *cobra.Command, _ []string) error {
 			}
 		}
 
-		// Write default config.cue
-		cueContent, err := config.DefaultConfig().ToCue()
+		// Build config and write config.cue once
+		initCfg := config.DefaultConfig()
+		if initSchemaDir != "" {
+			initCfg.SchemaDir = initSchemaDir
+		}
+		cueContent, err := initCfg.ToCue()
 		if err != nil {
 			return fmt.Errorf("failed to generate config.cue: %w", err)
 		}
 		if err := os.WriteFile(configFile, cueContent, 0644); err != nil {
 			return fmt.Errorf("failed to write config.cue: %w", err)
 		}
+	}
+
+	// Place schema.cue for CUE LSP support
+	schemaTargetDir := cfgDir
+	if initSchemaDir != "" {
+		expanded, err := path.Expand(initSchemaDir)
+		if err != nil {
+			return fmt.Errorf("failed to expand schema directory: %w", err)
+		}
+		schemaTargetDir = expanded
+	}
+	if err := path.EnsureDir(schemaTargetDir); err != nil {
+		return fmt.Errorf("failed to create schema directory: %w", err)
+	}
+	schemaFile := filepath.Join(schemaTargetDir, config.SchemaFileName)
+	if err := os.WriteFile(schemaFile, []byte(schema.SchemaCUE), 0644); err != nil {
+		return fmt.Errorf("failed to write schema.cue: %w", err)
 	}
 
 	// Load config
@@ -141,6 +165,11 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		}
 		cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(dir.path))
 	}
+	cmd.Println()
+
+	// Schema section
+	style.Header.Fprintln(cmd.OutOrStdout(), "Schema:")
+	cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(schemaFile))
 	cmd.Println()
 
 	// Initialize state.json

@@ -22,7 +22,7 @@ spec: {
     source: {
         url: "https://github.com/BurntSushi/ripgrep/releases/download/14.0.0/ripgrep-14.0.0-x86_64-unknown-linux-musl.tar.gz"
         checksum: {
-            value: "sha256:abc123"
+            value: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
         }
         archiveType: "tar.gz"
     }
@@ -118,7 +118,7 @@ apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-    installerRef: "download"
+    type: "download"
     version: "1.25.1"
     source: {
         url: "https://go.dev/dl/go1.25.1.linux-amd64.tar.gz"
@@ -334,13 +334,14 @@ apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
-    installerRef: "download"
+    type: "download"
     version: "1.23.6"
     source: {
         url: "https://go.dev/dl/go1.23.6.\(_env.os)-\(_env.arch).tar.gz"
         archiveType: "tar.gz"
     }
     binaries: ["go", "gofmt"]
+    toolBinPath: "~/go/bin"
 }
 `
 	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
@@ -663,5 +664,177 @@ spec: {
 	}
 	if repo.InstallerRepositorySpec.Source.URL != "https://github.com/my-org/aqua-registry" {
 		t.Errorf("unexpected URL: %s", repo.InstallerRepositorySpec.Source.URL)
+	}
+}
+
+func TestLoader_SchemaValidation_RejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name: "wrong apiVersion",
+			content: `
+apiVersion: "wrong/v1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+}
+`,
+		},
+		{
+			name: "invalid kind",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "InvalidKind"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+}
+`,
+		},
+		{
+			name: "non-HTTPS URL in source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "http://example.com/tool.tar.gz"
+    }
+}
+`,
+		},
+		{
+			name: "Runtime download without source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Runtime"
+metadata: name: "go"
+spec: {
+    type: "download"
+    version: "1.25.6"
+    toolBinPath: "~/go/bin"
+}
+`,
+		},
+		{
+			name: "Installer delegation without commands",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Installer"
+metadata: name: "test"
+spec: {
+    type: "delegation"
+}
+`,
+		},
+		{
+			name: "invalid archive type",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "https://example.com/tool.gz"
+        archiveType: "gzip"
+    }
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "test.cue")
+			if err := os.WriteFile(cueFile, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+			_, err := loader.LoadFile(cueFile)
+			if err == nil {
+				t.Error("expected schema validation error, got nil")
+			}
+		})
+	}
+}
+
+func TestLoader_SchemaValidation_DirectoryMode(t *testing.T) {
+	dir := t.TempDir()
+
+	// Valid manifest in directory mode with package declaration
+	content := `
+package tomei
+
+gh: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load directory: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Name() != "gh" {
+		t.Errorf("expected name gh, got %s", resources[0].Name())
+	}
+}
+
+func TestLoader_SchemaValidation_DirectoryRejectsInvalid(t *testing.T) {
+	dir := t.TempDir()
+
+	// Invalid: non-HTTPS URL
+	content := `
+package tomei
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+        source: {
+            url: "http://example.com/tool.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	_, err := loader.Load(dir)
+	if err == nil {
+		t.Error("expected schema validation error, got nil")
 	}
 }

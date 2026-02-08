@@ -16,6 +16,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Suite | Tests | Description |
 |-------|-------|-------------|
 | tomei on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
+| Schema Validation | 9 | Schema placement, invalid manifest rejection (validate/apply), error message quality |
 | State Backup and Diff | 13 | Backup creation, diff (text/JSON), idempotent diff, upgrade diff, removal diff, backup overwrite |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
@@ -96,7 +97,17 @@ flowchart TD
         S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
     end
 
-    S1 --> S1b --> S2 --> S3 --> S4 --> S5
+    subgraph S1a["1a. Schema Validation"]
+        direction TB
+        S1a_1["1a.1 Init Schema Placement<br/>default / --schema-dir custom"]
+        S1a_2["1a.2 Validate Rejects Invalid<br/>apiVersion / URL / name / source / checksum"]
+        S1a_3["1a.3 Apply Rejects Invalid<br/>HTTP URL → fail, state unchanged"]
+        S1a_4["1a.4 Error Message Quality<br/>resource name in error"]
+
+        S1a_1 --> S1a_2 --> S1a_3 --> S1a_4
+    end
+
+    S1 --> S1a --> S1b --> S2 --> S3 --> S4 --> S5
 ```
 
 ### Dependency Graph Patterns
@@ -345,6 +356,69 @@ graph LR
    - `~/go/bin/go` symlink no longer exists
    - `~/go/bin/gopls` binary no longer exists
    - state.json does not contain `"go"` or `"gopls"`
+
+---
+
+## 1a. Schema Validation
+
+### 1a.1 Init Schema Placement
+
+#### Default Location
+- `tomei init --yes` places `schema.cue` at `~/.config/tomei/schema.cue`
+- File contains key CUE definitions:
+  - `package tomei`
+  - `#APIVersion`
+  - `#Resource`
+  - `#HTTPSURL`
+  - `#Metadata`
+
+#### Custom Directory (`--schema-dir`)
+1. Create custom directory: `~/custom-schema-dir/`
+2. Run `tomei init --yes --force --schema-dir ~/custom-schema-dir`
+3. Verify `~/custom-schema-dir/schema.cue` exists and contains `#APIVersion`, `#Resource`
+4. Cleanup custom directory
+5. Re-initialize with default settings for subsequent tests
+
+### 1a.2 Validate Rejects Invalid Manifests
+
+All tests write an inline CUE manifest to `~/schema-test/` and run `tomei validate` against it.
+
+#### Wrong apiVersion
+- `apiVersion: "wrong/v1"` (not `"tomei.terassyi.net/v1beta1"`)
+- `tomei validate` fails with "validation failed"
+
+#### Non-HTTPS URL
+- `source.url: "http://example.com/tool.tar.gz"` (HTTP, not HTTPS)
+- `tomei validate` fails with "validation failed"
+
+#### Invalid Metadata Name
+- `metadata.name: "INVALID_NAME"` (uppercase, underscore — violates regex)
+- `tomei validate` fails with "validation failed"
+
+#### Runtime Download Without Source
+- `kind: "Runtime"`, `spec.type: "download"`, no `source` field
+- CUE conditional constraint: `if type == "download" { source: #DownloadSource }`
+- `tomei validate` fails with "validation failed"
+
+#### Invalid Checksum Format
+- `checksum.value: "md5:abc123"` (not `sha256:<64 hex chars>`)
+- `tomei validate` fails with "validation failed"
+
+### 1a.3 Apply Rejects Invalid Manifests
+
+#### State Preservation on Failure
+1. Record `state.json` content before apply
+2. Write manifest with non-HTTPS URL
+3. Run `tomei apply` — fails with "failed to load resources"
+4. Verify `state.json` content is unchanged (byte-for-byte equal)
+
+### 1a.4 Error Message Quality
+
+#### Resource Name in Error
+1. Create directory `~/schema-test/bad-dir/` with `package tomei` manifest
+2. Define named field `badTool:` containing a Tool with non-HTTPS URL
+3. Run `tomei validate ~/schema-test/bad-dir/`
+4. Error contains "schema validation failed" and "badTool"
 
 ---
 

@@ -231,7 +231,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -329,7 +329,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -613,7 +613,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -762,7 +762,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -854,7 +854,7 @@ brewInstaller: {
 	kind: "Installer"
 	metadata: name: "brew"
 	spec: {
-		pattern: "delegation"
+		type: "delegation"
 		commands: {
 			install: "brew install {{.Package}}"
 			remove: "brew uninstall {{.Package}}"
@@ -930,7 +930,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -1045,7 +1045,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -1100,11 +1100,11 @@ runtime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		pattern: "download"
+		type: "download"
 		version: "1.0.0"
 		source: {
 			url: "https://example.com/go.tar.gz"
-			checksum: value: "sha256:abc123"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 		}
 		binaries: ["go"]
 		toolBinPath: "~/go/bin"
@@ -1574,7 +1574,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: { url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz" }
 		binaries: ["go", "gofmt"]
@@ -2053,7 +2053,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"
@@ -2158,7 +2158,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: { url: "https://go.dev/dl/go1.25.5.tar.gz" }
 		binaries: ["go", "gofmt"]
@@ -2171,7 +2171,7 @@ rustRuntime: {
 	kind: "Runtime"
 	metadata: name: "rust"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.80.0"
 		source: { url: "https://example.com/rust.tar.gz" }
 		binaries: ["rustc", "cargo"]
@@ -2184,7 +2184,7 @@ nodeRuntime: {
 	kind: "Runtime"
 	metadata: name: "node"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "22.0.0"
 		source: { url: "https://example.com/node.tar.gz" }
 		binaries: ["node", "npm"]
@@ -2269,7 +2269,7 @@ goRuntime: {
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
-		installerRef: "download"
+		type: "download"
 		version: "1.25.5"
 		source: {
 			url: "https://go.dev/dl/go1.25.5.linux-amd64.tar.gz"

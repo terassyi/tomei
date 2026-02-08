@@ -120,7 +120,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load state to determine actions
-	resourceInfo := buildResourceInfo(resources, resourceMap)
+	resourceInfo, err := buildResourceInfo(resources, resourceMap)
+	if err != nil {
+		return err
+	}
 
 	// Get edges for tree/export
 	edges := resolver.GetEdges()
@@ -140,13 +143,17 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resource.Resource) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resource.Resource) (map[graph.NodeID]graph.ResourceInfo, error) {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
-	// Try to load state for action determination
+	// Load config and sync schema
 	var userState *state.UserState
 	cfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err == nil {
+		if err := config.SyncSchema(cfg, config.DefaultConfigDir); err != nil {
+			return nil, fmt.Errorf("failed to sync schema: %w", err)
+		}
+
 		pathConfig, err := path.NewFromConfig(cfg)
 		if err == nil {
 			store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
@@ -207,7 +214,7 @@ func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resourc
 		info[nodeID] = resInfo
 	}
 
-	return info
+	return info, nil
 }
 
 func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resource, resolver graph.Resolver, layers []graph.Layer, resourceInfo map[graph.NodeID]graph.ResourceInfo) error {
@@ -230,7 +237,7 @@ func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resou
 
 // syncRegistryForPlan creates a store and syncs the aqua registry.
 func syncRegistryForPlan(ctx context.Context) error {
-	// Load config from fixed path (~/.config/toto/config.cue)
+	// Load config from fixed path (~/.config/tomei/config.cue)
 	cfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
