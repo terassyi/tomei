@@ -1,8 +1,8 @@
-package toto
+package tomei
 
 // Invalid installer test: cannot specify both runtimeRef and toolRef
 invalidInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "invalid"
 	spec: {

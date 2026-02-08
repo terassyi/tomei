@@ -1,8 +1,8 @@
-package toto
+package tomei
 
 // 3-node circular dependency test: A -> B -> C -> A
 toolA: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "tool-a"
 	spec: {
@@ -12,7 +12,7 @@ toolA: {
 }
 
 installerB: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "installer-b"
 	spec: {
@@ -23,7 +23,7 @@ installerB: {
 }
 
 toolC: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "tool-c"
 	spec: {
@@ -33,7 +33,7 @@ toolC: {
 }
 
 installerC: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "installer-c"
 	spec: {

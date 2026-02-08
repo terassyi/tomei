@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
-// Doctor checks the health of the toto-managed environment.
+// Doctor checks the health of the tomei-managed environment.
 type Doctor struct {
 	paths     *path.Paths
 	state     *state.UserState
@@ -18,7 +18,7 @@ type Doctor struct {
 
 // Result contains the findings from a doctor check.
 type Result struct {
-	// UnmanagedTools maps category (runtime name or "toto") to unmanaged tools found.
+	// UnmanagedTools maps category (runtime name or "tomei") to unmanaged tools found.
 	UnmanagedTools map[string][]UnmanagedTool
 	// Conflicts contains tools found in multiple locations.
 	Conflicts []Conflict
@@ -26,7 +26,7 @@ type Result struct {
 	StateIssues []StateIssue
 }
 
-// UnmanagedTool represents a tool not managed by toto.
+// UnmanagedTool represents a tool not managed by tomei.
 type UnmanagedTool struct {
 	Name string
 	Path string
@@ -101,7 +101,7 @@ func New(paths *path.Paths, st *state.UserState) (*Doctor, error) {
 		}
 	}
 
-	// Always scan the toto bin directory
+	// Always scan the tomei bin directory
 	scanPaths[resource.ProjectName] = paths.UserBinDir()
 
 	return &Doctor{

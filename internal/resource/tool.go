@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/terassyi/toto/internal/installer/extract"
+	"github.com/terassyi/tomei/internal/installer/extract"
 )
 
 // DownloadSource holds download configuration for tools and runtimes
@@ -455,7 +455,7 @@ type ToolState struct {
 	Digest string `json:"digest,omitempty"`
 
 	// InstallPath is the absolute path to the installed binary.
-	// For download pattern: ~/.local/share/toto/tools/{name}/{version}/{binary}
+	// For download pattern: ~/.local/share/tomei/tools/{name}/{version}/{binary}
 	// For delegation pattern: depends on the installer (e.g., ~/go/bin/{name})
 	InstallPath string `json:"installPath"`
 

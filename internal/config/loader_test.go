@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestLoader_LoadFile_Tool(t *testing.T) {
@@ -13,7 +13,7 @@ func TestLoader_LoadFile_Tool(t *testing.T) {
 	cueFile := filepath.Join(dir, "tool.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -67,7 +67,7 @@ func TestLoader_LoadFile_ToolSet(t *testing.T) {
 	cueFile := filepath.Join(dir, "toolset.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "cli-tools"
 spec: {
@@ -114,7 +114,7 @@ func TestLoader_LoadFile_Runtime(t *testing.T) {
 	cueFile := filepath.Join(dir, "runtime.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
@@ -127,7 +127,7 @@ spec: {
     binaries: ["go", "gofmt"]
     toolBinPath: "~/go/bin"
     env: {
-        GOROOT: "~/.local/share/toto/runtimes/go/1.25.1"
+        GOROOT: "~/.local/share/tomei/runtimes/go/1.25.1"
     }
 }
 `
@@ -163,7 +163,7 @@ func TestLoader_LoadFile_SystemPackageSet(t *testing.T) {
 	cueFile := filepath.Join(dir, "syspkg.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemPackageSet"
 metadata: name: "cli-tools"
 spec: {
@@ -200,7 +200,7 @@ func TestLoader_LoadFile_WithLabels(t *testing.T) {
 	cueFile := filepath.Join(dir, "tool.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: {
     name: "ripgrep"
@@ -239,9 +239,9 @@ func TestLoader_Load_Directory(t *testing.T) {
 
 	// Write a CUE file with package declaration
 	content := `
-package toto
+package tomei
 
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -282,7 +282,7 @@ func TestLoader_InjectEnv_StringInterpolation(t *testing.T) {
 
 	// Use _env in string interpolation
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "gh"
 spec: {
@@ -330,7 +330,7 @@ func TestLoader_InjectEnv_RuntimeURL(t *testing.T) {
 
 	// Use _env for runtime URL
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
@@ -366,7 +366,7 @@ func TestLoader_InjectEnv_Headless(t *testing.T) {
 
 	// Use _env.headless for conditional field
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "test-tool"
 spec: {
@@ -414,10 +414,10 @@ func TestLoader_InjectEnv_DirectoryLoad(t *testing.T) {
 
 	// Write a CUE file with package declaration using _env
 	content := `
-package toto
+package tomei
 
 tool: {
-    apiVersion: "toto.terassyi.net/v1beta1"
+    apiVersion: "tomei.terassyi.net/v1beta1"
     kind: "Tool"
     metadata: name: "gh"
     spec: {
@@ -461,7 +461,7 @@ func TestLoader_InjectEnv_PlatformMapping(t *testing.T) {
 			name: "platform.os.apple darwin",
 			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
 			cueTemplate: `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "gh"
 spec: {
@@ -478,7 +478,7 @@ spec: {
 			name: "platform.os.apple linux",
 			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
 			cueTemplate: `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "gh"
 spec: {
@@ -495,7 +495,7 @@ spec: {
 			name: "platform.arch.gnu amd64",
 			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
 			cueTemplate: `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -512,7 +512,7 @@ spec: {
 			name: "platform.arch.gnu arm64",
 			env:  &Env{OS: "linux", Arch: "arm64", Headless: false},
 			cueTemplate: `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -529,7 +529,7 @@ spec: {
 			name: "platform.os.go and platform.arch.go",
 			env:  &Env{OS: "darwin", Arch: "amd64", Headless: false},
 			cueTemplate: `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "test"
 spec: {
@@ -572,7 +572,7 @@ func TestLoader_LoadFile_InstallerRepository_Delegation(t *testing.T) {
 	cueFile := filepath.Join(dir, "repo.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "InstallerRepository"
 metadata: name: "bitnami"
 spec: {
@@ -629,7 +629,7 @@ func TestLoader_LoadFile_InstallerRepository_Git(t *testing.T) {
 	cueFile := filepath.Join(dir, "repo.cue")
 
 	content := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "InstallerRepository"
 metadata: name: "custom-registry"
 spec: {

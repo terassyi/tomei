@@ -4,7 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/terassyi/toto/internal/path"
+	"github.com/terassyi/tomei/internal/path"
 )
 
 // checkStateIntegrity verifies that the state matches the filesystem.

@@ -1,8 +1,8 @@
 package builtin
 
 import (
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // installers holds all builtin installer definitions.

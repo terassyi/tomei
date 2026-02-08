@@ -15,12 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/engine"
-	"github.com/terassyi/toto/internal/installer/tool"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/installer/tool"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // mockToolInstaller is a thread-safe mock implementation of engine.ToolInstaller.
@@ -181,10 +181,10 @@ func TestEngine_PlanAll_Tool(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// Create CUE config with a tool
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -224,10 +224,10 @@ func TestEngine_PlanAll_Runtime(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -269,10 +269,10 @@ func TestEngine_Apply_Tool(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 jq: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "jq"
 	spec: {
@@ -322,10 +322,10 @@ func TestEngine_Apply_Runtime(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -380,10 +380,10 @@ func TestEngine_Apply_Idempotent(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -428,10 +428,10 @@ func TestEngine_Apply_Upgrade(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// Initial config
-	cueContent := `package toto
+	cueContent := `package tomei
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -462,10 +462,10 @@ bat: {
 	require.NoError(t, err)
 
 	// Update config with new version
-	cueContentV2 := `package toto
+	cueContentV2 := `package tomei
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -511,10 +511,10 @@ func TestEngine_Apply_Remove(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// Initial config with tool
-	cueContent := `package toto
+	cueContent := `package tomei
 
 fzf: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fzf"
 	spec: {
@@ -546,10 +546,10 @@ fzf: {
 	assert.Contains(t, mockTool.installed, "fzf")
 
 	// Remove tool from config (keep another tool so config isn't empty)
-	cueContentWithOther := `package toto
+	cueContentWithOther := `package tomei
 
 other: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "other"
 	spec: {
@@ -606,10 +606,10 @@ func TestEngine_Apply_RuntimeAndTool(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -624,7 +624,7 @@ goRuntime: {
 }
 
 jq: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "jq"
 	spec: {
@@ -680,10 +680,10 @@ func TestEngine_Apply_MultipleTools(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -694,7 +694,7 @@ ripgrep: {
 }
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -705,7 +705,7 @@ fd: {
 }
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -755,10 +755,10 @@ func TestEngine_Apply_RuntimeDelegation(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// CUE config with Runtime that has commands, and Tool with runtimeRef
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -781,7 +781,7 @@ goRuntime: {
 }
 
 gopls: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "gopls"
 	spec: {
@@ -847,10 +847,10 @@ func TestEngine_Apply_InstallerDelegation(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// CUE config with delegation pattern Installer and Tool
-	cueContent := `package toto
+	cueContent := `package tomei
 
 brewInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "brew"
 	spec: {
@@ -863,7 +863,7 @@ brewInstaller: {
 }
 
 jq: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "jq"
 	spec: {
@@ -923,10 +923,10 @@ func TestEngine_Apply_MixedPatterns(t *testing.T) {
 	// - Runtime with commands (for go install)
 	// - Download pattern tool (ripgrep)
 	// - Runtime delegation tool (gopls)
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -945,7 +945,7 @@ goRuntime: {
 
 // Download pattern tool
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -959,7 +959,7 @@ ripgrep: {
 
 // Runtime delegation tool
 gopls: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "gopls"
 	spec: {
@@ -971,7 +971,7 @@ gopls: {
 
 // Another runtime delegation tool
 staticcheck: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "staticcheck"
 	spec: {
@@ -1038,10 +1038,10 @@ func TestEngine_Apply_RuntimeWithBinDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// CUE config with explicit BinDir
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -1093,10 +1093,10 @@ func TestEngine_Apply_RemoveRuntimeBlockedByDependentTool(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// Initial config: runtime + delegated tool
-	cueContent := `package toto
+	cueContent := `package tomei
 
 runtime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -1112,7 +1112,7 @@ runtime: {
 }
 
 gopls: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "gopls"
 	spec: {
@@ -1141,10 +1141,10 @@ gopls: {
 	require.NoError(t, err)
 
 	// Remove runtime only, keep gopls
-	cueContentV2 := `package toto
+	cueContentV2 := `package tomei
 
 gopls: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "gopls"
 	spec: {
@@ -1169,10 +1169,10 @@ gopls: {
 	assert.Contains(t, err.Error(), "cannot remove runtime")
 
 	// Now remove both — should succeed
-	cueContentV3 := `package toto
+	cueContentV3 := `package tomei
 
 placeholder: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fzf"
 	spec: {
@@ -1207,17 +1207,17 @@ func TestEngine_Apply_ToolSet_InstallerRef(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 aquaInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "aqua"
 	spec: type: "download"
 }
 
 cliTools: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "ToolSet"
 	metadata: name: "cli-tools"
 	spec: {
@@ -1259,10 +1259,10 @@ func TestEngine_Apply_ToolSet_RuntimeRef(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -1274,7 +1274,7 @@ goRuntime: {
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
 		env: {
-			GOROOT: "~/.local/share/toto/runtimes/go/1.23.5"
+			GOROOT: "~/.local/share/tomei/runtimes/go/1.23.5"
 			GOBIN: "~/go/bin"
 		}
 		commands: {
@@ -1285,7 +1285,7 @@ goRuntime: {
 }
 
 goInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "go"
 	spec: {
@@ -1298,7 +1298,7 @@ goInstaller: {
 }
 
 goTools: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "ToolSet"
 	metadata: name: "go-tools"
 	spec: {
@@ -1343,17 +1343,17 @@ func TestEngine_Apply_ToolSet_MixedWithStandalone(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 aquaInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Installer"
 	metadata: name: "aqua"
 	spec: type: "download"
 }
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "rg"
 	spec: {
@@ -1364,7 +1364,7 @@ ripgrep: {
 }
 
 cliTools: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "ToolSet"
 	metadata: name: "cli-tools"
 	spec: {
@@ -1408,10 +1408,10 @@ func TestEngine_Apply_ToolProgressCallback(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -1490,10 +1490,10 @@ func TestEngine_Apply_ToolOutputCallback(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 jq: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "jq"
 	spec: {
@@ -1567,10 +1567,10 @@ func TestEngine_Apply_RuntimeProgressCallback(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -1659,10 +1659,10 @@ func TestEngine_Apply_ParallelCallbackIsolation(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -1673,7 +1673,7 @@ ripgrep: {
 }
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -1684,7 +1684,7 @@ fd: {
 }
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -1770,10 +1770,10 @@ func TestEngine_Apply_ParallelExecution(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -1784,7 +1784,7 @@ ripgrep: {
 }
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -1795,7 +1795,7 @@ fd: {
 }
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -1877,10 +1877,10 @@ func TestEngine_Apply_ParallelCancelOnError(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -1891,7 +1891,7 @@ ripgrep: {
 }
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -1902,7 +1902,7 @@ fd: {
 }
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "bat"
 	spec: {
@@ -1964,7 +1964,7 @@ func TestEngine_Apply_ParallelismLimit(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 `
 	toolDefs := []struct{ cueKey, name string }{
 		{"toolA", "tool-a"}, {"toolB", "tool-b"}, {"toolC", "tool-c"},
@@ -1973,7 +1973,7 @@ func TestEngine_Apply_ParallelismLimit(t *testing.T) {
 	for _, td := range toolDefs {
 		cueContent += fmt.Sprintf(`
 %s: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "%s"
 	spec: {
@@ -2046,10 +2046,10 @@ func TestEngine_Apply_RuntimeBeforeTool(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// Runtime and Tool with no dependency between them
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -2064,7 +2064,7 @@ goRuntime: {
 }
 
 ripgrep: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Tool"
 	metadata: name: "ripgrep"
 	spec: {
@@ -2151,10 +2151,10 @@ func TestEngine_Apply_ParallelRuntimeExecution(t *testing.T) {
 	stateDir := filepath.Join(tmpDir, "state")
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {
@@ -2167,7 +2167,7 @@ goRuntime: {
 }
 
 rustRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "rust"
 	spec: {
@@ -2180,7 +2180,7 @@ rustRuntime: {
 }
 
 nodeRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "node"
 	spec: {
@@ -2262,10 +2262,10 @@ func TestEngine_Apply_RuntimeWithoutBinDir(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 
 	// CUE config without explicit BinDir (should default to ToolBinPath)
-	cueContent := `package toto
+	cueContent := `package tomei
 
 goRuntime: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind: "Runtime"
 	metadata: name: "go"
 	spec: {

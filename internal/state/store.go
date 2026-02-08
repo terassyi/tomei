@@ -22,20 +22,20 @@ type Store[T State] struct {
 }
 
 // NewUserStore creates a Store for user state.
-// Default path: ~/.local/share/toto/state.json
+// Default path: ~/.local/share/tomei/state.json
 func NewUserStore() (*Store[UserState], error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
-	dir := filepath.Join(home, ".local", "share", "toto")
+	dir := filepath.Join(home, ".local", "share", "tomei")
 	return NewStore[UserState](dir)
 }
 
 // NewSystemStore creates a Store for system state.
-// Default path: /var/lib/toto/state.json
+// Default path: /var/lib/tomei/state.json
 func NewSystemStore() (*Store[SystemState], error) {
-	return NewStore[SystemState]("/var/lib/toto")
+	return NewStore[SystemState]("/var/lib/tomei")
 }
 
 // NewStore creates a new Store with the given directory.
@@ -71,9 +71,9 @@ func (s *Store[T]) Lock() error {
 		// Read PID from lock file for error message
 		pid, _ := s.readLockPID()
 		if pid > 0 {
-			return fmt.Errorf("another toto process (PID %d) is running", pid)
+			return fmt.Errorf("another tomei process (PID %d) is running", pid)
 		}
-		return errors.New("another toto process is running")
+		return errors.New("another tomei process is running")
 	}
 
 	// Write our PID to the lock file

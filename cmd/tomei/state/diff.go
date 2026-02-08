@@ -8,10 +8,10 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/path"
-	internalstate "github.com/terassyi/toto/internal/state"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/path"
+	internalstate "github.com/terassyi/tomei/internal/state"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 var (
@@ -24,7 +24,7 @@ var diffCmd = &cobra.Command{
 	Short: "Show changes since last apply",
 	Long: `Compare current state with the backup created before the last apply.
 
-A backup is automatically created at the start of each "toto apply".
+A backup is automatically created at the start of each "tomei apply".
 This command shows what changed during the most recent apply.`,
 	RunE: runDiff,
 }
@@ -69,7 +69,7 @@ func runDiff(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load backup state: %w", err)
 	}
 	if backup == nil {
-		cmd.Println("No backup found. Run 'toto apply' first.")
+		cmd.Println("No backup found. Run 'tomei apply' first.")
 		return nil
 	}
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestBackupPath(t *testing.T) {
@@ -19,8 +19,8 @@ func TestBackupPath(t *testing.T) {
 	}{
 		{
 			name:      "standard path",
-			statePath: "/home/user/.local/share/toto/state.json",
-			want:      "/home/user/.local/share/toto/state.json.bak",
+			statePath: "/home/user/.local/share/tomei/state.json",
+			want:      "/home/user/.local/share/tomei/state.json.bak",
 		},
 		{
 			name:      "relative path",

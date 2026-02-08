@@ -1,4 +1,4 @@
-# Toto Design Document v2
+# Tomei Design Document v2
 
 **Version:** 2.0  
 **Date:** 2025-01-28
@@ -7,11 +7,11 @@
 
 ## 1. Overview
 
-Toto is a declarative development environment setup tool. It adopts Kubernetes' Spec/State reconciliation pattern to manage local tools, runtimes, and system packages.
+Tomei is a declarative development environment setup tool. It adopts Kubernetes' Spec/State reconciliation pattern to manage local tools, runtimes, and system packages.
 
 ### Design Philosophy
 
-- **Declarative Management**: Define desired state, toto realizes it
+- **Declarative Management**: Define desired state, tomei realizes it
 - **No Sandboxing**: Directly set up the real environment without virtualization or containers
 - **Type Safety with CUE**: Schema validation and flexible configuration
 - **Simplicity**: Leverage existing tools (apt, go install) without nix-level complexity
@@ -20,7 +20,7 @@ Toto is a declarative development environment setup tool. It adopts Kubernetes' 
 
 ## 2. Installer Patterns
 
-Toto supports two installer patterns.
+Tomei supports two installer patterns.
 
 ### 2.1 Delegation Pattern
 
@@ -35,11 +35,11 @@ Examples:
 └── npm install -g <package>
 ```
 
-Toto instructs "what to install", while external tools perform the actual processing.
+Tomei instructs "what to install", while external tools perform the actual processing.
 
 ### 2.2 Download Pattern
 
-Toto directly downloads and places files.
+Tomei directly downloads and places files.
 
 ```
 Examples:
@@ -48,7 +48,7 @@ Examples:
 └── Aqua registry format tools
 ```
 
-Toto handles checksum verification, extraction, and symlink creation.
+Tomei handles checksum verification, extraction, and symlink creation.
 
 ---
 
@@ -57,13 +57,13 @@ Toto handles checksum verification, extraction, and symlink creation.
 ### 3.1 Classification by Privilege
 
 ```
-User Privilege (toto apply):
+User Privilege (tomei apply):
 ├── Installer  - User-level installer definition (aqua, go, cargo, npm, brew)
 ├── Runtime    - Language runtimes (Go, Rust, Node)
 ├── Tool       - Individual tools
 └── ToolSet    - Set of multiple tools
 
-System Privilege (sudo toto apply --system):
+System Privilege (sudo tomei apply --system):
 ├── SystemInstaller         - Package manager definition (apt)
 ├── SystemPackageRepository - Third-party repositories
 └── SystemPackageSet        - Package sets
@@ -73,10 +73,10 @@ System Privilege (sudo toto apply --system):
 
 #### SystemInstaller
 
-Package manager definition. apt is provided as a builtin CUE manifest by toto.
+Package manager definition. apt is provided as a builtin CUE manifest by tomei.
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemInstaller"
 metadata: name: "apt"
 spec: {
@@ -96,7 +96,7 @@ spec: {
 Third-party repository definition.
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemPackageRepository"
 metadata: name: "docker"
 spec: {
@@ -119,7 +119,7 @@ spec: {
 Set of packages.
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemPackageSet"
 metadata: name: "docker"
 spec: {
@@ -131,11 +131,11 @@ spec: {
 
 #### Installer
 
-User-level installer definition. toto provides builtin installers: aqua, go, cargo, npm, brew.
+User-level installer definition. tomei provides builtin installers: aqua, go, cargo, npm, brew.
 
 ```cue
 // Download Pattern (aqua) - Downloads directly from GitHub Releases, etc.
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
@@ -143,7 +143,7 @@ spec: {
 }
 
 // Delegation Pattern (binstall) - depends on Tool
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "binstall"
 spec: {
@@ -157,7 +157,7 @@ spec: {
 }
 
 // Delegation Pattern (brew) - No Runtime dependency, self-install via bootstrap
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "brew"
 spec: {
@@ -182,7 +182,7 @@ Language runtimes. Supports two installation patterns:
 **Download Pattern** - Downloads and extracts tarball directly (e.g., Go):
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
@@ -209,7 +209,7 @@ spec: {
 **Delegation Pattern** - Executes installer script (e.g., Rust via rustup):
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "rust"
 spec: {
@@ -242,16 +242,16 @@ spec: {
 
 | Aspect | Download Pattern | Delegation Pattern |
 |--------|------------------|-------------------|
-| Installation | toto downloads & extracts tarball | External script installs (e.g., rustup) |
+| Installation | tomei downloads & extracts tarball | External script installs (e.g., rustup) |
 | Source | `source.url` with checksum | `commands.install` script |
 | Binary location | Extracted to `dataDir/runtimes/` | Managed by external tool (e.g., `~/.cargo/bin`) |
-| Symlinks | Created by toto from extract dir | Not needed (binaries already in toolBinPath) |
-| Version management | toto manages versions | External tool manages (e.g., rustup) |
+| Symlinks | Created by tomei from extract dir | Not needed (binaries already in toolBinPath) |
+| Version management | tomei manages versions | External tool manages (e.g., rustup) |
 
 #### Tool (Individual)
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -271,7 +271,7 @@ Set of multiple tools. Eliminates redundancy.
 
 ```cue
 // Download Pattern
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "cli-tools"
 spec: {
@@ -284,7 +284,7 @@ spec: {
 }
 
 // Install via Runtime (no Installer needed)
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "go-tools"
 spec: {
@@ -304,44 +304,44 @@ spec: {
 
 ```bash
 # User privilege (Runtime, Tool)
-toto apply
+tomei apply
 
 # System privilege (SystemPackage*)
-sudo toto apply --system
+sudo tomei apply --system
 ```
 
-Execution order: `sudo toto apply --system` → `toto apply`
+Execution order: `sudo tomei apply --system` → `tomei apply`
 
 ### 4.2 Command List
 
 ```bash
-toto init        # Initialize (config.cue, directories, state.json)
-toto validate    # CUE syntax + circular reference check
-toto plan        # validate + show execution plan
-toto apply       # plan + execute
-toto env         # Output environment variables (for eval)
-toto doctor      # detect unmanaged tools, conflicts
+tomei init        # Initialize (config.cue, directories, state.json)
+tomei validate    # CUE syntax + circular reference check
+tomei plan        # validate + show execution plan
+tomei apply       # plan + execute
+tomei env         # Output environment variables (for eval)
+tomei doctor      # detect unmanaged tools, conflicts
 
-toto version     # show version
+tomei version     # show version
 ```
 
-### 4.3 toto init
+### 4.3 tomei init
 
 Initialize the environment.
 
 ```bash
 # Interactive initialization (prompts to create config.cue if missing)
-toto init
+tomei init
 
 # Skip prompts and initialize
-toto init --yes
+tomei init --yes
 
 # Force reinitialization (resets state.json)
-toto init --force
+tomei init --force
 ```
 
 Execution steps:
-1. Create `~/.config/toto/` directory
+1. Create `~/.config/tomei/` directory
 2. If `config.cue` doesn't exist, create with default values (interactive or `--yes`)
 3. Load path settings from `config.cue`
 4. Create data directory (`dataDir`)
@@ -349,13 +349,13 @@ Execution steps:
 6. Create bin directory (`binDir`)
 7. Initialize `dataDir/state.json`
 
-### 4.4 toto env
+### 4.4 tomei env
 
 Outputs environment variables defined in Runtime's `env` field.
 
 ```bash
-$ toto env
-export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.1"
+$ tomei env
+export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.1"
 export GOBIN="$HOME/go/bin"
 export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"
@@ -367,12 +367,12 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 Add the following to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
-eval "$(toto env)"
+eval "$(tomei env)"
 ```
 
-**Note:** During `toto apply`, delegation commands are automatically executed with the `env` field's environment variables set by toto. Therefore, `toto env` is for the user's shell environment.
+**Note:** During `tomei apply`, delegation commands are automatically executed with the `env` field's environment variables set by tomei. Therefore, `tomei env` is for the user's shell environment.
 
-**PATH propagation for toolRef:** When an Installer has a `toolRef` (e.g., Installer/binstall depends on Tool/cargo-binstall), toto automatically prepends the referenced Tool's bin directory to PATH when executing delegation commands. This applies to both Tool installation commands (e.g., `cargo binstall ripgrep`) and InstallerRepository commands (e.g., `helm repo add`). This ensures that delegation commands can find their dependent tool binaries even when the user's shell PATH does not include the tool's bin directory.
+**PATH propagation for toolRef:** When an Installer has a `toolRef` (e.g., Installer/binstall depends on Tool/cargo-binstall), tomei automatically prepends the referenced Tool's bin directory to PATH when executing delegation commands. This applies to both Tool installation commands (e.g., `cargo binstall ripgrep`) and InstallerRepository commands (e.g., `helm repo add`). This ensures that delegation commands can find their dependent tool binaries even when the user's shell PATH does not include the tool's bin directory.
 
 ---
 
@@ -382,12 +382,12 @@ eval "$(toto env)"
 
 ```
 User State:
-~/.local/share/toto/
+~/.local/share/tomei/
 ├── state.lock  (write PID, for flock)
 └── state.json  (state data)
 
 System State:
-/var/lib/toto/
+/var/lib/tomei/
 ├── state.lock
 └── state.json
 ```
@@ -397,7 +397,7 @@ System State:
 - Uses **flock (advisory lock)**
 - Acquires flock on state.lock
 - Writes own PID on successful acquisition
-- Prevents concurrent execution between toto processes
+- Prevents concurrent execution between tomei processes
 - Cannot prevent manual editing (vim, etc.) - nature of advisory locks
 
 ### 5.3 Write Flow
@@ -424,12 +424,12 @@ System State:
       "type": "download",
       "version": "1.25.1",
       "digest": "sha256:abc123...",
-      "installPath": "~/.local/share/toto/runtimes/go/1.25.1",
+      "installPath": "~/.local/share/tomei/runtimes/go/1.25.1",
       "binaries": ["go", "gofmt"],
-      "binDir": "~/.local/share/toto/runtimes/go/1.25.1/bin",
+      "binDir": "~/.local/share/tomei/runtimes/go/1.25.1/bin",
       "toolBinPath": "~/go/bin",
       "env": {
-        "GOROOT": "~/.local/share/toto/runtimes/go/1.25.1",
+        "GOROOT": "~/.local/share/tomei/runtimes/go/1.25.1",
         "GOBIN": "~/go/bin"
       },
       "updatedAt": "2025-01-28T12:00:00Z"
@@ -460,7 +460,7 @@ System State:
       "installerRef": "aqua",
       "version": "14.0.0",
       "digest": "sha256:def456...",
-      "installPath": "~/.local/share/toto/tools/ripgrep/14.0.0",
+      "installPath": "~/.local/share/tomei/tools/ripgrep/14.0.0",
       "binPath": "~/.local/bin/rg",
       "source": {
         "url": "https://github.com/BurntSushi/ripgrep/releases/...",
@@ -503,8 +503,8 @@ System State:
         "keyDigest": "sha256:..."
       },
       "installedFiles": [
-        "/etc/apt/keyrings/toto-docker.asc",
-        "/etc/apt/sources.list.d/toto-docker.list"
+        "/etc/apt/keyrings/tomei-docker.asc",
+        "/etc/apt/sources.list.d/tomei-docker.list"
       ],
       "updatedAt": "2025-01-28T12:00:00Z"
     }
@@ -582,7 +582,7 @@ spec: {
 }
 
 // 4. ripgrep Tool (installed via binstall installer)
-// When executing the install command, toto prepends cargo-binstall's bin directory to PATH.
+// When executing the install command, tomei prepends cargo-binstall's bin directory to PATH.
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -652,7 +652,7 @@ Normal case:                   Cycle case:
                                  C → A where A is gray → back edge → Cycle!
 ```
 
-Detected early with `toto validate`, error message shows the cycle path.
+Detected early with `tomei validate`, error message shows the cycle path.
 
 ### 6.5 Topological Sort
 
@@ -712,12 +712,12 @@ Future improvement: batch state updates after layer completion.
 ### 6.7 Execution Order Summary
 
 ```
-System Privilege (sudo toto apply --system):
+System Privilege (sudo tomei apply --system):
   Layer 0: SystemInstaller
   Layer 1: SystemPackageRepository
   Layer 2: SystemPackageSet
 
-User Privilege (toto apply):
+User Privilege (tomei apply):
   Determined by DAG topological sort:
   - Runtime (no dependencies)
   - Installer (depends on Runtime or Tool)
@@ -749,7 +749,7 @@ node update → Tools installed via npm install -g
 
 ---
 
-## 8. toto doctor
+## 8. tomei doctor
 
 Detection of unmanaged tools and conflict detection.
 
@@ -768,7 +768,7 @@ Common:
 ### 8.2 Example Output
 
 ```
-$ toto doctor
+$ tomei doctor
 
 [go] ~/go/bin/
   gopls        unmanaged
@@ -778,7 +778,7 @@ $ toto doctor
   cargo-edit   unmanaged
 
 [Conflicts]
-  gopls: found in both ~/.local/bin (toto) and ~/go/bin (unmanaged)
+  gopls: found in both ~/.local/bin (tomei) and ~/go/bin (unmanaged)
          PATH resolves to: ~/go/bin/gopls
 
 [Suggestions]
@@ -795,7 +795,7 @@ $ toto doctor
 
 ```cue
 #Resource: {
-    apiVersion: "toto.terassyi.net/v1beta1"
+    apiVersion: "tomei.terassyi.net/v1beta1"
     kind: string
     metadata: {
         name: string
@@ -818,7 +818,7 @@ $ toto doctor
 ### 9.3 Environment Variable Injection
 
 ```cue
-// Automatically injected by toto
+// Automatically injected by tomei
 _env: {
     os: "linux" | "darwin"
     arch: "amd64" | "arm64"
@@ -850,7 +850,7 @@ overlays/darwin/tools.cue
 overlays/headless/tools.cue
 ```
 
-Leverages CUE's automatic merge feature for same package. toto selects and loads files based on environment.
+Leverages CUE's automatic merge feature for same package. tomei selects and loads files based on environment.
 
 ### 9.6 Exclusion Expression
 
@@ -897,7 +897,7 @@ Mode:
 ```
 ├── Tool (Download Pattern) with checksum verification
 ├── Aqua Registry integration (package resolution, --sync)
-├── Install tools with toto apply
+├── Install tools with tomei apply
 ├── Symlink to ~/.local/bin
 └── Update state.json
 ```
@@ -908,7 +908,7 @@ Mode:
 ├── Runtime (Go, Rust, Node.js)
 ├── Tool Runtime Delegation (go install, cargo install, npm install -g)
 ├── Taint Logic (runtime upgrade triggers tool reinstall)
-├── toto doctor (unmanaged tool detection, conflict detection)
+├── tomei doctor (unmanaged tool detection, conflict detection)
 └── Removal dependency guard (reject runtime removal if dependent tools remain)
 ```
 
@@ -932,7 +932,7 @@ Mode:
 ### Phase 6: Userland Commands (Completed)
 
 ```
-└── toto env — export runtime environment variables for shell (eval $(toto env))
+└── tomei env — export runtime environment variables for shell (eval $(tomei env))
 ```
 
 ### Phase 7: Runtime Delegation & Version Resolution (Completed)
@@ -965,7 +965,7 @@ Mode:
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
-└── toto apply --system
+└── tomei apply --system
 ```
 
 ---
@@ -973,7 +973,7 @@ Mode:
 ## 12. Directory Structure
 
 ```
-~/.config/toto/           # Config directory (fixed)
+~/.config/tomei/           # Config directory (fixed)
 ├── config.cue            # Path settings (required)
 ├── tools.cue             # Tool definitions
 ├── runtimes.cue          # Runtime definitions
@@ -986,7 +986,7 @@ Mode:
     ├── repos.cue
     └── packages.cue
 
-~/.local/share/toto/      # Data directory (configurable via config.cue)
+~/.local/share/tomei/      # Data directory (configurable via config.cue)
 ├── state.lock
 ├── state.json
 ├── runtimes/
@@ -996,21 +996,21 @@ Mode:
 
 ~/.local/bin/             # Symlink destination (configurable via config.cue)
 
-/var/lib/toto/            # System State
+/var/lib/tomei/            # System State
 ├── state.lock
 └── state.json
 ```
 
 ### 12.1 config.cue
 
-Path settings file. Fixed at `~/.config/toto/config.cue`.
+Path settings file. Fixed at `~/.config/tomei/config.cue`.
 
 ```cue
-package toto
+package tomei
 
 config: {
     // Data directory (storage for tools, runtimes, state.json)
-    dataDir: "~/.local/share/toto"
+    dataDir: "~/.local/share/tomei"
     
     // Symlink destination
     binDir: "~/.local/bin"
@@ -1018,10 +1018,10 @@ config: {
 ```
 
 Default values:
-- `dataDir`: `~/.local/share/toto`
+- `dataDir`: `~/.local/share/tomei`
 - `binDir`: `~/.local/bin`
 
-When `config.cue` doesn't exist, `toto init` will interactively create it with default values.
+When `config.cue` doesn't exist, `tomei init` will interactively create it with default values.
 
 ---
 
@@ -1157,11 +1157,11 @@ func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, nam
 - Full system test in Docker container
 - Real downloads and installations
 - Actual binary execution verification
-- Tests `toto apply` command end-to-end
+- Tests `tomei apply` command end-to-end
 
 **Requirements:**
 - Runs in isolated Docker container
-- Requires `TOTO_E2E_CONTAINER` environment variable
+- Requires `TOMEI_E2E_CONTAINER` environment variable
 - linux/amd64 only
 - Network access for real downloads
 
@@ -1205,7 +1205,7 @@ cd e2e && make test
 A repository that provides tool metadata (URL patterns, architecture-specific filenames, etc.) like aqua registry. Similar role to SystemPackageRepository.
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "InstallerRepository"
 metadata: name: "aqua-registry"
 spec: {
@@ -1223,7 +1223,7 @@ This simplifies Tool definitions:
 
 ```cue
 // With InstallerRepository, source is not needed
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -1247,7 +1247,7 @@ spec: {
     type: "download"
     auth: {
         tokenEnvVar: "GITHUB_TOKEN"  // get from environment variable
-        // or tokenFile: "~/.config/toto/github-token"
+        // or tokenFile: "~/.config/tomei/github-token"
     }
 }
 ```
@@ -1260,7 +1260,7 @@ metadata: name: "github"
 spec: {
     type: "token"
     envVar: "GITHUB_TOKEN"
-    // or file: "~/.config/toto/github-token"
+    // or file: "~/.config/tomei/github-token"
     // or secretRef: "..." (integration with external secret management)
 }
 
@@ -1284,7 +1284,7 @@ spec: {
 ### 16.1 Auto-update latest-specified tools on `--sync`
 
 **Overview:**
-When running `toto apply --sync`, if the aqua-registry ref is updated, tools specified with `latest` should have their latest version re-fetched and automatically reinstalled if different from the installed version.
+When running `tomei apply --sync`, if the aqua-registry ref is updated, tools specified with `latest` should have their latest version re-fetched and automatically reinstalled if different from the installed version.
 
 **Current Behavior:**
 - `--sync` only updates `registry.aqua.ref` in state.json
@@ -1292,7 +1292,7 @@ When running `toto apply --sync`, if the aqua-registry ref is updated, tools spe
 - Subsequent applies compare against the state version, so changes in the latest version are not detected
 
 **Expected Behavior:**
-1. Run `toto apply --sync`
+1. Run `tomei apply --sync`
 2. Fetch the latest aqua-registry ref
 3. If ref changed, update state
 4. For tools specified with `latest`:

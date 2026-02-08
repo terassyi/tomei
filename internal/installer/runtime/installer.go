@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/terassyi/toto/internal/checksum"
-	"github.com/terassyi/toto/internal/installer/command"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/installer/extract"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/extract"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // CommandRunner is the interface for executing shell commands.
@@ -93,7 +93,7 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 	}
 
 	// Download
-	tmpDir, err := os.MkdirTemp("", "toto-runtime-*")
+	tmpDir, err := os.MkdirTemp("", "tomei-runtime-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}

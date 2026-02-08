@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/installer/reconciler"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/reconciler"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // mockInstaller is a mock implementation for testing.

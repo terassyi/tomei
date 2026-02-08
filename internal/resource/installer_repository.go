@@ -13,7 +13,7 @@ const (
 	// via shell commands (e.g., helm repo add, kubectl krew index add).
 	InstallerRepositorySourceDelegation InstallerRepositorySourceType = "delegation"
 
-	// InstallerRepositorySourceGit means toto clones/manages a git repository
+	// InstallerRepositorySourceGit means tomei clones/manages a git repository
 	// (e.g., aqua custom registries).
 	InstallerRepositorySourceGit InstallerRepositorySourceType = "git"
 )
@@ -22,7 +22,7 @@ const (
 type InstallerRepositorySourceSpec struct {
 	// Type specifies how the repository is managed.
 	// "delegation": uses Commands to add/check/remove the repo via the installer CLI.
-	// "git": toto clones a git repository to a local path.
+	// "git": tomei clones a git repository to a local path.
 	Type InstallerRepositorySourceType `json:"type"`
 
 	// URL is the repository URL.

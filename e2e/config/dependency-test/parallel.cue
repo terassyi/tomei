@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Parallel tool installation test: multiple independent tools
 
@@ -78,7 +78,7 @@ _batSource: {
 }
 
 aquaInstaller: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: name: "aqua"
 	spec: {
@@ -87,7 +87,7 @@ aquaInstaller: {
 }
 
 rg: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "rg"
 	spec: {
@@ -98,7 +98,7 @@ rg: {
 }
 
 fd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "fd"
 	spec: {
@@ -109,7 +109,7 @@ fd: {
 }
 
 bat: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "bat"
 	spec: {

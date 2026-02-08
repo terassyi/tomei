@@ -2,7 +2,7 @@ package ui
 
 import (
 	"github.com/fatih/color"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Style holds common output styling for CLI commands.

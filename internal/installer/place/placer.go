@@ -73,7 +73,7 @@ type Placer interface {
 
 // filePlacer implements Placer.
 type filePlacer struct {
-	toolsDir string // e.g., ~/.local/share/toto/tools
+	toolsDir string // e.g., ~/.local/share/tomei/tools
 	binDir   string // e.g., ~/.local/bin
 }
 

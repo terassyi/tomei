@@ -12,28 +12,28 @@ import (
 
 func dependencyTests() {
 	BeforeAll(func() {
-		// Initialize toto (may already be initialized by other tests, ignore errors)
-		_, _ = testExec.Exec("toto", "init", "--yes")
+		// Initialize tomei (may already be initialized by other tests, ignore errors)
+		_, _ = testExec.Exec("tomei", "init", "--yes")
 	})
 
 	Context("Circular Dependency Detection", func() {
 		It("detects circular dependency between installer and tool", func() {
-			By("Running toto validate on circular.cue - should detect cycle")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/circular.cue")
+			By("Running tomei validate on circular.cue - should detect cycle")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/circular.cue")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("circular dependency"))
 		})
 
 		It("detects circular dependency in three-node cycle", func() {
-			By("Running toto validate on circular3.cue - should detect cycle")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/circular3.cue")
+			By("Running tomei validate on circular3.cue - should detect cycle")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/circular3.cue")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("circular dependency"))
 		})
 
 		It("rejects installer with both runtimeRef and toolRef", func() {
-			By("Running toto validate on invalid-installer.cue - should reject")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/invalid-installer.cue")
+			By("Running tomei validate on invalid-installer.cue - should reject")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/invalid-installer.cue")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("runtimeRef"))
 			Expect(output).To(ContainSubstring("toolRef"))
@@ -43,20 +43,20 @@ func dependencyTests() {
 	Context("Parallel Tool Installation", func() {
 		BeforeAll(func() {
 			// Reset state.json and clean up tools/symlinks to ensure clean state
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
 			// Remove tools that may have been installed by previous tests with different versions
-			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat`)
+			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat`)
 			_, _ = testExec.ExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat`)
 		})
 
 		It("installs multiple independent tools in parallel", func() {
-			By("Running toto validate on parallel.cue")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/parallel.cue")
+			By("Running tomei validate on parallel.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 
-			By("Running toto apply on parallel.cue")
-			_, err = testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
+			By("Running tomei apply on parallel.cue")
+			_, err = testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rg works")
@@ -76,8 +76,8 @@ func dependencyTests() {
 		})
 
 		It("is idempotent - second apply reports no changes", func() {
-			By("Running toto apply again on parallel.cue")
-			_, err := testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
+			By("Running tomei apply again on parallel.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying tools still work after second apply")
@@ -90,14 +90,14 @@ func dependencyTests() {
 	Context("Parallel Flag Behavior", func() {
 		BeforeAll(func() {
 			// Reset state.json and clean up tools/symlinks to ensure clean state
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
-			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
+			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat`)
 			_, _ = testExec.ExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat`)
 		})
 
 		It("installs all tools with --parallel 1 (sequential)", func() {
-			By("Running toto apply with --parallel 1")
-			output, err := testExec.Exec("toto", "apply", "--parallel", "1", "~/dependency-test/parallel.cue")
+			By("Running tomei apply with --parallel 1")
+			output, err := testExec.Exec("tomei", "apply", "--parallel", "1", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rg works")
@@ -121,12 +121,12 @@ func dependencyTests() {
 
 		It("shows Commands: header exactly once with default parallelism", func() {
 			By("Reset state for fresh install")
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
-			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
+			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat`)
 			_, _ = testExec.ExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat`)
 
-			By("Running toto apply without --parallel flag (default)")
-			output, err := testExec.Exec("toto", "apply", "~/dependency-test/parallel.cue")
+			By("Running tomei apply without --parallel flag (default)")
+			output, err := testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying all tools installed")
@@ -145,16 +145,16 @@ func dependencyTests() {
 	Context("Runtime and Tool Mixed Parallel Execution", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
 		})
 
 		It("installs runtime before dependent tool in parallel mode", func() {
-			By("Running toto apply on runtime-chain.cue with default parallelism")
-			_, err := testExec.Exec("toto", "apply", "~/dependency-test/runtime-chain.cue")
+			By("Running tomei apply on runtime-chain.cue with default parallelism")
+			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying go runtime is installed")
-			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/%s/bin/go version", versions.DepGoVersion))
+			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/tomei/runtimes/go/%s/bin/go version", versions.DepGoVersion))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go" + versions.DepGoVersion))
 
@@ -164,7 +164,7 @@ func dependencyTests() {
 			Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
 
 			By("Verifying state.json records both resources")
-			stateOutput, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			stateOutput, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stateOutput).To(ContainSubstring(`"go"`))
 			Expect(stateOutput).To(ContainSubstring(`"gopls"`))
@@ -174,12 +174,12 @@ func dependencyTests() {
 	Context("Tool as Installer Dependency (ToolRef)", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
 		})
 
 		It("validates toolRef dependency chain", func() {
-			By("Running toto validate on toolref.cue")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/toolref.cue")
+			By("Running tomei validate on toolref.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/toolref.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 
@@ -190,8 +190,8 @@ func dependencyTests() {
 		})
 
 		It("installs tool before dependent installer is available", func() {
-			By("Running toto apply on toolref.cue")
-			_, err := testExec.Exec("toto", "apply", "~/dependency-test/toolref.cue")
+			By("Running tomei apply on toolref.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/toolref.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying jq is installed and works")
@@ -204,12 +204,12 @@ func dependencyTests() {
 	Context("Runtime to Tool Dependency Chain", func() {
 		BeforeAll(func() {
 			// Reset state.json to clean state
-			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/toto/state.json`)
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
 		})
 
 		It("validates runtime -> installer -> tool chain", func() {
-			By("Running toto validate on runtime-chain.cue")
-			output, err := testExec.Exec("toto", "validate", "~/dependency-test/runtime-chain.cue")
+			By("Running tomei validate on runtime-chain.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 
@@ -220,13 +220,13 @@ func dependencyTests() {
 		})
 
 		It("installs runtime before dependent tools", func() {
-			By("Running toto apply on runtime-chain.cue")
-			_, err := testExec.Exec("toto", "apply", "~/dependency-test/runtime-chain.cue")
+			By("Running tomei apply on runtime-chain.cue")
+			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By(fmt.Sprintf("Verifying go runtime %s is installed in expected location", versions.DepGoVersion))
 			// Set GOTOOLCHAIN=local to prevent auto-upgrade to newer Go version
-			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/%s/bin/go version", versions.DepGoVersion))
+			output, err := testExec.ExecBash(fmt.Sprintf("GOTOOLCHAIN=local ~/.local/share/tomei/runtimes/go/%s/bin/go version", versions.DepGoVersion))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go" + versions.DepGoVersion))
 

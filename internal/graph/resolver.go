@@ -3,7 +3,7 @@ package graph
 import (
 	"fmt"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Edge represents a dependency edge in the graph.

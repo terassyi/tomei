@@ -17,9 +17,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/installer/command"
-	"github.com/terassyi/toto/internal/installer/download"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestNewInstaller(t *testing.T) {
@@ -78,7 +78,7 @@ func TestInstaller_Install(t *testing.T) {
 				BinDir:      binDir, // Explicit BinDir
 				ToolBinPath: "~/myruntime/bin",
 				Env: map[string]string{
-					"MY_RUNTIME_HOME": "~/.local/share/toto/runtimes/myruntime/1.0.0",
+					"MY_RUNTIME_HOME": "~/.local/share/tomei/runtimes/myruntime/1.0.0",
 				},
 			},
 		}
@@ -96,7 +96,7 @@ func TestInstaller_Install(t *testing.T) {
 		// ToolBinPath and Env values should have ~ expanded
 		home, _ := os.UserHomeDir()
 		assert.Equal(t, filepath.Join(home, "myruntime/bin"), state.ToolBinPath)
-		assert.Equal(t, filepath.Join(home, ".local/share/toto/runtimes/myruntime/1.0.0"), state.Env["MY_RUNTIME_HOME"])
+		assert.Equal(t, filepath.Join(home, ".local/share/tomei/runtimes/myruntime/1.0.0"), state.Env["MY_RUNTIME_HOME"])
 
 		// Verify install directory exists
 		assert.DirExists(t, state.InstallPath)

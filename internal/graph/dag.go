@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // NodeID is a unique identifier for a node in the dependency graph.

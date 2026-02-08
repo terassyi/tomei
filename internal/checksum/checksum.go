@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Algorithm represents a checksum hash algorithm.

@@ -6,10 +6,10 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/graph"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/graph"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 var validateNoColor bool

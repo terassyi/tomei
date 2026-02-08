@@ -29,11 +29,11 @@ Thumbs.db
 
 # Build artifacts
 bin/
-/toto
-/e2e/toto
+/tomei
+/e2e/tomei
 
 # Local state (for testing)
-.toto/
+.tomei/
 state.json
 
 # Property-based test artifacts (rapid library)

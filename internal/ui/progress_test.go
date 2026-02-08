@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/terassyi/toto/internal/installer/engine"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/resource"
 	"github.com/vbauerster/mpb/v8"
 )
 

@@ -1,11 +1,11 @@
-package toto
+package tomei
 
 // sd - intuitive find & replace CLI installed via cargo install (Runtime Delegation)
 
 _sdVersion: "1.0.0"
 
 sd: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "sd"
 	spec: {

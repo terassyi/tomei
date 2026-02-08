@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"time"
 
-	gogit "github.com/terassyi/toto/internal/git"
-	"github.com/terassyi/toto/internal/installer/command"
-	"github.com/terassyi/toto/internal/resource"
+	gogit "github.com/terassyi/tomei/internal/git"
+	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // commandRunner is the interface for executing shell commands.

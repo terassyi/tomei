@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/env"
-	"github.com/terassyi/toto/internal/resource"
-	"github.com/terassyi/toto/internal/state"
+	"github.com/terassyi/tomei/internal/env"
+	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 func TestEnv_GenerateFromState(t *testing.T) {
@@ -31,11 +31,11 @@ func TestEnv_GenerateFromState(t *testing.T) {
 			"go": {
 				Type:        resource.InstallTypeDownload,
 				Version:     "1.25.6",
-				InstallPath: filepath.Join(home, ".local/share/toto/runtimes/go/1.25.6"),
+				InstallPath: filepath.Join(home, ".local/share/tomei/runtimes/go/1.25.6"),
 				BinDir:      filepath.Join(home, "go/bin"),
 				ToolBinPath: filepath.Join(home, "go/bin"),
 				Env: map[string]string{
-					"GOROOT": filepath.Join(home, ".local/share/toto/runtimes/go/1.25.6"),
+					"GOROOT": filepath.Join(home, ".local/share/tomei/runtimes/go/1.25.6"),
 					"GOBIN":  filepath.Join(home, "go/bin"),
 				},
 			},

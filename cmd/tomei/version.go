@@ -37,7 +37,7 @@ var versionCmd = &cobra.Command{
 			enc.SetIndent("", "  ")
 			return enc.Encode(info)
 		default:
-			cmd.Printf("toto version %s\n", info.Version)
+			cmd.Printf("tomei version %s\n", info.Version)
 			cmd.Printf("  commit:    %s\n", info.Commit)
 			cmd.Printf("  built:     %s\n", info.BuildDate)
 			cmd.Printf("  go:        %s\n", info.GoVersion)

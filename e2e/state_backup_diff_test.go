@@ -18,25 +18,25 @@ func stateBackupDiffTests() {
 		_, _ = testExec.ExecBash("if [ -f ~/manifests/runtime.cue.old ]; then mv ~/manifests/runtime.cue ~/manifests/runtime.cue.upgrade && mv ~/manifests/runtime.cue.old ~/manifests/runtime.cue; fi")
 
 		By("Initializing clean environment for state backup/diff tests")
-		_, err := testExec.Exec("toto", "init", "--yes", "--force")
+		_, err := testExec.Exec("tomei", "init", "--yes", "--force")
 		Expect(err).NotTo(HaveOccurred())
 
 		By("Removing any leftover backup file")
-		_, _ = testExec.ExecBash("rm -f ~/.local/share/toto/state.json.bak")
+		_, _ = testExec.ExecBash("rm -f ~/.local/share/tomei/state.json.bak")
 
 		By("Removing any leftover tools/runtimes from previous tests")
-		_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools ~/.local/share/toto/runtimes")
+		_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools ~/.local/share/tomei/runtimes")
 		_, _ = testExec.ExecBash("rm -f ~/.local/bin/* ~/go/bin/*")
 	})
 
 	Context("Diff Before First Apply", func() {
 		It("shows no backup message when backup does not exist", func() {
 			By("Ensuring no backup file exists")
-			_, err := testExec.ExecBash("test ! -f ~/.local/share/toto/state.json.bak")
+			_, err := testExec.ExecBash("test ! -f ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto state diff")
-			output, err := testExec.Exec("toto", "state", "diff")
+			By("Running tomei state diff")
+			output, err := testExec.Exec("tomei", "state", "diff")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output contains 'No backup found' message")
@@ -47,26 +47,26 @@ func stateBackupDiffTests() {
 	Context("Backup Creation", func() {
 		It("creates state.json.bak during apply", func() {
 			By("Recording state.json content before apply")
-			stateBefore, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			stateBefore, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply to install runtime and tools")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply to install runtime and tools")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying state.json.bak was created")
-			_, err = testExec.ExecBash("test -f ~/.local/share/toto/state.json.bak")
+			_, err = testExec.ExecBash("test -f ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying backup content matches pre-apply state")
-			backupContent, err := testExec.ExecBash("cat ~/.local/share/toto/state.json.bak")
+			backupContent, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(backupContent).To(Equal(stateBefore))
 		})
 
 		It("backup differs from current state after first apply", func() {
 			By("Reading current state.json")
-			stateCurrent, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			stateCurrent, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking current state has installed resources")
@@ -74,7 +74,7 @@ func stateBackupDiffTests() {
 			Expect(stateCurrent).To(ContainSubstring(fmt.Sprintf(`"version": "%s"`, versions.GhVersion)))
 
 			By("Reading backup state")
-			backupContent, err := testExec.ExecBash("cat ~/.local/share/toto/state.json.bak")
+			backupContent, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying backup does NOT contain installed tool versions")
@@ -84,8 +84,8 @@ func stateBackupDiffTests() {
 
 	Context("Diff After First Apply", func() {
 		It("shows added resources in text format", func() {
-			By("Running toto state diff")
-			output, err := testExec.Exec("toto", "state", "diff")
+			By("Running tomei state diff")
+			output, err := testExec.Exec("tomei", "state", "diff")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking header is shown")
@@ -108,8 +108,8 @@ func stateBackupDiffTests() {
 		})
 
 		It("shows added resources in JSON format", func() {
-			By("Running toto state diff --output json")
-			output, err := testExec.Exec("toto", "state", "diff", "--output", "json")
+			By("Running tomei state diff --output json")
+			output, err := testExec.Exec("tomei", "state", "diff", "--output", "json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking JSON contains changes array")
@@ -128,8 +128,8 @@ func stateBackupDiffTests() {
 		})
 
 		It("supports --no-color flag", func() {
-			By("Running toto state diff --no-color")
-			output, err := testExec.Exec("toto", "state", "diff", "--no-color")
+			By("Running tomei state diff --no-color")
+			output, err := testExec.Exec("tomei", "state", "diff", "--no-color")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output does not contain ANSI escape codes")
@@ -143,12 +143,12 @@ func stateBackupDiffTests() {
 
 	Context("Diff After Idempotent Apply", func() {
 		It("shows no changes after idempotent apply", func() {
-			By("Running toto apply again (idempotent)")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply again (idempotent)")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto state diff")
-			output, err := testExec.Exec("toto", "state", "diff")
+			By("Running tomei state diff")
+			output, err := testExec.Exec("tomei", "state", "diff")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output says no changes")
@@ -164,24 +164,24 @@ func stateBackupDiffTests() {
 			_, err = testExec.ExecBash("mv ~/manifests/runtime.cue.upgrade ~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply with upgraded config")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply with upgraded config")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying backup contains old version")
-			backupContent, err := testExec.ExecBash("cat ~/.local/share/toto/state.json.bak")
+			backupContent, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(backupContent).To(ContainSubstring(fmt.Sprintf(`"version": "%s"`, versions.GoVersion)))
 
 			By("Verifying current state contains new version")
-			stateContent, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			stateContent, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stateContent).To(ContainSubstring(fmt.Sprintf(`"version": "%s"`, versions.GoVersionUpgrade)))
 		})
 
 		It("shows runtime modification in text diff", func() {
-			By("Running toto state diff")
-			output, err := testExec.Exec("toto", "state", "diff")
+			By("Running tomei state diff")
+			output, err := testExec.Exec("tomei", "state", "diff")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking diff shows runtime version change")
@@ -195,8 +195,8 @@ func stateBackupDiffTests() {
 		})
 
 		It("shows runtime modification in JSON diff", func() {
-			By("Running toto state diff --output json")
-			output, err := testExec.Exec("toto", "state", "diff", "--output", "json")
+			By("Running tomei state diff --output json")
+			output, err := testExec.Exec("tomei", "state", "diff", "--output", "json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking JSON contains modified type for runtime")
@@ -212,7 +212,7 @@ func stateBackupDiffTests() {
 			_, _ = testExec.ExecBash("mv ~/manifests/runtime.cue.old ~/manifests/runtime.cue")
 
 			By("Restoring original runtime version via apply")
-			_, _ = testExec.Exec("toto", "apply", "~/manifests/")
+			_, _ = testExec.Exec("tomei", "apply", "~/manifests/")
 		})
 	})
 
@@ -222,12 +222,12 @@ func stateBackupDiffTests() {
 			_, err := testExec.ExecBash("mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto state diff")
-			output, err := testExec.Exec("toto", "state", "diff")
+			By("Running tomei state diff")
+			output, err := testExec.Exec("tomei", "state", "diff")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking diff shows gh as removed")
@@ -236,8 +236,8 @@ func stateBackupDiffTests() {
 		})
 
 		It("shows removed tool in JSON diff", func() {
-			By("Running toto state diff --output json")
-			output, err := testExec.Exec("toto", "state", "diff", "--output", "json")
+			By("Running tomei state diff --output json")
+			output, err := testExec.Exec("tomei", "state", "diff", "--output", "json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking JSON contains removed type for gh")
@@ -254,15 +254,15 @@ func stateBackupDiffTests() {
 	Context("Backup Overwrite", func() {
 		It("overwrites backup on each apply", func() {
 			By("Recording current backup content")
-			backupBefore, err := testExec.ExecBash("cat ~/.local/share/toto/state.json.bak")
+			backupBefore, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply again")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply again")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Reading new backup content")
-			backupAfter, err := testExec.ExecBash("cat ~/.local/share/toto/state.json.bak")
+			backupAfter, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying backup was updated")

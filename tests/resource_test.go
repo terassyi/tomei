@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestLoadAndStore(t *testing.T) {
@@ -19,7 +19,7 @@ func TestLoadAndStore(t *testing.T) {
 
 	// Create CUE files with multiple resource types
 	toolCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: {
 	name: "ripgrep"
@@ -33,7 +33,7 @@ spec: {
 }
 `
 	runtimeCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
@@ -48,7 +48,7 @@ spec: {
 }
 `
 	installerCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
@@ -56,7 +56,7 @@ spec: {
 }
 `
 	toolSetCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "cli-tools"
 spec: {
@@ -165,7 +165,7 @@ func TestSpecValidation(t *testing.T) {
 	dir := t.TempDir()
 
 	toolCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -202,7 +202,7 @@ func TestDependencyResolution(t *testing.T) {
 
 	// Tool depends on Installer and Runtime
 	toolCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "golangci-lint"
 spec: {
@@ -214,7 +214,7 @@ spec: {
 `
 	// Installer depends on Runtime
 	installerCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "go"
 spec: {
@@ -227,7 +227,7 @@ spec: {
 }
 `
 	runtimeCue := `
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {

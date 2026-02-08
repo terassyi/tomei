@@ -12,15 +12,15 @@ import (
 func registryTests() {
 
 	BeforeAll(func() {
-		By("Running toto init to ensure state.json exists")
-		_, err := testExec.Exec("toto", "init", "--yes", "--force")
+		By("Running tomei init to ensure state.json exists")
+		_, err := testExec.Exec("tomei", "init", "--yes", "--force")
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	Context("Registry Initialization", func() {
 		It("init saves registry ref to state.json", func() {
 			By("Reading state.json after init (from basic tests)")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking registry.aqua.ref exists")
@@ -31,7 +31,7 @@ func registryTests() {
 
 		It("registry ref is valid format", func() {
 			By("Extracting registry ref from state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json | grep -o '\"ref\": \"v[0-9]*\\.[0-9]*\\.[0-9]*\"'")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json | grep -o '\"ref\": \"v[0-9]*\\.[0-9]*\\.[0-9]*\"'")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking ref starts with v")
@@ -41,8 +41,8 @@ func registryTests() {
 
 	Context("Tool Installation - Aqua Registry", func() {
 		It("validates registry manifests", func() {
-			By("Running toto validate on registry manifests")
-			output, err := testExec.Exec("toto", "validate", "~/manifests/registry/")
+			By("Running tomei validate on registry manifests")
+			output, err := testExec.Exec("tomei", "validate", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking validation succeeded")
@@ -59,8 +59,8 @@ func registryTests() {
 		})
 
 		It("installs tools via aqua registry", func() {
-			By("Running toto apply on registry manifests")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/registry/")
+			By("Running tomei apply on registry manifests")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -131,7 +131,7 @@ func registryTests() {
 
 		It("records package in state.json", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking rg tool has package recorded")
@@ -153,16 +153,16 @@ func registryTests() {
 
 	Context("Registry Sync", func() {
 		It("--sync flag works with apply", func() {
-			By("Running toto apply --sync")
-			_, err := testExec.Exec("toto", "apply", "--sync", "~/manifests/registry/")
+			By("Running tomei apply --sync")
+			_, err := testExec.Exec("tomei", "apply", "--sync", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
 	Context("Idempotency", func() {
 		It("subsequent apply has no changes", func() {
-			By("Running toto apply again on registry manifests")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/registry/")
+			By("Running tomei apply again on registry manifests")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -192,8 +192,8 @@ func registryTests() {
 			_, err = testExec.ExecBash("mv ~/manifests/registry/tools.cue.old ~/manifests/registry/tools.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply with older version")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/registry/")
+			By("Running tomei apply with older version")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -221,8 +221,8 @@ func registryTests() {
 			_, err = testExec.ExecBash("mv ~/manifests/registry/tools.cue.new ~/manifests/registry/tools.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply with newer version")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/registry/")
+			By("Running tomei apply with newer version")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -244,8 +244,8 @@ func registryTests() {
 		})
 
 		It("is idempotent after version changes", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/registry/")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})

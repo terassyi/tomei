@@ -1,6 +1,6 @@
 # E2E Tests
 
-End-to-end tests for toto using Ginkgo BDD framework.
+End-to-end tests for tomei using Ginkgo BDD framework.
 Tests run in Docker containers (default) or natively on supported platforms.
 
 ## Requirements
@@ -21,7 +21,7 @@ make test-e2e
 All tests run within a single `Ordered` Describe block to guarantee execution order:
 
 ```
-toto E2E
+tomei E2E
 ├── Basic             # init, validate, plan, apply, runtime/tool install, upgrade, doctor
 ├── ToolSet           # ToolSet expansion and installation via runtime delegation
 ├── Aqua Registry     # Registry-based tool install, version upgrade/downgrade

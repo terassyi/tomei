@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestNew(t *testing.T) {
@@ -20,7 +20,7 @@ func TestReconciler_Reconcile_Install(t *testing.T) {
 	tools := []*resource.Tool{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "ripgrep"},
 			},
@@ -47,7 +47,7 @@ func TestReconciler_Reconcile_Upgrade(t *testing.T) {
 	tools := []*resource.Tool{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "ripgrep"},
 			},
@@ -84,7 +84,7 @@ func TestReconciler_Reconcile_Skip(t *testing.T) {
 	tools := []*resource.Tool{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "ripgrep"},
 			},
@@ -143,7 +143,7 @@ func TestReconciler_Reconcile_MultipleTools(t *testing.T) {
 	tools := []*resource.Tool{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "ripgrep"},
 			},
@@ -154,7 +154,7 @@ func TestReconciler_Reconcile_MultipleTools(t *testing.T) {
 		},
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "fd"},
 			},
@@ -207,7 +207,7 @@ func TestReconciler_Reconcile_Tainted(t *testing.T) {
 	tools := []*resource.Tool{
 		{
 			BaseResource: resource.BaseResource{
-				APIVersion:   "toto.terassyi.net/v1beta1",
+				APIVersion:   "tomei.terassyi.net/v1beta1",
 				ResourceKind: resource.KindTool,
 				Metadata:     resource.Metadata{Name: "ripgrep"},
 			},

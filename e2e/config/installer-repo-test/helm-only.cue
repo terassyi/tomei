@@ -1,4 +1,4 @@
-package toto
+package tomei
 
 // Reduced manifest for removal test:
 // Only Tool/helm (no InstallerRepository, no common-chart)
@@ -6,7 +6,7 @@ package toto
 
 // Helm tool installed via aqua registry (latest version)
 helmTool: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "helm"
 	spec: {

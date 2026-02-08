@@ -43,7 +43,7 @@ type ResolvedSource struct {
 	Files []FileSpec
 
 	// Warnings contains non-fatal issues detected during resolution.
-	// These should be displayed to the user during `toto plan`.
+	// These should be displayed to the user during `tomei plan`.
 	// Example: "version v1.5.0 uses legacy asset format"
 	Warnings []string
 
@@ -76,7 +76,7 @@ type Resolver struct {
 // NewResolver creates a new Resolver with the specified cache directory and HTTP client.
 //
 // The cache directory is used to store fetched registry.yaml files.
-// Files are cached per registry ref (e.g., ~/.cache/toto/registry/aqua/v4.465.0/pkgs/cli/cli/registry.yaml).
+// Files are cached per registry ref (e.g., ~/.cache/tomei/registry/aqua/v4.465.0/pkgs/cli/cli/registry.yaml).
 // If client is nil, a default HTTP client with timeout is used.
 func NewResolver(cacheDir string, client *http.Client) *Resolver {
 	f := newFetcher(cacheDir, client)

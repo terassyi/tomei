@@ -1,11 +1,11 @@
-package toto
+package tomei
 
 // gh CLI tool - uses _env for OS/arch portability
 
 _ghVersion: "2.86.0"
 
 gh: {
-	apiVersion: "toto.terassyi.net/v1beta1"
+	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "gh"
 	spec: {

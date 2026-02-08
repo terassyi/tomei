@@ -3,7 +3,7 @@ package state
 import (
 	"time"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Version is the current state file format version.

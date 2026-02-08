@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestStore_LockUnlock(t *testing.T) {
@@ -63,7 +63,7 @@ func TestStore_LoadSave(t *testing.T) {
 		"go": {
 			Type:        resource.InstallTypeDownload,
 			Version:     "1.25.1",
-			InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.1",
+			InstallPath: "/home/user/.local/share/tomei/runtimes/go/1.25.1",
 			Binaries:    []string{"go", "gofmt"},
 			ToolBinPath: "/home/user/go/bin",
 			UpdatedAt:   time.Now(),
@@ -73,7 +73,7 @@ func TestStore_LoadSave(t *testing.T) {
 		"ripgrep": {
 			InstallerRef: "aqua",
 			Version:      "14.0.0",
-			InstallPath:  "/home/user/.local/share/toto/tools/ripgrep/14.0.0",
+			InstallPath:  "/home/user/.local/share/tomei/tools/ripgrep/14.0.0",
 			BinPath:      "/home/user/.local/bin/rg",
 			UpdatedAt:    time.Now(),
 		},
@@ -520,7 +520,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 					"go": {
 						Type:        resource.InstallTypeDownload,
 						Version:     "1.25.5",
-						InstallPath: "/home/user/.local/share/toto/runtimes/go/1.25.5",
+						InstallPath: "/home/user/.local/share/tomei/runtimes/go/1.25.5",
 						Binaries:    []string{"go", "gofmt"},
 						ToolBinPath: "/home/user/go/bin",
 						UpdatedAt:   now,
@@ -531,7 +531,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 						InstallerRef: "aqua",
 						Version:      "2.86.0",
 						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
-						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
+						InstallPath:  "/home/user/.local/share/tomei/tools/gh/2.86.0",
 						BinPath:      "/home/user/.local/bin/gh",
 						Digest:       "sha256:abc123",
 						UpdatedAt:    now,
@@ -654,7 +654,7 @@ func TestStore_RegistryState(t *testing.T) {
 						InstallerRef: "aqua",
 						Version:      "2.86.0",
 						Package:      &resource.Package{Owner: "cli", Repo: "cli"},
-						InstallPath:  "/home/user/.local/share/toto/tools/gh/2.86.0",
+						InstallPath:  "/home/user/.local/share/tomei/tools/gh/2.86.0",
 						BinPath:      "/home/user/.local/bin/gh",
 						UpdatedAt:    now,
 					},

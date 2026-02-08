@@ -19,10 +19,10 @@ const (
 
 const (
 	// ProjectName is the name of the project.
-	ProjectName = "toto"
+	ProjectName = "tomei"
 
-	// APIGroup is the API group for toto resources.
-	APIGroup = "toto.terassyi.net"
+	// APIGroup is the API group for tomei resources.
+	APIGroup = "tomei.terassyi.net"
 
 	// APIVersion is the API version.
 	APIVersion = "v1beta1"
@@ -49,7 +49,7 @@ type State interface {
 	isState()
 }
 
-// Resource is the interface that all toto resources must implement.
+// Resource is the interface that all tomei resources must implement.
 type Resource interface {
 	Kind() Kind
 	Name() string
@@ -77,12 +77,12 @@ type InstallType string
 
 const (
 	// InstallTypeDownload indicates direct binary download.
-	// toto handles downloading, extracting, and placing binaries.
+	// tomei handles downloading, extracting, and placing binaries.
 	// Example: Go runtime from go.dev, aqua installer for GitHub releases.
 	InstallTypeDownload InstallType = "download"
 
 	// InstallTypeDelegation indicates delegation to external commands.
-	// toto executes configured install/check/remove commands.
+	// tomei executes configured install/check/remove commands.
 	// Example: Rust via rustup, brew install, go install.
 	InstallTypeDelegation InstallType = "delegation"
 )

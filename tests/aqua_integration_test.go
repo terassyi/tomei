@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/terassyi/toto/internal/registry/aqua"
+	"github.com/terassyi/tomei/internal/registry/aqua"
 )
 
 // TestAquaResolverIntegration tests the full resolver flow with a mock HTTP server.

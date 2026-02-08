@@ -1,4 +1,4 @@
-# Toto 設計ドキュメント v2
+# Tomei 設計ドキュメント v2
 
 **Version:** 2.0  
 **Date:** 2025-01-28
@@ -7,11 +7,11 @@
 
 ## 1. 概要
 
-Toto は宣言的な開発環境セットアップツール。Kubernetes の Spec/State reconciliation パターンを採用し、ローカル環境のツール、ランタイム、システムパッケージを管理する。
+Tomei は宣言的な開発環境セットアップツール。Kubernetes の Spec/State reconciliation パターンを採用し、ローカル環境のツール、ランタイム、システムパッケージを管理する。
 
 ### 設計哲学
 
-- **宣言的管理**: 望む状態を定義し、toto が実現する
+- **宣言的管理**: 望む状態を定義し、tomei が実現する
 - **サンドボックス不使用**: 仮想化やコンテナを使わず、実環境を直接セットアップ
 - **CUE による型安全**: スキーマ検証と柔軟な設定
 - **シンプルさ**: nix ほど複雑にせず、既存ツール (apt, go install) を活用
@@ -20,7 +20,7 @@ Toto は宣言的な開発環境セットアップツール。Kubernetes の Spe
 
 ## 2. インストーラパターン
 
-toto は2つのインストーラパターンをサポートする。
+tomei は2つのインストーラパターンをサポートする。
 
 ### 2.1 Delegation Pattern
 
@@ -35,11 +35,11 @@ toto は2つのインストーラパターンをサポートする。
 └── npm install -g <package>
 ```
 
-toto は「何をインストールするか」を指示し、実際の処理は外部ツールが行う。
+tomei は「何をインストールするか」を指示し、実際の処理は外部ツールが行う。
 
 ### 2.2 Download Pattern
 
-toto が直接ダウンロードして配置するパターン。
+tomei が直接ダウンロードして配置するパターン。
 
 ```
 例:
@@ -48,7 +48,7 @@ toto が直接ダウンロードして配置するパターン。
 └── Aqua registry 形式のツール
 ```
 
-チェックサム検証、展開、symlink 作成まで toto が担当。
+チェックサム検証、展開、symlink 作成まで tomei が担当。
 
 ---
 
@@ -57,13 +57,13 @@ toto が直接ダウンロードして配置するパターン。
 ### 3.1 権限による分類
 
 ```
-User 権限 (toto apply):
+User 権限 (tomei apply):
 ├── Installer  - ユーザー権限インストーラ定義 (aqua, go, cargo, npm, brew)
 ├── Runtime    - 言語ランタイム (Go, Rust, Node)
 ├── Tool       - 単体ツール
 └── ToolSet    - 複数ツールのセット
 
-System 権限 (sudo toto apply --system):
+System 権限 (sudo tomei apply --system):
 ├── SystemInstaller         - パッケージマネージャ定義 (apt)
 ├── SystemPackageRepository - サードパーティリポジトリ
 └── SystemPackageSet        - パッケージセット
@@ -73,10 +73,10 @@ System 権限 (sudo toto apply --system):
 
 #### SystemInstaller
 
-パッケージマネージャの定義。apt は toto が builtin として CUE マニフェストを提供。
+パッケージマネージャの定義。apt は tomei が builtin として CUE マニフェストを提供。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemInstaller"
 metadata: name: "apt"
 spec: {
@@ -96,7 +96,7 @@ spec: {
 サードパーティリポジトリの定義。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemPackageRepository"
 metadata: name: "docker"
 spec: {
@@ -119,7 +119,7 @@ spec: {
 パッケージのセット。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "SystemPackageSet"
 metadata: name: "docker"
 spec: {
@@ -137,7 +137,7 @@ spec: {
 
 ```cue
 // Download Pattern (aqua) - GitHub Releases 等から直接ダウンロード
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "aqua"
 spec: {
@@ -145,7 +145,7 @@ spec: {
 }
 
 // Delegation Pattern (binstall) - Tool に依存
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "binstall"
 spec: {
@@ -159,7 +159,7 @@ spec: {
 }
 
 // Delegation Pattern (brew) - Runtime 不要、bootstrap で自己インストール
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Installer"
 metadata: name: "brew"
 spec: {
@@ -183,10 +183,10 @@ spec: {
 
 ##### Download Pattern
 
-toto が直接 tarball をダウンロードして展開するパターン。Go などの tarball 配布に適用。
+tomei が直接 tarball をダウンロードして展開するパターン。Go などの tarball 配布に適用。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "go"
 spec: {
@@ -215,7 +215,7 @@ spec: {
 外部スクリプトやインストーラに処理を委譲するパターン。rustup や nvm のようなインストーラスクリプトを使用するランタイムに適用。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Runtime"
 metadata: name: "rust"
 spec: {
@@ -248,13 +248,13 @@ spec: {
 
 | パターン | 説明 | 例 |
 |---------|------|-----|
-| Download | toto が tarball をダウンロード・展開 | Go, Node (tarball) |
+| Download | tomei が tarball をダウンロード・展開 | Go, Node (tarball) |
 | Delegation | 外部スクリプト/インストーラに委譲 | Rust (rustup), Node (nvm) |
 
 #### Tool (単体)
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -274,7 +274,7 @@ spec: {
 
 ```cue
 // Download Pattern
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "cli-tools"
 spec: {
@@ -287,7 +287,7 @@ spec: {
 }
 
 // Runtime 経由でインストール (Installer 不要)
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "ToolSet"
 metadata: name: "go-tools"
 spec: {
@@ -307,44 +307,44 @@ spec: {
 
 ```bash
 # User 権限 (Runtime, Tool)
-toto apply
+tomei apply
 
 # System 権限 (SystemPackage*)
-sudo toto apply --system
+sudo tomei apply --system
 ```
 
-実行順序: `sudo toto apply --system` → `toto apply`
+実行順序: `sudo tomei apply --system` → `tomei apply`
 
 ### 4.2 コマンド一覧
 
 ```bash
-toto init        # 初期化 (config.cue, ディレクトリ, state.json)
-toto validate    # CUE 構文 + 循環参照チェック
-toto plan        # validate + 実行計画表示
-toto apply       # plan + 実行
-toto env         # 環境変数を出力 (eval 用)
-toto doctor      # 未管理ツール検知、競合検知
+tomei init        # 初期化 (config.cue, ディレクトリ, state.json)
+tomei validate    # CUE 構文 + 循環参照チェック
+tomei plan        # validate + 実行計画表示
+tomei apply       # plan + 実行
+tomei env         # 環境変数を出力 (eval 用)
+tomei doctor      # 未管理ツール検知、競合検知
 
-toto version     # バージョン表示
+tomei version     # バージョン表示
 ```
 
-### 4.3 toto init
+### 4.3 tomei init
 
 環境の初期化を行う。
 
 ```bash
 # 対話的に初期化 (config.cue がなければ作成確認)
-toto init
+tomei init
 
 # 対話スキップで初期化
-toto init --yes
+tomei init --yes
 
 # 強制的に再初期化 (state.json をリセット)
-toto init --force
+tomei init --force
 ```
 
 実行内容:
-1. `~/.config/toto/` ディレクトリ作成
+1. `~/.config/tomei/` ディレクトリ作成
 2. `config.cue` が存在しない場合、デフォルト値で作成（対話確認または `--yes`）
 3. `config.cue` からパス設定を読み込み
 4. データディレクトリ (`dataDir`) 作成
@@ -352,13 +352,13 @@ toto init --force
 6. bin ディレクトリ (`binDir`) 作成
 7. `dataDir/state.json` 初期化
 
-### 4.4 toto env
+### 4.4 tomei env
 
 Runtime の `env` フィールドで定義された環境変数を出力する。
 
 ```bash
-$ toto env
-export GOROOT="$HOME/.local/share/toto/runtimes/go/1.25.1"
+$ tomei env
+export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.1"
 export GOBIN="$HOME/go/bin"
 export CARGO_HOME="$HOME/.cargo"
 export RUSTUP_HOME="$HOME/.rustup"
@@ -370,12 +370,12 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 シェルの profile (`~/.bashrc`, `~/.zshrc` など) に以下を追加:
 
 ```bash
-eval "$(toto env)"
+eval "$(tomei env)"
 ```
 
-**Note:** `toto apply` 時の delegation コマンド実行では、toto が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `toto env` はユーザーのシェル環境用。
+**Note:** `tomei apply` 時の delegation コマンド実行では、tomei が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `tomei env` はユーザーのシェル環境用。
 
-**toolRef の PATH 伝搬:** Installer が `toolRef` を持つ場合（例: Installer/binstall が Tool/cargo-binstall に依存）、toto は delegation コマンド実行時に参照先 Tool の bin ディレクトリを自動的に PATH に追加する。これは Tool のインストールコマンド（例: `cargo binstall ripgrep`）と InstallerRepository のコマンド（例: `helm repo add`）の両方に適用される。ユーザーのシェル PATH に Tool の bin ディレクトリが含まれていなくても、delegation コマンドが依存する Tool バイナリを見つけられる。
+**toolRef の PATH 伝搬:** Installer が `toolRef` を持つ場合（例: Installer/binstall が Tool/cargo-binstall に依存）、tomei は delegation コマンド実行時に参照先 Tool の bin ディレクトリを自動的に PATH に追加する。これは Tool のインストールコマンド（例: `cargo binstall ripgrep`）と InstallerRepository のコマンド（例: `helm repo add`）の両方に適用される。ユーザーのシェル PATH に Tool の bin ディレクトリが含まれていなくても、delegation コマンドが依存する Tool バイナリを見つけられる。
 
 ---
 
@@ -385,12 +385,12 @@ eval "$(toto env)"
 
 ```
 User State:
-~/.local/share/toto/
+~/.local/share/tomei/
 ├── state.lock  (PID を書き込み、flock 用)
 └── state.json  (状態データ)
 
 System State:
-/var/lib/toto/
+/var/lib/tomei/
 ├── state.lock
 └── state.json
 ```
@@ -400,7 +400,7 @@ System State:
 - **flock (advisory lock)** を使用
 - state.lock に対して flock を取得
 - 取得成功時に自身の PID を書き込む
-- toto 同士の同時実行を防止
+- tomei 同士の同時実行を防止
 - 手動編集 (vim 等) は防げない (advisory lock の性質)
 
 ### 5.3 書き込みフロー
@@ -427,11 +427,11 @@ System State:
       "pattern": "download",
       "version": "1.25.1",
       "digest": "sha256:abc123...",
-      "installPath": "~/.local/share/toto/runtimes/go/1.25.1",
+      "installPath": "~/.local/share/tomei/runtimes/go/1.25.1",
       "binaries": ["go", "gofmt"],
       "toolBinPath": "~/go/bin",
       "env": {
-        "GOROOT": "~/.local/share/toto/runtimes/go/1.25.1"
+        "GOROOT": "~/.local/share/tomei/runtimes/go/1.25.1"
       },
       "updatedAt": "2025-01-28T12:00:00Z"
     },
@@ -461,7 +461,7 @@ System State:
       "installerRef": "aqua",
       "version": "14.0.0",
       "digest": "sha256:def456...",
-      "installPath": "~/.local/share/toto/tools/ripgrep/14.0.0",
+      "installPath": "~/.local/share/tomei/tools/ripgrep/14.0.0",
       "binPath": "~/.local/bin/rg",
       "source": {
         "url": "https://github.com/BurntSushi/ripgrep/releases/...",
@@ -504,8 +504,8 @@ System State:
         "keyDigest": "sha256:..."
       },
       "installedFiles": [
-        "/etc/apt/keyrings/toto-docker.asc",
-        "/etc/apt/sources.list.d/toto-docker.list"
+        "/etc/apt/keyrings/tomei-docker.asc",
+        "/etc/apt/sources.list.d/tomei-docker.list"
       ],
       "updatedAt": "2025-01-28T12:00:00Z"
     }
@@ -583,7 +583,7 @@ spec: {
 }
 
 // 4. ripgrep Tool (binstall installer でインストール)
-// install コマンド実行時、toto が cargo-binstall の bin ディレクトリを PATH に追加する。
+// install コマンド実行時、tomei が cargo-binstall の bin ディレクトリを PATH に追加する。
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -653,7 +653,7 @@ spec: {
                                 C → A で A がグレー → back edge → 循環!
 ```
 
-`toto validate` で事前に検出し、エラーメッセージで循環パスを表示。
+`tomei validate` で事前に検出し、エラーメッセージで循環パスを表示。
 
 ### 6.5 トポロジカルソート
 
@@ -713,12 +713,12 @@ Layer 3: [Tool/ripgrep]         ← Installer/binstall に依存
 ### 6.7 実行順序まとめ
 
 ```
-System 権限 (sudo toto apply --system):
+System 権限 (sudo tomei apply --system):
   Layer 0: SystemInstaller
   Layer 1: SystemPackageRepository
   Layer 2: SystemPackageSet
 
-User 権限 (toto apply):
+User 権限 (tomei apply):
   DAG トポロジカルソートで決定:
   - Runtime (依存なし)
   - Installer (Runtime または Tool に依存)
@@ -750,7 +750,7 @@ node 更新 → npm install -g でインストールした Tool
 
 ---
 
-## 8. toto doctor
+## 8. tomei doctor
 
 未管理ツールの検出と競合検知。
 
@@ -769,7 +769,7 @@ Runtime 別:
 ### 8.2 出力例
 
 ```
-$ toto doctor
+$ tomei doctor
 
 [go] ~/go/bin/
   gopls        unmanaged
@@ -779,7 +779,7 @@ $ toto doctor
   cargo-edit   unmanaged
 
 [Conflicts]
-  gopls: found in both ~/.local/bin (toto) and ~/go/bin (unmanaged)
+  gopls: found in both ~/.local/bin (tomei) and ~/go/bin (unmanaged)
          PATH resolves to: ~/go/bin/gopls
 
 [Suggestions]
@@ -796,7 +796,7 @@ $ toto doctor
 
 ```cue
 #Resource: {
-    apiVersion: "toto.terassyi.net/v1beta1"
+    apiVersion: "tomei.terassyi.net/v1beta1"
     kind: string
     metadata: {
         name: string
@@ -819,7 +819,7 @@ $ toto doctor
 ### 9.3 環境変数の注入
 
 ```cue
-// toto が自動注入
+// tomei が自動注入
 _env: {
     os: "linux" | "darwin"
     arch: "amd64" | "arm64"
@@ -851,7 +851,7 @@ overlays/darwin/tools.cue
 overlays/headless/tools.cue
 ```
 
-CUE の同一パッケージ自動マージ機能を活用。toto が環境に応じてファイルを選択してロード。
+CUE の同一パッケージ自動マージ機能を活用。tomei が環境に応じてファイルを選択してロード。
 
 ### 9.6 除外の表現
 
@@ -898,7 +898,7 @@ Mode:
 ```
 ├── Tool (Download Pattern) チェックサム検証付き
 ├── Aqua Registry 統合 (パッケージ解決、--sync)
-├── toto apply でツールインストール
+├── tomei apply でツールインストール
 ├── ~/.local/bin への symlink
 └── state.json の更新
 ```
@@ -909,7 +909,7 @@ Mode:
 ├── Runtime (Go, Rust, Node.js)
 ├── Tool の Runtime Delegation (go install, cargo install, npm install -g)
 ├── Taint Logic (ランタイムアップグレード時にツール再インストール)
-├── toto doctor (未管理ツール検出、コンフリクト検出)
+├── tomei doctor (未管理ツール検出、コンフリクト検出)
 └── 削除時の依存ガード (依存ツールが残っている場合ランタイム削除を拒否)
 ```
 
@@ -933,7 +933,7 @@ Mode:
 ### Phase 6: ユーザランドコマンド (完了)
 
 ```
-└── toto env — ランタイムの環境変数をシェルにエクスポート (eval $(toto env))
+└── tomei env — ランタイムの環境変数をシェルにエクスポート (eval $(tomei env))
 ```
 
 ### Phase 7: Runtime Delegation & バージョン解決 (完了)
@@ -966,7 +966,7 @@ Mode:
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
-└── toto apply --system
+└── tomei apply --system
 ```
 
 ---
@@ -974,7 +974,7 @@ Mode:
 ## 12. ディレクトリ構成
 
 ```
-~/.config/toto/           # 設定ディレクトリ (固定)
+~/.config/tomei/           # 設定ディレクトリ (固定)
 ├── config.cue            # パス設定 (必須)
 ├── tools.cue             # ツール定義
 ├── runtimes.cue          # ランタイム定義
@@ -987,7 +987,7 @@ Mode:
     ├── repos.cue
     └── packages.cue
 
-~/.local/share/toto/      # データディレクトリ (config.cue で変更可)
+~/.local/share/tomei/      # データディレクトリ (config.cue で変更可)
 ├── state.lock
 ├── state.json
 ├── runtimes/
@@ -997,21 +997,21 @@ Mode:
 
 ~/.local/bin/             # symlink 配置先 (config.cue で変更可)
 
-/var/lib/toto/            # System State
+/var/lib/tomei/            # System State
 ├── state.lock
 └── state.json
 ```
 
 ### 12.1 config.cue
 
-パス設定ファイル。`~/.config/toto/config.cue` に固定。
+パス設定ファイル。`~/.config/tomei/config.cue` に固定。
 
 ```cue
-package toto
+package tomei
 
 config: {
     // データディレクトリ (tools, runtimes, state.json の保存先)
-    dataDir: "~/.local/share/toto"
+    dataDir: "~/.local/share/tomei"
     
     // symlink 配置先
     binDir: "~/.local/bin"
@@ -1019,10 +1019,10 @@ config: {
 ```
 
 デフォルト値:
-- `dataDir`: `~/.local/share/toto`
+- `dataDir`: `~/.local/share/tomei`
 - `binDir`: `~/.local/bin`
 
-`toto init` で config.cue が存在しない場合、対話的にデフォルト値で作成する。
+`tomei init` で config.cue が存在しない場合、対話的にデフォルト値で作成する。
 
 ---
 
@@ -1158,11 +1158,11 @@ func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, nam
 - Docker コンテナ内でのフルシステムテスト
 - 実際のダウンロードとインストール
 - 実際のバイナリ実行検証
-- `toto apply` コマンドのエンドツーエンドテスト
+- `tomei apply` コマンドのエンドツーエンドテスト
 
 **要件:**
 - 分離された Docker コンテナ内で実行
-- `TOTO_E2E_CONTAINER` 環境変数が必要
+- `TOMEI_E2E_CONTAINER` 環境変数が必要
 - linux/amd64 のみ
 - 実際のダウンロードのためネットワークアクセスあり
 
@@ -1206,7 +1206,7 @@ cd e2e && make test
 aqua registry のように、ツールのメタデータ（URL パターン、アーキテクチャ別ファイル名など）を提供するリポジトリ。SystemPackageRepository と同様の役割。
 
 ```cue
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "InstallerRepository"
 metadata: name: "aqua-registry"
 spec: {
@@ -1224,7 +1224,7 @@ spec: {
 
 ```cue
 // InstallerRepository があれば source 不要
-apiVersion: "toto.terassyi.net/v1beta1"
+apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "ripgrep"
 spec: {
@@ -1248,7 +1248,7 @@ spec: {
     pattern: "download"
     auth: {
         tokenEnvVar: "GITHUB_TOKEN"  // 環境変数から取得
-        // or tokenFile: "~/.config/toto/github-token"
+        // or tokenFile: "~/.config/tomei/github-token"
     }
 }
 ```
@@ -1261,7 +1261,7 @@ metadata: name: "github"
 spec: {
     type: "token"
     envVar: "GITHUB_TOKEN"
-    // or file: "~/.config/toto/github-token"
+    // or file: "~/.config/tomei/github-token"
     // or secretRef: "..." (外部シークレット管理との連携)
 }
 
@@ -1285,7 +1285,7 @@ spec: {
 ### 16.1 `--sync` 時の latest 指定ツール自動更新
 
 **概要:**
-`toto apply --sync` 実行時、aqua-registry の ref が更新された場合、`latest` 指定のツールについて最新バージョンを再取得し、インストール済みバージョンと異なれば自動的に再インストールする機能。
+`tomei apply --sync` 実行時、aqua-registry の ref が更新された場合、`latest` 指定のツールについて最新バージョンを再取得し、インストール済みバージョンと異なれば自動的に再インストールする機能。
 
 **現状:**
 - `--sync` は state.json の `registry.aqua.ref` を更新するのみ
@@ -1293,7 +1293,7 @@ spec: {
 - 2回目以降の apply では state のバージョンと比較するため、最新バージョンが変わっても検知しない
 
 **期待される動作:**
-1. `toto apply --sync` 実行
+1. `tomei apply --sync` 実行
 2. aqua-registry の最新 ref を取得
 3. ref が変わっていたら state を更新
 4. `latest` 指定のツールについて：

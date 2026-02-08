@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/terassyi/toto/internal/resource"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // Generate produces environment variable statements for the given runtimes.

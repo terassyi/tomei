@@ -1,21 +1,21 @@
 # E2E Test Scenarios
 
-This document describes the scenarios verified by toto's E2E tests.
+This document describes the scenarios verified by tomei's E2E tests.
 
 ## Test Environment
 
 - **Container**: Ubuntu 24.04-based Docker container (arm64)
-- **Image**: `toto-ubuntu:test`
-- **Container Name**: `toto-e2e-ubuntu`
+- **Image**: `tomei-ubuntu:test`
+- **Container Name**: `tomei-e2e-ubuntu`
 - **User**: `testuser` (non-root)
-- **Environment Variable**: `TOTO_E2E_CONTAINER` specifies the container name
+- **Environment Variable**: `TOMEI_E2E_CONTAINER` specifies the container name
 - **Config Files**: CUE manifests pre-copied to `/home/testuser/manifests/`
 
 ## Test Suite Overview
 
 | Suite | Tests | Description |
 |-------|-------|-------------|
-| toto on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
+| tomei on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
 | State Backup and Diff | 13 | Backup creation, diff (text/JSON), idempotent diff, upgrade diff, removal diff, backup overwrite |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
@@ -26,12 +26,12 @@ This document describes the scenarios verified by toto's E2E tests.
 
 ```mermaid
 flowchart TD
-    subgraph S1["1. toto on Ubuntu"]
+    subgraph S1["1. tomei on Ubuntu"]
         direction TB
         S1_1["1.1 Basic Commands<br/>version / init / validate / plan"]
         S1_2["1.2 Apply<br/>Runtime(go 1.25.5) + Tool(gh) + Tool(gopls)"]
         S1_3["1.3-1.5 Verify<br/>directories / symlinks / state.json"]
-        S1_5a["1.5a Environment Export<br/>toto env / --shell fish / --export"]
+        S1_5a["1.5a Environment Export<br/>tomei env / --shell fish / --export"]
         S1_6["1.6 Idempotency<br/>total_actions=0"]
         S1_7["1.7 Delegation<br/>gopls via go install"]
         S1_8["1.8 Doctor<br/>unmanaged tool detection"]
@@ -90,7 +90,7 @@ flowchart TD
         S5_2_1["5.2.1 --parallel Flag<br/>--parallel 1 (seq) / default<br/>Downloads: header once"]
         S5_2_2["5.2.2 Mixed Parallel<br/>Runtime(go) → Tool(gopls)<br/>dependency order in parallel"]
         S5_3["5.3 ToolRef Chain<br/>aqua → jq → jq-installer"]
-        S5_4["5.4 Tool→Installer→Tool<br/>gh → gh-installer → toto-src"]
+        S5_4["5.4 Tool→Installer→Tool<br/>gh → gh-installer → tomei-src"]
         S5_5["5.5 Runtime→Tool Chain<br/>go → go-installer → gopls"]
 
         S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
@@ -122,7 +122,7 @@ graph LR
     subgraph P4["Mixed Chain"]
         I5[Installer/download] --> T6[Tool/gh]
         T6 -.->|toolRef| I6[Installer/gh]
-        I6 --> T7[Tool/toto-src]
+        I6 --> T7[Tool/tomei-src]
     end
 
     subgraph P5["InstallerRepository Chain"]
@@ -135,23 +135,23 @@ graph LR
 
 ---
 
-## 1. toto on Ubuntu (Basic Functionality)
+## 1. tomei on Ubuntu (Basic Functionality)
 
 ### 1.1 Basic Commands
 
-#### `toto version`
+#### `tomei version`
 - Displays version information
-- Output contains "toto version"
+- Output contains "tomei version"
 
-#### `toto init`
+#### `tomei init`
 - Run with `--yes --force` options
 - Verifies creation of:
-  - `~/.config/toto/config.cue` (contains `package toto`)
-  - `~/.local/share/toto/` directory
+  - `~/.config/tomei/config.cue` (contains `package tomei`)
+  - `~/.local/share/tomei/` directory
   - `~/.local/bin/` directory
-  - `~/.local/share/toto/state.json` (contains `version` field)
+  - `~/.local/share/tomei/state.json` (contains `version` field)
 
-#### `toto validate`
+#### `tomei validate`
 - Validates CUE configuration in `~/manifests/`
 - Outputs "Validation successful"
 - Displays recognized resources:
@@ -159,13 +159,13 @@ graph LR
   - Tool/gopls
   - Runtime/go
 
-#### `toto plan`
+#### `tomei plan`
 - Shows execution plan
 - Output contains "Found" and "resource"
 
 ### 1.2 Runtime and Tool Installation
 
-#### `toto apply` (Initial Run)
+#### `tomei apply` (Initial Run)
 - Installs Runtime (Go 1.25.5)
 - Installs Tool (gh 2.86.0 - download pattern)
 - Installs Tool (gopls v0.21.0 - runtime delegation pattern)
@@ -177,12 +177,12 @@ graph LR
 ### 1.3 Runtime Installation Verification
 
 #### Directory Structure
-- Placed in `~/.local/share/toto/runtimes/go/1.25.5/`
+- Placed in `~/.local/share/tomei/runtimes/go/1.25.5/`
 - `bin/` directory exists
 
 #### Symbolic Links
-- `~/go/bin/go` → `~/.local/share/toto/runtimes/go/1.25.5/bin/go`
-- `~/go/bin/gofmt` → `~/.local/share/toto/runtimes/go/1.25.5/bin/gofmt`
+- `~/go/bin/go` → `~/.local/share/tomei/runtimes/go/1.25.5/bin/go`
+- `~/go/bin/gofmt` → `~/.local/share/tomei/runtimes/go/1.25.5/bin/gofmt`
 - Verifies go and gofmt symlinks are **NOT** in `~/.local/bin/`
 
 #### Execution Verification
@@ -192,7 +192,7 @@ graph LR
 ### 1.4 Tool Installation Verification (Download Pattern)
 
 #### Directory Structure
-- Placed in `~/.local/share/toto/tools/gh/2.86.0/`
+- Placed in `~/.local/share/tomei/tools/gh/2.86.0/`
 - `gh` binary exists
 
 #### Symbolic Links
@@ -214,25 +214,25 @@ graph LR
 
 ### 1.5a Environment Export
 
-#### POSIX Output (`toto env`)
-1. Run `toto env`
+#### POSIX Output (`tomei env`)
+1. Run `tomei env`
 2. Verify:
    - Output contains `export GOROOT=`
    - Output contains `export GOBIN=`
    - Output contains `go/bin` and `.local/bin` in PATH
    - Output is eval-safe and PATH works: `eval '<output>' && GOTOOLCHAIN=local go version` succeeds
 
-#### Fish Output (`toto env --shell fish`)
-1. Run `toto env --shell fish`
+#### Fish Output (`tomei env --shell fish`)
+1. Run `tomei env --shell fish`
 2. Verify:
    - Output contains `set -gx GOROOT`
    - Output contains `fish_add_path`
 
-#### File Export (`toto env --export`)
-1. Run `toto env --export`
+#### File Export (`tomei env --export`)
+1. Run `tomei env --export`
 2. Verify:
    - Output mentions `env.sh` file
-   - File `~/.config/toto/env.sh` exists
+   - File `~/.config/tomei/env.sh` exists
    - File contains `export GOROOT=`
    - File contains `export PATH=`
 
@@ -258,13 +258,13 @@ graph LR
 - Outputs "No issues found"
 
 #### Unmanaged Tool Detection
-1. Install goimports using toto-managed Go:
+1. Install goimports using tomei-managed Go:
    ```bash
-   export GOROOT=$HOME/.local/share/toto/runtimes/go/1.25.5
+   export GOROOT=$HOME/.local/share/tomei/runtimes/go/1.25.5
    export GOBIN=$HOME/go/bin
    ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest
    ```
-2. Run `toto doctor`
+2. Run `tomei doctor`
 3. Verify:
    - Displayed in "[go]" section
    - "goimports" detected as "unmanaged"
@@ -278,19 +278,19 @@ graph LR
    mv ~/manifests/runtime.cue ~/manifests/runtime.cue.old
    mv ~/manifests/runtime.cue.upgrade ~/manifests/runtime.cue
    ```
-2. Run `toto plan` to preview changes
+2. Run `tomei plan` to preview changes
 3. Verify:
    - Output contains "Runtime/go"
    - Output contains "Execution Plan"
 
 #### Upgrade Process
-1. Run `toto apply`
+1. Run `tomei apply`
 2. Verify:
    - Output contains "installing runtime", "name=go", "version=1.25.6"
 
 #### Post-Upgrade Verification
 - `GOTOOLCHAIN=local ~/go/bin/go version` → contains "go1.25.6"
-- New runtime placed in `~/.local/share/toto/runtimes/go/1.25.6/`
+- New runtime placed in `~/.local/share/tomei/runtimes/go/1.25.6/`
 - Symlink `~/go/bin/go` points to new version (contains "1.25.6")
 
 #### Taint Logic
@@ -311,7 +311,7 @@ graph LR
    ```bash
    mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden
    ```
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. Verify:
    - Apply fails with error
    - Error contains "cannot remove runtime"
@@ -326,7 +326,7 @@ graph LR
    ```bash
    mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden
    ```
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. Verify:
    - Apply succeeds
    - `~/.local/bin/gh` symlink no longer exists
@@ -339,7 +339,7 @@ graph LR
    mv ~/manifests/delegation.cue ~/manifests/delegation.cue.hidden
    mv ~/manifests/toolset.cue ~/manifests/toolset.cue.hidden
    ```
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. Verify:
    - Apply succeeds (no blocking — all dependents removed)
    - `~/go/bin/go` symlink no longer exists
@@ -354,14 +354,14 @@ graph LR
 
 #### No Backup Message
 - Environment is reset (init --force, backup/tools/runtimes removed)
-- Run `toto state diff`
+- Run `tomei state diff`
 - Outputs "No backup found"
 
 ### 1b.2 Backup Creation
 
 #### `state.json.bak` Created During Apply
 1. Record `state.json` content before apply
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. Verify `state.json.bak` exists
 4. Verify backup content matches pre-apply state
 
@@ -372,44 +372,44 @@ graph LR
 ### 1b.3 Diff After First Apply
 
 #### Text Format
-- `toto state diff` shows "State changes" header
+- `tomei state diff` shows "State changes" header
 - Shows `+` marker for added resources
 - Shows go (with version), gh (with version), gopls
 - Summary line contains "added"
 
 #### JSON Format
-- `toto state diff --output json`
+- `tomei state diff --output json`
 - Contains `"changes"` array, `"type": "added"`
 - Contains `"kind": "runtime"`, `"name": "go"`
 - Contains `"kind": "tool"`, `"name": "gh"`
 
 #### `--no-color` Flag
-- `toto state diff --no-color`
+- `tomei state diff --no-color`
 - Output does NOT contain ANSI escape codes (`\x1b[`)
 - Output still contains "State changes" and diff content
 
 ### 1b.4 Diff After Idempotent Apply
 
 #### No Changes
-1. Run `toto apply ~/manifests/` (second time, no changes)
-2. Run `toto state diff`
+1. Run `tomei apply ~/manifests/` (second time, no changes)
+2. Run `tomei state diff`
 3. Output contains "No changes since last apply"
 
 ### 1b.5 Diff After Version Upgrade
 
 #### Backup Contains Old Version
 1. Swap `runtime.cue` with `runtime.cue.upgrade` (go version change)
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. Backup contains old go version
 4. Current state contains new go version
 
 #### Text Diff Shows Modification
-- `toto state diff` shows "State changes"
+- `tomei state diff` shows "State changes"
 - Contains go, old version, new version
 - Summary contains "modified"
 
 #### JSON Diff Shows Modification
-- `toto state diff --output json`
+- `tomei state diff --output json`
 - Contains `"type": "modified"`, `"name": "go"`
 - Contains `"oldVersion"` and `"newVersion"` with correct versions
 
@@ -420,11 +420,11 @@ graph LR
 
 #### Text Diff Shows Removed
 1. Hide `tools.cue` (rename to `.hidden`)
-2. Run `toto apply ~/manifests/`
-3. `toto state diff` shows gh with "removed"
+2. Run `tomei apply ~/manifests/`
+3. `tomei state diff` shows gh with "removed"
 
 #### JSON Diff Shows Removed
-- `toto state diff --output json`
+- `tomei state diff --output json`
 - Contains `"type": "removed"`, `"name": "gh"`
 
 #### Cleanup
@@ -434,7 +434,7 @@ graph LR
 
 #### Overwrites on Each Apply
 1. Record current backup content
-2. Run `toto apply ~/manifests/`
+2. Run `tomei apply ~/manifests/`
 3. New backup content differs from previous backup
 
 ---
@@ -443,8 +443,8 @@ graph LR
 
 ### 2.1 Registry Initialization
 
-#### `toto init` with Registry
-- Run `toto init --yes --force`
+#### `tomei init` with Registry
+- Run `tomei init --yes --force`
 - Verifies state.json contains:
   - `registry.aqua.ref` (e.g., "v4.465.0")
   - `registry.aqua.updatedAt`
@@ -461,11 +461,11 @@ graph LR
   - jq jq-1.8.1 (`jqlang/jq`)
 
 #### Validation
-- `toto validate ~/manifests/registry/` succeeds
+- `tomei validate ~/manifests/registry/` succeeds
 - Recognizes Tool/rg, Tool/fd, Tool/jq
 
 #### Installation
-- `toto apply ~/manifests/registry/` installs all tools
+- `tomei apply ~/manifests/registry/` installs all tools
 - Output contains "installing tool" and "tool installed"
 
 #### Version Verification
@@ -490,13 +490,13 @@ graph LR
 ### 2.5 Registry Sync
 
 #### `--sync` Flag
-- `toto apply --sync ~/manifests/registry/`
+- `tomei apply --sync ~/manifests/registry/`
 - Logs contain "aqua registry" message
 
 ### 2.6 Idempotency
 
 #### Subsequent Applies
-- Second `toto apply ~/manifests/registry/` outputs "total_actions=0"
+- Second `tomei apply ~/manifests/registry/` outputs "total_actions=0"
 - All tools continue to work correctly
 
 ### 2.7 Version Upgrade/Downgrade
@@ -507,7 +507,7 @@ graph LR
    mv ~/manifests/registry/tools.cue ~/manifests/registry/tools.cue.new
    mv ~/manifests/registry/tools.cue.old ~/manifests/registry/tools.cue
    ```
-2. Run `toto apply ~/manifests/registry/`
+2. Run `tomei apply ~/manifests/registry/`
 3. Verify older versions installed:
    - `~/.local/bin/rg --version` → "ripgrep 14.1.1"
    - `~/.local/bin/fd --version` → "fd 10.2.0"
@@ -515,7 +515,7 @@ graph LR
 
 #### Upgrade to Newer Version
 1. Swap manifest back to newer versions
-2. Run `toto apply ~/manifests/registry/`
+2. Run `tomei apply ~/manifests/registry/`
 3. Verify newer versions installed:
    - `~/.local/bin/rg --version` → "ripgrep 15.1.0"
    - `~/.local/bin/fd --version` → "fd 10.3.0"
@@ -541,11 +541,11 @@ Tool/helm (aqua) → Installer/helm (toolRef) → InstallerRepository/bitnami
 ```
 
 #### Validation
-- `toto validate ~/installer-repo-test/helm-repo.cue` succeeds
+- `tomei validate ~/installer-repo-test/helm-repo.cue` succeeds
 - Recognizes Tool/helm, InstallerRepository/bitnami
 
 #### Installation
-- `toto apply ~/installer-repo-test/helm-repo.cue` installs helm and adds bitnami repository
+- `tomei apply ~/installer-repo-test/helm-repo.cue` installs helm and adds bitnami repository
 
 #### Helm Binary Verification
 - `~/.local/bin/helm version` is executable
@@ -561,7 +561,7 @@ Tool/helm (aqua) → Installer/helm (toolRef) → InstallerRepository/bitnami
   - `"installerRef": "helm"`
 
 #### Idempotency
-- Second `toto apply ~/installer-repo-test/helm-repo.cue` succeeds
+- Second `tomei apply ~/installer-repo-test/helm-repo.cue` succeeds
 - `helm repo list` still contains "bitnami"
 
 ### 4.2 Dependency Chain: InstallerRepository → Tool (helm pull)
@@ -581,31 +581,31 @@ Tool/helm (aqua) → Installer/helm (toolRef)
 ```
 
 #### Validation
-- `toto validate ~/installer-repo-test/repo-with-tool.cue` succeeds
+- `tomei validate ~/installer-repo-test/repo-with-tool.cue` succeeds
 - Recognizes Tool/helm, InstallerRepository/bitnami, Tool/common-chart
 
 #### Installation
-- `toto apply ~/installer-repo-test/repo-with-tool.cue` succeeds
+- `tomei apply ~/installer-repo-test/repo-with-tool.cue` succeeds
 - InstallerRepository installed before dependent Tool (ordering guaranteed by repositoryRef)
 
 #### Repository Registration
 - `helm repo list` → output contains "bitnami"
 
 #### Chart Download Verification
-- `/tmp/toto-e2e-charts/common-*.tgz` file exists (latest version)
+- `/tmp/tomei-e2e-charts/common-*.tgz` file exists (latest version)
 
 #### State Recording
 - state.json `tools` section contains `"common-chart"`
 - state.json `installerRepositories` section contains `"bitnami"`
 
 #### Idempotency
-- Second `toto apply ~/installer-repo-test/repo-with-tool.cue` succeeds without errors
+- Second `tomei apply ~/installer-repo-test/repo-with-tool.cue` succeeds without errors
 
 ### 4.3 Removal
 
 #### Manifest Reduction
 1. Apply a reduced manifest containing only Tool/helm (no InstallerRepository, no common-chart)
-2. `toto apply ~/installer-repo-test/helm-only.cue` succeeds
+2. `tomei apply ~/installer-repo-test/helm-only.cue` succeeds
 
 #### Verification
 - `helm repo list` does NOT contain "bitnami" (repository removed)
@@ -624,7 +624,7 @@ Installer(a) → Tool(b) → Installer(a)
 ```
 - Installer references Tool via toolRef
 - Tool references that Installer via installerRef
-- `toto validate` returns error
+- `tomei validate` returns error
 - Error message contains "circular dependency"
 
 #### Three-Node Cycle
@@ -632,12 +632,12 @@ Installer(a) → Tool(b) → Installer(a)
 Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 ```
 - Circular reference involving 3 resources
-- `toto validate` returns error
+- `tomei validate` returns error
 - Error message contains "circular dependency"
 
 #### Both runtimeRef and toolRef Specified
 - Installer specifies both runtimeRef and toolRef
-- `toto validate` returns error
+- `tomei validate` returns error
 - Error message contains "runtimeRef" and "toolRef"
 
 ### 5.2 Parallel Tool Installation
@@ -650,8 +650,8 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
   - bat 0.24.0
 
 #### Verification
-1. `toto validate` succeeds
-2. `toto apply` installs all 3 tools
+1. `tomei validate` succeeds
+2. `tomei apply` installs all 3 tools
 3. Version check for each tool:
    - `~/.local/bin/rg --version` → "ripgrep 14.1.1"
    - `~/.local/bin/fd --version` → "fd 10.2.0"
@@ -663,7 +663,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 ### 5.2.1 `--parallel` Flag Behavior
 
 #### Sequential Execution (`--parallel 1`)
-- `toto apply --parallel 1 ~/dependency-test/parallel.cue`
+- `tomei apply --parallel 1 ~/dependency-test/parallel.cue`
 - All 3 tools (rg, fd, bat) installed correctly
 - Version verification:
   - `~/.local/bin/rg --version` → "ripgrep 14.1.1"
@@ -672,7 +672,7 @@ Tool(a) → Installer(c) → Tool(c) → Installer(b) → Tool(a)
 - Non-TTY output contains "Commands:" header exactly once
 
 #### Default Parallelism (`--parallel 5`)
-- `toto apply ~/dependency-test/parallel.cue` (no flag, default)
+- `tomei apply ~/dependency-test/parallel.cue` (no flag, default)
 - All 3 tools installed correctly
 - Non-TTY output contains "Commands:" header exactly once (no duplicates from concurrent writes)
 
@@ -685,9 +685,9 @@ Runtime(go) → Installer(go) → Tool(gopls)
 - Same as runtime-chain.cue but executed with default parallelism
 
 #### Verification
-1. `toto apply ~/dependency-test/runtime-chain.cue` succeeds
+1. `tomei apply ~/dependency-test/runtime-chain.cue` succeeds
 2. Go runtime installed before gopls (dependency order preserved in parallel mode):
-   - `GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version` → "go1.23"
+   - `GOTOOLCHAIN=local ~/.local/share/tomei/runtimes/go/1.23.5/bin/go version` → "go1.23"
    - `~/go/bin/gopls version` → "golang.org/x/tools/gopls"
 3. state.json records both "go" and "gopls"
 
@@ -702,34 +702,34 @@ Installer(aqua) → Tool(jq) → Installer(jq-installer)
 - jq-installer: Installer referencing jq via toolRef
 
 #### Verification
-1. `toto validate` correctly recognizes dependencies:
+1. `tomei validate` correctly recognizes dependencies:
    - Installer/aqua
    - Tool/jq
    - Installer/jq-installer
-2. `toto apply` installs jq
+2. `tomei apply` installs jq
 3. `~/.local/bin/jq --version` → contains "jq-1.7"
 
 ### 5.4 Tool → Installer → Tool Chain (gh clone)
 
 #### Configuration
 ```
-Tool(gh) → Installer(gh) [toolRef] → Tool(toto-src)
+Tool(gh) → Installer(gh) [toolRef] → Tool(tomei-src)
 ```
 - gh: Tool installed via download pattern
 - gh installer: Installer referencing gh via toolRef, uses `gh repo clone`
-- toto-src: Tool (repository) cloned via gh installer
+- tomei-src: Tool (repository) cloned via gh installer
 
 #### Verification
-1. `toto validate` recognizes all resources:
+1. `tomei validate` recognizes all resources:
    - Tool/gh
    - Installer/gh
-   - Tool/toto-src
-2. `toto apply` installs gh tool first
+   - Tool/tomei-src
+2. `tomei apply` installs gh tool first
 3. gh is available: `~/.local/bin/gh --version`
-4. toto repository is cloned:
-   - `~/repos/toto-src/` directory exists
-   - `~/repos/toto-src/go.mod` exists
-   - `~/repos/toto-src/cmd/toto/main.go` exists
+4. tomei repository is cloned:
+   - `~/repos/tomei-src/` directory exists
+   - `~/repos/tomei-src/go.mod` exists
+   - `~/repos/tomei-src/cmd/tomei/main.go` exists
 
 ### 5.5 Runtime → Tool Dependency Chain
 
@@ -742,15 +742,15 @@ Runtime(go) → Installer(go) → Tool(gopls)
 - gopls Tool: references Go Installer via installerRef and Go Runtime via runtimeRef
 
 #### Verification
-1. `toto validate` recognizes all resources:
+1. `tomei validate` recognizes all resources:
    - Runtime/go
    - Installer/go
    - Tool/gopls
-2. `toto apply` installs in correct order:
+2. `tomei apply` installs in correct order:
    - Runtime installed first
    - Tool installed after
 3. Go 1.23.5 correctly installed:
-   - `GOTOOLCHAIN=local ~/.local/share/toto/runtimes/go/1.23.5/bin/go version`
+   - `GOTOOLCHAIN=local ~/.local/share/tomei/runtimes/go/1.23.5/bin/go version`
    - Contains "go1.23"
 4. gopls correctly installed:
    - `~/go/bin/gopls version`
@@ -773,12 +773,12 @@ make test-e2e
 ```
 
 This command automatically:
-1. Builds toto binary for linux/arm64
-2. Builds Docker image (`toto-ubuntu:test`) with:
-   - toto binary installed at `/usr/local/bin/toto`
+1. Builds tomei binary for linux/arm64
+2. Builds Docker image (`tomei-ubuntu:test`) with:
+   - tomei binary installed at `/usr/local/bin/tomei`
    - Config files pre-copied to `/home/testuser/manifests/`
    - Non-root user (`testuser`) for realistic testing
-3. Starts container (`toto-e2e-ubuntu`)
+3. Starts container (`tomei-e2e-ubuntu`)
 4. Runs Ginkgo tests
 5. Cleans up container
 
@@ -807,7 +807,7 @@ make down
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TOTO_E2E_CONTAINER` | Container name for tests | `toto-e2e-ubuntu` |
+| `TOMEI_E2E_CONTAINER` | Container name for tests | `tomei-e2e-ubuntu` |
 
 ---
 
@@ -829,7 +829,7 @@ gopls v0.21.0 definition (runtime delegation pattern)
 ### `e2e/config/toolref.cue`
 Tool → Installer → Tool chain definition:
 - gh installer with toolRef (depends on gh tool)
-- toto-src tool (cloned via gh installer)
+- tomei-src tool (cloned via gh installer)
 
 ### `e2e/config/registry/tools.cue`
 Aqua registry-based tool definitions:

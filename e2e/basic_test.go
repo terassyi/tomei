@@ -13,27 +13,27 @@ func basicTests() {
 
 	Context("Basic Commands", func() {
 		It("displays version information", func() {
-			By("Running toto version command")
-			output, err := testExec.Exec("toto", "version")
+			By("Running tomei version command")
+			output, err := testExec.Exec("tomei", "version")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output contains version string")
-			Expect(output).To(ContainSubstring("toto version"))
+			Expect(output).To(ContainSubstring("tomei version"))
 		})
 
-		It("initializes environment with toto init", func() {
-			By("Running toto init --yes --force to create config.cue and directories")
-			output, err := testExec.Exec("toto", "init", "--yes", "--force")
+		It("initializes environment with tomei init", func() {
+			By("Running tomei init --yes --force to create config.cue and directories")
+			output, err := testExec.Exec("tomei", "init", "--yes", "--force")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Initialization complete"))
 
 			By("Verifying config.cue was created")
-			output, err = testExec.ExecBash("cat ~/.config/toto/config.cue")
+			output, err = testExec.ExecBash("cat ~/.config/tomei/config.cue")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("package toto"))
+			Expect(output).To(ContainSubstring("package tomei"))
 
 			By("Verifying data directory was created")
-			_, err = testExec.ExecBash("ls -d ~/.local/share/toto")
+			_, err = testExec.ExecBash("ls -d ~/.local/share/tomei")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying bin directory was created")
@@ -41,14 +41,14 @@ func basicTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying state.json was created")
-			output, err = testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err = testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring(`"version"`))
 		})
 
 		It("validates CUE configuration", func() {
-			By("Running toto validate command")
-			output, err := testExec.Exec("toto", "validate", "~/manifests/")
+			By("Running tomei validate command")
+			output, err := testExec.Exec("tomei", "validate", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking validation succeeded")
@@ -65,8 +65,8 @@ func basicTests() {
 		})
 
 		It("shows planned changes", func() {
-			By("Running toto plan command")
-			output, err := testExec.Exec("toto", "plan", "~/manifests/")
+			By("Running tomei plan command")
+			output, err := testExec.Exec("tomei", "plan", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan shows resources")
@@ -77,8 +77,8 @@ func basicTests() {
 
 	Context("Runtime and Tool Installation", func() {
 		It("downloads and installs Runtime and Tools", func() {
-			By("Running toto apply command")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply command")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -86,7 +86,7 @@ func basicTests() {
 	Context("Runtime Installation Verification", func() {
 		It("places runtime in runtimes directory", func() {
 			By("Listing runtimes directory")
-			output, err := testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/toto/runtimes/go/%s/", versions.GoVersion))
+			output, err := testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/tomei/runtimes/go/%s/", versions.GoVersion))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bin directory exists")
@@ -133,7 +133,7 @@ func basicTests() {
 	Context("Tool Installation - Download Pattern", func() {
 		It("places tool binary in tools directory", func() {
 			By("Listing tools directory")
-			output, err := testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/toto/tools/gh/%s/", versions.GhVersion))
+			output, err := testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/tomei/tools/gh/%s/", versions.GhVersion))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gh binary exists")
@@ -162,7 +162,7 @@ func basicTests() {
 	Context("Runtime Delegation", func() {
 		It("installed tool via runtime delegation (go install) in first apply", func() {
 			By("Verifying gopls was already installed")
-			// gopls was installed during the first toto apply along with go runtime and gh
+			// gopls was installed during the first tomei apply along with go runtime and gh
 			// This test verifies the installation results
 		})
 
@@ -189,7 +189,7 @@ func basicTests() {
 	Context("State Management", func() {
 		It("updates state.json with runtime and tool info", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtimes section exists")
@@ -211,7 +211,7 @@ func basicTests() {
 
 		It("updates state.json with gopls tool info", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls is in tools section")
@@ -229,8 +229,8 @@ func basicTests() {
 
 	Context("Environment Export", func() {
 		It("outputs posix environment variables for installed runtimes", func() {
-			By("Running toto env")
-			output, err := testExec.Exec("toto", "env")
+			By("Running tomei env")
+			output, err := testExec.Exec("tomei", "env")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking GOROOT export")
@@ -249,8 +249,8 @@ func basicTests() {
 		})
 
 		It("outputs fish environment variables", func() {
-			By("Running toto env --shell fish")
-			output, err := testExec.Exec("toto", "env", "--shell", "fish")
+			By("Running tomei env --shell fish")
+			output, err := testExec.Exec("tomei", "env", "--shell", "fish")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking fish-style GOROOT export")
@@ -261,15 +261,15 @@ func basicTests() {
 		})
 
 		It("exports env file with --export flag", func() {
-			By("Running toto env --export")
-			output, err := testExec.Exec("toto", "env", "--export")
+			By("Running tomei env --export")
+			output, err := testExec.Exec("tomei", "env", "--export")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking output confirms file was written")
 			Expect(output).To(ContainSubstring("env.sh"))
 
 			By("Verifying env file exists and contains exports")
-			content, err := testExec.ExecBash("cat ~/.config/toto/env.sh")
+			content, err := testExec.ExecBash("cat ~/.config/tomei/env.sh")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(content).To(ContainSubstring(`export GOROOT=`))
 			Expect(content).To(ContainSubstring(`export PATH=`))
@@ -278,16 +278,16 @@ func basicTests() {
 
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("does not re-download on multiple applies", func() {
-			By("Running toto apply two more times")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply two more times")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go still works")
@@ -302,8 +302,8 @@ func basicTests() {
 		})
 
 		It("is idempotent for runtime delegation tools", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls still works")
@@ -318,10 +318,10 @@ func basicTests() {
 			By("Cleaning up any unmanaged tools from previous tests")
 			// Remove tools that may have been installed by dependency tests
 			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq")
-			_, _ = testExec.ExecBash("rm -rf ~/.local/share/toto/tools/rg ~/.local/share/toto/tools/fd ~/.local/share/toto/tools/bat ~/.local/share/toto/tools/jq")
+			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat ~/.local/share/tomei/tools/jq")
 
-			By("Running toto doctor command")
-			output, err := testExec.Exec("toto", "doctor")
+			By("Running tomei doctor command")
+			output, err := testExec.Exec("tomei", "doctor")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking doctor reports healthy environment")
@@ -329,13 +329,13 @@ func basicTests() {
 		})
 
 		It("detects unmanaged tools in runtime bin path", func() {
-			By("Installing an unmanaged tool via go install using toto-managed go runtime")
-			// Use the toto-managed go binary from ~/go/bin with proper GOBIN set
-			_, err := testExec.ExecBash(fmt.Sprintf("export GOROOT=$HOME/.local/share/toto/runtimes/go/%s && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest", versions.GoVersion))
+			By("Installing an unmanaged tool via go install using tomei-managed go runtime")
+			// Use the tomei-managed go binary from ~/go/bin with proper GOBIN set
+			_, err := testExec.ExecBash(fmt.Sprintf("export GOROOT=$HOME/.local/share/tomei/runtimes/go/%s && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest", versions.GoVersion))
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto doctor command")
-			output, err := testExec.Exec("toto", "doctor")
+			By("Running tomei doctor command")
+			output, err := testExec.Exec("tomei", "doctor")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking doctor detects unmanaged tool")
@@ -352,14 +352,14 @@ func basicTests() {
 		It("shows upgrade plan before applying", func() {
 			By(fmt.Sprintf("Swapping runtime config to upgraded version (%s -> %s)", versions.GoVersion, versions.GoVersionUpgrade))
 			// Move current runtime.cue aside and replace with upgrade version
-			// runtime.cue.upgrade has .upgrade extension so it's not loaded by toto until renamed
+			// runtime.cue.upgrade has .upgrade extension so it's not loaded by tomei until renamed
 			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.old")
 			Expect(err).NotTo(HaveOccurred())
 			_, err = testExec.ExecBash("mv ~/manifests/runtime.cue.upgrade ~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto plan to see changes")
-			output, err := testExec.Exec("toto", "plan", "~/manifests/")
+			By("Running tomei plan to see changes")
+			output, err := testExec.Exec("tomei", "plan", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan shows runtime in execution order")
@@ -368,8 +368,8 @@ func basicTests() {
 		})
 
 		It("upgrades runtime to newer version", func() {
-			By("Running toto apply with upgraded config")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply with upgraded config")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying new runtime version is installed")
@@ -378,7 +378,7 @@ func basicTests() {
 			Expect(output).To(ContainSubstring("go" + versions.GoVersionUpgrade))
 
 			By("Verifying new runtime is in correct location")
-			_, err = testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/toto/runtimes/go/%s/bin/go", versions.GoVersionUpgrade))
+			_, err = testExec.ExecBash(fmt.Sprintf("ls ~/.local/share/tomei/runtimes/go/%s/bin/go", versions.GoVersionUpgrade))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying symlink points to new version")
@@ -400,7 +400,7 @@ func basicTests() {
 
 		It("updates state.json with new runtime version", func() {
 			By("Reading state.json")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go runtime version is updated to " + versions.GoVersionUpgrade)
@@ -408,8 +408,8 @@ func basicTests() {
 		})
 
 		It("is idempotent after runtime upgrade", func() {
-			By("Running toto apply again")
-			_, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply again")
+			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying runtime still works")
@@ -431,8 +431,8 @@ func basicTests() {
 			_, err := testExec.ExecBash("mv ~/manifests/runtime.cue ~/manifests/runtime.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply — should fail because gopls depends on go runtime")
-			output, err := testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply — should fail because gopls depends on go runtime")
+			output, err := testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("cannot remove runtime"))
 			Expect(output).To(ContainSubstring("gopls"))
@@ -447,8 +447,8 @@ func basicTests() {
 			_, err := testExec.ExecBash("mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying tool symlink is removed")
@@ -456,7 +456,7 @@ func basicTests() {
 			Expect(err).To(HaveOccurred())
 
 			By("Verifying tool is removed from state")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(MatchRegexp(`"gh"\s*:`))
 		})
@@ -470,8 +470,8 @@ func basicTests() {
 			_, err = testExec.ExecBash("mv ~/manifests/toolset.cue ~/manifests/toolset.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running toto apply — should succeed since all dependents are removed")
-			_, err = testExec.Exec("toto", "apply", "~/manifests/")
+			By("Running tomei apply — should succeed since all dependents are removed")
+			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying runtime symlink is removed")
@@ -483,7 +483,7 @@ func basicTests() {
 			Expect(err).To(HaveOccurred())
 
 			By("Verifying state.json has no runtime or gopls")
-			output, err := testExec.ExecBash("cat ~/.local/share/toto/state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).NotTo(MatchRegexp(`"go"\s*:`))
 			Expect(output).NotTo(MatchRegexp(`"gopls"\s*:`))

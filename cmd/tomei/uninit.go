@@ -10,20 +10,20 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/terassyi/toto/internal/config"
-	"github.com/terassyi/toto/internal/path"
-	"github.com/terassyi/toto/internal/ui"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/ui"
 )
 
 var uninitCmd = &cobra.Command{
 	Use:   "uninit",
-	Short: "Remove toto directories and state",
-	Long: `Remove toto directories, state files, and managed symlinks.
+	Short: "Remove tomei directories and state",
+	Long: `Remove tomei directories, state files, and managed symlinks.
 
 This command removes:
   - Config directory (~/.config/toto/)
-  - Data directory (~/.local/share/toto/)
-  - Symlinks in bin directory (~/.local/bin/) that point to toto-managed tools
+  - Data directory (~/.local/share/tomei/)
+  - Symlinks in bin directory (~/.local/bin/) that point to tomei-managed tools
 
 The bin directory itself is preserved as it may contain non-toto files.
 
@@ -72,7 +72,7 @@ func runUninit(cmd *cobra.Command, _ []string) error {
 
 	if ctx == nil {
 		// Not initialized
-		cmd.Println("toto is not initialized. Nothing to remove.")
+		cmd.Println("tomei is not initialized. Nothing to remove.")
 		return nil
 	}
 
@@ -271,7 +271,7 @@ func findManagedSymlinks(binDir, dataDir string) ([]string, error) {
 			target = filepath.Join(binDir, target)
 		}
 
-		// Check if target points to toto-managed directory
+		// Check if target points to tomei-managed directory
 		if strings.HasPrefix(target, dataDir) {
 			symlinks = append(symlinks, linkPath)
 		}
