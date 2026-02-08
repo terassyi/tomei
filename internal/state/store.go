@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -107,21 +108,31 @@ func (s *Store[T]) Load() (*T, error) {
 		return nil, errors.New("must acquire lock before loading state")
 	}
 
-	data, err := os.ReadFile(s.statePath)
+	st, err := s.readState()
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Return zero value for new state
-			return new(T), nil
-		}
-		return nil, fmt.Errorf("failed to read state file: %w", err)
+		return nil, err
 	}
 
-	var state T
-	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("failed to parse state file: %w", err)
-	}
+	s.validate(st)
 
-	return &state, nil
+	return st, nil
+}
+
+// validate runs type-specific validation on the loaded state and logs warnings.
+func (s *Store[T]) validate(st *T) {
+	var result *ValidationResult
+	switch v := any(st).(type) {
+	case *UserState:
+		result = ValidateUserState(v)
+	case *SystemState:
+		result = ValidateSystemState(v)
+	}
+	if result == nil {
+		return
+	}
+	for _, w := range result.Warnings {
+		slog.Warn("state validation warning", "field", w.Field, "message", w.Message)
+	}
 }
 
 // Save writes the state to disk atomically.
@@ -149,6 +160,31 @@ func (s *Store[T]) Save(state *T) error {
 	}
 
 	return nil
+}
+
+// LoadReadOnly reads the state from disk without requiring a lock.
+// Use this for read-only operations like diff and plan.
+func (s *Store[T]) LoadReadOnly() (*T, error) {
+	return s.readState()
+}
+
+// readState reads and unmarshals the state file.
+// Returns a new empty state if the file doesn't exist.
+func (s *Store[T]) readState() (*T, error) {
+	data, err := os.ReadFile(s.statePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return new(T), nil
+		}
+		return nil, fmt.Errorf("failed to read state file: %w", err)
+	}
+
+	var state T
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("failed to parse state file: %w", err)
+	}
+
+	return &state, nil
 }
 
 // StatePath returns the path to the state file.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/terassyi/toto/internal/state"
@@ -18,7 +19,8 @@ type Store interface {
 }
 
 // SyncRegistry fetches the latest aqua-registry ref and updates state if changed.
-func SyncRegistry(ctx context.Context, store Store) error {
+// If httpClient is nil, a default HTTP client is used.
+func SyncRegistry(ctx context.Context, store Store, httpClient *http.Client) error {
 	if err := store.Lock(); err != nil {
 		return fmt.Errorf("failed to acquire lock: %w", err)
 	}
@@ -29,7 +31,7 @@ func SyncRegistry(ctx context.Context, store Store) error {
 		return fmt.Errorf("failed to load state: %w", err)
 	}
 
-	client := NewVersionClient()
+	client := NewVersionClient(httpClient)
 	newRef, err := client.GetLatestRef(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get latest aqua registry ref: %w", err)

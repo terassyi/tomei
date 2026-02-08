@@ -19,24 +19,15 @@ type VersionClient struct {
 	httpClient *http.Client
 }
 
-// NewVersionClient creates a new VersionClient.
-func NewVersionClient() *VersionClient {
-	return &VersionClient{
-		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
+// NewVersionClient creates a new VersionClient with the given HTTP client.
+// If client is nil, a default HTTP client with timeout is used.
+func NewVersionClient(client *http.Client) *VersionClient {
+	if client == nil {
+		client = &http.Client{Timeout: defaultHTTPTimeout}
 	}
-}
-
-// newVersionClientWithHTTPClient creates a new VersionClient with the given HTTP client (internal use).
-func newVersionClientWithHTTPClient(client *http.Client) *VersionClient {
 	return &VersionClient{
 		httpClient: client,
 	}
-}
-
-// WithHTTPClient sets the HTTP client (for testing).
-func (c *VersionClient) WithHTTPClient(client *http.Client) *VersionClient {
-	c.httpClient = client
-	return c
 }
 
 // GetLatestRef fetches the latest tag of aqua-registry.

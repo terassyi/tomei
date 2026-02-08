@@ -321,7 +321,7 @@ toto plan        # validate + show execution plan
 toto apply       # plan + execute
 toto env         # Output environment variables (for eval)
 toto doctor      # detect unmanaged tools, conflicts
-toto adopt       # bring unmanaged tools under management
+
 toto version     # show version
 ```
 
@@ -782,7 +782,9 @@ $ toto doctor
          PATH resolves to: ~/go/bin/gopls
 
 [Suggestions]
-  toto adopt gopls staticcheck cargo-edit
+  consider adding "gopls" to your manifest
+  consider adding "staticcheck" to your manifest
+  consider adding "cargo-edit" to your manifest
 ```
 
 ---
@@ -930,7 +932,6 @@ Mode:
 ### Phase 6: Userland Commands (Completed)
 
 ```
-├── toto adopt — bring unmanaged tools (detected by doctor) under toto management
 └── toto env — export runtime environment variables for shell (eval $(toto env))
 ```
 

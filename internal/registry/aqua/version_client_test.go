@@ -49,7 +49,7 @@ func TestVersionClient_GetLatestRef(t *testing.T) {
 				},
 			}
 
-			client := NewVersionClient().WithHTTPClient(mockClient)
+			client := NewVersionClient(mockClient)
 			got, err := client.GetLatestRef(context.Background())
 
 			if tt.wantErr != "" {
@@ -121,7 +121,7 @@ func TestVersionClient_GetLatestToolVersion(t *testing.T) {
 				},
 			}
 
-			client := NewVersionClient().WithHTTPClient(mockClient)
+			client := NewVersionClient(mockClient)
 			got, err := client.GetLatestToolVersion(context.Background(), tt.repoOwner, tt.repoName)
 
 			if tt.wantErr != "" {

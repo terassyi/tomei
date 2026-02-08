@@ -16,6 +16,7 @@ This document describes the scenarios verified by toto's E2E tests.
 | Suite | Tests | Description |
 |-------|-------|-------------|
 | toto on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
+| State Backup and Diff | 13 | Backup creation, diff (text/JSON), idempotent diff, upgrade diff, removal diff, backup overwrite |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
@@ -38,6 +39,19 @@ flowchart TD
         S1_10["1.10 Resource Removal<br/>dependency guard + tool/runtime removal"]
 
         S1_1 --> S1_2 --> S1_3 --> S1_5a --> S1_6 --> S1_7 --> S1_8 --> S1_9 --> S1_10
+    end
+
+    subgraph S1b["1b. State Backup and Diff"]
+        direction TB
+        S1b_1["1b.1 Diff Before First Apply<br/>No backup found message"]
+        S1b_2["1b.2 Backup Creation<br/>state.json.bak created / differs from current"]
+        S1b_3["1b.3 Diff After First Apply<br/>text / JSON / --no-color"]
+        S1b_4["1b.4 Idempotent Diff<br/>No changes since last apply"]
+        S1b_5["1b.5 Diff After Upgrade<br/>modified (old → new version)"]
+        S1b_6["1b.6 Diff After Removal<br/>removed tool in diff"]
+        S1b_7["1b.7 Backup Overwrite<br/>backup updated on each apply"]
+
+        S1b_1 --> S1b_2 --> S1b_3 --> S1b_4 --> S1b_5 --> S1b_6 --> S1b_7
     end
 
     subgraph S2["2. Aqua Registry"]
@@ -82,7 +96,7 @@ flowchart TD
         S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
     end
 
-    S1 --> S2 --> S3 --> S4 --> S5
+    S1 --> S1b --> S2 --> S3 --> S4 --> S5
 ```
 
 ### Dependency Graph Patterns
@@ -254,7 +268,7 @@ graph LR
 3. Verify:
    - Displayed in "[go]" section
    - "goimports" detected as "unmanaged"
-   - "toto adopt" is suggested
+   - Suggestions section is shown
 
 ### 1.9 Runtime Upgrade (1.25.5 → 1.25.6)
 
@@ -331,6 +345,97 @@ graph LR
    - `~/go/bin/go` symlink no longer exists
    - `~/go/bin/gopls` binary no longer exists
    - state.json does not contain `"go"` or `"gopls"`
+
+---
+
+## 1b. State Backup and Diff
+
+### 1b.1 Diff Before First Apply
+
+#### No Backup Message
+- Environment is reset (init --force, backup/tools/runtimes removed)
+- Run `toto state diff`
+- Outputs "No backup found"
+
+### 1b.2 Backup Creation
+
+#### `state.json.bak` Created During Apply
+1. Record `state.json` content before apply
+2. Run `toto apply ~/manifests/`
+3. Verify `state.json.bak` exists
+4. Verify backup content matches pre-apply state
+
+#### Backup Differs from Current State
+- Current `state.json` contains go/gh/gopls versions
+- Backup does NOT contain gh version (was empty state before apply)
+
+### 1b.3 Diff After First Apply
+
+#### Text Format
+- `toto state diff` shows "State changes" header
+- Shows `+` marker for added resources
+- Shows go (with version), gh (with version), gopls
+- Summary line contains "added"
+
+#### JSON Format
+- `toto state diff --output json`
+- Contains `"changes"` array, `"type": "added"`
+- Contains `"kind": "runtime"`, `"name": "go"`
+- Contains `"kind": "tool"`, `"name": "gh"`
+
+#### `--no-color` Flag
+- `toto state diff --no-color`
+- Output does NOT contain ANSI escape codes (`\x1b[`)
+- Output still contains "State changes" and diff content
+
+### 1b.4 Diff After Idempotent Apply
+
+#### No Changes
+1. Run `toto apply ~/manifests/` (second time, no changes)
+2. Run `toto state diff`
+3. Output contains "No changes since last apply"
+
+### 1b.5 Diff After Version Upgrade
+
+#### Backup Contains Old Version
+1. Swap `runtime.cue` with `runtime.cue.upgrade` (go version change)
+2. Run `toto apply ~/manifests/`
+3. Backup contains old go version
+4. Current state contains new go version
+
+#### Text Diff Shows Modification
+- `toto state diff` shows "State changes"
+- Contains go, old version, new version
+- Summary contains "modified"
+
+#### JSON Diff Shows Modification
+- `toto state diff --output json`
+- Contains `"type": "modified"`, `"name": "go"`
+- Contains `"oldVersion"` and `"newVersion"` with correct versions
+
+#### Cleanup
+- Restore original `runtime.cue` and apply to revert
+
+### 1b.6 Diff After Resource Removal
+
+#### Text Diff Shows Removed
+1. Hide `tools.cue` (rename to `.hidden`)
+2. Run `toto apply ~/manifests/`
+3. `toto state diff` shows gh with "removed"
+
+#### JSON Diff Shows Removed
+- `toto state diff --output json`
+- Contains `"type": "removed"`, `"name": "gh"`
+
+#### Cleanup
+- Restore `tools.cue` from `.hidden`
+
+### 1b.7 Backup Overwrite
+
+#### Overwrites on Each Apply
+1. Record current backup content
+2. Run `toto apply ~/manifests/`
+3. New backup content differs from previous backup
 
 ---
 

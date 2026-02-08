@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/spf13/cobra"
+	statecmd "github.com/terassyi/toto/cmd/toto/state"
 )
 
 var (
@@ -35,5 +36,6 @@ func init() {
 		planCmd,
 		doctorCmd,
 		envCmd,
+		statecmd.Cmd,
 	)
 }

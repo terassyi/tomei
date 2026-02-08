@@ -13,6 +13,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/toto/internal/config"
+	"github.com/terassyi/toto/internal/github"
 	"github.com/terassyi/toto/internal/path"
 	"github.com/terassyi/toto/internal/registry/aqua"
 	"github.com/terassyi/toto/internal/state"
@@ -194,7 +195,8 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 // initRegistry initializes the aqua-registry state by fetching the latest ref.
 func initRegistry(ctx context.Context, st *state.UserState) error {
-	client := aqua.NewVersionClient()
+	ghClient := github.NewHTTPClient(github.TokenFromEnv())
+	client := aqua.NewVersionClient(ghClient)
 
 	ref, err := client.GetLatestRef(ctx)
 	if err != nil {

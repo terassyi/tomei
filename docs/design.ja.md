@@ -324,7 +324,7 @@ toto plan        # validate + 実行計画表示
 toto apply       # plan + 実行
 toto env         # 環境変数を出力 (eval 用)
 toto doctor      # 未管理ツール検知、競合検知
-toto adopt       # 未管理ツールを管理下に追加
+
 toto version     # バージョン表示
 ```
 
@@ -783,7 +783,9 @@ $ toto doctor
          PATH resolves to: ~/go/bin/gopls
 
 [Suggestions]
-  toto adopt gopls staticcheck cargo-edit
+  consider adding "gopls" to your manifest
+  consider adding "staticcheck" to your manifest
+  consider adding "cargo-edit" to your manifest
 ```
 
 ---
@@ -931,7 +933,6 @@ Mode:
 ### Phase 6: ユーザランドコマンド (完了)
 
 ```
-├── toto adopt — doctor が検出した未管理ツールを toto の管理下に取り込む
 └── toto env — ランタイムの環境変数をシェルにエクスポート (eval $(toto env))
 ```
 

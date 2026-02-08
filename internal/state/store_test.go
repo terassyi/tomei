@@ -110,6 +110,88 @@ func TestStore_LoadSave(t *testing.T) {
 	}
 }
 
+func TestStore_LoadReadOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, store *Store[UserState])
+		wantErr bool
+		check   func(t *testing.T, st *UserState)
+	}{
+		{
+			name:  "returns empty state when file does not exist",
+			setup: func(t *testing.T, store *Store[UserState]) {},
+			check: func(t *testing.T, st *UserState) {
+				if st == nil {
+					t.Fatal("state should not be nil")
+				}
+			},
+		},
+		{
+			name: "reads existing state without lock",
+			setup: func(t *testing.T, store *Store[UserState]) {
+				if err := store.Lock(); err != nil {
+					t.Fatalf("failed to lock: %v", err)
+				}
+				st := &UserState{
+					Version: Version,
+					Tools: map[string]*resource.ToolState{
+						"gh": {Version: "2.86.0", UpdatedAt: time.Now()},
+					},
+				}
+				if err := store.Save(st); err != nil {
+					t.Fatalf("failed to save: %v", err)
+				}
+				if err := store.Unlock(); err != nil {
+					t.Fatalf("failed to unlock: %v", err)
+				}
+			},
+			check: func(t *testing.T, st *UserState) {
+				if st.Version != Version {
+					t.Errorf("expected version %q, got %q", Version, st.Version)
+				}
+				if len(st.Tools) != 1 {
+					t.Errorf("expected 1 tool, got %d", len(st.Tools))
+				}
+			},
+		},
+		{
+			name: "returns error on corrupted JSON",
+			setup: func(t *testing.T, store *Store[UserState]) {
+				if err := os.WriteFile(store.StatePath(), []byte("invalid{"), 0644); err != nil {
+					t.Fatalf("failed to write: %v", err)
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			store, err := NewStore[UserState](dir)
+			if err != nil {
+				t.Fatalf("failed to create store: %v", err)
+			}
+
+			tt.setup(t, store)
+
+			st, err := store.LoadReadOnly()
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.check != nil {
+				tt.check(t, st)
+			}
+		})
+	}
+}
+
 func TestStore_LoadWithoutLock(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
