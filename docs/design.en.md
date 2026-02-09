@@ -315,14 +315,18 @@ Execution order: `sudo tomei apply --system` → `tomei apply`
 ### 4.2 Command List
 
 ```bash
-tomei init        # Initialize (config.cue, directories, state.json)
-tomei validate    # CUE syntax + circular reference check
-tomei plan        # validate + show execution plan
-tomei apply       # plan + execute
-tomei env         # Output environment variables (for eval)
-tomei doctor      # detect unmanaged tools, conflicts
+tomei init            # Initialize (config.cue, directories, state.json)
+tomei validate        # CUE syntax + circular reference check
+tomei plan            # validate + show execution plan
+tomei apply           # plan + execute
+tomei env             # Output environment variables (for eval)
+tomei doctor          # detect unmanaged tools, conflicts
+tomei get             # List installed resources (table/wide/json)
+tomei logs            # Inspect installation logs
+tomei state diff      # Compare state backups
+tomei completion      # Generate shell completion scripts (bash/zsh/fish/powershell)
 
-tomei version     # show version
+tomei version         # show version
 ```
 
 ### 4.3 tomei init
@@ -373,6 +377,75 @@ eval "$(tomei env)"
 **Note:** During `tomei apply`, delegation commands are automatically executed with the `env` field's environment variables set by tomei. Therefore, `tomei env` is for the user's shell environment.
 
 **PATH propagation for toolRef:** When an Installer has a `toolRef` (e.g., Installer/binstall depends on Tool/cargo-binstall), tomei automatically prepends the referenced Tool's bin directory to PATH when executing delegation commands. This applies to both Tool installation commands (e.g., `cargo binstall ripgrep`) and InstallerRepository commands (e.g., `helm repo add`). This ensures that delegation commands can find their dependent tool binaries even when the user's shell PATH does not include the tool's bin directory.
+
+### 4.5 tomei get
+
+Display installed resources. Similar to kubectl's `get` command.
+
+```bash
+$ tomei get tools
+NAME       VERSION   VERSION_KIND
+gh         2.62.0    exact
+ripgrep    14.1.1    exact
+
+$ tomei get runtimes -o wide
+NAME   VERSION   VERSION_KIND   TYPE       INSTALL_PATH                    BINARIES
+go     1.23.6    exact          download   ~/.local/share/tomei/runtimes/  go, gofmt
+
+$ tomei get tools -o json
+{
+  "gh": { "version": "2.62.0", ... },
+  ...
+}
+```
+
+**Resource types:**
+- `tools` (`tool`) — Tools
+- `runtimes` (`runtime`, `rt`) — Runtimes
+- `installers` (`installer`, `inst`) — Installers
+- `installerrepositories` (`installerrepository`, `instrepo`) — Installer Repositories
+
+### 4.6 tomei logs
+
+Inspect installation logs. Used for debugging failed resources.
+
+```bash
+# Show failed resources from the most recent session
+$ tomei logs
+
+# Show logs for a specific resource
+$ tomei logs tool/ripgrep
+
+# List all sessions
+$ tomei logs --list
+```
+
+### 4.7 tomei state diff
+
+Display state changes from the most recent `tomei apply`.
+
+```bash
+$ tomei state diff
+$ tomei state diff -o json
+```
+
+### 4.8 tomei completion
+
+Generate shell completion scripts.
+
+```bash
+# bash
+source <(tomei completion bash)
+
+# zsh
+tomei completion zsh > "${fpath[1]}/_tomei"
+
+# fish
+tomei completion fish | source
+
+# powershell
+tomei completion powershell | Out-String | Invoke-Expression
+```
 
 ---
 
@@ -945,27 +1018,44 @@ Mode:
 └── E2E tests for Rust delegation runtime with cargo install
 ```
 
-### Phase 8: Configuration & Registry (Next)
+### Phase 8: Configuration & Registry (Completed)
 
 ```
-├── CUE presets/overlay — environment-based conditional branching (_env.os, _env.arch)
 ├── InstallerRepository — tool metadata repository management
-└── Authentication & tokens — GitHub API rate limiting, private repositories
+├── CUE presets/overlay — environment-based conditional branching (_env.os, _env.arch, _env.headless, _env.platform)
+├── CUE schema validation — type-safe validation with binary embedding (go:embed)
+└── GitHub token authentication — GITHUB_TOKEN / GH_TOKEN for API rate limit mitigation
 ```
 
-### Phase 9: Performance
+### Phase 9: Diagnostics & Information Commands (Completed)
+
+```
+├── tomei get — kubectl-like resource listing (table/wide/JSON output)
+├── tomei logs — installation log inspection (per-resource, session list)
+├── tomei state diff — state backup comparison (text/JSON output)
+├── tomei completion — shell completion scripts (bash/zsh/fish/powershell)
+└── Flag completion — completion candidates for --output and --shell flags
+```
+
+### Phase 10: Performance
 
 ```
 └── Batch state writes per execution layer (parallel execution optimization)
 ```
 
-### Phase 10: System Privilege (Deferred)
+### Phase 11: System Privilege (Deferred)
 
 ```
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
 └── tomei apply --system
+```
+
+### Remaining
+
+```
+└── Private repository access — authenticated downloads from private GitHub repositories
 ```
 
 ---
@@ -1198,9 +1288,9 @@ cd e2e && make test
 
 ---
 
-## 15. Future Design Considerations
+## 15. Design Considerations
 
-### 15.1 InstallerRepository
+### 15.1 InstallerRepository (Implemented)
 
 A repository that provides tool metadata (URL patterns, architecture-specific filenames, etc.) like aqua registry. Similar role to SystemPackageRepository.
 
@@ -1281,26 +1371,10 @@ spec: {
 
 ## 16. TODO
 
-### 16.1 Auto-update latest-specified tools on `--sync`
+### 16.1 Private Repository Access
 
-**Overview:**
-When running `tomei apply --sync`, if the aqua-registry ref is updated, tools specified with `latest` should have their latest version re-fetched and automatically reinstalled if different from the installed version.
+Authenticated downloads from private GitHub repositories. Public repository GitHub API rate limit mitigation is already supported via `GITHUB_TOKEN` / `GH_TOKEN` environment variables (`internal/github/` package).
 
-**Current Behavior:**
-- `--sync` only updates `registry.aqua.ref` in state.json
-- Tools specified with `latest` have their resolved version recorded in state at initial installation
-- Subsequent applies compare against the state version, so changes in the latest version are not detected
+### 16.2 Batch State Writes
 
-**Expected Behavior:**
-1. Run `tomei apply --sync`
-2. Fetch the latest aqua-registry ref
-3. If ref changed, update state
-4. For tools specified with `latest`:
-   - Re-fetch the latest version with the new ref
-   - Compare with the installed version
-   - Reinstall if different
-
-**Implementation Considerations:**
-- Add a field like `latestSpec: bool` to ToolState to record whether it was specified as latest
-- Or treat tools with empty version in ToolSpec as latest
-- Only perform re-check on `--sync` (normal apply trusts the version in state)
+Performance optimization for parallel execution. Currently state.json is written per resource, but writing in batch after each execution layer completes would reduce I/O overhead.

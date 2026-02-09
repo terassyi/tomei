@@ -318,14 +318,18 @@ sudo tomei apply --system
 ### 4.2 コマンド一覧
 
 ```bash
-tomei init        # 初期化 (config.cue, ディレクトリ, state.json)
-tomei validate    # CUE 構文 + 循環参照チェック
-tomei plan        # validate + 実行計画表示
-tomei apply       # plan + 実行
-tomei env         # 環境変数を出力 (eval 用)
-tomei doctor      # 未管理ツール検知、競合検知
+tomei init            # 初期化 (config.cue, ディレクトリ, state.json)
+tomei validate        # CUE 構文 + 循環参照チェック
+tomei plan            # validate + 実行計画表示
+tomei apply           # plan + 実行
+tomei env             # 環境変数を出力 (eval 用)
+tomei doctor          # 未管理ツール検知、競合検知
+tomei get             # インストール済みリソース一覧 (table/wide/json)
+tomei logs            # インストールログの確認
+tomei state diff      # state のバックアップ比較
+tomei completion      # シェル補完スクリプト生成 (bash/zsh/fish/powershell)
 
-tomei version     # バージョン表示
+tomei version         # バージョン表示
 ```
 
 ### 4.3 tomei init
@@ -376,6 +380,75 @@ eval "$(tomei env)"
 **Note:** `tomei apply` 時の delegation コマンド実行では、tomei が自動的に `env` フィールドの環境変数をセットしてコマンドを実行する。そのため `tomei env` はユーザーのシェル環境用。
 
 **toolRef の PATH 伝搬:** Installer が `toolRef` を持つ場合（例: Installer/binstall が Tool/cargo-binstall に依存）、tomei は delegation コマンド実行時に参照先 Tool の bin ディレクトリを自動的に PATH に追加する。これは Tool のインストールコマンド（例: `cargo binstall ripgrep`）と InstallerRepository のコマンド（例: `helm repo add`）の両方に適用される。ユーザーのシェル PATH に Tool の bin ディレクトリが含まれていなくても、delegation コマンドが依存する Tool バイナリを見つけられる。
+
+### 4.5 tomei get
+
+インストール済みリソースの一覧を表示する。kubectl の `get` コマンドに類似。
+
+```bash
+$ tomei get tools
+NAME       VERSION   VERSION_KIND
+gh         2.62.0    exact
+ripgrep    14.1.1    exact
+
+$ tomei get runtimes -o wide
+NAME   VERSION   VERSION_KIND   TYPE       INSTALL_PATH                    BINARIES
+go     1.23.6    exact          download   ~/.local/share/tomei/runtimes/  go, gofmt
+
+$ tomei get tools -o json
+{
+  "gh": { "version": "2.62.0", ... },
+  ...
+}
+```
+
+**リソースタイプ:**
+- `tools` (`tool`) — ツール
+- `runtimes` (`runtime`, `rt`) — ランタイム
+- `installers` (`installer`, `inst`) — インストーラ
+- `installerrepositories` (`installerrepository`, `instrepo`) — インストーラリポジトリ
+
+### 4.6 tomei logs
+
+インストールログの確認。失敗したリソースのデバッグに使用。
+
+```bash
+# 直近のセッションで失敗したリソースを表示
+$ tomei logs
+
+# 特定リソースのログを表示
+$ tomei logs tool/ripgrep
+
+# セッション一覧
+$ tomei logs --list
+```
+
+### 4.7 tomei state diff
+
+直近の `tomei apply` による state の変更差分を表示する。
+
+```bash
+$ tomei state diff
+$ tomei state diff -o json
+```
+
+### 4.8 tomei completion
+
+シェル補完スクリプトを生成する。
+
+```bash
+# bash
+source <(tomei completion bash)
+
+# zsh
+tomei completion zsh > "${fpath[1]}/_tomei"
+
+# fish
+tomei completion fish | source
+
+# powershell
+tomei completion powershell | Out-String | Invoke-Expression
+```
 
 ---
 
@@ -946,27 +1019,44 @@ Mode:
 └── Rust delegation ランタイムの E2E テスト (cargo install)
 ```
 
-### Phase 8: 設定 & レジストリ (次)
+### Phase 8: 設定 & レジストリ (完了)
 
 ```
-├── CUE プリセット/オーバーレイ — 環境別条件分岐 (_env.os, _env.arch)
 ├── InstallerRepository — ツールメタデータのリポジトリ管理
-└── 認証・トークン — GitHub API レート制限対策、プライベートリポジトリ
+├── CUE プリセット/オーバーレイ — 環境別条件分岐 (_env.os, _env.arch, _env.headless, _env.platform)
+├── CUE スキーマ検証 — バイナリ埋め込み (go:embed) による型安全な検証
+└── GitHub トークン認証 — GITHUB_TOKEN / GH_TOKEN による API レート制限対策
 ```
 
-### Phase 9: パフォーマンス
+### Phase 9: 診断 & 情報コマンド (完了)
+
+```
+├── tomei get — kubectl ライクなリソース一覧 (table/wide/JSON 出力)
+├── tomei logs — インストールログの確認 (リソース単位、セッション一覧)
+├── tomei state diff — state バックアップ比較 (text/JSON 出力)
+├── tomei completion — シェル補完スクリプト生成 (bash/zsh/fish/powershell)
+└── フラグ補完 — --output, --shell フラグの補完候補登録
+```
+
+### Phase 10: パフォーマンス
 
 ```
 └── 実行レイヤー単位の state バッチ書き込み (並列実行最適化)
 ```
 
-### Phase 10: System 権限 (後回し)
+### Phase 11: System 権限 (後回し)
 
 ```
 ├── SystemInstaller (apt builtin)
 ├── SystemPackageRepository
 ├── SystemPackageSet
 └── tomei apply --system
+```
+
+### 残課題
+
+```
+└── プライベートリポジトリ — 認証付きプライベート GitHub リポジトリからのダウンロード
 ```
 
 ---
@@ -1199,9 +1289,9 @@ cd e2e && make test
 
 ---
 
-## 15. 将来の設計検討事項
+## 15. 設計検討事項
 
-### 15.1 InstallerRepository
+### 15.1 InstallerRepository (実装済み)
 
 aqua registry のように、ツールのメタデータ（URL パターン、アーキテクチャ別ファイル名など）を提供するリポジトリ。SystemPackageRepository と同様の役割。
 
@@ -1282,26 +1372,10 @@ spec: {
 
 ## 16. TODO
 
-### 16.1 `--sync` 時の latest 指定ツール自動更新
+### 16.1 プライベートリポジトリ
 
-**概要:**
-`tomei apply --sync` 実行時、aqua-registry の ref が更新された場合、`latest` 指定のツールについて最新バージョンを再取得し、インストール済みバージョンと異なれば自動的に再インストールする機能。
+認証付きプライベート GitHub リポジトリからのダウンロード対応。公開リポジトリの GitHub API レート制限対策は `GITHUB_TOKEN` / `GH_TOKEN` 環境変数で対応済み（`internal/github/` パッケージ）。
 
-**現状:**
-- `--sync` は state.json の `registry.aqua.ref` を更新するのみ
-- `latest` 指定のツールは初回インストール時に解決されたバージョンが state に記録される
-- 2回目以降の apply では state のバージョンと比較するため、最新バージョンが変わっても検知しない
+### 16.2 バッチ state 書き込み
 
-**期待される動作:**
-1. `tomei apply --sync` 実行
-2. aqua-registry の最新 ref を取得
-3. ref が変わっていたら state を更新
-4. `latest` 指定のツールについて：
-   - 新しい ref で最新バージョンを再取得
-   - インストール済みバージョンと比較
-   - 異なれば再インストール
-
-**実装検討:**
-- ToolState に `latestSpec: bool` のようなフィールドを追加して latest 指定かどうかを記録
-- または ToolSpec の version が空だった場合に latest として扱う
-- `--sync` 時のみ再チェックを行う（通常の apply では state のバージョンを信頼）
+並列実行時のパフォーマンス最適化。現在はリソースごとに state.json を書き込んでいるが、実行レイヤー完了後にまとめて書き込むことで I/O を削減する。
