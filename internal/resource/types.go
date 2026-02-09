@@ -64,6 +64,13 @@ type State interface {
 	isState()
 }
 
+// StateType is a union type constraint enumerating all concrete State types.
+// Use this to constrain generic functions that operate on state values.
+type StateType interface {
+	ToolState | RuntimeState | InstallerState | InstallerRepositoryState |
+		SystemInstallerState | SystemPackageRepositoryState | SystemPackageSetState
+}
+
 // Resource is the interface that all tomei resources must implement.
 type Resource interface {
 	Kind() Kind

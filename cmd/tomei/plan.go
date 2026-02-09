@@ -130,7 +130,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Output based on format
 	switch outputFormat {
-	case "json":
+	case outputJSON:
 		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
 		return exporter.ExportJSON(os.Stdout)
 	case "yaml":

@@ -32,7 +32,7 @@ var versionCmd = &cobra.Command{
 		}
 
 		switch versionFormat {
-		case "json":
+		case outputJSON:
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			return enc.Encode(info)
