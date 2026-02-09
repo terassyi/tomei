@@ -160,6 +160,9 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	if err != nil {
 		slog.Warn("failed to create log store", "error", err)
 	}
+	if logStore != nil {
+		defer logStore.Close()
+	}
 
 	// Set event handler for progress display and log capture
 	if !cfg.quiet {

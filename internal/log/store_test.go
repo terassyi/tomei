@@ -16,6 +16,7 @@ func TestLogStore_RecordAndFailedResources(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	// Start two resources
 	store.RecordStart(resource.KindTool, "ripgrep", "14.0.0", "install", "download")
@@ -46,11 +47,12 @@ func TestLogStore_RecordAndFailedResources(t *testing.T) {
 	assert.Contains(t, failed[0].Output, "compile error: something broke\n")
 }
 
-func TestLogStore_RecordComplete_DiscardsBuffer(t *testing.T) {
+func TestLogStore_RecordComplete_DiscardsFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	store.RecordStart(resource.KindTool, "foo", "1.0.0", "install", "download")
 	store.RecordOutput(resource.KindTool, "foo", "some output")
@@ -59,14 +61,19 @@ func TestLogStore_RecordComplete_DiscardsBuffer(t *testing.T) {
 	failed := store.FailedResources()
 	assert.Empty(t, failed)
 
-	// Buffer should be cleaned up
+	// Writer should be cleaned up
 	store.mu.Lock()
-	_, bufExists := store.buffers[resourceKey(resource.KindTool, "foo")]
+	_, writerExists := store.writers[resourceKey(resource.KindTool, "foo")]
 	_, metaExists := store.metadata[resourceKey(resource.KindTool, "foo")]
 	store.mu.Unlock()
 
-	assert.False(t, bufExists)
+	assert.False(t, writerExists)
 	assert.False(t, metaExists)
+
+	// Temporary file should be removed
+	tmpPath := filepath.Join(store.SessionDir(), tmpFilename(resource.KindTool, "foo"))
+	_, err = os.Stat(tmpPath)
+	assert.True(t, os.IsNotExist(err))
 }
 
 func TestLogStore_Flush(t *testing.T) {
@@ -74,6 +81,7 @@ func TestLogStore_Flush(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	store.RecordStart(resource.KindTool, "gopls", "0.16.0", "install", "go install")
 	store.RecordOutput(resource.KindTool, "gopls", "go: downloading something")
@@ -105,6 +113,10 @@ func TestLogStore_Flush(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(rustContent), "# Resource: Runtime/rust")
 	assert.Contains(t, string(rustContent), "info: installing component")
+
+	// Temporary files should be cleaned up after Flush
+	tmpFiles, _ := filepath.Glob(filepath.Join(store.SessionDir(), ".tmp_*"))
+	assert.Empty(t, tmpFiles)
 }
 
 func TestLogStore_Flush_NoFailures(t *testing.T) {
@@ -119,7 +131,9 @@ func TestLogStore_Flush_NoFailures(t *testing.T) {
 	err = store.Flush()
 	require.NoError(t, err)
 
-	// Session directory should not be created
+	// Close should clean up the empty session directory
+	store.Close()
+
 	_, err = os.Stat(store.SessionDir())
 	assert.True(t, os.IsNotExist(err))
 }
@@ -143,6 +157,7 @@ func TestLogStore_Cleanup(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	err = store.Cleanup(3)
 	require.NoError(t, err)
@@ -173,6 +188,7 @@ func TestLogStore_Cleanup_FewSessions(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	err = store.Cleanup(5)
 	require.NoError(t, err)
@@ -187,6 +203,7 @@ func TestLogStore_MultipleFailures_Sorted(t *testing.T) {
 
 	store, err := NewStore(tmpDir)
 	require.NoError(t, err)
+	defer store.Close()
 
 	store.RecordStart(resource.KindTool, "zebra", "1.0.0", "install", "download")
 	store.RecordStart(resource.KindRuntime, "go", "1.25.0", "install", "download")
@@ -206,4 +223,25 @@ func TestLogStore_MultipleFailures_Sorted(t *testing.T) {
 	assert.Equal(t, "alpha", failed[1].Name)
 	assert.Equal(t, resource.KindTool, failed[2].Kind)
 	assert.Equal(t, "zebra", failed[2].Name)
+}
+
+func TestLogStore_Close_CleansUpTmpFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	store, err := NewStore(tmpDir)
+	require.NoError(t, err)
+
+	store.RecordStart(resource.KindTool, "foo", "1.0.0", "install", "download")
+	store.RecordOutput(resource.KindTool, "foo", "some output")
+	// Neither Complete nor Error — simulate abrupt Close
+
+	store.Close()
+
+	// Temporary file should be removed
+	tmpFiles, _ := filepath.Glob(filepath.Join(store.SessionDir(), ".tmp_*"))
+	assert.Empty(t, tmpFiles)
+
+	// Empty session directory should be removed
+	_, err = os.Stat(store.SessionDir())
+	assert.True(t, os.IsNotExist(err))
 }

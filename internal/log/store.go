@@ -1,8 +1,9 @@
 package log
 
 import (
-	"bytes"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -34,12 +35,14 @@ type resourceMeta struct {
 }
 
 // Store accumulates installation output per resource and persists logs for failed resources.
+// Output is streamed to temporary files on disk to avoid unbounded memory usage.
 type Store struct {
 	baseDir    string
 	sessionID  string
 	sessionDir string
 	mu         sync.Mutex
-	buffers    map[string]*bytes.Buffer
+	dirCreated bool
+	writers    map[string]*os.File
 	metadata   map[string]*resourceMeta
 	failed     map[string]error
 }
@@ -53,7 +56,7 @@ func NewStore(baseDir string) (*Store, error) {
 		baseDir:    baseDir,
 		sessionID:  sessionID,
 		sessionDir: sessionDir,
-		buffers:    make(map[string]*bytes.Buffer),
+		writers:    make(map[string]*os.File),
 		metadata:   make(map[string]*resourceMeta),
 		failed:     make(map[string]error),
 	}, nil
@@ -64,13 +67,50 @@ func resourceKey(kind resource.Kind, name string) string {
 	return string(kind) + "/" + name
 }
 
+// tmpFilename returns the temporary file name for a resource.
+func tmpFilename(kind resource.Kind, name string) string {
+	return fmt.Sprintf(".tmp_%s_%s", kind, name)
+}
+
+// ensureSessionDir creates the session directory if it doesn't exist yet.
+// Must be called with s.mu held.
+func (s *Store) ensureSessionDir() error {
+	if s.dirCreated {
+		return nil
+	}
+	if err := os.MkdirAll(s.sessionDir, 0755); err != nil {
+		return fmt.Errorf("failed to create session directory: %w", err)
+	}
+	s.dirCreated = true
+	return nil
+}
+
 // RecordStart records the start of an action for a resource.
 func (s *Store) RecordStart(kind resource.Kind, name, version, action, method string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := resourceKey(kind, name)
-	s.buffers[key] = &bytes.Buffer{}
+
+	// Close previous writer if exists (e.g. retry)
+	if f, ok := s.writers[key]; ok {
+		f.Close()
+		os.Remove(f.Name())
+	}
+
+	if err := s.ensureSessionDir(); err != nil {
+		slog.Warn("failed to create log session directory", "error", err)
+		return
+	}
+
+	tmpPath := filepath.Join(s.sessionDir, tmpFilename(kind, name))
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		slog.Warn("failed to create log temp file", "path", tmpPath, "error", err)
+		return
+	}
+
+	s.writers[key] = f
 	s.metadata[key] = &resourceMeta{
 		kind:    kind,
 		name:    name,
@@ -80,15 +120,16 @@ func (s *Store) RecordStart(kind resource.Kind, name, version, action, method st
 	}
 }
 
-// RecordOutput appends an output line for a resource.
+// RecordOutput appends an output line for a resource, streaming directly to disk.
 func (s *Store) RecordOutput(kind resource.Kind, name, line string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := resourceKey(kind, name)
-	if buf, ok := s.buffers[key]; ok {
-		buf.WriteString(line)
-		buf.WriteByte('\n')
+	if f, ok := s.writers[key]; ok {
+		if _, err := fmt.Fprintln(f, line); err != nil {
+			slog.Warn("failed to write log output", "resource", key, "error", err)
+		}
 	}
 }
 
@@ -101,14 +142,39 @@ func (s *Store) RecordError(kind resource.Kind, name string, err error) {
 	s.failed[key] = err
 }
 
-// RecordComplete marks a resource as successfully completed, discarding its buffer.
+// RecordComplete marks a resource as successfully completed, removing its temporary file.
 func (s *Store) RecordComplete(kind resource.Kind, name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := resourceKey(kind, name)
-	delete(s.buffers, key)
+	if f, ok := s.writers[key]; ok {
+		tmpPath := f.Name()
+		f.Close()
+		os.Remove(tmpPath)
+		delete(s.writers, key)
+	}
 	delete(s.metadata, key)
+}
+
+// readTmpFile reads the content of a resource's temporary file.
+// Must be called with s.mu held.
+func (s *Store) readTmpFile(key string) (string, error) {
+	f, ok := s.writers[key]
+	if !ok {
+		return "", nil
+	}
+
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
 }
 
 // FailedResources returns information about all failed resources.
@@ -123,10 +189,7 @@ func (s *Store) FailedResources() []FailedResource {
 			continue
 		}
 
-		output := ""
-		if buf, ok := s.buffers[key]; ok {
-			output = buf.String()
-		}
+		output, _ := s.readTmpFile(key)
 
 		result = append(result, FailedResource{
 			Kind:    meta.kind,
@@ -158,10 +221,6 @@ func (s *Store) Flush() error {
 		return nil
 	}
 
-	if err := os.MkdirAll(s.sessionDir, 0755); err != nil {
-		return fmt.Errorf("failed to create session directory: %w", err)
-	}
-
 	var errs []error
 	for key, failErr := range s.failed {
 		meta := s.metadata[key]
@@ -169,9 +228,10 @@ func (s *Store) Flush() error {
 			continue
 		}
 
-		output := ""
-		if buf, ok := s.buffers[key]; ok {
-			output = buf.String()
+		output, err := s.readTmpFile(key)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("failed to read tmp log for %s: %w", key, err))
+			continue
 		}
 
 		content := buildLogContent(meta, failErr, output)
@@ -183,10 +243,53 @@ func (s *Store) Flush() error {
 		}
 	}
 
+	// Clean up all temporary files
+	s.cleanupTmpFiles()
+
 	if len(errs) > 0 {
 		return errs[0]
 	}
 	return nil
+}
+
+// Close closes all open temporary files and removes them.
+// Should be called via defer after creating the Store.
+func (s *Store) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.cleanupTmpFiles()
+
+	// Remove session directory if empty (all resources succeeded, no Flush needed)
+	if s.dirCreated {
+		s.removeIfEmpty()
+	}
+}
+
+// cleanupTmpFiles closes and removes all temporary files.
+// Must be called with s.mu held.
+func (s *Store) cleanupTmpFiles() {
+	for key, f := range s.writers {
+		tmpPath := f.Name()
+		f.Close()
+		os.Remove(tmpPath)
+		delete(s.writers, key)
+	}
+}
+
+// removeIfEmpty removes the session directory if it contains no .log files.
+// Must be called with s.mu held.
+func (s *Store) removeIfEmpty() {
+	entries, err := os.ReadDir(s.sessionDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".log") {
+			return // has log files, keep directory
+		}
+	}
+	os.RemoveAll(s.sessionDir)
 }
 
 // SessionDir returns the path to the current session directory.
