@@ -5,6 +5,8 @@ import (
 	statecmd "github.com/terassyi/tomei/cmd/tomei/state"
 )
 
+const outputJSON = "json"
+
 var (
 	systemMode bool
 )
@@ -36,6 +38,9 @@ func init() {
 		planCmd,
 		doctorCmd,
 		envCmd,
+		logsCmd,
+		getCmd,
+		completionCmd,
 		statecmd.Cmd,
 	)
 }

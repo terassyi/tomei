@@ -1,5 +1,10 @@
 package resource
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Kind represents the type of resource (K8s style).
 type Kind string
 
@@ -37,6 +42,16 @@ type Ref struct {
 	Name string
 }
 
+// ParseRef parses a "kind/name" string into a Ref.
+// Returns an error if the format is invalid.
+func ParseRef(s string) (Ref, error) {
+	kind, name, ok := strings.Cut(s, "/")
+	if !ok || kind == "" || name == "" {
+		return Ref{}, fmt.Errorf("invalid resource reference %q, expected format: kind/name", s)
+	}
+	return Ref{Kind: Kind(kind), Name: name}, nil
+}
+
 // Spec is the interface that all spec types must implement.
 type Spec interface {
 	Validate() error
@@ -47,6 +62,13 @@ type Spec interface {
 // Currently a marker interface for type constraints.
 type State interface {
 	isState()
+}
+
+// StateType is a union type constraint enumerating all concrete State types.
+// Use this to constrain generic functions that operate on state values.
+type StateType interface {
+	ToolState | RuntimeState | InstallerState | InstallerRepositoryState |
+		SystemInstallerState | SystemPackageRepositoryState | SystemPackageSetState
 }
 
 // Resource is the interface that all tomei resources must implement.

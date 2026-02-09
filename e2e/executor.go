@@ -203,6 +203,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy installer-repo-test: %w", err)
 	}
 
+	// Copy logs-test configs
+	if err := copyDir(filepath.Join(configDir, "logs-test"), filepath.Join(e.testHome, "logs-test")); err != nil {
+		return fmt.Errorf("failed to copy logs-test: %w", err)
+	}
+
 	return nil
 }
 

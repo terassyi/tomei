@@ -32,7 +32,7 @@ var versionCmd = &cobra.Command{
 		}
 
 		switch versionFormat {
-		case "json":
+		case outputJSON:
 			enc := json.NewEncoder(cmd.OutOrStdout())
 			enc.SetIndent("", "  ")
 			return enc.Encode(info)
@@ -49,4 +49,7 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	versionCmd.Flags().StringVarP(&versionFormat, "output", "o", "text", "Output format (text, json)")
+	_ = versionCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"text", "json"}, cobra.ShellCompDirectiveNoFileComp
+	})
 }

@@ -485,6 +485,15 @@ func (e *Engine) buildNodeContext(ctx context.Context, node *graph.Node, resourc
 				Total:      total,
 			})
 		}))
+		ctx = download.WithCallback(ctx, download.OutputCallback(func(line string) {
+			e.emitEvent(Event{
+				Type:    EventOutput,
+				Kind:    resource.KindRuntime,
+				Name:    node.Name,
+				Version: rt.RuntimeSpec.Version,
+				Output:  line,
+			})
+		}))
 	}
 	return ctx
 }

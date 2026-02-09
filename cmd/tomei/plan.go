@@ -45,6 +45,9 @@ func init() {
 	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
 	planCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json, yaml")
 	planCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	_ = planCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"text", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -130,7 +133,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Output based on format
 	switch outputFormat {
-	case "json":
+	case outputJSON:
 		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
 		return exporter.ExportJSON(os.Stdout)
 	case "yaml":

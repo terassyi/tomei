@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/fatih/color"
 	"github.com/mattn/go-isatty"
 	"github.com/terassyi/tomei/internal/installer/engine"
+	tomeilog "github.com/terassyi/tomei/internal/log"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
@@ -302,5 +304,40 @@ func PrintApplySummary(w io.Writer, results *ApplyResults) {
 		style.Success.Fprintln(w, "Apply complete!")
 	} else {
 		color.New(color.FgRed, color.Bold).Fprintln(w, "Apply completed with errors")
+	}
+}
+
+// maxFailureLogLines is the maximum number of output lines to display per failed resource.
+const maxFailureLogLines = 20
+
+// PrintFailureLogs prints detailed failure logs for failed resources.
+func PrintFailureLogs(w io.Writer, failed []tomeilog.FailedResource) {
+	if len(failed) == 0 {
+		return
+	}
+
+	style := NewStyle()
+
+	fmt.Fprintln(w)
+	style.Header.Fprintln(w, "Failure Details:")
+
+	for _, f := range failed {
+		fmt.Fprintf(w, "\n  %s %s/%s: %v\n", style.FailMark, f.Kind, f.Name, f.Error)
+
+		if f.Output == "" {
+			continue
+		}
+
+		lines := strings.Split(strings.TrimRight(f.Output, "\n"), "\n")
+		totalLines := len(lines)
+
+		if totalLines > maxFailureLogLines {
+			// Show last N lines
+			lines = lines[totalLines-maxFailureLogLines:]
+			fmt.Fprintf(w, "    ... (%d lines omitted, see: tomei logs %s/%s)\n", totalLines-maxFailureLogLines, f.Kind, f.Name)
+		}
+		for _, line := range lines {
+			fmt.Fprintf(w, "    %s\n", line)
+		}
 	}
 }
