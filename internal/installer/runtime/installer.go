@@ -20,6 +20,7 @@ import (
 // This enables testing with mocks instead of real command execution.
 type CommandRunner interface {
 	ExecuteWithEnv(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) error
+	ExecuteWithOutput(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 	ExecuteCapture(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) (string, error)
 	Check(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) bool
 }
@@ -302,8 +303,15 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 
 	// Execute bootstrap install command
 	vars := command.Vars{Version: resolvedVersion}
-	if err := i.cmdExecutor.ExecuteWithEnv(ctx, spec.Bootstrap.Install, vars, env); err != nil {
-		return nil, fmt.Errorf("bootstrap install failed: %w", err)
+	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
+	if outputCb != nil {
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, spec.Bootstrap.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
+			return nil, fmt.Errorf("bootstrap install failed: %w", err)
+		}
+	} else {
+		if err := i.cmdExecutor.ExecuteWithEnv(ctx, spec.Bootstrap.Install, vars, env); err != nil {
+			return nil, fmt.Errorf("bootstrap install failed: %w", err)
+		}
 	}
 
 	// Verify installation with check command

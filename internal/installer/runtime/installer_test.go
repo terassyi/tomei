@@ -573,17 +573,30 @@ type cmdCall struct {
 }
 
 type mockCommandRunner struct {
-	executeErr          error
-	captureResult       string
-	captureErr          error
-	checkResult         bool
-	executeWithEnvCalls []cmdCall
-	captureCalls        []cmdCall
-	checkCalls          []cmdCall
+	executeErr             error
+	executeWithOutputErr   error
+	captureResult          string
+	captureErr             error
+	checkResult            bool
+	executeWithEnvCalls    []cmdCall
+	executeWithOutputCalls []cmdCall
+	captureCalls           []cmdCall
+	checkCalls             []cmdCall
 }
 
 func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) error {
 	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmdStr string, vars command.Vars, env map[string]string, callback command.OutputCallback) error {
+	m.executeWithOutputCalls = append(m.executeWithOutputCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+	if callback != nil {
+		callback("mock output line")
+	}
+	if m.executeWithOutputErr != nil {
+		return m.executeWithOutputErr
+	}
 	return m.executeErr
 }
 
