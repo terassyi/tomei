@@ -43,4 +43,5 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Delegation Runtime", delegationTests)
 	Context("Installer Repository", installerRepositoryTests)
 	Context("Dependency Resolution", dependencyTests)
+	Context("Installation Logs", logsTests)
 })

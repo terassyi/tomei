@@ -43,5 +43,8 @@ COPY --chown=testuser:testuser config/dependency-test/ /home/testuser/dependency
 # Copy installer-repo-test manifests
 COPY --chown=testuser:testuser config/installer-repo-test/ /home/testuser/installer-repo-test/
 
+# Copy logs-test manifests
+COPY --chown=testuser:testuser config/logs-test/ /home/testuser/logs-test/
+
 # Default command
 CMD ["tomei", "version"]
