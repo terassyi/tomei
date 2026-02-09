@@ -36,6 +36,7 @@ func init() {
 		planCmd,
 		doctorCmd,
 		envCmd,
+		logsCmd,
 		statecmd.Cmd,
 	)
 }

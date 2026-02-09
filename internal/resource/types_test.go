@@ -96,6 +96,70 @@ func TestAction_NeedsExecution(t *testing.T) {
 	}
 }
 
+func TestParseRef(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    Ref
+		wantErr bool
+	}{
+		{
+			name:  "tool/ripgrep",
+			input: "tool/ripgrep",
+			want:  Ref{Kind: "tool", Name: "ripgrep"},
+		},
+		{
+			name:  "Runtime/go",
+			input: "Runtime/go",
+			want:  Ref{Kind: "Runtime", Name: "go"},
+		},
+		{
+			name:  "name with slash",
+			input: "tool/foo/bar",
+			want:  Ref{Kind: "tool", Name: "foo/bar"},
+		},
+		{
+			name:    "no slash",
+			input:   "ripgrep",
+			wantErr: true,
+		},
+		{
+			name:    "empty kind",
+			input:   "/ripgrep",
+			wantErr: true,
+		},
+		{
+			name:    "empty name",
+			input:   "tool/",
+			wantErr: true,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseRef(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseRef(%q) expected error, got %v", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseRef(%q) unexpected error: %v", tt.input, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseRef(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
