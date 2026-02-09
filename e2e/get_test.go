@@ -29,12 +29,10 @@ func getTests() {
 			Expect(output).To(ContainSubstring("NAME"))
 			Expect(output).To(ContainSubstring("VERSION"))
 			Expect(output).To(ContainSubstring("VERSION_KIND"))
-			Expect(output).To(ContainSubstring("STATUS"))
 
 			By("Checking installed tools appear")
 			Expect(output).To(ContainSubstring("gh"))
 			Expect(output).To(ContainSubstring(versions.GhVersion))
-			Expect(output).To(ContainSubstring("Installed"))
 		})
 
 		It("lists runtimes in table format", func() {
@@ -48,7 +46,6 @@ func getTests() {
 			By("Checking installed runtimes appear")
 			Expect(output).To(ContainSubstring("go"))
 			Expect(output).To(ContainSubstring(versions.GoVersion))
-			Expect(output).To(ContainSubstring("Installed"))
 		})
 
 		It("filters by resource name", func() {

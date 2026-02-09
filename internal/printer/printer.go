@@ -93,13 +93,6 @@ const (
 	colName        = "NAME"
 	colVersion     = "VERSION"
 	colVersionKind = "VERSION_KIND"
-	colStatus      = "STATUS"
-)
-
-// Status display strings.
-const (
-	statusInstalled = "Installed"
-	statusTainted   = "Tainted"
 )
 
 // --- Tool ---
@@ -108,7 +101,7 @@ const (
 type toolFormatter struct{}
 
 func (toolFormatter) Headers(wide bool) []string {
-	h := []string{colName, colVersion, colVersionKind, "INSTALLER/RUNTIME", colStatus}
+	h := []string{colName, colVersion, colVersionKind, "INSTALLER/RUNTIME"}
 	if wide {
 		h = append(h, "PACKAGE", "BIN_PATH")
 	}
@@ -120,7 +113,7 @@ func (toolFormatter) FormatRow(name string, t *resource.ToolState, wide bool) []
 	if t.RuntimeRef != "" {
 		ref = t.RuntimeRef
 	}
-	row := []string{name, t.Version, formatVersionKind(t.VersionKind, t.SpecVersion), ref, toolStatus(t)}
+	row := []string{name, t.Version, formatVersionKind(t.VersionKind, t.SpecVersion), ref}
 	if wide {
 		pkg := ""
 		if t.Package != nil {
@@ -137,7 +130,7 @@ func (toolFormatter) FormatRow(name string, t *resource.ToolState, wide bool) []
 type runtimeFormatter struct{}
 
 func (runtimeFormatter) Headers(wide bool) []string {
-	h := []string{colName, colVersion, colVersionKind, "TYPE", colStatus}
+	h := []string{colName, colVersion, colVersionKind, "TYPE"}
 	if wide {
 		h = append(h, "INSTALL_PATH", "BINARIES")
 	}
@@ -145,7 +138,7 @@ func (runtimeFormatter) Headers(wide bool) []string {
 }
 
 func (runtimeFormatter) FormatRow(name string, r *resource.RuntimeState, wide bool) []string {
-	row := []string{name, r.Version, formatVersionKind(r.VersionKind, r.SpecVersion), string(r.Type), statusInstalled}
+	row := []string{name, r.Version, formatVersionKind(r.VersionKind, r.SpecVersion), string(r.Type)}
 	if wide {
 		row = append(row, r.InstallPath, strings.Join(r.Binaries, ","))
 	}
@@ -179,14 +172,6 @@ func (installerRepoFormatter) FormatRow(name string, r *resource.InstallerReposi
 }
 
 // --- Helpers ---
-
-// toolStatus returns the display status for a tool.
-func toolStatus(t *resource.ToolState) string {
-	if t.IsTainted() {
-		return statusTainted
-	}
-	return statusInstalled
-}
 
 // formatVersionKind returns a display string for the version kind.
 func formatVersionKind(vk resource.VersionKind, specVersion string) string {

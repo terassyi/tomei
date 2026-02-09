@@ -112,12 +112,12 @@ func TestToolFormatter_Headers(t *testing.T) {
 
 	t.Run("normal", func(t *testing.T) {
 		h := f.Headers(false)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "STATUS"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME"}, h)
 	})
 
 	t.Run("wide", func(t *testing.T) {
 		h := f.Headers(true)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "STATUS", "PACKAGE", "BIN_PATH"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "PACKAGE", "BIN_PATH"}, h)
 	})
 }
 
@@ -136,20 +136,18 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 		assert.Equal(t, "14.1.1", row[1])
 		assert.Equal(t, "exact", row[2])
 		assert.Equal(t, "aqua", row[3])
-		assert.Equal(t, "Installed", row[4])
-		assert.Len(t, row, 5)
+		assert.Len(t, row, 4)
 	})
 
-	t.Run("tainted with runtimeRef", func(t *testing.T) {
+	t.Run("with runtimeRef", func(t *testing.T) {
 		ts := &resource.ToolState{
 			Version:     "v0.17.0",
 			RuntimeRef:  "go",
 			VersionKind: resource.VersionLatest,
-			TaintReason: "runtime_upgraded",
 		}
 		row := f.FormatRow("gopls", ts, false)
 		assert.Equal(t, "go", row[3])
-		assert.Contains(t, row[4], "Tainted")
+		assert.Len(t, row, 4)
 	})
 
 	t.Run("wide adds package and binpath", func(t *testing.T) {
@@ -161,9 +159,9 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 			Package:      &resource.Package{Owner: "BurntSushi", Repo: "ripgrep"},
 		}
 		row := f.FormatRow("ripgrep", ts, true)
-		assert.Len(t, row, 7)
-		assert.Equal(t, "BurntSushi/ripgrep", row[5])
-		assert.Equal(t, "/home/user/.local/bin/rg", row[6])
+		assert.Len(t, row, 6)
+		assert.Equal(t, "BurntSushi/ripgrep", row[4])
+		assert.Equal(t, "/home/user/.local/bin/rg", row[5])
 	})
 }
 
@@ -172,12 +170,12 @@ func TestRuntimeFormatter_Headers(t *testing.T) {
 
 	t.Run("normal", func(t *testing.T) {
 		h := f.Headers(false)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE", "STATUS"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE"}, h)
 	})
 
 	t.Run("wide", func(t *testing.T) {
 		h := f.Headers(true)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE", "STATUS", "INSTALL_PATH", "BINARIES"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE", "INSTALL_PATH", "BINARIES"}, h)
 	})
 }
 
@@ -191,7 +189,7 @@ func TestRuntimeFormatter_FormatRow(t *testing.T) {
 			VersionKind: resource.VersionExact,
 		}
 		row := f.FormatRow("go", rs, false)
-		assert.Equal(t, []string{"go", "1.25.1", "exact", "download", "Installed"}, row)
+		assert.Equal(t, []string{"go", "1.25.1", "exact", "download"}, row)
 	})
 
 	t.Run("delegation with alias", func(t *testing.T) {
@@ -215,9 +213,9 @@ func TestRuntimeFormatter_FormatRow(t *testing.T) {
 			Binaries:    []string{"go", "gofmt"},
 		}
 		row := f.FormatRow("go", rs, true)
-		assert.Len(t, row, 7)
-		assert.Equal(t, "/home/user/.local/share/tomei/runtimes/go/1.25.1", row[5])
-		assert.Equal(t, "go,gofmt", row[6])
+		assert.Len(t, row, 6)
+		assert.Equal(t, "/home/user/.local/share/tomei/runtimes/go/1.25.1", row[4])
+		assert.Equal(t, "go,gofmt", row[5])
 	})
 }
 
@@ -275,7 +273,7 @@ func TestPrintTable_Tools(t *testing.T) {
 	assert.Contains(t, output, "NAME")
 	assert.Contains(t, output, "VERSION")
 	assert.Contains(t, output, "INSTALLER/RUNTIME")
-	assert.Contains(t, output, "STATUS")
+	assert.NotContains(t, output, "STATUS")
 
 	// Rows sorted alphabetically (gopls before ripgrep)
 	assert.Contains(t, output, "gopls")
@@ -283,10 +281,6 @@ func TestPrintTable_Tools(t *testing.T) {
 	goplsIdx := bytes.Index([]byte(output), []byte("gopls"))
 	ripgrepIdx := bytes.Index([]byte(output), []byte("ripgrep"))
 	assert.Less(t, goplsIdx, ripgrepIdx)
-
-	// Status
-	assert.Contains(t, output, "Tainted")
-	assert.Contains(t, output, "Installed")
 
 	// Wide columns absent
 	assert.NotContains(t, output, "PACKAGE")
