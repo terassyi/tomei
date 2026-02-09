@@ -16,6 +16,7 @@ import (
 	"github.com/terassyi/tomei/internal/installer/repository"
 	"github.com/terassyi/tomei/internal/installer/runtime"
 	"github.com/terassyi/tomei/internal/installer/tool"
+	tomeilog "github.com/terassyi/tomei/internal/log"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 	"github.com/terassyi/tomei/internal/resource"
@@ -153,10 +154,24 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	pm := ui.NewProgressManager(w)
 	defer pm.Wait()
 
-	// Set event handler for progress display
+	// Create log store for capturing installation logs
+	logsDir := pathConfig.UserCacheDir() + "/logs"
+	logStore, err := tomeilog.NewStore(logsDir)
+	if err != nil {
+		slog.Warn("failed to create log store", "error", err)
+	}
+
+	// Set event handler for progress display and log capture
 	if !cfg.quiet {
 		eng.SetEventHandler(func(event engine.Event) {
 			pm.HandleEvent(event, results)
+			if logStore != nil {
+				handleLogEvent(logStore, event)
+			}
+		})
+	} else if logStore != nil {
+		eng.SetEventHandler(func(event engine.Event) {
+			handleLogEvent(logStore, event)
 		})
 	}
 
@@ -173,7 +188,31 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 
 	// Run engine
 	if err := eng.Apply(ctx, resources); err != nil {
+		// Flush failed logs to disk and print failure details
+		if logStore != nil {
+			if flushErr := logStore.Flush(); flushErr != nil {
+				slog.Warn("failed to flush installation logs", "error", flushErr)
+			}
+			if !cfg.quiet {
+				ui.PrintFailureLogs(w, logStore.FailedResources())
+			}
+			if cleanupErr := logStore.Cleanup(5); cleanupErr != nil {
+				slog.Warn("failed to clean up old log sessions", "error", cleanupErr)
+			}
+		}
+
+		if !cfg.quiet {
+			ui.PrintApplySummary(w, results)
+		}
+
 		return fmt.Errorf("apply failed: %w", err)
+	}
+
+	// Clean up old log sessions
+	if logStore != nil {
+		if cleanupErr := logStore.Cleanup(5); cleanupErr != nil {
+			slog.Warn("failed to clean up old log sessions", "error", cleanupErr)
+		}
 	}
 
 	// Print summary
@@ -182,4 +221,18 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	}
 
 	return nil
+}
+
+// handleLogEvent dispatches an engine event to the LogStore.
+func handleLogEvent(logStore *tomeilog.Store, event engine.Event) {
+	switch event.Type {
+	case engine.EventStart:
+		logStore.RecordStart(event.Kind, event.Name, event.Version, string(event.Action), event.Method)
+	case engine.EventOutput:
+		logStore.RecordOutput(event.Kind, event.Name, event.Output)
+	case engine.EventError:
+		logStore.RecordError(event.Kind, event.Name, event.Error)
+	case engine.EventComplete:
+		logStore.RecordComplete(event.Kind, event.Name)
+	}
 }
