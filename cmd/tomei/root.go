@@ -40,6 +40,7 @@ func init() {
 		envCmd,
 		logsCmd,
 		getCmd,
+		completionCmd,
 		statecmd.Cmd,
 	)
 }

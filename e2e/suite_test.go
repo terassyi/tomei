@@ -45,4 +45,5 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Dependency Resolution", dependencyTests)
 	Context("Installation Logs", logsTests)
 	Context("Get Command", getTests)
+	Context("Completion", completionTests)
 })
