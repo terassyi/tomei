@@ -2420,8 +2420,7 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 			require.NoError(t, store.Lock())
 			st, err := store.Load()
 			require.NoError(t, err)
-			err = eng.taintLatestTools(st)
-			require.NoError(t, err)
+			eng.taintLatestTools(st)
 			require.NoError(t, store.Unlock())
 
 			// Verify tainted
