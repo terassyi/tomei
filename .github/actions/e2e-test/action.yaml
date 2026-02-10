@@ -14,6 +14,10 @@ inputs:
     description: 'Execution mode (container or native)'
     required: false
     default: 'native'
+  github-token:
+    description: 'GitHub token for API rate limit mitigation'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -28,6 +32,8 @@ runs:
     - name: E2E Test (Native Mode)
       if: inputs.mode == 'native'
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         TOMEI_E2E_NATIVE=true \
         TOMEI_E2E_BINARY="$(pwd)/dist/tomei" \
@@ -49,6 +55,8 @@ runs:
     - name: E2E Test (Container Mode)
       if: inputs.mode == 'container'
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
       run: |
         if [ -n "${{ inputs.arch }}" ]; then
           GOARCH=${{ inputs.arch }} make test-e2e
