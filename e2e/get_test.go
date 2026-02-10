@@ -16,7 +16,7 @@ func getTests() {
 		_, _ = testExec.Exec("tomei", "init", "--yes")
 		// Reset state to avoid interference from previous test contexts
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-		_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+		_, err := ExecApply(testExec, "~/manifests/")
 		Expect(err).NotTo(HaveOccurred())
 	})
 

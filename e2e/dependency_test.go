@@ -56,7 +56,7 @@ func dependencyTests() {
 			Expect(output).To(ContainSubstring("Validation successful"))
 
 			By("Running tomei apply on parallel.cue")
-			_, err = testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
+			_, err = ExecApply(testExec, "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rg works")
@@ -77,7 +77,7 @@ func dependencyTests() {
 
 		It("is idempotent - second apply reports no changes", func() {
 			By("Running tomei apply again on parallel.cue")
-			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
+			_, err := ExecApply(testExec, "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying tools still work after second apply")
@@ -97,7 +97,7 @@ func dependencyTests() {
 
 		It("installs all tools with --parallel 1 (sequential)", func() {
 			By("Running tomei apply with --parallel 1")
-			output, err := testExec.Exec("tomei", "apply", "--parallel", "1", "~/dependency-test/parallel.cue")
+			output, err := ExecApply(testExec, "--parallel", "1", "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rg works")
@@ -126,7 +126,7 @@ func dependencyTests() {
 			_, _ = testExec.ExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat`)
 
 			By("Running tomei apply without --parallel flag (default)")
-			output, err := testExec.Exec("tomei", "apply", "~/dependency-test/parallel.cue")
+			output, err := ExecApply(testExec, "~/dependency-test/parallel.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying all tools installed")
@@ -150,7 +150,7 @@ func dependencyTests() {
 
 		It("installs runtime before dependent tool in parallel mode", func() {
 			By("Running tomei apply on runtime-chain.cue with default parallelism")
-			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/runtime-chain.cue")
+			_, err := ExecApply(testExec, "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying go runtime is installed")
@@ -191,7 +191,7 @@ func dependencyTests() {
 
 		It("installs tool before dependent installer is available", func() {
 			By("Running tomei apply on toolref.cue")
-			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/toolref.cue")
+			_, err := ExecApply(testExec, "~/dependency-test/toolref.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying jq is installed and works")
@@ -221,7 +221,7 @@ func dependencyTests() {
 
 		It("installs runtime before dependent tools", func() {
 			By("Running tomei apply on runtime-chain.cue")
-			_, err := testExec.Exec("tomei", "apply", "~/dependency-test/runtime-chain.cue")
+			_, err := ExecApply(testExec, "~/dependency-test/runtime-chain.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By(fmt.Sprintf("Verifying go runtime %s is installed in expected location", versions.DepGoVersion))

@@ -36,7 +36,7 @@ func toolsetTests() {
 	Context("Installation", func() {
 		It("installs all tools from ToolSet via runtime delegation", func() {
 			By("Running tomei apply on toolset + runtime")
-			output, err := testExec.Exec("tomei", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
+			output, err := ExecApply(testExec, "~/manifests/toolset.cue", "~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking apply completed")
@@ -69,7 +69,7 @@ func toolsetTests() {
 	Context("Re-apply (idempotent)", func() {
 		It("reports no changes on re-apply", func() {
 			By("Running tomei apply again")
-			output, err := testExec.Exec("tomei", "apply", "~/manifests/toolset.cue", "~/manifests/runtime.cue")
+			output, err := ExecApply(testExec, "~/manifests/toolset.cue", "~/manifests/runtime.cue")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
