@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: true
+        type: string
+      dry-run:
+        description: "Run in dry-run mode (snapshot)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/ci.yaml
+
+  check-ci:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify CI passed for tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CONCLUSION=$(gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow release.yaml \
+            --branch "${{ inputs.tag }}" \
+            --event push \
+            --json conclusion \
+            --jq '.[0].conclusion')
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::CI has not passed for tag ${{ inputs.tag }} (status: ${CONCLUSION:-not found})"
+            exit 1
+          fi
+
+  release:
+    needs: [ci, check-ci]
+    if: ${{ !cancelled() && (needs.ci.result == 'success' || needs.ci.result == 'skipped') && (needs.check-ci.result == 'success' || needs.check-ci.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: ${{ (github.event_name == 'push' || inputs.dry-run) && 'release --snapshot --clean' || 'release --clean' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
