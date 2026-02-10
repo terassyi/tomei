@@ -36,7 +36,7 @@ runs:
         GOBIN=$(pwd)/dist go install github.com/onsi/ginkgo/v2/ginkgo@v2.28.1
 
     - name: Upload E2E artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: e2e-binaries-${{ inputs.os }}-${{ inputs.arch }}
         path: dist/
