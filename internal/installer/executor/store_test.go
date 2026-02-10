@@ -14,19 +14,21 @@ import (
 	"pgregory.net/rapid"
 )
 
-// newLockedFactory creates a StateStoreFactory with Lock already acquired.
-func newLockedFactory(t *testing.T) *StateStoreFactory {
+// newStateCache creates a StateCache with Lock already acquired and Init called.
+func newStateCache(t *testing.T) *StateCache {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
 	require.NoError(t, store.Lock())
 	t.Cleanup(func() { _ = store.Unlock() })
-	return NewStateStoreFactory(store)
+	sc := NewStateCache(store)
+	sc.Init(state.NewUserState())
+	return sc
 }
 
-// newLockedFactoryRapid creates a StateStoreFactory for use inside rapid.Check.
-func newLockedFactoryRapid(t *rapid.T) *StateStoreFactory {
+// newStateCacheRapid creates a StateCache for use inside rapid.Check.
+func newStateCacheRapid(t *rapid.T) *StateCache {
 	dir, err := os.MkdirTemp("", "store-test-*")
 	if err != nil {
 		t.Fatal(err)
@@ -40,14 +42,123 @@ func newLockedFactoryRapid(t *rapid.T) *StateStoreFactory {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Unlock() })
-	return NewStateStoreFactory(store)
+	sc := NewStateCache(store)
+	sc.Init(state.NewUserState())
+	return sc
 }
 
-// --- Integration Tests ---
+// --- StateCache Tests ---
 
-func TestToolStateStore_SaveAndLoad(t *testing.T) {
-	f := newLockedFactory(t)
-	ts := f.ToolStore()
+func TestStateCache_InitAndFlush(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewStore[state.UserState](dir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+
+	sc := NewStateCache(store)
+	st := state.NewUserState()
+	st.Tools["rg"] = &resource.ToolState{Version: "14.0.0"}
+	sc.Init(st)
+
+	// Save a tool via cachedStore to mark dirty
+	ts := NewToolStore(sc)
+	require.NoError(t, ts.Save("fd", &resource.ToolState{Version: "9.0.0"}))
+
+	// Flush writes to disk
+	require.NoError(t, sc.Flush())
+
+	// Read directly from disk to verify
+	diskState, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "14.0.0", diskState.Tools["rg"].Version)
+	assert.Equal(t, "9.0.0", diskState.Tools["fd"].Version)
+}
+
+func TestStateCache_FlushOnlyWhenDirty(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewStore[state.UserState](dir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+
+	sc := NewStateCache(store)
+	sc.Init(state.NewUserState())
+
+	// Flush without changes should be a no-op (no error, no disk write)
+	require.NoError(t, sc.Flush())
+}
+
+func TestStateCache_Snapshot(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
+
+	require.NoError(t, ts.Save("rg", &resource.ToolState{Version: "14.0.0"}))
+
+	snap := sc.Snapshot()
+	assert.Equal(t, "14.0.0", snap.Tools["rg"].Version)
+}
+
+func TestStateCache_ConcurrentSaveThenFlush(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewStore[state.UserState](dir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+
+	sc := NewStateCache(store)
+	sc.Init(state.NewUserState())
+	ts := NewToolStore(sc)
+
+	const n = 20
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			name := fmt.Sprintf("tool-%d", i)
+			_ = ts.Save(name, &resource.ToolState{Version: fmt.Sprintf("1.0.%d", i)})
+		})
+	}
+	wg.Wait()
+
+	require.NoError(t, sc.Flush())
+
+	diskState, err := store.Load()
+	require.NoError(t, err)
+	for i := range n {
+		name := fmt.Sprintf("tool-%d", i)
+		assert.NotNil(t, diskState.Tools[name], "tool %s should be on disk", name)
+		assert.Equal(t, fmt.Sprintf("1.0.%d", i), diskState.Tools[name].Version)
+	}
+}
+
+func TestCachedStore_markDirtyViaSave(t *testing.T) {
+	dir := t.TempDir()
+	store, err := state.NewStore[state.UserState](dir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+
+	sc := NewStateCache(store)
+	st := state.NewUserState()
+	st.Tools["exa"] = &resource.ToolState{Version: "0.10.0", TaintReason: "runtime_upgrade"}
+	sc.Init(st)
+
+	ts := NewToolStore(sc)
+	require.NoError(t, ts.Save("exa", &resource.ToolState{Version: "0.10.1"}))
+
+	require.NoError(t, sc.Flush())
+
+	diskState, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "0.10.1", diskState.Tools["exa"].Version)
+	assert.False(t, diskState.Tools["exa"].IsTainted())
+}
+
+// --- cachedStore Integration Tests ---
+
+func TestToolStore_SaveAndLoad(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
 
 	toolState := &resource.ToolState{
 		InstallerRef: "download",
@@ -64,9 +175,9 @@ func TestToolStateStore_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, "14.1.1", loaded.Version)
 }
 
-func TestToolStateStore_Delete(t *testing.T) {
-	f := newLockedFactory(t)
-	ts := f.ToolStore()
+func TestToolStore_Delete(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
 
 	require.NoError(t, ts.Save("ripgrep", &resource.ToolState{Version: "14.1.1"}))
 	require.NoError(t, ts.Delete("ripgrep"))
@@ -76,18 +187,18 @@ func TestToolStateStore_Delete(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestToolStateStore_LoadNotFound(t *testing.T) {
-	f := newLockedFactory(t)
-	ts := f.ToolStore()
+func TestToolStore_LoadNotFound(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
 
 	_, exists, err := ts.Load("nonexistent")
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
 
-func TestRuntimeStateStore_SaveAndLoad(t *testing.T) {
-	f := newLockedFactory(t)
-	rs := f.RuntimeStore()
+func TestRuntimeStore_SaveAndLoad(t *testing.T) {
+	sc := newStateCache(t)
+	rs := NewRuntimeStore(sc)
 
 	runtimeState := &resource.RuntimeState{
 		Version:     "1.23.0",
@@ -103,9 +214,9 @@ func TestRuntimeStateStore_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, "1.23.0", loaded.Version)
 }
 
-func TestRuntimeStateStore_Delete(t *testing.T) {
-	f := newLockedFactory(t)
-	rs := f.RuntimeStore()
+func TestRuntimeStore_Delete(t *testing.T) {
+	sc := newStateCache(t)
+	rs := NewRuntimeStore(sc)
 
 	require.NoError(t, rs.Save("go", &resource.RuntimeState{Version: "1.23.0"}))
 	require.NoError(t, rs.Delete("go"))
@@ -117,9 +228,9 @@ func TestRuntimeStateStore_Delete(t *testing.T) {
 
 // --- Concurrency Integration Tests ---
 
-func TestToolStateStore_ConcurrentSave(t *testing.T) {
-	f := newLockedFactory(t)
-	ts := f.ToolStore()
+func TestToolStore_ConcurrentSave(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
 
 	const n = 20
 	var wg sync.WaitGroup
@@ -150,9 +261,9 @@ func TestToolStateStore_ConcurrentSave(t *testing.T) {
 	}
 }
 
-func TestRuntimeStateStore_ConcurrentSave(t *testing.T) {
-	f := newLockedFactory(t)
-	rs := f.RuntimeStore()
+func TestRuntimeStore_ConcurrentSave(t *testing.T) {
+	sc := newStateCache(t)
+	rs := NewRuntimeStore(sc)
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -183,10 +294,10 @@ func TestRuntimeStateStore_ConcurrentSave(t *testing.T) {
 	}
 }
 
-func TestToolAndRuntimeStateStore_ConcurrentMixed(t *testing.T) {
-	f := newLockedFactory(t)
-	ts := f.ToolStore()
-	rs := f.RuntimeStore()
+func TestToolAndRuntimeStore_ConcurrentMixed(t *testing.T) {
+	sc := newStateCache(t)
+	ts := NewToolStore(sc)
+	rs := NewRuntimeStore(sc)
 
 	const nTools = 10
 	const nRuntimes = 5
@@ -238,10 +349,10 @@ func TestToolAndRuntimeStateStore_ConcurrentMixed(t *testing.T) {
 
 // --- Property-Based Tests ---
 
-func TestToolStateStore_Property_ConcurrentSavePreservesAll(t *testing.T) {
+func TestToolStore_Property_ConcurrentSavePreservesAll(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		f := newLockedFactoryRapid(t)
-		ts := f.ToolStore()
+		sc := newStateCacheRapid(t)
+		ts := NewToolStore(sc)
 
 		n := rapid.IntRange(2, 15).Draw(t, "numTools")
 		type toolDef struct {
@@ -282,10 +393,10 @@ func TestToolStateStore_Property_ConcurrentSavePreservesAll(t *testing.T) {
 	})
 }
 
-func TestToolStateStore_Property_SaveDeleteConsistency(t *testing.T) {
+func TestToolStore_Property_SaveDeleteConsistency(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		f := newLockedFactoryRapid(t)
-		ts := f.ToolStore()
+		sc := newStateCacheRapid(t)
+		ts := NewToolStore(sc)
 
 		n := rapid.IntRange(2, 10).Draw(t, "numTools")
 
@@ -333,11 +444,11 @@ func TestToolStateStore_Property_SaveDeleteConsistency(t *testing.T) {
 	})
 }
 
-// --- InstallerRepository StateStore Tests ---
+// --- InstallerRepository Store Tests ---
 
-func TestInstallerRepositoryStateStore_SaveAndLoad(t *testing.T) {
-	f := newLockedFactory(t)
-	irs := f.InstallerRepositoryStore()
+func TestInstallerRepositoryStore_SaveAndLoad(t *testing.T) {
+	sc := newStateCache(t)
+	irs := NewInstallerRepositoryStore(sc)
 
 	repoState := &resource.InstallerRepositoryState{
 		InstallerRef:  "helm",
@@ -354,9 +465,9 @@ func TestInstallerRepositoryStateStore_SaveAndLoad(t *testing.T) {
 	assert.Equal(t, resource.InstallerRepositorySourceDelegation, loaded.SourceType)
 }
 
-func TestInstallerRepositoryStateStore_Delete(t *testing.T) {
-	f := newLockedFactory(t)
-	irs := f.InstallerRepositoryStore()
+func TestInstallerRepositoryStore_Delete(t *testing.T) {
+	sc := newStateCache(t)
+	irs := NewInstallerRepositoryStore(sc)
 
 	require.NoError(t, irs.Save("bitnami", &resource.InstallerRepositoryState{InstallerRef: "helm"}))
 	require.NoError(t, irs.Delete("bitnami"))
@@ -366,18 +477,18 @@ func TestInstallerRepositoryStateStore_Delete(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestInstallerRepositoryStateStore_LoadNotFound(t *testing.T) {
-	f := newLockedFactory(t)
-	irs := f.InstallerRepositoryStore()
+func TestInstallerRepositoryStore_LoadNotFound(t *testing.T) {
+	sc := newStateCache(t)
+	irs := NewInstallerRepositoryStore(sc)
 
 	_, exists, err := irs.Load("nonexistent")
 	require.NoError(t, err)
 	assert.False(t, exists)
 }
 
-func TestInstallerRepositoryStateStore_ConcurrentSave(t *testing.T) {
-	f := newLockedFactory(t)
-	irs := f.InstallerRepositoryStore()
+func TestInstallerRepositoryStore_ConcurrentSave(t *testing.T) {
+	sc := newStateCache(t)
+	irs := NewInstallerRepositoryStore(sc)
 
 	const n = 10
 	var wg sync.WaitGroup
@@ -406,10 +517,10 @@ func TestInstallerRepositoryStateStore_ConcurrentSave(t *testing.T) {
 	}
 }
 
-func TestToolStateStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) {
+func TestToolStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
-		f := newLockedFactoryRapid(t)
-		ts := f.ToolStore()
+		sc := newStateCacheRapid(t)
+		ts := NewToolStore(sc)
 
 		// Multiple goroutines write different versions to the same tool name
 		versions := rapid.SliceOfN(
@@ -435,6 +546,52 @@ func TestToolStateStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) 
 		}
 		if !slices.Contains(versions, loaded.Version) {
 			t.Fatalf("final version %q not in written versions %v", loaded.Version, versions)
+		}
+	})
+}
+
+// --- StateCache Property Tests ---
+
+func TestStateCache_Property_ConcurrentSaveThenFlush(t *testing.T) {
+	rapid.Check(t, func(t *rapid.T) {
+		sc := newStateCacheRapid(t)
+		ts := NewToolStore(sc)
+
+		n := rapid.IntRange(2, 15).Draw(t, "numTools")
+		type toolDef struct {
+			name    string
+			version string
+		}
+		tools := make([]toolDef, n)
+		for i := range n {
+			tools[i] = toolDef{
+				name:    fmt.Sprintf("tool-%d", i),
+				version: rapid.StringMatching(`[0-9]+\.[0-9]+\.[0-9]+`).Draw(t, fmt.Sprintf("version-%d", i)),
+			}
+		}
+
+		var wg sync.WaitGroup
+		for _, td := range tools {
+			wg.Go(func() {
+				_ = ts.Save(td.name, &resource.ToolState{Version: td.version})
+			})
+		}
+		wg.Wait()
+
+		if err := sc.Flush(); err != nil {
+			t.Fatalf("flush failed: %v", err)
+		}
+
+		// Property: snapshot reflects all saves
+		snap := sc.Snapshot()
+		for _, td := range tools {
+			v, ok := snap.Tools[td.name]
+			if !ok {
+				t.Fatalf("tool %s missing from snapshot after flush", td.name)
+			}
+			if v.Version != td.version {
+				t.Fatalf("tool %s: snapshot version %q, want %q", td.name, v.Version, td.version)
+			}
 		}
 	})
 }

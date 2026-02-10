@@ -94,6 +94,10 @@ const (
 // Engine orchestrates the apply process.
 type Engine struct {
 	store                   *state.Store[state.UserState]
+	stateCache              *executor.StateCache
+	toolStore               executor.StateStore[*resource.ToolState]
+	runtimeStore            executor.StateStore[*resource.RuntimeState]
+	installerRepoStore      executor.StateStore[*resource.InstallerRepositoryState]
 	toolInstaller           ToolInstaller
 	runtimeInstaller        RuntimeInstaller
 	installerRepoInstaller  InstallerRepositoryInstaller
@@ -116,12 +120,16 @@ func NewEngine(
 	installerRepoInstaller InstallerRepositoryInstaller,
 	store *state.Store[state.UserState],
 ) *Engine {
-	storeFactory := executor.NewStateStoreFactory(store)
-	toolStore := storeFactory.ToolStore()
-	runtimeStore := storeFactory.RuntimeStore()
-	repoStore := storeFactory.InstallerRepositoryStore()
+	sc := executor.NewStateCache(store)
+	toolStore := executor.NewToolStore(sc)
+	runtimeStore := executor.NewRuntimeStore(sc)
+	repoStore := executor.NewInstallerRepositoryStore(sc)
 	return &Engine{
 		store:                   store,
+		stateCache:              sc,
+		toolStore:               toolStore,
+		runtimeStore:            runtimeStore,
+		installerRepoStore:      repoStore,
 		toolInstaller:           toolInstaller,
 		runtimeInstaller:        runtimeInstaller,
 		installerRepoInstaller:  installerRepoInstaller,
@@ -230,9 +238,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	// Taint latest-specified tools for re-resolution in sync mode
 	if e.syncMode {
-		if err := e.taintLatestTools(st); err != nil {
-			slog.Warn("failed to taint latest tools for sync", "error", err)
-		}
+		e.taintLatestTools(st)
 	}
 
 	// Build resource maps for quick lookup
@@ -260,6 +266,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		return fmt.Errorf("failed to save installer state: %w", err)
 	}
 
+	// Initialize the in-memory state cache for batch writes
+	e.stateCache.Init(st)
+
 	// Track updated runtimes for taint logic
 	updatedRuntimes := make(map[string]bool)
 	totalActions := 0
@@ -268,15 +277,17 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	for i, layer := range layers {
 		slog.Debug("executing layer", "layer", i, "nodes", len(layer.Nodes))
 
-		if err := e.executeLayer(ctx, layer, resourceMap, st, updatedRuntimes, &totalActions); err != nil {
+		if err := e.executeLayer(ctx, layer, resourceMap, updatedRuntimes, &totalActions); err != nil {
 			return err
 		}
 
-		// Reload state after each layer to get updated runtime info
-		st, err = e.store.Load()
-		if err != nil {
-			return fmt.Errorf("failed to reload state: %w", err)
+		// Flush cached state changes to disk after each layer
+		if err := e.stateCache.Flush(); err != nil {
+			return fmt.Errorf("failed to flush state after layer %d: %w", i, err)
 		}
+
+		// Use snapshot for inter-layer state reads
+		st = e.stateCache.Snapshot()
 
 		// Register runtimes for delegation pattern after runtime layer
 		for name, runtimeState := range st.Runtimes {
@@ -291,7 +302,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	// Handle taint logic for dependent tools
 	if len(updatedRuntimes) > 0 {
-		if err := e.handleTaintedTools(ctx, resources, st, updatedRuntimes, &totalActions); err != nil {
+		if err := e.handleTaintedTools(ctx, resources, updatedRuntimes, &totalActions); err != nil {
 			return err
 		}
 	}
@@ -299,6 +310,11 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Handle removals: resources in state but not in config
 	if err := e.handleRemovals(ctx, resources, &totalActions); err != nil {
 		return err
+	}
+
+	// Final flush to persist any changes from taint handling and removals
+	if err := e.stateCache.Flush(); err != nil {
+		return fmt.Errorf("failed to flush final state: %w", err)
 	}
 
 	slog.Debug("apply completed", "total_actions", totalActions)
@@ -318,7 +334,6 @@ func (e *Engine) executeLayer(
 	ctx context.Context,
 	layer graph.Layer,
 	resourceMap map[string]resource.Resource,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
@@ -336,21 +351,22 @@ func (e *Engine) executeLayer(
 	}
 
 	// Phase 1: Execute Runtime/Installer nodes in parallel (always before repos and tools)
-	if err := e.executeNodeGroup(ctx, runtimeNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+	if err := e.executeNodeGroup(ctx, runtimeNodes, resourceMap, updatedRuntimes, totalActions); err != nil {
 		return err
 	}
 
 	// Update tool bin paths for InstallerRepository delegation commands.
 	// After Phase 1, toolRef targets are installed and their binPaths are in state.
+	st := e.stateCache.Snapshot()
 	e.updateToolBinPaths(resourceMap, st)
 
 	// Phase 2: Execute InstallerRepository nodes in parallel (after installers, before tools)
-	if err := e.executeNodeGroup(ctx, repoNodes, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+	if err := e.executeNodeGroup(ctx, repoNodes, resourceMap, updatedRuntimes, totalActions); err != nil {
 		return err
 	}
 
 	// Phase 3: Execute Tool nodes in parallel
-	return e.executeNodeGroup(ctx, toolNodes, resourceMap, st, updatedRuntimes, totalActions)
+	return e.executeNodeGroup(ctx, toolNodes, resourceMap, updatedRuntimes, totalActions)
 }
 
 // executeNodeGroup executes a group of nodes, using parallel execution when there are
@@ -359,20 +375,19 @@ func (e *Engine) executeNodeGroup(
 	ctx context.Context,
 	nodes []*graph.Node,
 	resourceMap map[string]resource.Resource,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
 	if len(nodes) <= 1 {
 		for _, node := range nodes {
 			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
-			if err := e.executeNode(nodeCtx, node, resourceMap, st, updatedRuntimes, totalActions); err != nil {
+			if err := e.executeNode(nodeCtx, node, resourceMap, updatedRuntimes, totalActions); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return e.executeNodesParallel(ctx, nodes, resourceMap, st, updatedRuntimes, totalActions)
+	return e.executeNodesParallel(ctx, nodes, resourceMap, updatedRuntimes, totalActions)
 }
 
 // executeNodesParallel executes nodes concurrently with cancel-on-error semantics.
@@ -381,7 +396,6 @@ func (e *Engine) executeNodesParallel(
 	ctx context.Context,
 	nodes []*graph.Node,
 	resourceMap map[string]resource.Resource,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
@@ -413,7 +427,7 @@ func (e *Engine) executeNodesParallel(
 
 			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
 
-			if err := e.executeNode(nodeCtx, node, resourceMap, st, localUpdated, &localActions); err != nil {
+			if err := e.executeNode(nodeCtx, node, resourceMap, localUpdated, &localActions); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
@@ -503,7 +517,6 @@ func (e *Engine) executeNode(
 	ctx context.Context,
 	node *graph.Node,
 	resourceMap map[string]resource.Resource,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
@@ -516,14 +529,14 @@ func (e *Engine) executeNode(
 
 	switch node.Kind {
 	case resource.KindRuntime:
-		return e.executeRuntimeNode(ctx, res.(*resource.Runtime), st, updatedRuntimes, totalActions)
+		return e.executeRuntimeNode(ctx, res.(*resource.Runtime), updatedRuntimes, totalActions)
 	case resource.KindInstaller:
 		// Installers don't need execution - they're just registered
 		return nil
 	case resource.KindInstallerRepository:
-		return e.executeInstallerRepositoryNode(ctx, res.(*resource.InstallerRepository), st, totalActions)
+		return e.executeInstallerRepositoryNode(ctx, res.(*resource.InstallerRepository), totalActions)
 	case resource.KindTool:
-		return e.executeToolNode(ctx, res.(*resource.Tool), st, totalActions)
+		return e.executeToolNode(ctx, res.(*resource.Tool), totalActions)
 	default:
 		slog.Debug("skipping unknown resource kind", "kind", node.Kind, "name", node.Name)
 		return nil
@@ -534,7 +547,6 @@ func (e *Engine) executeNode(
 func (e *Engine) executeRuntimeNode(
 	ctx context.Context,
 	rt *resource.Runtime,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
@@ -543,9 +555,14 @@ func (e *Engine) executeRuntimeNode(
 	}
 
 	// Build a single-runtime state map to avoid removing other runtimes
-	// during per-node reconciliation
+	// during per-node reconciliation.
+	// Use runtimeStore.Load() for mutex-safe access during parallel execution.
 	singleRuntimeState := make(map[string]*resource.RuntimeState)
-	if rs, exists := st.Runtimes[rt.Name()]; exists {
+	rs, exists, err := e.runtimeStore.Load(rt.Name())
+	if err != nil {
+		return fmt.Errorf("failed to load runtime state for %s: %w", rt.Name(), err)
+	}
+	if exists {
 		singleRuntimeState[rt.Name()] = rs
 	}
 
@@ -634,16 +651,20 @@ func (e *Engine) updateToolBinPaths(resourceMap map[string]resource.Resource, st
 func (e *Engine) executeInstallerRepositoryNode(
 	ctx context.Context,
 	repo *resource.InstallerRepository,
-	st *state.UserState,
 	totalActions *int,
 ) error {
 	if e.installerRepoExecutor == nil {
 		return fmt.Errorf("installer repository executor not configured")
 	}
 
-	// Build a single-repo state map to avoid removing other repos
+	// Build a single-repo state map to avoid removing other repos.
+	// Use installerRepoStore.Load() for mutex-safe access during parallel execution.
 	singleRepoState := make(map[string]*resource.InstallerRepositoryState)
-	if rs, exists := st.InstallerRepositories[repo.Name()]; exists {
+	rs, exists, err := e.installerRepoStore.Load(repo.Name())
+	if err != nil {
+		return fmt.Errorf("failed to load installer repository state for %s: %w", repo.Name(), err)
+	}
+	if exists {
 		singleRepoState[repo.Name()] = rs
 	}
 
@@ -693,13 +714,17 @@ func (e *Engine) executeInstallerRepositoryNode(
 func (e *Engine) executeToolNode(
 	ctx context.Context,
 	t *resource.Tool,
-	st *state.UserState,
 	totalActions *int,
 ) error {
 	// Build a single-tool state map to avoid removing other tools
-	// during per-node reconciliation
+	// during per-node reconciliation.
+	// Use toolStore.Load() for mutex-safe access during parallel execution.
 	singleToolState := make(map[string]*resource.ToolState)
-	if ts, exists := st.Tools[t.Name()]; exists {
+	ts, exists, err := e.toolStore.Load(t.Name())
+	if err != nil {
+		return fmt.Errorf("failed to load tool state for %s: %w", t.Name(), err)
+	}
+	if exists {
 		singleToolState[t.Name()] = ts
 	}
 
@@ -774,20 +799,17 @@ func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 func (e *Engine) handleTaintedTools(
 	ctx context.Context,
 	resources []resource.Resource,
-	st *state.UserState,
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
-	if err := e.taintDependentTools(st, updatedRuntimes); err != nil {
-		slog.Warn("failed to taint dependent tools", "error", err)
-		return nil
-	}
+	st := e.stateCache.Snapshot()
+	e.taintDependentTools(st, updatedRuntimes)
 
-	// Reload state and re-reconcile tools
-	st, err := e.store.Load()
-	if err != nil {
-		return fmt.Errorf("failed to reload state: %w", err)
+	// Flush tainted state to disk, then use snapshot for re-reconciliation
+	if err := e.stateCache.Flush(); err != nil {
+		return fmt.Errorf("failed to flush tainted state: %w", err)
 	}
+	st = e.stateCache.Snapshot()
 
 	tools := extractTools(resources)
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
@@ -818,11 +840,8 @@ func buildResourceMap(resources []resource.Resource) map[string]resource.Resourc
 // handleRemovals processes resources that are in state but not in the config.
 // Removal order: Tools first, then InstallerRepositories, then Runtimes.
 func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resource, totalActions *int) error {
-	// Reload state to get latest
-	st, err := e.store.Load()
-	if err != nil {
-		return fmt.Errorf("failed to reload state: %w", err)
-	}
+	// Use snapshot for current state (may include unflushed changes)
+	st := e.stateCache.Snapshot()
 
 	// Get full reconciliation to detect removals
 	tools := extractTools(resources)
@@ -941,31 +960,28 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 }
 
 // taintDependentTools marks tools that depend on the updated runtimes for reinstallation.
-// Note: Must be called while holding the store lock.
-func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[string]bool) error {
+// Tainted state is written to the cache via toolStore.Save() and flushed later.
+func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[string]bool) {
 	taintedCount := 0
 	for name, toolState := range st.Tools {
 		if toolState.RuntimeRef != "" && updatedRuntimes[toolState.RuntimeRef] {
 			toolState.Taint("runtime_upgraded")
+			_ = e.toolStore.Save(name, toolState)
 			taintedCount++
 			slog.Debug("tainted tool due to runtime upgrade", "tool", name, "runtime", toolState.RuntimeRef)
 		}
 	}
 
 	if taintedCount > 0 {
-		if err := e.store.Save(st); err != nil {
-			return fmt.Errorf("failed to save tainted state: %w", err)
-		}
 		slog.Debug("tainted tools for reinstallation", "count", taintedCount)
 	}
-
-	return nil
 }
 
 // taintLatestTools marks tools with VersionKind=latest for reinstallation.
 // This is used in sync mode to force re-resolution of latest versions.
-// Note: Must be called while holding the store lock.
-func (e *Engine) taintLatestTools(st *state.UserState) error {
+// Called before stateCache.Init(), so it modifies st directly and the
+// changes are picked up when Init sets the cache.
+func (e *Engine) taintLatestTools(st *state.UserState) {
 	taintedCount := 0
 	for name, toolState := range st.Tools {
 		if toolState.VersionKind == resource.VersionLatest {
@@ -976,13 +992,8 @@ func (e *Engine) taintLatestTools(st *state.UserState) error {
 	}
 
 	if taintedCount > 0 {
-		if err := e.store.Save(st); err != nil {
-			return fmt.Errorf("failed to save tainted state: %w", err)
-		}
 		slog.Debug("tainted latest tools for sync", "count", taintedCount)
 	}
-
-	return nil
 }
 
 // extractRuntimes filters Runtime resources from a list of resources.
