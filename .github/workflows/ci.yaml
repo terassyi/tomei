@@ -125,3 +125,4 @@ jobs:
           os: ${{ matrix.os }}
           arch: ${{ matrix.arch }}
           mode: ${{ matrix.mode }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

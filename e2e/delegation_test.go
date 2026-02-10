@@ -30,7 +30,7 @@ func delegationTests() {
 
 		It("installs Rust runtime and tool via delegation", func() {
 			By("Running tomei apply on delegation-test directory")
-			_, err := testExec.Exec("tomei", "apply", "~/delegation-test/")
+			_, err := ExecApply(testExec, "~/delegation-test/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -122,7 +122,7 @@ func delegationTests() {
 	Context("Rust Delegation Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/delegation-test/")
+			_, err := ExecApply(testExec, "~/delegation-test/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying rustc still works")

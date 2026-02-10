@@ -78,7 +78,7 @@ func basicTests() {
 	Context("Runtime and Tool Installation", func() {
 		It("downloads and installs Runtime and Tools", func() {
 			By("Running tomei apply command")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -279,15 +279,15 @@ func basicTests() {
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
 		It("does not re-download on multiple applies", func() {
 			By("Running tomei apply two more times")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking go still works")
@@ -303,7 +303,7 @@ func basicTests() {
 
 		It("is idempotent for runtime delegation tools", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking gopls still works")
@@ -369,7 +369,7 @@ func basicTests() {
 
 		It("upgrades runtime to newer version", func() {
 			By("Running tomei apply with upgraded config")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying new runtime version is installed")
@@ -409,7 +409,7 @@ func basicTests() {
 
 		It("is idempotent after runtime upgrade", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying runtime still works")
@@ -448,7 +448,7 @@ func basicTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying tool symlink is removed")
@@ -471,7 +471,7 @@ func basicTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply — should succeed since all dependents are removed")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying runtime symlink is removed")

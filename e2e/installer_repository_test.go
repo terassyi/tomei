@@ -37,7 +37,7 @@ func installerRepositoryTests() {
 
 		It("installs helm and adds bitnami repository", func() {
 			By("Running tomei apply on helm-repo.cue")
-			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-repo.cue")
+			_, err := ExecApply(testExec, "~/installer-repo-test/helm-repo.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -72,7 +72,7 @@ func installerRepositoryTests() {
 
 		It("is idempotent on subsequent apply", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-repo.cue")
+			_, err := ExecApply(testExec, "~/installer-repo-test/helm-repo.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bitnami still registered")
@@ -112,7 +112,7 @@ func installerRepositoryTests() {
 
 		It("installs InstallerRepository then pulls chart via dependent Tool", func() {
 			By("Running tomei apply on repo-with-tool.cue")
-			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/repo-with-tool.cue")
+			_, err := ExecApply(testExec, "~/installer-repo-test/repo-with-tool.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -143,7 +143,7 @@ func installerRepositoryTests() {
 
 		It("is idempotent on subsequent apply", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/repo-with-tool.cue")
+			_, err := ExecApply(testExec, "~/installer-repo-test/repo-with-tool.cue")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -151,7 +151,7 @@ func installerRepositoryTests() {
 	Context("Removal", func() {
 		It("removes InstallerRepository and Tool when manifest reduced", func() {
 			By("Applying helm-only manifest (no InstallerRepository, no common-chart)")
-			_, err := testExec.Exec("tomei", "apply", "~/installer-repo-test/helm-only.cue")
+			_, err := ExecApply(testExec, "~/installer-repo-test/helm-only.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking bitnami is NOT in helm repo list")

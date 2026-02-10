@@ -51,7 +51,7 @@ func stateBackupDiffTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply to install runtime and tools")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying state.json.bak was created")
@@ -144,7 +144,7 @@ func stateBackupDiffTests() {
 	Context("Diff After Idempotent Apply", func() {
 		It("shows no changes after idempotent apply", func() {
 			By("Running tomei apply again (idempotent)")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei state diff")
@@ -165,7 +165,7 @@ func stateBackupDiffTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply with upgraded config")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Verifying backup contains old version")
@@ -212,7 +212,7 @@ func stateBackupDiffTests() {
 			_, _ = testExec.ExecBash("mv ~/manifests/runtime.cue.old ~/manifests/runtime.cue")
 
 			By("Restoring original runtime version via apply")
-			_, _ = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, _ = ExecApply(testExec, "~/manifests/")
 		})
 	})
 
@@ -223,7 +223,7 @@ func stateBackupDiffTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei state diff")
@@ -258,7 +258,7 @@ func stateBackupDiffTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply again")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/")
+			_, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Reading new backup content")

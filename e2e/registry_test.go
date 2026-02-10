@@ -60,7 +60,7 @@ func registryTests() {
 
 		It("installs tools via aqua registry", func() {
 			By("Running tomei apply on registry manifests")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
+			_, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -154,7 +154,7 @@ func registryTests() {
 	Context("Registry Sync", func() {
 		It("--sync flag works with apply", func() {
 			By("Running tomei apply --sync")
-			_, err := testExec.Exec("tomei", "apply", "--sync", "~/manifests/registry/")
+			_, err := ExecApply(testExec, "--sync", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
@@ -162,7 +162,7 @@ func registryTests() {
 	Context("Idempotency", func() {
 		It("subsequent apply has no changes", func() {
 			By("Running tomei apply again on registry manifests")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
+			_, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -193,7 +193,7 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply with older version")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/registry/")
+			_, err = ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -222,7 +222,7 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply with newer version")
-			_, err = testExec.Exec("tomei", "apply", "~/manifests/registry/")
+			_, err = ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -245,7 +245,7 @@ func registryTests() {
 
 		It("is idempotent after version changes", func() {
 			By("Running tomei apply again")
-			_, err := testExec.Exec("tomei", "apply", "~/manifests/registry/")
+			_, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
