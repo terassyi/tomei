@@ -150,7 +150,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		reader := bufio.NewReader(os.Stdin)
 		answer, _ := reader.ReadString('\n')
 		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
+		if answer != "y" && answer != "yes" { //nolint:goconst // simple confirmation pattern
 			fmt.Fprintln(w, "Canceled.")
 			return nil
 		}
