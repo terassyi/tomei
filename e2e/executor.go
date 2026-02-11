@@ -129,6 +129,7 @@ func (e *nativeExecutor) Exec(name string, args ...string) (string, error) {
 	} else {
 		cmd = exec.Command(name, args...)
 	}
+	cmd.Dir = e.testHome
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
 	// Only output tomei commands to GinkgoWriter
@@ -147,6 +148,7 @@ func (e *nativeExecutor) ExecBash(script string) (string, error) {
 	script = strings.ReplaceAll(script, "$HOME", e.testHome)
 
 	cmd := exec.Command("bash", "-c", script)
+	cmd.Dir = e.testHome
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
 	return string(output), err
