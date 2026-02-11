@@ -8,6 +8,7 @@ import (
 // installers holds all builtin installer definitions.
 var installers = []*resource.Installer{
 	download.BuiltinInstaller,
+	download.BuiltinAquaInstaller,
 }
 
 // installerMap provides quick lookup by name.

@@ -13,3 +13,16 @@ var BuiltinInstaller = &resource.Installer{
 		Type: resource.InstallTypeDownload,
 	},
 }
+
+// BuiltinAquaInstaller is the builtin "aqua" installer definition.
+// Aqua uses the download pattern with aqua-registry for package resolution.
+var BuiltinAquaInstaller = &resource.Installer{
+	BaseResource: resource.BaseResource{
+		APIVersion:   resource.GroupVersion,
+		ResourceKind: resource.KindInstaller,
+		Metadata:     resource.Metadata{Name: "aqua"},
+	},
+	InstallerSpec: &resource.InstallerSpec{
+		Type: resource.InstallTypeDownload,
+	},
+}

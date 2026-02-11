@@ -13,6 +13,7 @@ import (
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/graph"
+	"github.com/terassyi/tomei/internal/installer/engine"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 	"github.com/terassyi/tomei/internal/resource"
@@ -246,8 +247,10 @@ func resolvePlan(resources []resource.Resource) (*planResult, error) {
 		definedResources[id.String()] = struct{}{}
 	}
 
+	// Inject builtin installers into the resolver only so that dependency
+	// nodes like "Installer/aqua" are properly resolved.
 	resolver := graph.NewResolver()
-	for _, res := range resources {
+	for _, res := range engine.AppendBuiltinInstallers(resources) {
 		resolver.AddResource(res)
 	}
 

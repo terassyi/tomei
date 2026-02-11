@@ -2788,3 +2788,57 @@ repo: {
 	assert.Equal(t, "bitnami", repoActions[0].Name)
 	assert.Equal(t, resource.ActionInstall, repoActions[0].Type)
 }
+
+func TestAppendBuiltinInstallers(t *testing.T) {
+	t.Run("adds download and aqua when absent", func(t *testing.T) {
+		resources := []resource.Resource{
+			&resource.Tool{
+				BaseResource: resource.BaseResource{
+					APIVersion:   resource.GroupVersion,
+					ResourceKind: resource.KindTool,
+					Metadata:     resource.Metadata{Name: "jq"},
+				},
+				ToolSpec: &resource.ToolSpec{InstallerRef: "aqua", Version: "1.7.1"},
+			},
+		}
+
+		result := AppendBuiltinInstallers(resources)
+
+		// Original tool + download + aqua
+		require.Len(t, result, 3)
+
+		names := make(map[string]bool)
+		for _, res := range result {
+			if res.Kind() == resource.KindInstaller {
+				names[res.Name()] = true
+			}
+		}
+		assert.True(t, names["download"])
+		assert.True(t, names["aqua"])
+	})
+
+	t.Run("does not duplicate existing installer", func(t *testing.T) {
+		existing := &resource.Installer{
+			BaseResource: resource.BaseResource{
+				APIVersion:   resource.GroupVersion,
+				ResourceKind: resource.KindInstaller,
+				Metadata:     resource.Metadata{Name: "aqua"},
+			},
+			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload},
+		}
+		resources := []resource.Resource{existing}
+
+		result := AppendBuiltinInstallers(resources)
+
+		// existing aqua + added download
+		require.Len(t, result, 2)
+
+		var count int
+		for _, res := range result {
+			if res.Kind() == resource.KindInstaller && res.Name() == "aqua" {
+				count++
+			}
+		}
+		assert.Equal(t, 1, count, "aqua should not be duplicated")
+	})
+}

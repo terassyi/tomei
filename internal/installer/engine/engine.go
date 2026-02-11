@@ -199,9 +199,12 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	slog.Debug("applying configuration", "resources", len(resources))
 
-	// Build dependency graph and get execution layers
+	// Build dependency graph and get execution layers.
+	// Inject builtin installers into the resolver only so that dependency
+	// nodes like "Installer/aqua" are properly resolved. Builtins are NOT
+	// added to the resources slice to avoid persisting them to state.
 	resolver := graph.NewResolver()
-	for _, res := range resources {
+	for _, res := range AppendBuiltinInstallers(resources) {
 		resolver.AddResource(res)
 	}
 
@@ -1047,4 +1050,27 @@ func checkRemovalDependencies(runtimeRemovals []string, remainingTools []*resour
 		return fmt.Errorf("cannot remove runtime: dependent tools still in spec:\n  %s", strings.Join(blocked, "\n  "))
 	}
 	return nil
+}
+
+// AppendBuiltinInstallers adds builtin installer resources (download, aqua)
+// to the resource list if they are not already present. This ensures that
+// DAG dependency nodes like "Installer/aqua" have a real resource backing them.
+func AppendBuiltinInstallers(resources []resource.Resource) []resource.Resource {
+	existing := make(map[string]bool)
+	for _, res := range resources {
+		if res.Kind() == resource.KindInstaller {
+			existing[res.Name()] = true
+		}
+	}
+
+	for _, inst := range []*resource.Installer{
+		download.BuiltinInstaller,
+		download.BuiltinAquaInstaller,
+	} {
+		if !existing[inst.Name()] {
+			resources = append(resources, inst)
+		}
+	}
+
+	return resources
 }

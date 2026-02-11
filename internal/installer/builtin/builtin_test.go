@@ -11,8 +11,8 @@ import (
 func TestInstallers(t *testing.T) {
 	installers := Installers()
 
-	// Should have at least the "download" installer
-	require.NotEmpty(t, installers)
+	// Should have both "download" and "aqua" installers
+	require.Len(t, installers, 2)
 
 	// Find "download" installer
 	var downloadInstaller *resource.Installer
@@ -37,6 +37,26 @@ func TestInstallers(t *testing.T) {
 	assert.Empty(t, downloadInstaller.InstallerSpec.ToolRef)
 	assert.Nil(t, downloadInstaller.InstallerSpec.Bootstrap)
 	assert.Nil(t, downloadInstaller.InstallerSpec.Commands)
+
+	// Find "aqua" installer
+	var aquaInstaller *resource.Installer
+	for _, i := range installers {
+		if i.Metadata.Name == "aqua" {
+			aquaInstaller = i
+			break
+		}
+	}
+
+	require.NotNil(t, aquaInstaller, "aqua installer not found")
+
+	// Verify aqua installer structure
+	assert.Equal(t, resource.GroupVersion, aquaInstaller.APIVersion)
+	assert.Equal(t, resource.KindInstaller, aquaInstaller.ResourceKind)
+	assert.Equal(t, "aqua", aquaInstaller.Metadata.Name)
+
+	// Verify spec — aqua uses download pattern
+	require.NotNil(t, aquaInstaller.InstallerSpec)
+	assert.Equal(t, resource.InstallTypeDownload, aquaInstaller.InstallerSpec.Type)
 }
 
 func TestInstallers_AllValid(t *testing.T) {
@@ -68,6 +88,11 @@ func TestGet(t *testing.T) {
 			wantNil:     false,
 		},
 		{
+			name:        "aqua installer exists",
+			installerID: "aqua",
+			wantNil:     false,
+		},
+		{
 			name:        "nonexistent installer",
 			installerID: "nonexistent",
 			wantNil:     true,
@@ -96,6 +121,11 @@ func TestIsBuiltin(t *testing.T) {
 		{
 			name:        "download is builtin",
 			installerID: "download",
+			want:        true,
+		},
+		{
+			name:        "aqua is builtin",
+			installerID: "aqua",
 			want:        true,
 		},
 		{
