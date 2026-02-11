@@ -2,7 +2,8 @@ FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    curl
+    curl \
+    vim
 
 RUN useradd -m -s /bin/bash lipnoise
 

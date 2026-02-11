@@ -116,7 +116,10 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 ```
 ~/.config/tomei/           # Config (fixed path)
 ├── config.cue             # Path settings
-├── schema.cue             # CUE schema for LSP support
+└── *.cue                  # User manifests
+
+./ (manifest directory)    # Where user runs tomei
+├── schema.cue             # CUE schema for LSP support (placed by tomei init)
 └── *.cue                  # User manifests
 
 ~/.local/share/tomei/      # Data (configurable via config.cue)
@@ -139,7 +142,21 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 - No shell injection — `exec.Command` with explicit arguments
 - Atomic state writes (tmp + rename)
 
-## 8. Implementation Status
+## 8. Schema Versioning
+
+The CUE schema (`schema.cue`) provides type definitions for manifests and is used by CUE language servers for editor completion and validation. `tomei init` places `schema.cue` in the manifest directory (current directory by default).
+
+The schema is versioned via `#APIVersion` (currently `"tomei.terassyi.net/v1beta1"`). When `tomei apply`, `tomei plan`, or `tomei validate` runs, it compares the on-disk `schema.cue` apiVersion with the version embedded in the binary. If they differ, the command exits with an error instructing the user to run `tomei schema` to update.
+
+The schema is never updated automatically. Users run `tomei schema` explicitly when upgrading `tomei` to a version with a new schema. This avoids silently overwriting user-visible files.
+
+**Versioning policy:**
+
+- v1beta1 is frozen at the v0.1.0 release
+- Schema changes require a new apiVersion (e.g., v1beta2, v1)
+- Users update via `tomei schema` after upgrading the binary
+
+## 9. Implementation Status
 
 Completed:
 
@@ -157,8 +174,9 @@ Completed:
 - GitHub token authentication for API rate limit mitigation
 - Diagnostics: `tomei get`, `tomei logs`, `tomei state diff`, `tomei completion`, `tomei doctor`
 - Performance: batch state writes per execution layer (StateCache)
+- Schema management: `tomei schema` command, apiVersion mismatch check, init guard, apply confirmation prompt (`--yes`)
 
-## 9. Roadmap
+## 10. Roadmap
 
 ### System privilege (deferred)
 
@@ -174,7 +192,7 @@ The CUE schema and resource types are already defined. Implementation requires p
 
 Authenticated downloads from private GitHub repositories. Public repository rate limiting is already addressed via `GITHUB_TOKEN` / `GH_TOKEN`.
 
-## 10. Design Considerations
+## 11. Design Considerations
 
 ### Authentication & tokens
 

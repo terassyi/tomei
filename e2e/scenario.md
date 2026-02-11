@@ -17,6 +17,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 |-------|-------|-------------|
 | tomei on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
 | Schema Validation | 9 | Schema placement, invalid manifest rejection (validate/apply), error message quality |
+| Schema Management | 9 | `tomei schema` command, apiVersion mismatch detection, init guard, apply confirmation |
 | State Backup and Diff | 13 | Backup creation, diff (text/JSON), idempotent diff, upgrade diff, removal diff, backup overwrite |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
@@ -419,6 +420,72 @@ All tests write an inline CUE manifest to `~/schema-test/` and run `tomei valida
 2. Define named field `badTool:` containing a Tool with non-HTTPS URL
 3. Run `tomei validate ~/schema-test/bad-dir/`
 4. Error contains "schema validation failed" and "badTool"
+
+---
+
+## 1c. Schema Management
+
+### 1c.1 `tomei schema` Command
+
+#### Create Schema
+1. Create empty directory `~/schema-mgmt-test/new-dir/`
+2. Run `tomei schema ~/schema-mgmt-test/new-dir`
+3. Output contains "Created"
+4. `~/schema-mgmt-test/new-dir/schema.cue` contains `package tomei` and `#APIVersion`
+
+#### Up-to-date Schema
+1. Run `tomei schema ~/schema-mgmt-test/new-dir` again
+2. Output contains "up to date"
+
+#### Update Schema
+1. Overwrite `schema.cue` with `package tomei` (minimal content)
+2. Run `tomei schema ~/schema-mgmt-test/new-dir`
+3. Output contains "Updated"
+
+#### Default Directory
+1. Run `tomei schema` (no arguments)
+2. Command succeeds (schema.cue in working directory from init)
+
+### 1c.2 Schema apiVersion Mismatch
+
+#### Apply Rejects Mismatch
+1. Create `~/schema-mgmt-test/mismatch/schema.cue` with `#APIVersion: "tomei.terassyi.net/v0old"`
+2. Create valid manifest `~/schema-mgmt-test/mismatch/tools.cue`
+3. Run `tomei apply --yes ~/schema-mgmt-test/mismatch/`
+4. Error contains "apiVersion mismatch" and "tomei schema"
+
+#### Validate Rejects Mismatch
+1. Run `tomei validate ~/schema-mgmt-test/mismatch/tools.cue`
+2. Error contains "apiVersion mismatch"
+
+#### Plan Rejects Mismatch
+1. Run `tomei plan ~/schema-mgmt-test/mismatch/`
+2. Error contains "apiVersion mismatch"
+
+#### Fix and Succeed
+1. Run `tomei schema ~/schema-mgmt-test/mismatch` to update schema.cue
+2. Run `tomei validate ~/schema-mgmt-test/mismatch/tools.cue`
+3. Validation succeeds
+
+#### No Schema Skips Check
+1. Create `~/schema-mgmt-test/no-schema/tools.cue` (no schema.cue in directory)
+2. Run `tomei validate ~/schema-mgmt-test/no-schema/tools.cue`
+3. Validation succeeds
+
+### 1c.3 Init Guard
+
+#### Apply Before Init
+1. Move `~/.local/share/tomei/state.json` to backup
+2. Run `tomei apply --yes ~/schema-mgmt-test/fresh-home/tools.cue`
+3. Error contains "tomei is not initialized" and "tomei init"
+4. Restore `state.json` from backup
+
+### 1c.4 Apply Confirmation Prompt
+
+#### Proceeds with --yes
+1. Run `tomei apply --yes ~/manifests/`
+2. Command succeeds
+3. Output does not contain `[y/N]` prompt
 
 ---
 

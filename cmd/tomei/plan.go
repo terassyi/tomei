@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 
@@ -67,6 +68,11 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check schema.cue apiVersion in manifest directories
+	if err := config.CheckSchemaVersionForPaths(args); err != nil {
+		return err
+	}
+
 	// Load configuration
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)
@@ -85,78 +91,33 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	// Build a set of defined resource IDs for filtering
-	definedResources := make(map[string]struct{})
-	resourceMap := make(map[graph.NodeID]resource.Resource)
-	for _, res := range resources {
-		id := graph.NewNodeID(res.Kind(), res.Name())
-		definedResources[id.String()] = struct{}{}
-		resourceMap[id] = res
-	}
-
-	// Build dependency graph
-	resolver := graph.NewResolver()
-	for _, res := range resources {
-		resolver.AddResource(res)
-	}
-
-	// Validate and get execution layers
-	layers, err := resolver.Resolve()
-	if err != nil {
-		// Return the error as-is - it will be formatted by main.go
-		return err
-	}
-
-	// Filter layers to only include defined resources
-	var filteredLayers []graph.Layer
-	for _, layer := range layers {
-		var filteredNodes []*graph.Node
-		for _, node := range layer.Nodes {
-			id := graph.NewNodeID(node.Kind, node.Name).String()
-			if _, ok := definedResources[id]; ok {
-				filteredNodes = append(filteredNodes, node)
-			}
-		}
-		if len(filteredNodes) > 0 {
-			filteredLayers = append(filteredLayers, graph.Layer{Nodes: filteredNodes})
-		}
-	}
-
-	// Load state to determine actions
-	resourceInfo, err := buildResourceInfo(resources, resourceMap)
+	result, err := resolvePlan(resources)
 	if err != nil {
 		return err
 	}
-
-	// Get edges for tree/export
-	edges := resolver.GetEdges()
 
 	// Output based on format
 	switch outputFormat {
 	case outputJSON:
-		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
+		exporter := graph.NewExporter(result.filteredLayers, result.resourceInfo, result.edges)
 		return exporter.ExportJSON(os.Stdout)
 	case "yaml":
-		exporter := graph.NewExporter(filteredLayers, resourceInfo, edges)
+		exporter := graph.NewExporter(result.filteredLayers, result.resourceInfo, result.edges)
 		return exporter.ExportYAML(os.Stdout)
 	case "text":
 		fallthrough
 	default:
-		return printTextPlan(cmd, args, resources, resolver, filteredLayers, resourceInfo)
+		return printTextPlan(cmd, args, resources, result)
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resource.Resource) (map[graph.NodeID]graph.ResourceInfo, error) {
+func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
-	// Load config and sync schema
+	// Load config and state
 	var userState *state.UserState
 	cfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err == nil {
-		if err := config.SyncSchema(cfg, config.DefaultConfigDir); err != nil {
-			return nil, fmt.Errorf("failed to sync schema: %w", err)
-		}
-
 		pathConfig, err := path.NewFromConfig(cfg)
 		if err == nil {
 			store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
@@ -167,6 +128,10 @@ func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resourc
 				}
 			}
 		}
+	}
+
+	if userState == nil {
+		fmt.Fprintln(os.Stderr, "Warning: tomei is not initialized. Run 'tomei init' for accurate state comparison.")
 	}
 
 	for _, res := range resources {
@@ -217,25 +182,128 @@ func buildResourceInfo(resources []resource.Resource, _ map[graph.NodeID]resourc
 		info[nodeID] = resInfo
 	}
 
-	return info, nil
+	// Detect removals: resources in state but not in manifests
+	if userState != nil {
+		for name, rt := range userState.Runtimes {
+			nodeID := graph.NewNodeID(resource.KindRuntime, name)
+			if _, exists := info[nodeID]; !exists {
+				info[nodeID] = graph.ResourceInfo{
+					Kind:    resource.KindRuntime,
+					Name:    name,
+					Version: rt.Version,
+					Action:  graph.ActionRemove,
+				}
+			}
+		}
+		for name, tool := range userState.Tools {
+			nodeID := graph.NewNodeID(resource.KindTool, name)
+			if _, exists := info[nodeID]; !exists {
+				info[nodeID] = graph.ResourceInfo{
+					Kind:    resource.KindTool,
+					Name:    name,
+					Version: tool.Version,
+					Action:  graph.ActionRemove,
+				}
+			}
+		}
+	}
+
+	return info
 }
 
-func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resource, resolver graph.Resolver, layers []graph.Layer, resourceInfo map[graph.NodeID]graph.ResourceInfo) error {
+func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resource, result *planResult) error {
 	cmd.Printf("Planning changes for %v\n\n", args)
 	cmd.Printf("Found %d resource(s)\n\n", len(resources))
 
 	// Print dependency tree
 	cmd.Println("Dependency Graph:")
 	printer := graph.NewTreePrinter(cmd.OutOrStdout(), noColor)
-	printer.PrintTree(resolver, resourceInfo)
+	printer.PrintTree(result.resolver, result.resourceInfo)
 
 	// Print execution layers
-	printer.PrintLayers(layers, resourceInfo)
+	printer.PrintLayers(result.filteredLayers, result.resourceInfo)
 
 	// Print summary
-	printer.PrintSummary(resourceInfo)
+	printer.PrintSummary(result.resourceInfo)
 
 	return nil
+}
+
+// planResult holds the resolved plan state.
+type planResult struct {
+	resolver       graph.Resolver
+	filteredLayers []graph.Layer
+	resourceInfo   map[graph.NodeID]graph.ResourceInfo
+	edges          []graph.Edge
+}
+
+// resolvePlan builds the dependency graph, resolves execution layers, and
+// computes resource actions from the current state.
+func resolvePlan(resources []resource.Resource) (*planResult, error) {
+	definedResources := make(map[string]struct{})
+	for _, res := range resources {
+		id := graph.NewNodeID(res.Kind(), res.Name())
+		definedResources[id.String()] = struct{}{}
+	}
+
+	resolver := graph.NewResolver()
+	for _, res := range resources {
+		resolver.AddResource(res)
+	}
+
+	layers, err := resolver.Resolve()
+	if err != nil {
+		return nil, err
+	}
+
+	var filteredLayers []graph.Layer
+	for _, layer := range layers {
+		var filteredNodes []*graph.Node
+		for _, node := range layer.Nodes {
+			id := graph.NewNodeID(node.Kind, node.Name).String()
+			if _, ok := definedResources[id]; ok {
+				filteredNodes = append(filteredNodes, node)
+			}
+		}
+		if len(filteredNodes) > 0 {
+			filteredLayers = append(filteredLayers, graph.Layer{Nodes: filteredNodes})
+		}
+	}
+
+	resourceInfo := buildResourceInfo(resources)
+
+	return &planResult{
+		resolver:       resolver,
+		filteredLayers: filteredLayers,
+		resourceInfo:   resourceInfo,
+		edges:          resolver.GetEdges(),
+	}, nil
+}
+
+// planForResources runs the plan logic on already-loaded resources and
+// writes the text plan to w. It returns true if there are any changes
+// (install, upgrade, reinstall, or remove).
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool) (bool, error) {
+	result, err := resolvePlan(resources)
+	if err != nil {
+		return false, err
+	}
+
+	hasChanges := false
+	for _, info := range result.resourceInfo {
+		if info.Action != graph.ActionNone {
+			hasChanges = true
+			break
+		}
+	}
+
+	fmt.Fprintf(w, "Found %d resource(s)\n\n", len(resources))
+	printer := graph.NewTreePrinter(w, disableColor)
+	printer.PrintTree(result.resolver, result.resourceInfo)
+	printer.PrintLayers(result.filteredLayers, result.resourceInfo)
+	printer.PrintSummary(result.resourceInfo)
+
+	return hasChanges, nil
 }
 
 // syncRegistryForPlan creates a store and syncs the aqua registry.

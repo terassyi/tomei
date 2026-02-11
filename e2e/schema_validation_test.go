@@ -22,9 +22,9 @@ func schemaValidationTests() {
 	})
 
 	Context("tomei init Schema Placement", func() {
-		It("places schema.cue at default config directory", func() {
-			By("Verifying schema.cue was created by init")
-			output, err := testExec.ExecBash("cat ~/.config/tomei/schema.cue")
+		It("places schema.cue in current directory by default", func() {
+			By("Verifying schema.cue was created by init in working directory")
+			output, err := testExec.ExecBash("cat ~/schema.cue")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking schema contains key definitions")
@@ -189,7 +189,7 @@ EOF`)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply - should fail")
-			output, err := testExec.Exec("tomei", "apply", "~/schema-test/apply-invalid.cue")
+			output, err := testExec.Exec("tomei", "apply", "--yes", "~/schema-test/apply-invalid.cue")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("failed to load resources"))
 

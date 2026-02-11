@@ -30,9 +30,9 @@ type executor interface {
 	Getenv(key string) string
 }
 
-// ExecApply runs "tomei apply" and dumps "tomei logs" on failure for diagnostics.
+// ExecApply runs "tomei apply --yes" and dumps "tomei logs" on failure for diagnostics.
 func ExecApply(e executor, args ...string) (string, error) {
-	applyArgs := append([]string{"apply"}, args...)
+	applyArgs := append([]string{"apply", "--yes"}, args...)
 	output, err := e.Exec("tomei", applyArgs...)
 	if err != nil {
 		fmt.Fprintf(GinkgoWriter, "\n=== tomei apply failed, dumping logs ===\n")
@@ -129,6 +129,7 @@ func (e *nativeExecutor) Exec(name string, args ...string) (string, error) {
 	} else {
 		cmd = exec.Command(name, args...)
 	}
+	cmd.Dir = e.testHome
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
 	// Only output tomei commands to GinkgoWriter
@@ -147,6 +148,7 @@ func (e *nativeExecutor) ExecBash(script string) (string, error) {
 	script = strings.ReplaceAll(script, "$HOME", e.testHome)
 
 	cmd := exec.Command("bash", "-c", script)
+	cmd.Dir = e.testHome
 	cmd.Env = e.buildEnv()
 	output, err := cmd.CombinedOutput()
 	return string(output), err
