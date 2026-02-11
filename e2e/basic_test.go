@@ -432,7 +432,7 @@ func basicTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei apply — should fail because gopls depends on go runtime")
-			output, err := testExec.Exec("tomei", "apply", "~/manifests/")
+			output, err := testExec.Exec("tomei", "apply", "--yes", "~/manifests/")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("cannot remove runtime"))
 			Expect(output).To(ContainSubstring("gopls"))

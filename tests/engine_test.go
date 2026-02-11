@@ -1084,6 +1084,494 @@ goRuntime: {
 	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
 }
 
+// TestEngine_PlanAll_DetectsToolRemoval tests that PlanAll detects a tool
+// that exists in state but not in manifests as ActionRemove.
+func TestEngine_PlanAll_DetectsToolRemoval(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// Initial config with two tools
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+
+bat: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "download"
+		version: "0.24.0"
+		source: {
+			url: "https://example.com/bat"
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// Install both tools
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Remove fzf from manifest, keep only bat
+	cueContentV2 := `package tomei
+
+bat: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "download"
+		version: "0.24.0"
+		source: {
+			url: "https://example.com/bat"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2 := loadResources(t, configDir)
+
+	// PlanAll should detect fzf removal
+	_, _, toolActions, err := eng.PlanAll(ctx, resourcesV2)
+	require.NoError(t, err)
+
+	var fzfAction *engine.ToolAction
+	for i := range toolActions {
+		if toolActions[i].Name == "fzf" {
+			fzfAction = &toolActions[i]
+			break
+		}
+	}
+	require.NotNil(t, fzfAction, "expected fzf action in plan")
+	assert.Equal(t, resource.ActionRemove, fzfAction.Type)
+
+	// bat should NOT appear in actions (Reconcile omits ActionNone entries)
+	for _, action := range toolActions {
+		assert.NotEqual(t, "bat", action.Name,
+			"bat should not appear in plan — it has no changes")
+	}
+}
+
+// TestEngine_PlanAll_DetectsRuntimeRemoval tests that PlanAll detects a
+// runtime in state but absent from manifests as ActionRemove.
+func TestEngine_PlanAll_DetectsRuntimeRemoval(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+myruntime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "myruntime"
+	spec: {
+		type: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/myruntime.tar.gz"
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+		}
+		binaries: ["mybin"]
+		toolBinPath: "~/bin"
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "runtime.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// Install runtime
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// PlanAll with empty resources should detect runtime removal
+	var emptyResources []resource.Resource
+	runtimeActions, _, _, err := eng.PlanAll(ctx, emptyResources)
+	require.NoError(t, err)
+
+	var rtAction *engine.RuntimeAction
+	for i := range runtimeActions {
+		if runtimeActions[i].Name == "myruntime" {
+			rtAction = &runtimeActions[i]
+			break
+		}
+	}
+	require.NotNil(t, rtAction, "expected myruntime action in plan")
+	assert.Equal(t, resource.ActionRemove, rtAction.Type)
+}
+
+// TestEngine_PlanAll_NoChanges tests that PlanAll returns ActionNone for
+// all resources when state matches manifests (idempotent).
+func TestEngine_PlanAll_NoChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// Install tool
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// PlanAll with same resources should have no actions
+	// (Reconcile omits ActionNone entries — only Install/Upgrade/Remove appear)
+	_, _, toolActions, err := eng.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	assert.Empty(t, toolActions, "expected no tool actions for idempotent plan")
+}
+
+// TestEngine_PlanAll_DetectsUpgrade tests that PlanAll detects a version
+// change as ActionUpgrade.
+func TestEngine_PlanAll_DetectsUpgrade(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// Install v0.44.0
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Upgrade to v0.45.0
+	cueContentV2 := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.45.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2 := loadResources(t, configDir)
+
+	_, _, toolActions, err := eng.PlanAll(ctx, resourcesV2)
+	require.NoError(t, err)
+
+	var fzfAction *engine.ToolAction
+	for i := range toolActions {
+		if toolActions[i].Name == "fzf" {
+			fzfAction = &toolActions[i]
+			break
+		}
+	}
+	require.NotNil(t, fzfAction, "expected fzf action in plan")
+	assert.Equal(t, resource.ActionUpgrade, fzfAction.Type)
+}
+
+// TestEngine_Apply_CreatesStateBackup tests that engine.Apply creates a
+// state.json.bak file containing the pre-apply state.
+// In production, `tomei init` always creates state.json before apply runs,
+// so we simulate init by writing an empty state before the first apply.
+func TestEngine_Apply_CreatesStateBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tools.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Simulate `tomei init`: write empty state.json before first apply
+	require.NoError(t, store.Lock())
+	require.NoError(t, store.Save(state.NewUserState()))
+	require.NoError(t, store.Unlock())
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// First apply — state.json already exists (from init), so backup is created
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Backup should exist after first apply
+	bakPath := state.BackupPath(store.StatePath())
+	assert.FileExists(t, bakPath)
+
+	// Backup should reflect pre-apply state (empty — no tools installed yet)
+	backup, err := state.LoadBackup[state.UserState](store.StatePath())
+	require.NoError(t, err)
+	require.NotNil(t, backup)
+	assert.Empty(t, backup.Tools,
+		"backup should reflect empty pre-apply state (simulating post-init)")
+}
+
+// TestEngine_Apply_IdempotentCreatesBackup tests that a second apply
+// (idempotent, no changes) still creates/updates the backup file.
+func TestEngine_Apply_IdempotentCreatesBackup(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tools.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Simulate `tomei init`: write empty state.json before first apply
+	require.NoError(t, store.Lock())
+	require.NoError(t, store.Save(state.NewUserState()))
+	require.NoError(t, store.Unlock())
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// First apply — installs fzf
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Record current state (fzf installed)
+	require.NoError(t, store.Lock())
+	stateAfterFirst, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+	require.Contains(t, stateAfterFirst.Tools, "fzf")
+
+	// Second apply — idempotent, no changes
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Backup should reflect state just before second apply (fzf installed)
+	backup, err := state.LoadBackup[state.UserState](store.StatePath())
+	require.NoError(t, err)
+	require.NotNil(t, backup)
+	assert.Contains(t, backup.Tools, "fzf",
+		"backup after idempotent apply should contain fzf from pre-apply state")
+	assert.Equal(t, "0.44.0", backup.Tools["fzf"].Version)
+}
+
+// TestEngine_Apply_BackupReflectsPreApplyState tests that the backup always
+// contains the state from just before the apply, even after an upgrade.
+func TestEngine_Apply_BackupReflectsPreApplyState(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.44.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tools.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Simulate `tomei init`: write empty state.json before first apply
+	require.NoError(t, store.Lock())
+	require.NoError(t, store.Save(state.NewUserState()))
+	require.NoError(t, store.Unlock())
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// First apply — v0.44.0
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Upgrade to v0.45.0
+	cueContentV2 := `package tomei
+
+fzf: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "fzf"
+	spec: {
+		installerRef: "download"
+		version: "0.45.0"
+		source: {
+			url: "https://example.com/fzf"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2 := loadResources(t, configDir)
+
+	// Second apply — upgrade
+	err = eng.Apply(ctx, resourcesV2)
+	require.NoError(t, err)
+
+	// Backup should have v0.44.0 (pre-upgrade state)
+	backup, err := state.LoadBackup[state.UserState](store.StatePath())
+	require.NoError(t, err)
+	require.NotNil(t, backup)
+	require.Contains(t, backup.Tools, "fzf")
+	assert.Equal(t, "0.44.0", backup.Tools["fzf"].Version,
+		"backup should reflect pre-upgrade version")
+
+	// Current state should have v0.45.0
+	require.NoError(t, store.Lock())
+	current, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+	require.Contains(t, current.Tools, "fzf")
+	assert.Equal(t, "0.45.0", current.Tools["fzf"].Version,
+		"current state should have upgraded version")
+}
+
 // TestEngine_Apply_RemoveRuntimeBlockedByDependentTool tests that removing a runtime
 // from config is rejected when dependent tools still reference it.
 func TestEngine_Apply_RemoveRuntimeBlockedByDependentTool(t *testing.T) {

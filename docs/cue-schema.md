@@ -376,9 +376,15 @@ source: {
 }
 ```
 
+## Schema Management
+
+`tomei init` places `schema.cue` in the current directory (or the directory specified by `--schema-dir`). This file provides type definitions for CUE language servers. To update `schema.cue` after upgrading `tomei`, run `tomei schema`.
+
+The schema is versioned via `#APIVersion`. If the on-disk `schema.cue` has a different apiVersion than the binary, `tomei apply`, `tomei plan`, and `tomei validate` will exit with an error.
+
 ## Validation
 
-tomei validates manifests against the embedded CUE schema at load time. Run `tomei validate <path>` to check manifests without applying.
+`tomei` validates manifests against the embedded CUE schema at load time. Run `tomei validate <path>` to check manifests without applying.
 
 Validation checks:
 

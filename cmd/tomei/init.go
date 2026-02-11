@@ -13,7 +13,6 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/tomei/internal/config"
-	"github.com/terassyi/tomei/internal/config/schema"
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/registry/aqua"
@@ -51,7 +50,7 @@ func init() {
 	initCmd.Flags().BoolVar(&forceInit, "force", false, "Force reinitialization (resets state.json)")
 	initCmd.Flags().BoolVarP(&yesInit, "yes", "y", false, "Skip confirmation prompt and create config.cue with defaults")
 	initCmd.Flags().BoolVar(&initNoColor, "no-color", false, "Disable color output")
-	initCmd.Flags().StringVar(&initSchemaDir, "schema-dir", "", "Directory to place schema.cue for CUE LSP support (default: config directory)")
+	initCmd.Flags().StringVar(&initSchemaDir, "schema-dir", "", "Directory to place schema.cue for CUE LSP support (default: current directory)")
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
@@ -107,8 +106,8 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Place schema.cue for CUE LSP support
-	schemaTargetDir := cfgDir
+	// Place schema.cue for CUE LSP support (default: current directory)
+	schemaTargetDir := "."
 	if initSchemaDir != "" {
 		expanded, err := path.Expand(initSchemaDir)
 		if err != nil {
@@ -116,11 +115,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		}
 		schemaTargetDir = expanded
 	}
-	if err := path.EnsureDir(schemaTargetDir); err != nil {
-		return fmt.Errorf("failed to create schema directory: %w", err)
-	}
-	schemaFile := filepath.Join(schemaTargetDir, config.SchemaFileName)
-	if err := os.WriteFile(schemaFile, []byte(schema.SchemaCUE), 0644); err != nil {
+	if _, err := config.WriteSchema(schemaTargetDir); err != nil {
 		return fmt.Errorf("failed to write schema.cue: %w", err)
 	}
 
@@ -169,7 +164,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	// Schema section
 	style.Header.Fprintln(cmd.OutOrStdout(), "Schema:")
-	cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(schemaFile))
+	cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(filepath.Join(schemaTargetDir, config.SchemaFileName)))
 	cmd.Println()
 
 	// Initialize state.json

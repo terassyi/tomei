@@ -190,7 +190,7 @@ func (c *uninitContext) confirm() bool {
 		return false
 	}
 	answer = strings.TrimSpace(strings.ToLower(answer))
-	return answer == "y" || answer == "yes"
+	return answer == "y" || answer == "yes" //nolint:goconst // simple confirmation pattern
 }
 
 func (c *uninitContext) remove() {

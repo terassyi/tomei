@@ -14,21 +14,33 @@ tomei init [flags]
 |------|-------------|
 | `--yes`, `-y` | Skip confirmation prompt and create config.cue with defaults |
 | `--force` | Force reinitialization (resets state.json) |
-| `--schema-dir <dir>` | Directory to place schema.cue for CUE LSP support |
+| `--schema-dir <dir>` | Directory to place schema.cue for CUE LSP support (default: current directory) |
 | `--no-color` | Disable colored output |
 
 Creates the following:
 
 ```
 ~/.config/tomei/           # Config directory
-├── config.cue             # Path settings
-└── schema.cue             # CUE schema for LSP support
+└── config.cue             # Path settings
+./schema.cue               # CUE schema for LSP support (in current directory)
 ~/.local/share/tomei/      # Data directory
 ├── state.json             # State file
 ├── tools/                 # Tool install directory
 └── runtimes/              # Runtime install directory
 ~/.local/bin/              # Symlink directory
 ```
+
+## tomei schema
+
+Generate or update `schema.cue` for CUE LSP support.
+
+```
+tomei schema [directory]
+```
+
+If `directory` is not specified, the current directory is used. Creates `schema.cue` if it doesn't exist, updates it if the content differs, or does nothing if already up to date.
+
+Run this after upgrading `tomei` to a version with a new schema.
 
 ## tomei validate
 
@@ -77,12 +89,15 @@ tomei apply <files or directories...> [flags]
 
 | Flag | Description |
 |------|-------------|
+| `--yes`, `-y` | Skip confirmation prompt |
 | `--sync` | Sync aqua registry to latest version before applying |
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
 
-Running `tomei apply` is idempotent. If the current state already matches the manifests, no changes are made.
+Before applying, `tomei apply` shows the execution plan and asks for confirmation (`y/N`). Use `--yes` to skip the prompt. If the current state already matches the manifests, no changes are made.
+
+`tomei apply` requires `tomei init` to have been run first.
 
 ```bash
 # Apply all manifests in the current directory

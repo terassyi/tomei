@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -30,6 +34,7 @@ type applyConfig struct {
 	noColor      bool
 	quiet        bool
 	parallel     int
+	yes          bool
 }
 
 var applyCfg applyConfig
@@ -55,6 +60,7 @@ func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.noColor, "no-color", false, "Disable colored output")
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
+	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -74,6 +80,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 }
 
 func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
+	// Check schema.cue apiVersion in manifest directories
+	if err := config.CheckSchemaVersionForPaths(paths); err != nil {
+		return err
+	}
+
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(paths)
@@ -93,15 +104,16 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Sync schema.cue if it exists on disk
-	if err := config.SyncSchema(appCfg, config.DefaultConfigDir); err != nil {
-		return fmt.Errorf("failed to sync schema: %w", err)
-	}
-
 	// Setup paths from config
 	pathConfig, err := path.NewFromConfig(appCfg)
 	if err != nil {
 		return fmt.Errorf("failed to initialize paths: %w", err)
+	}
+
+	// Check if tomei has been initialized
+	stateFile := filepath.Join(pathConfig.UserDataDir(), "state.json")
+	if _, err := os.Stat(stateFile); os.IsNotExist(err) {
+		return fmt.Errorf("tomei is not initialized. Run 'tomei init' first")
 	}
 
 	// Ensure directories exist
@@ -127,6 +139,23 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 			slog.Warn("failed to sync aqua registry", "error", err)
 		}
 	}
+
+	// Show plan and ask for confirmation when there are changes
+	hasChanges, err := planForResources(w, resources, cfg.noColor)
+	if err != nil {
+		return fmt.Errorf("failed to plan: %w", err)
+	}
+	if hasChanges && !cfg.yes {
+		fmt.Fprint(w, "\nDo you want to continue? [y/N] ")
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintln(w, "Canceled.")
+			return nil
+		}
+	}
+	fmt.Fprintln(w)
 
 	// Create installers
 	downloader := download.NewDownloaderWithClient(ghClient)

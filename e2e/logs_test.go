@@ -21,7 +21,7 @@ func logsTests() {
 	Context("Failed Apply Log Capture", func() {
 		It("captures and displays failure details on failed apply", func() {
 			By("Running tomei apply on failing tool")
-			output, err := testExec.Exec("tomei", "apply", "~/logs-test/")
+			output, err := testExec.Exec("tomei", "apply", "--yes", "~/logs-test/")
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("Failure Details:"))
 			Expect(output).To(ContainSubstring("fail-tool"))

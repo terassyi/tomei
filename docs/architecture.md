@@ -288,6 +288,7 @@ Location: `e2e/`
 - Real downloads and installations
 - Ginkgo v2 BDD framework
 - Supports linux amd64/arm64 via `GOARCH` override
+- Schema management tests: `tomei schema` command, apiVersion mismatch, init guard, apply confirmation
 
 ## CI
 
