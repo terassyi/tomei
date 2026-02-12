@@ -234,6 +234,48 @@ spec: {
 	}
 }
 
+func TestLoader_LoadFile_WithDescription(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tool.cue")
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: {
+    name: "ripgrep"
+    description: "A fast line-oriented search tool"
+    labels: {
+        category: "search"
+    }
+}
+spec: {
+    installerRef: "aqua"
+    version: "14.0.0"
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(nil)
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	res := resources[0]
+	tool, ok := res.(*resource.Tool)
+	if !ok {
+		t.Fatalf("expected *resource.Tool, got %T", res)
+	}
+	if tool.Metadata.Description != "A fast line-oriented search tool" {
+		t.Errorf("expected description 'A fast line-oriented search tool', got %q", tool.Metadata.Description)
+	}
+	if res.Labels()["category"] != "search" {
+		t.Errorf("expected label category=search, got %s", res.Labels()["category"])
+	}
+}
+
 func TestLoader_Load_Directory(t *testing.T) {
 	dir := t.TempDir()
 

@@ -252,6 +252,39 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "Tool with metadata description",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Tool"
+				metadata: {
+					name:        "ripgrep"
+					description: "A fast line-oriented search tool"
+				}
+				spec: {
+					installerRef: "download"
+					version:      "14.0.0"
+				}
+			}`,
+		},
+		{
+			name: "Tool with metadata description and labels",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Tool"
+				metadata: {
+					name:        "ripgrep"
+					description: "A fast line-oriented search tool"
+					labels: {
+						category: "search"
+					}
+				}
+				spec: {
+					installerRef: "download"
+					version:      "14.0.0"
+				}
+			}`,
+		},
+		{
 			name: "Tool with enabled false",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"

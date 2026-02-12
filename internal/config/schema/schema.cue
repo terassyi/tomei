@@ -24,7 +24,8 @@ _env: {
 #APIVersion: "tomei.terassyi.net/v1beta1"
 
 #Metadata: {
-	name: string & =~"^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$"
+	name:         string & =~"^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$"
+	description?: string
 	labels?: {[string]: string}
 }
 

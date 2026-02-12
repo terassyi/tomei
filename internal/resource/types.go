@@ -90,8 +90,9 @@ type Expandable interface {
 
 // Metadata holds resource identification information.
 type Metadata struct {
-	Name   string            `json:"name"`
-	Labels map[string]string `json:"labels,omitempty"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Labels      map[string]string `json:"labels,omitempty"`
 }
 
 // InstallType represents the installation method for resources (Runtime, Installer).

@@ -13,8 +13,9 @@ myResource: {
     apiVersion: "tomei.terassyi.net/v1beta1"
     kind:       "<ResourceType>"
     metadata: {
-        name: "<resource-name>"      // lowercase alphanumeric, dots, hyphens, underscores
-        labels?: {[string]: string}  // optional key-value pairs
+        name:         "<resource-name>"      // lowercase alphanumeric, dots, hyphens, underscores
+        description?: string                 // optional human-readable description
+        labels?: {[string]: string}          // optional key-value pairs
     }
     spec: { ... }
 }
