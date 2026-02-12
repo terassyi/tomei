@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"text/template"
 )
 
@@ -78,15 +79,21 @@ func (e *Executor) ExecuteWithOutput(ctx context.Context, cmdStr string, vars Va
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Stream output from both stdout and stderr
-	outputDone := make(chan struct{})
+	// Stream stdout and stderr concurrently.
+	// io.MultiReader reads sequentially (stdout fully, then stderr), which blocks
+	// stderr until stdout EOF. Since tools like `go install` write progress to
+	// stderr while stdout is empty, we must read both pipes in parallel.
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
-		defer close(outputDone)
-		e.streamOutput(io.MultiReader(stdout, stderr), callback)
+		defer wg.Done()
+		e.streamOutput(stdout, callback)
 	}()
-
-	// Wait for output streaming to complete
-	<-outputDone
+	go func() {
+		defer wg.Done()
+		e.streamOutput(stderr, callback)
+	}()
+	wg.Wait()
 
 	// Wait for command to finish
 	if err := cmd.Wait(); err != nil {

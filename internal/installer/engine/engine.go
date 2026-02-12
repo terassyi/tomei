@@ -64,6 +64,8 @@ const (
 	EventComplete
 	// EventError is emitted when an action fails.
 	EventError
+	// EventLayerStart is emitted at the beginning of each execution layer.
+	EventLayerStart
 )
 
 // Event represents an engine event for progress reporting.
@@ -78,6 +80,15 @@ type Event struct {
 	Total      int64  // total bytes (-1 if unknown, for EventProgress)
 	Output     string // output line (for EventOutput)
 	Method     string // install method: "download", "go install", etc.
+
+	// EventLayerStart fields
+	Layer         int        // current layer index (0-based)
+	TotalLayers   int        // total number of layers
+	LayerNodes    []string   // node names in the current layer (Installer/InstallerRepository excluded)
+	AllLayerNodes [][]string // node names for all layers (for rendering pending layer headers)
+
+	// EventComplete fields
+	InstallPath string // install path (for EventComplete)
 }
 
 // EventHandler is a callback for engine events.
@@ -276,9 +287,29 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	updatedRuntimes := make(map[string]bool)
 	totalActions := 0
 
+	// Build filtered node names for all layers (exclude Installer/InstallerRepository)
+	allLayerNodes := make([][]string, len(layers))
+	for i, layer := range layers {
+		for _, node := range layer.Nodes {
+			if node.Kind == resource.KindInstaller || node.Kind == resource.KindInstallerRepository {
+				continue
+			}
+			allLayerNodes[i] = append(allLayerNodes[i], node.ID.String())
+		}
+	}
+
 	// Execute layer by layer
 	for i, layer := range layers {
 		slog.Debug("executing layer", "layer", i, "nodes", len(layer.Nodes))
+
+		// Emit layer start event for progress UI
+		e.emitEvent(Event{
+			Type:          EventLayerStart,
+			Layer:         i,
+			TotalLayers:   len(layers),
+			LayerNodes:    allLayerNodes[i],
+			AllLayerNodes: allLayerNodes,
+		})
 
 		if err := e.executeLayer(ctx, layer, resourceMap, updatedRuntimes, &totalActions); err != nil {
 			return err
@@ -600,12 +631,19 @@ func (e *Engine) executeRuntimeNode(
 		return fmt.Errorf("failed to execute action %s for runtime %s: %w", action.Type, action.Name, err)
 	}
 
+	// Load updated state to get install path
+	var runtimeInstallPath string
+	if updatedRS, exists, loadErr := e.runtimeStore.Load(rt.Name()); loadErr == nil && exists {
+		runtimeInstallPath = updatedRS.InstallPath
+	}
+
 	// Emit complete event
 	e.emitEvent(Event{
-		Type:   EventComplete,
-		Kind:   resource.KindRuntime,
-		Name:   action.Name,
-		Action: action.Type,
+		Type:        EventComplete,
+		Kind:        resource.KindRuntime,
+		Name:        action.Name,
+		Action:      action.Type,
+		InstallPath: runtimeInstallPath,
 	})
 
 	*totalActions++
@@ -767,13 +805,20 @@ func (e *Engine) executeToolNode(
 		return fmt.Errorf("failed to execute action %s for tool %s: %w", action.Type, action.Name, err)
 	}
 
+	// Load updated state to get install path
+	var toolInstallPath string
+	if updatedTS, exists, loadErr := e.toolStore.Load(t.Name()); loadErr == nil && exists {
+		toolInstallPath = updatedTS.BinPath
+	}
+
 	// Emit complete event
 	e.emitEvent(Event{
-		Type:   EventComplete,
-		Kind:   resource.KindTool,
-		Name:   action.Name,
-		Action: action.Type,
-		Method: method,
+		Type:        EventComplete,
+		Kind:        resource.KindTool,
+		Name:        action.Name,
+		Action:      action.Type,
+		Method:      method,
+		InstallPath: toolInstallPath,
 	})
 
 	*totalActions++
