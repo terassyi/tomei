@@ -2842,3 +2842,203 @@ func TestAppendBuiltinInstallers(t *testing.T) {
 		assert.Equal(t, 1, count, "aqua should not be duplicated")
 	})
 }
+
+func TestEngine_Apply_EventLayerStart(t *testing.T) {
+	// Setup CUE config with runtime and tool (2 layers: runtime first, then tool)
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.25.0"
+		source: {
+			url: "https://example.com/go-1.25.0.tar.gz"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.21.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Collect events
+	var mu sync.Mutex
+	var events []Event
+	collectEvents := func(event Event) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetEventHandler(collectEvents)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Filter EventLayerStart events
+	var layerEvents []Event
+	for _, e := range events {
+		if e.Type == EventLayerStart {
+			layerEvents = append(layerEvents, e)
+		}
+	}
+
+	// Should have at least 2 layers (runtime layer, then tool layer)
+	require.GreaterOrEqual(t, len(layerEvents), 2, "expected at least 2 EventLayerStart events")
+
+	// Verify first layer start event
+	first := layerEvents[0]
+	assert.Equal(t, 0, first.Layer)
+	assert.Equal(t, len(layerEvents), first.TotalLayers)
+
+	// Verify AllLayerNodes is populated and matches TotalLayers
+	assert.Len(t, first.AllLayerNodes, first.TotalLayers)
+
+	// Verify Installer/InstallerRepository nodes are excluded from LayerNodes
+	for _, le := range layerEvents {
+		for _, nodeName := range le.LayerNodes {
+			assert.False(t, strings.HasPrefix(nodeName, "Installer/"),
+				"Installer nodes should be excluded from LayerNodes, got: %s", nodeName)
+			assert.False(t, strings.HasPrefix(nodeName, "InstallerRepository/"),
+				"InstallerRepository nodes should be excluded from LayerNodes, got: %s", nodeName)
+		}
+	}
+
+	// Verify AllLayerNodes also excludes Installer/InstallerRepository
+	for _, layerNodes := range first.AllLayerNodes {
+		for _, nodeName := range layerNodes {
+			assert.False(t, strings.HasPrefix(nodeName, "Installer/"),
+				"Installer nodes should be excluded from AllLayerNodes, got: %s", nodeName)
+			assert.False(t, strings.HasPrefix(nodeName, "InstallerRepository/"),
+				"InstallerRepository nodes should be excluded from AllLayerNodes, got: %s", nodeName)
+		}
+	}
+
+	// Verify that Runtime/go appears in some layer and Tool/gopls in a later layer
+	foundRuntime := false
+	foundTool := false
+	runtimeLayer := -1
+	toolLayer := -1
+	for _, le := range layerEvents {
+		for _, nodeName := range le.LayerNodes {
+			if nodeName == "Runtime/go" {
+				foundRuntime = true
+				runtimeLayer = le.Layer
+			}
+			if nodeName == "Tool/gopls" {
+				foundTool = true
+				toolLayer = le.Layer
+			}
+		}
+	}
+	assert.True(t, foundRuntime, "Runtime/go should appear in LayerNodes")
+	assert.True(t, foundTool, "Tool/gopls should appear in LayerNodes")
+	assert.Less(t, runtimeLayer, toolLayer, "Runtime should be in an earlier layer than Tool")
+}
+
+func TestEngine_Apply_EventComplete_InstallPath(t *testing.T) {
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.25.0"
+		source: {
+			url: "https://example.com/go-1.25.0.tar.gz"
+			checksum: value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		}
+		binaries: ["go"]
+		toolBinPath: "~/go/bin"
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "download"
+		version: "0.25.0"
+		source: {
+			url: "https://example.com/bat-0.25.0.tar.gz"
+			checksum: value: "sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+			archiveType: "tar.gz"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Collect events
+	var mu sync.Mutex
+	var events []Event
+	collectEvents := func(event Event) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetEventHandler(collectEvents)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Find EventComplete events and verify InstallPath
+	for _, e := range events {
+		if e.Type != EventComplete {
+			continue
+		}
+		switch e.Kind {
+		case resource.KindRuntime:
+			assert.NotEmpty(t, e.InstallPath,
+				"EventComplete for runtime %s should have InstallPath", e.Name)
+			assert.Contains(t, e.InstallPath, e.Name,
+				"InstallPath should contain the runtime name")
+		case resource.KindTool:
+			assert.NotEmpty(t, e.InstallPath,
+				"EventComplete for tool %s should have InstallPath", e.Name)
+			assert.Contains(t, e.InstallPath, e.Name,
+				"InstallPath should contain the tool name")
+		}
+	}
+}

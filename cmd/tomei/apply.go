@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fatih/color"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/github"
@@ -179,10 +181,6 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Track results for summary
 	results := &ui.ApplyResults{}
 
-	// Create progress manager for download progress bars
-	pm := ui.NewProgressManager(w)
-	defer pm.Wait()
-
 	// Create log store for capturing installation logs
 	logsDir := pathConfig.UserCacheDir() + "/logs"
 	logStore, err := tomeilog.NewStore(logsDir)
@@ -192,6 +190,79 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	if logStore != nil {
 		defer logStore.Close()
 	}
+
+	// Set resolver configurer to be called after lock is acquired and state is loaded
+	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
+	eng.SetResolverConfigurer(func(st *state.UserState) error {
+		if st.Registry != nil && st.Registry.Aqua != nil {
+			resolver := aqua.NewResolver(cacheDir, ghClient)
+			toolInstaller.SetResolver(resolver, aqua.RegistryRef(st.Registry.Aqua.Ref))
+			slog.Debug("configured aqua-registry resolver", "ref", st.Registry.Aqua.Ref)
+		}
+		return nil
+	})
+
+	// Choose TUI or ProgressManager based on TTY
+	isTTY := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+	if isTTY && !cfg.quiet {
+		return runApplyWithTUI(ctx, eng, resources, results, logStore, w, cfg)
+	}
+	return runApplyWithProgressManager(ctx, eng, resources, results, logStore, w, cfg)
+}
+
+// runApplyWithTUI runs apply with Bubble Tea TUI (for TTY mode).
+func runApplyWithTUI(
+	ctx context.Context,
+	eng *engine.Engine,
+	resources []resource.Resource,
+	results *ui.ApplyResults,
+	logStore *tomeilog.Store,
+	w io.Writer,
+	cfg *applyConfig,
+) error {
+	model := ui.NewApplyModel(results)
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(w))
+
+	reporter := ui.NewThrottledReporter(p)
+
+	// Set event handler: forward to reporter + log store
+	eng.SetEventHandler(func(event engine.Event) {
+		reporter.HandleEvent(event)
+		if logStore != nil {
+			handleLogEvent(logStore, event)
+		}
+	})
+
+	// Run engine in background goroutine
+	go func() {
+		applyErr := eng.Apply(ctx, resources)
+		reporter.Done(applyErr)
+	}()
+
+	// Run Bubble Tea in AltScreen (blocks until quit)
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("TUI error: %w", err)
+	}
+
+	// AltScreen clears on exit, so reprint the final frame to scrollback
+	fmt.Fprintln(w, model.FinalView())
+
+	// Post-run: flush logs, print failures, print summary
+	return finishApply(w, model.Err(), results, logStore, cfg)
+}
+
+// runApplyWithProgressManager runs apply with mpb-based progress bars (for non-TTY/quiet mode).
+func runApplyWithProgressManager(
+	ctx context.Context,
+	eng *engine.Engine,
+	resources []resource.Resource,
+	results *ui.ApplyResults,
+	logStore *tomeilog.Store,
+	w io.Writer,
+	cfg *applyConfig,
+) error {
+	pm := ui.NewProgressManager(w)
+	defer pm.Wait()
 
 	// Set event handler for progress display and log capture
 	if !cfg.quiet {
@@ -207,51 +278,34 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		})
 	}
 
-	// Set resolver configurer to be called after lock is acquired and state is loaded
-	cacheDir := pathConfig.UserCacheDir() + "/registry/aqua"
-	eng.SetResolverConfigurer(func(st *state.UserState) error {
-		if st.Registry != nil && st.Registry.Aqua != nil {
-			resolver := aqua.NewResolver(cacheDir, ghClient)
-			toolInstaller.SetResolver(resolver, aqua.RegistryRef(st.Registry.Aqua.Ref))
-			slog.Debug("configured aqua-registry resolver", "ref", st.Registry.Aqua.Ref)
-		}
-		return nil
-	})
+	applyErr := eng.Apply(ctx, resources)
+	return finishApply(w, applyErr, results, logStore, cfg)
+}
 
-	// Run engine
-	if err := eng.Apply(ctx, resources); err != nil {
-		// Flush failed logs to disk and print failure details
-		if logStore != nil {
-			if flushErr := logStore.Flush(); flushErr != nil {
-				slog.Warn("failed to flush installation logs", "error", flushErr)
-			}
-			if !cfg.quiet {
-				ui.PrintFailureLogs(w, logStore.FailedResources())
-			}
-			if cleanupErr := logStore.Cleanup(5); cleanupErr != nil {
-				slog.Warn("failed to clean up old log sessions", "error", cleanupErr)
-			}
-		}
-
-		if !cfg.quiet {
-			ui.PrintApplySummary(w, results)
-		}
-
-		return fmt.Errorf("apply failed: %w", err)
-	}
-
-	// Clean up old log sessions
+// finishApply handles post-apply cleanup: flush logs, print failures, print summary.
+func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore *tomeilog.Store, cfg *applyConfig) error {
 	if logStore != nil {
+		if flushErr := logStore.Flush(); flushErr != nil {
+			slog.Warn("failed to flush installation logs", "error", flushErr)
+		}
 		if cleanupErr := logStore.Cleanup(5); cleanupErr != nil {
 			slog.Warn("failed to clean up old log sessions", "error", cleanupErr)
 		}
 	}
 
-	// Print summary
+	if applyErr != nil {
+		if logStore != nil && !cfg.quiet {
+			ui.PrintFailureLogs(w, logStore.FailedResources())
+		}
+		if !cfg.quiet {
+			ui.PrintApplySummary(w, results)
+		}
+		return fmt.Errorf("apply failed: %w", applyErr)
+	}
+
 	if !cfg.quiet {
 		ui.PrintApplySummary(w, results)
 	}
-
 	return nil
 }
 

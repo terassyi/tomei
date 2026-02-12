@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -189,9 +190,12 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("captures stderr", func(t *testing.T) {
+		var mu sync.Mutex
 		var lines []string
 		callback := func(line string) {
+			mu.Lock()
 			lines = append(lines, line)
+			mu.Unlock()
 		}
 
 		err := e.ExecuteWithOutput(ctx, "echo stdout; echo stderr >&2", Vars{}, nil, callback)
@@ -229,9 +233,12 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("failing command", func(t *testing.T) {
+		var mu sync.Mutex
 		var lines []string
 		callback := func(line string) {
+			mu.Lock()
 			lines = append(lines, line)
+			mu.Unlock()
 		}
 
 		err := e.ExecuteWithOutput(ctx, "echo before_fail; exit 1", Vars{}, nil, callback)
