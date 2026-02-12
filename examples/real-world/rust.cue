@@ -8,106 +8,32 @@ package tomei
 //                    → ToolSet/rust-tools (installerRef: binstall)
 //                → Tool/tokei (cargo install, runtimeRef: rust)
 
-// ---------------------------------------------------------------------------
 // Rust Runtime (delegation via rustup)
-// ---------------------------------------------------------------------------
-
-_rustVersion: "stable"
-
-rustRuntime: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Runtime"
-	metadata: {
-		name:        "rust"
-		description: "Rust programming language runtime via rustup"
-	}
-	spec: {
-		type:    "delegation"
-		version: _rustVersion
-		bootstrap: {
-			install:        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
-			check:          "~/.cargo/bin/rustc --version"
-			remove:         "~/.cargo/bin/rustup self uninstall -y"
-			resolveVersion: "~/.cargo/bin/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"
-		}
-		binaries: ["rustc", "cargo", "rustup"]
-		binDir:      "~/.cargo/bin"
-		toolBinPath: "~/.cargo/bin"
-		env: {
-			CARGO_HOME:  "~/.cargo"
-			RUSTUP_HOME: "~/.rustup"
-		}
-		commands: {
-			install: "~/.cargo/bin/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
-			remove:  "rm -f {{.BinPath}}"
-		}
-	}
+rustRuntime: #RustRuntime & {
+	spec: version: "stable"
 }
 
-// ---------------------------------------------------------------------------
 // cargo-binstall — installed via cargo install, then used as an Installer
-// ---------------------------------------------------------------------------
+cargoBinstall: #CargoBinstall
 
-cargoBinstall: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: {
-		name:        "cargo-binstall"
-		description: "Binary installation for Rust tools"
-	}
-	spec: {
-		runtimeRef: "rust"
-		package:    "cargo-binstall"
-	}
-}
-
-// ---------------------------------------------------------------------------
 // binstall Installer (delegation) — depends on cargo-binstall tool
-// ---------------------------------------------------------------------------
+binstallInstaller: #BinstallInstaller
 
-binstallInstaller: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Installer"
-	metadata: {
-		name:        "binstall"
-		description: "Install pre-built Rust binaries via cargo-binstall"
-	}
-	spec: {
-		type:    "delegation"
-		toolRef: "cargo-binstall"
-		commands: {
-			install: "~/.cargo/bin/cargo-binstall {{.Package}}{{if .Version}}@{{.Version}}{{end}} --no-confirm"
-			remove:  "rm -f {{.BinPath}}"
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // ToolSet: Rust tools installed via binstall (fast pre-built binary downloads)
-// ---------------------------------------------------------------------------
-
-rustTools: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "ToolSet"
+rustTools: #BinstallToolSet & {
 	metadata: {
 		name:        "rust-tools"
 		description: "Rust CLI tools installed via cargo-binstall"
 	}
-	spec: {
-		installerRef: "binstall"
-		tools: {
-			eza:       {package: "eza"}
-			hyperfine: {package: "hyperfine"}
-			ripgrep:   {package: "ripgrep"}
-		}
+	spec: tools: {
+		eza:       {package: "eza"}
+		hyperfine: {package: "hyperfine"}
+		ripgrep:   {package: "ripgrep"}
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Tool installed via cargo install (source compilation, runtimeRef)
 // cargo-binstall does not support tokei, so we fall back to cargo install
-// ---------------------------------------------------------------------------
-
 tokei: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
