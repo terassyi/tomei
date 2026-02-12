@@ -64,11 +64,12 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to create paths: %w", err)
 	}
 
-	// Load state
+	// Load state (quiet: suppress warnings since stdout is eval'd by shell)
 	store, err := state.NewStore[state.UserState](paths.UserDataDir())
 	if err != nil {
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
+	store.SetQuiet(true)
 
 	if err := store.Lock(); err != nil {
 		return fmt.Errorf("failed to lock state: %w", err)

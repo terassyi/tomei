@@ -19,6 +19,13 @@ type Store[T State] struct {
 	lockPath  string
 	fileLock  *flock.Flock
 	locked    bool
+	quiet     bool
+}
+
+// SetQuiet suppresses non-fatal validation warnings during Load.
+// Use this for commands whose stdout is consumed programmatically (e.g., tomei env).
+func (s *Store[T]) SetQuiet(q bool) {
+	s.quiet = q
 }
 
 // NewUserStore creates a Store for user state.
@@ -119,7 +126,11 @@ func (s *Store[T]) Load() (*T, error) {
 }
 
 // validate runs type-specific validation on the loaded state and logs warnings.
+// When quiet is true, warnings are suppressed.
 func (s *Store[T]) validate(st *T) {
+	if s.quiet {
+		return
+	}
 	var result *ValidationResult
 	switch v := any(st).(type) {
 	case *UserState:
