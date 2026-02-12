@@ -21,15 +21,17 @@
       "Bash(git branch *)",
       "Bash(git checkout *)",
       "Bash(git stash *)",
-      "Bash(git show *)"
+      "Bash(git show *)",
+      "Bash(bin/tomei validate *)",
+      "Bash(bin/tomei plan *)"
     ],
     "deny": [
       "Bash(git push*)",
       "Bash(git pull*)",
       "Bash(git merge*)",
       "Bash(git rebase*)",
-      "Bash(*tomei *)",
-      "Bash(*tomei)"
+      "Bash(*tomei apply*)",
+      "Bash(*tomei init*)"
     ]
   },
   "env": {

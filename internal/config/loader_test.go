@@ -880,3 +880,355 @@ tool: {
 		t.Error("expected schema validation error, got nil")
 	}
 }
+
+func TestLoader_Load_WithPresetImport(t *testing.T) {
+	tests := []struct {
+		name          string
+		content       string
+		env           *Env
+		wantResources int
+		wantKinds     []resource.Kind
+		wantNames     []string
+	}{
+		{
+			name: "aqua preset import",
+			content: `package tomei
+
+import "tomei.terassyi.net/presets/aqua"
+
+cliTools: aqua.#AquaToolSet & {
+    metadata: name: "cli-tools"
+    spec: tools: {
+        rg:  {package: "BurntSushi/ripgrep", version: "15.1.0"}
+        fd:  {package: "sharkdp/fd", version: "v10.3.0"}
+    }
+}
+`,
+			env:           &Env{OS: "linux", Arch: "amd64", Headless: false},
+			wantResources: 1,
+			wantKinds:     []resource.Kind{resource.KindToolSet},
+			wantNames:     []string{"cli-tools"},
+		},
+		{
+			name: "go preset import",
+			content: `package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+goRuntime: gopreset.#GoRuntime & {
+    spec: version: "1.25.6"
+}
+`,
+			env:           &Env{OS: "linux", Arch: "amd64", Headless: false},
+			wantResources: 1,
+			wantKinds:     []resource.Kind{resource.KindRuntime},
+			wantNames:     []string{"go"},
+		},
+		{
+			name: "rust preset import",
+			content: `package tomei
+
+import "tomei.terassyi.net/presets/rust"
+
+rustRuntime: rust.#RustRuntime
+cargoBinstall: rust.#CargoBinstall
+binstallInstaller: rust.#BinstallInstaller
+`,
+			env:           &Env{OS: "linux", Arch: "amd64", Headless: false},
+			wantResources: 3,
+			wantKinds:     []resource.Kind{resource.KindRuntime, resource.KindTool, resource.KindInstaller},
+			wantNames:     []string{"rust", "cargo-binstall", "binstall"},
+		},
+		{
+			name: "multiple preset imports",
+			content: `package tomei
+
+import (
+    gopreset "tomei.terassyi.net/presets/go"
+    "tomei.terassyi.net/presets/aqua"
+)
+
+goRuntime: gopreset.#GoRuntime & {
+    spec: version: "1.25.6"
+}
+
+cliTools: aqua.#AquaToolSet & {
+    metadata: name: "cli-tools"
+    spec: tools: {
+        rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
+    }
+}
+`,
+			env:           &Env{OS: "linux", Arch: "amd64", Headless: false},
+			wantResources: 2,
+			wantKinds:     []resource.Kind{resource.KindRuntime, resource.KindToolSet},
+			wantNames:     []string{"go", "cli-tools"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "main.cue"), []byte(tt.content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			loader := NewLoader(tt.env)
+			resources, err := loader.Load(dir)
+			if err != nil {
+				t.Fatalf("failed to load: %v", err)
+			}
+
+			if len(resources) != tt.wantResources {
+				t.Fatalf("expected %d resources, got %d", tt.wantResources, len(resources))
+			}
+
+			for i, res := range resources {
+				if res.Kind() != tt.wantKinds[i] {
+					t.Errorf("resource[%d]: expected kind %s, got %s", i, tt.wantKinds[i], res.Kind())
+				}
+				if res.Name() != tt.wantNames[i] {
+					t.Errorf("resource[%d]: expected name %s, got %s", i, tt.wantNames[i], res.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestLoader_Load_WithPresetImport_EnvInterpolation(t *testing.T) {
+	tests := []struct {
+		name        string
+		env         *Env
+		expectedURL string
+	}{
+		{
+			name:        "linux/amd64",
+			env:         &Env{OS: "linux", Arch: "amd64", Headless: false},
+			expectedURL: "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz",
+		},
+		{
+			name:        "darwin/arm64",
+			env:         &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			expectedURL: "https://go.dev/dl/go1.25.6.darwin-arm64.tar.gz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			content := `package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+goRuntime: gopreset.#GoRuntime & {
+    spec: version: "1.25.6"
+}
+`
+			if err := os.WriteFile(filepath.Join(dir, "go.cue"), []byte(content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
+
+			loader := NewLoader(tt.env)
+			resources, err := loader.Load(dir)
+			if err != nil {
+				t.Fatalf("failed to load: %v", err)
+			}
+
+			if len(resources) != 1 {
+				t.Fatalf("expected 1 resource, got %d", len(resources))
+			}
+
+			runtime, ok := resources[0].(*resource.Runtime)
+			if !ok {
+				t.Fatalf("expected *resource.Runtime, got %T", resources[0])
+			}
+			if runtime.RuntimeSpec.Source.URL != tt.expectedURL {
+				t.Errorf("expected URL %s, got %s", tt.expectedURL, runtime.RuntimeSpec.Source.URL)
+			}
+		})
+	}
+}
+
+func TestLoader_LoadFile_WithPresetImport(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tools.cue")
+
+	content := `package tomei
+
+import "tomei.terassyi.net/presets/aqua"
+
+cliTools: aqua.#AquaToolSet & {
+    metadata: name: "cli-tools"
+    spec: tools: {
+        rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Kind() != resource.KindToolSet {
+		t.Errorf("expected kind ToolSet, got %s", resources[0].Kind())
+	}
+	if resources[0].Name() != "cli-tools" {
+		t.Errorf("expected name cli-tools, got %s", resources[0].Name())
+	}
+}
+
+func TestLoader_Load_NoImports_StillWorks(t *testing.T) {
+	dir := t.TempDir()
+
+	// Manifest without any imports — backward compatibility check
+	content := `package tomei
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Name() != "gh" {
+		t.Errorf("expected name gh, got %s", resources[0].Name())
+	}
+}
+
+func TestLoader_Load_WithRealCueMod_SkipsVirtualModule(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a real cue.mod/ directory
+	if err := os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755); err != nil {
+		t.Fatalf("failed to create cue.mod: %v", err)
+	}
+	moduleCue := `module: "example.com@v0"
+language: version: "v0.9.0"
+`
+	if err := os.WriteFile(filepath.Join(dir, "cue.mod", "module.cue"), []byte(moduleCue), 0644); err != nil {
+		t.Fatalf("failed to write module.cue: %v", err)
+	}
+
+	// Manifest without imports (using real cue.mod)
+	content := `package tomei
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Name() != "gh" {
+		t.Errorf("expected name gh, got %s", resources[0].Name())
+	}
+}
+
+func TestHasRealCueMod(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T) string
+		want  bool
+	}{
+		{
+			name: "no cue.mod",
+			setup: func(t *testing.T) string {
+				return t.TempDir()
+			},
+			want: false,
+		},
+		{
+			name: "cue.mod in dir",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755); err != nil {
+					t.Fatalf("failed to create cue.mod: %v", err)
+				}
+				return dir
+			},
+			want: true,
+		},
+		{
+			name: "cue.mod in parent",
+			setup: func(t *testing.T) string {
+				root := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(root, "cue.mod"), 0755); err != nil {
+					t.Fatalf("failed to create cue.mod: %v", err)
+				}
+				sub := filepath.Join(root, "sub")
+				if err := os.MkdirAll(sub, 0755); err != nil {
+					t.Fatalf("failed to create subdir: %v", err)
+				}
+				return sub
+			},
+			want: true,
+		},
+		{
+			name: "cue.mod is file not dir",
+			setup: func(t *testing.T) string {
+				dir := t.TempDir()
+				if err := os.WriteFile(filepath.Join(dir, "cue.mod"), []byte("not a dir"), 0644); err != nil {
+					t.Fatalf("failed to create cue.mod file: %v", err)
+				}
+				return dir
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := tt.setup(t)
+			got := hasRealCueMod(dir)
+			if got != tt.want {
+				t.Errorf("hasRealCueMod(%s) = %v, want %v", dir, got, tt.want)
+			}
+		})
+	}
+}
