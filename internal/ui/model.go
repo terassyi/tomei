@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,7 +11,14 @@ import (
 const (
 	tickInterval = 50 * time.Millisecond
 	maxLogLines  = 5
+	maxSlogLines = 5
 )
+
+// slogLine holds a single log line delivered from slog.
+type slogLine struct {
+	level   slog.Level
+	message string
+}
 
 // taskStatus represents the current state of a task.
 type taskStatus int
@@ -73,6 +81,9 @@ type ApplyModel struct {
 
 	// Results
 	results *ApplyResults
+
+	// Slog panel (last N log lines from slog)
+	slogLines []slogLine
 
 	// State
 	done  bool

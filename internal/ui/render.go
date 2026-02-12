@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -56,7 +57,10 @@ func (m *ApplyModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	// 4. Elapsed footer
+	// 4. Log panel (slog messages)
+	renderLogPanel(&b, m.slogLines, m.width)
+
+	// 5. Elapsed footer
 	b.WriteString(fmt.Sprintf("\nElapsed: %s", formatElapsed(m.totalElapsed)))
 
 	return b.String()
@@ -298,6 +302,55 @@ func rightAlign(prefix, suffix string, width int) string {
 
 	gap := max(width-prefixLen-suffixLen, 1)
 	return prefix + strings.Repeat(" ", gap) + suffix
+}
+
+// renderLogPanel renders the slog log panel if there are log lines.
+func renderLogPanel(b *strings.Builder, lines []slogLine, width int) {
+	if len(lines) == 0 {
+		return
+	}
+
+	// Separator line
+	sep := "── Logs " + strings.Repeat("─", max(width-8, 0))
+	b.WriteByte('\n')
+	b.WriteString(logSeparatorStyle.Render(sep))
+	b.WriteByte('\n')
+
+	for _, line := range lines {
+		label := slogLevelLabel(line.level)
+		text := fmt.Sprintf(" %s %s", label, line.message)
+		styled := slogLineStyle(line.level, text)
+		b.WriteString(styled)
+		b.WriteByte('\n')
+	}
+}
+
+// slogLevelLabel returns a styled short label for the log level.
+func slogLevelLabel(level slog.Level) string {
+	switch {
+	case level >= slog.LevelError:
+		return errorLogStyle.Render("ERROR")
+	case level >= slog.LevelWarn:
+		return warnLogStyle.Render("WARN")
+	case level >= slog.LevelInfo:
+		return "INFO"
+	default:
+		return debugLogStyle.Render("DEBUG")
+	}
+}
+
+// slogLineStyle applies color to the entire log line based on level.
+func slogLineStyle(level slog.Level, text string) string {
+	switch {
+	case level >= slog.LevelError:
+		return errorLogStyle.Render(text)
+	case level >= slog.LevelWarn:
+		return warnLogStyle.Render(text)
+	case level >= slog.LevelInfo:
+		return text
+	default:
+		return debugLogStyle.Render(text)
+	}
 }
 
 // lipglossWidth returns the visible width of a string, stripping ANSI escape sequences.

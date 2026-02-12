@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -355,4 +356,36 @@ func TestUpdate_SnapshotDeepCopy(t *testing.T) {
 	// Verify current layer is empty (no tasks from layer 0 leaked)
 	assert.Empty(t, m.tasks)
 	assert.Empty(t, m.taskOrder)
+}
+
+func TestUpdate_SlogMsg_AppendsToSlogLines(t *testing.T) {
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	updated, _ := m.Update(slogMsg{level: slog.LevelWarn, message: "warning one"})
+	model := updated.(*ApplyModel)
+
+	require.Len(t, model.slogLines, 1)
+	assert.Equal(t, slog.LevelWarn, model.slogLines[0].level)
+	assert.Equal(t, "warning one", model.slogLines[0].message)
+
+	updated, _ = model.Update(slogMsg{level: slog.LevelError, message: "error one"})
+	model = updated.(*ApplyModel)
+
+	require.Len(t, model.slogLines, 2)
+	assert.Equal(t, slog.LevelError, model.slogLines[1].level)
+}
+
+func TestUpdate_SlogMsg_TruncatesAtMaxSlogLines(t *testing.T) {
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	// Send more than maxSlogLines
+	for i := range maxSlogLines + 3 {
+		m.Update(slogMsg{level: slog.LevelWarn, message: fmt.Sprintf("msg %d", i)})
+	}
+
+	assert.Len(t, m.slogLines, maxSlogLines, "should keep only last %d lines", maxSlogLines)
+	assert.Equal(t, "msg 3", m.slogLines[0].message, "oldest visible should be msg 3")
+	assert.Equal(t, fmt.Sprintf("msg %d", maxSlogLines+2), m.slogLines[maxSlogLines-1].message)
 }

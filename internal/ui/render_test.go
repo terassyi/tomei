@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -840,4 +841,124 @@ func TestView_CompletedTasksRenderedBeforeRunning(t *testing.T) {
 
 	assert.Greater(t, batPos, rgPos, "rg completed first so should appear before bat")
 	assert.Greater(t, goplsPos, batPos, "gopls is still running so should appear after completed tasks")
+}
+
+func TestRenderLogPanel_Empty(t *testing.T) {
+	var b strings.Builder
+	renderLogPanel(&b, nil, 80)
+	assert.Empty(t, b.String(), "log panel should not render when there are no log lines")
+}
+
+func TestRenderLogPanel_WithLines(t *testing.T) {
+	lines := []slogLine{
+		{level: slog.LevelWarn, message: "backup failed"},
+		{level: slog.LevelError, message: "state write error"},
+	}
+	var b strings.Builder
+	renderLogPanel(&b, lines, 80)
+	output := b.String()
+
+	assert.Contains(t, output, "Logs")
+	assert.Contains(t, output, "WARN")
+	assert.Contains(t, output, "backup failed")
+	assert.Contains(t, output, "ERROR")
+	assert.Contains(t, output, "state write error")
+}
+
+func TestRenderLogPanel_Styled(t *testing.T) {
+	enableColorForTest(t)
+
+	lines := []slogLine{
+		{level: slog.LevelWarn, message: "warn msg"},
+		{level: slog.LevelError, message: "error msg"},
+	}
+	var b strings.Builder
+	renderLogPanel(&b, lines, 80)
+	output := b.String()
+
+	assert.True(t, containsANSI(output), "log panel should contain ANSI escape sequences for colored output")
+}
+
+func TestSlogLevelLabel(t *testing.T) {
+	tests := []struct {
+		level slog.Level
+		want  string
+	}{
+		{slog.LevelDebug, "DEBUG"},
+		{slog.LevelInfo, "INFO"},
+		{slog.LevelWarn, "WARN"},
+		{slog.LevelError, "ERROR"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			label := slogLevelLabel(tt.level)
+			assert.Contains(t, label, tt.want)
+		})
+	}
+}
+
+func TestView_LogPanelShownWithSlogLines(t *testing.T) {
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	// Initialize a layer
+	m.Update(engineEventMsg{event: engine.Event{
+		Type: engine.EventLayerStart, Layer: 0, TotalLayers: 1,
+		LayerNodes:    []string{"Tool/bat"},
+		AllLayerNodes: [][]string{{"Tool/bat"}},
+	}})
+
+	// Add a slog message
+	m.Update(slogMsg{level: slog.LevelWarn, message: "registry warning"})
+
+	view := m.View()
+	assert.Contains(t, view, "Logs")
+	assert.Contains(t, view, "WARN")
+	assert.Contains(t, view, "registry warning")
+	assert.Contains(t, view, "Elapsed:")
+}
+
+func TestView_LogPanelHiddenWithoutSlogLines(t *testing.T) {
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	m.Update(engineEventMsg{event: engine.Event{
+		Type: engine.EventLayerStart, Layer: 0, TotalLayers: 1,
+		LayerNodes:    []string{"Tool/bat"},
+		AllLayerNodes: [][]string{{"Tool/bat"}},
+	}})
+
+	view := m.View()
+	assert.NotContains(t, view, "Logs", "log panel should not appear when there are no slog lines")
+}
+
+func TestView_FinalViewIncludesLogPanel(t *testing.T) {
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	m.Update(engineEventMsg{event: engine.Event{
+		Type: engine.EventLayerStart, Layer: 0, TotalLayers: 1,
+		LayerNodes:    []string{"Tool/bat"},
+		AllLayerNodes: [][]string{{"Tool/bat"}},
+	}})
+	m.Update(engineEventMsg{event: engine.Event{
+		Type: engine.EventStart, Kind: resource.KindTool, Name: "bat",
+		Version: "0.25.0", Method: "download", Action: resource.ActionInstall,
+	}})
+	m.Update(engineEventMsg{event: engine.Event{
+		Type: engine.EventComplete, Kind: resource.KindTool, Name: "bat",
+		Action: resource.ActionInstall, InstallPath: "/bin/bat",
+	}})
+
+	// Add slog messages
+	m.Update(slogMsg{level: slog.LevelWarn, message: "backup warning"})
+	m.Update(slogMsg{level: slog.LevelError, message: "critical error"})
+
+	// Finish
+	m.Update(applyDoneMsg{err: nil})
+
+	view := m.FinalView()
+	assert.Contains(t, view, "Logs")
+	assert.Contains(t, view, "backup warning")
+	assert.Contains(t, view, "critical error")
 }
