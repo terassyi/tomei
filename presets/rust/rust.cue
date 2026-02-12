@@ -1,4 +1,4 @@
-package tomei
+package rust
 
 // #RustRuntime declares a Rust runtime installed via rustup delegation.
 // Defaults to "stable" toolchain.

@@ -1,4 +1,4 @@
-package tomei
+package aqua
 
 // #AquaTool declares a single tool installed via aqua registry.
 //

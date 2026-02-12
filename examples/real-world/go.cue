@@ -1,12 +1,14 @@
 package tomei
 
+import gopreset "tomei.terassyi.net/presets/go"
+
 // Go runtime installed via download from go.dev
-goRuntime: #GoRuntime & {
+goRuntime: gopreset.#GoRuntime & {
 	spec: version: "1.25.6"
 }
 
 // ToolSet: Go developer tools installed via go install
-goTools: #GoToolSet & {
+goTools: gopreset.#GoToolSet & {
 	metadata: name: "go-tools"
 	spec: tools: {
 		gopls:       {package: "golang.org/x/tools/gopls", version: "v0.21.0"}

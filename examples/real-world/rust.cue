@@ -1,5 +1,7 @@
 package tomei
 
+import "tomei.terassyi.net/presets/rust"
+
 // Rust ecosystem: rustup delegation → cargo-binstall → tools via binstall
 //
 // Dependency chain:
@@ -9,18 +11,18 @@ package tomei
 //                → Tool/tokei (cargo install, runtimeRef: rust)
 
 // Rust Runtime (delegation via rustup)
-rustRuntime: #RustRuntime & {
+rustRuntime: rust.#RustRuntime & {
 	spec: version: "stable"
 }
 
 // cargo-binstall — installed via cargo install, then used as an Installer
-cargoBinstall: #CargoBinstall
+cargoBinstall: rust.#CargoBinstall
 
 // binstall Installer (delegation) — depends on cargo-binstall tool
-binstallInstaller: #BinstallInstaller
+binstallInstaller: rust.#BinstallInstaller
 
 // ToolSet: Rust tools installed via binstall (fast pre-built binary downloads)
-rustTools: #BinstallToolSet & {
+rustTools: rust.#BinstallToolSet & {
 	metadata: {
 		name:        "rust-tools"
 		description: "Rust CLI tools installed via cargo-binstall"

@@ -1,4 +1,4 @@
-package tomei
+package go
 
 // #GoRuntime declares a Go runtime installed from go.dev.
 // User only needs to provide spec.version.

@@ -1,7 +1,9 @@
 package tomei
 
+import "tomei.terassyi.net/presets/aqua"
+
 // ToolSet: common CLI tools installed via aqua registry
-cliTools: #AquaToolSet & {
+cliTools: aqua.#AquaToolSet & {
 	metadata: {
 		name:        "cli-tools"
 		description: "Common CLI tools for daily development"

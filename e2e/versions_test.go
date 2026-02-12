@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -166,8 +167,28 @@ func loadVersions() (*e2eVersions, error) {
 }
 
 // loadVersion loads a single CUE file and extracts the version of the named resource.
+// For non-.cue files (e.g. .cue.upgrade, .cue.old), the content is copied to a
+// temporary .cue file because LoadFile() requires the .cue extension for CUE's
+// load.Instances() based loading.
 func loadVersion(loader *config.Loader, path string, kind resource.Kind, name string) (string, error) {
-	resources, err := loader.LoadFile(path)
+	loadPath := path
+	if filepath.Ext(path) != ".cue" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("failed to read %s: %w", path, err)
+		}
+		tmpDir, err := os.MkdirTemp("", "tomei-e2e-*")
+		if err != nil {
+			return "", fmt.Errorf("failed to create temp dir: %w", err)
+		}
+		defer os.RemoveAll(tmpDir)
+		loadPath = filepath.Join(tmpDir, filepath.Base(path)+".cue")
+		if err := os.WriteFile(loadPath, data, 0644); err != nil {
+			return "", fmt.Errorf("failed to write temp file: %w", err)
+		}
+	}
+
+	resources, err := loader.LoadFile(loadPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to load %s: %w", path, err)
 	}
