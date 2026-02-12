@@ -1,6 +1,8 @@
 package state
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -777,4 +779,93 @@ func TestStore_RegistryState(t *testing.T) {
 			tt.check(t, loaded)
 		})
 	}
+}
+
+func TestStore_SetQuiet(t *testing.T) {
+	// Create state with empty version fields to trigger warnings
+	stateJSON := `{
+		"version": "1",
+		"tools": {
+			"cargo-binstall": {
+				"installerRef": "rust",
+				"version": "",
+				"updatedAt": "2025-01-01T00:00:00Z"
+			}
+		},
+		"runtimes": {
+			"rust": {
+				"version": "",
+				"installPath": "",
+				"updatedAt": "2025-01-01T00:00:00Z"
+			}
+		}
+	}`
+
+	t.Run("quiet suppresses warnings", func(t *testing.T) {
+		dir := t.TempDir()
+		store, err := NewStore[UserState](dir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+
+		if err := os.WriteFile(store.StatePath(), []byte(stateJSON), 0644); err != nil {
+			t.Fatalf("failed to write state: %v", err)
+		}
+
+		// Capture slog output
+		var buf bytes.Buffer
+		handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
+		oldLogger := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		defer slog.SetDefault(oldLogger)
+
+		store.SetQuiet(true)
+
+		if err := store.Lock(); err != nil {
+			t.Fatalf("lock failed: %v", err)
+		}
+		defer func() { _ = store.Unlock() }()
+
+		_, err = store.Load()
+		if err != nil {
+			t.Fatalf("load failed: %v", err)
+		}
+
+		if buf.Len() > 0 {
+			t.Errorf("expected no warnings with quiet=true, got: %s", buf.String())
+		}
+	})
+
+	t.Run("non-quiet emits warnings", func(t *testing.T) {
+		dir := t.TempDir()
+		store, err := NewStore[UserState](dir)
+		if err != nil {
+			t.Fatalf("failed to create store: %v", err)
+		}
+
+		if err := os.WriteFile(store.StatePath(), []byte(stateJSON), 0644); err != nil {
+			t.Fatalf("failed to write state: %v", err)
+		}
+
+		// Capture slog output
+		var buf bytes.Buffer
+		handler := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
+		oldLogger := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		defer slog.SetDefault(oldLogger)
+
+		if err := store.Lock(); err != nil {
+			t.Fatalf("lock failed: %v", err)
+		}
+		defer func() { _ = store.Unlock() }()
+
+		_, err = store.Load()
+		if err != nil {
+			t.Fatalf("load failed: %v", err)
+		}
+
+		if buf.Len() == 0 {
+			t.Error("expected warnings with quiet=false, got none")
+		}
+	})
 }
