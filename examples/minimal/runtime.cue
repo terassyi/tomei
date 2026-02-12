@@ -1,5 +1,8 @@
 package tomei
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
@@ -8,7 +11,7 @@ goRuntime: {
 		type:    "download"
 		version: "1.25.6"
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: {
 				url: "https://go.dev/dl/?mode=json&include=all"
 			}

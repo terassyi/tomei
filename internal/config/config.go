@@ -122,13 +122,21 @@ const (
 	SchemaUpToDate
 )
 
+// userSchemaCUE returns the schema content with the package declaration
+// set to "tomei" for user-facing schema.cue files (CUE language server support).
+func userSchemaCUE() string {
+	return strings.Replace(schema.SchemaCUE, "package schema", "package tomei", 1)
+}
+
 // WriteSchema writes the embedded schema.cue to the given directory.
 // It creates the directory if it does not exist.
+// The written file uses "package tomei" for CUE language server compatibility.
 func WriteSchema(dir string) (SchemaResult, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return 0, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
+	content := userSchemaCUE()
 	schemaFile := filepath.Join(dir, SchemaFileName)
 
 	existing, err := os.ReadFile(schemaFile)
@@ -136,17 +144,17 @@ func WriteSchema(dir string) (SchemaResult, error) {
 		if !os.IsNotExist(err) {
 			return 0, fmt.Errorf("failed to read %s: %w", schemaFile, err)
 		}
-		if err := os.WriteFile(schemaFile, []byte(schema.SchemaCUE), 0644); err != nil {
+		if err := os.WriteFile(schemaFile, []byte(content), 0644); err != nil {
 			return 0, fmt.Errorf("failed to write %s: %w", schemaFile, err)
 		}
 		return SchemaCreated, nil
 	}
 
-	if string(existing) == schema.SchemaCUE {
+	if string(existing) == content {
 		return SchemaUpToDate, nil
 	}
 
-	if err := os.WriteFile(schemaFile, []byte(schema.SchemaCUE), 0644); err != nil {
+	if err := os.WriteFile(schemaFile, []byte(content), 0644); err != nil {
 		return 0, fmt.Errorf("failed to write %s: %w", schemaFile, err)
 	}
 	return SchemaUpdated, nil

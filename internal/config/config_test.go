@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/tomei/internal/config/schema"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -268,7 +267,7 @@ func TestWriteSchema(t *testing.T) {
 		{
 			name:         "no change when content matches",
 			existingFile: true,
-			content:      schema.SchemaCUE,
+			content:      userSchemaCUE(),
 			wantResult:   SchemaUpToDate,
 		},
 		{
@@ -295,7 +294,7 @@ func TestWriteSchema(t *testing.T) {
 			// Verify file content always matches embedded schema
 			got, err := os.ReadFile(filepath.Join(tmpDir, SchemaFileName))
 			require.NoError(t, err)
-			assert.Equal(t, schema.SchemaCUE, string(got))
+			assert.Equal(t, userSchemaCUE(), string(got))
 		})
 	}
 }
@@ -310,7 +309,7 @@ func TestWriteSchema_CreatesDirectory(t *testing.T) {
 
 	got, err := os.ReadFile(filepath.Join(newDir, SchemaFileName))
 	require.NoError(t, err)
-	assert.Equal(t, schema.SchemaCUE, string(got))
+	assert.Equal(t, userSchemaCUE(), string(got))
 }
 
 func TestCheckSchemaVersion(t *testing.T) {

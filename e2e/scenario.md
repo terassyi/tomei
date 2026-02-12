@@ -993,3 +993,20 @@ Full dependency chain test:
 ### `e2e/config/installer-repo-test/helm-only.cue`
 Reduced manifest for removal test:
 - Tool/helm latest (aqua) only (no InstallerRepository, no common-chart)
+
+---
+
+## CUE Tag Resolution
+
+All CUE manifests use CUE native `@tag()` for environment values instead of
+the legacy `_env` injection. The loader passes `os`, `arch`, and `headless`
+tags via `load.Config{Tags: ...}`.
+
+Manifests that need OS/arch declare:
+
+```cue
+_os:   string @tag(os)
+_arch: string @tag(arch)
+```
+
+Presets (e.g., `gopreset.#GoRuntime`) handle this internally.

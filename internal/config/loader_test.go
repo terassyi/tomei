@@ -318,82 +318,95 @@ func TestEnv_Detect(t *testing.T) {
 	}
 }
 
-func TestLoader_InjectEnv_StringInterpolation(t *testing.T) {
-	dir := t.TempDir()
-	cueFile := filepath.Join(dir, "tool.cue")
+func TestLoader_Tag_StringInterpolation(t *testing.T) {
+	content := `package tomei
 
-	// Use _env in string interpolation
-	content := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "gh"
-spec: {
-    installerRef: "download"
-    version: "2.86.0"
-    source: {
-        url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_\(_env.os)_\(_env.arch).tar.gz"
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+gh: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_\(_os)_\(_arch).tar.gz"
+        }
     }
 }
 `
-	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	tests := []struct {
+		name        string
+		env         *Env
+		expectedURL string
+	}{
+		{
+			name:        "linux/arm64",
+			env:         &Env{OS: "linux", Arch: "arm64", Headless: false},
+			expectedURL: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_arm64.tar.gz",
+		},
+		{
+			name:        "darwin/amd64",
+			env:         &Env{OS: "darwin", Arch: "amd64", Headless: false},
+			expectedURL: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_darwin_amd64.tar.gz",
+		},
 	}
 
-	// Test with linux/arm64
-	loader := NewLoader(&Env{OS: "linux", Arch: "arm64", Headless: false})
-	resources, err := loader.LoadFile(cueFile)
-	if err != nil {
-		t.Fatalf("failed to load file: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
 
-	tool := resources[0].(*resource.Tool)
-	expectedURL := "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_arm64.tar.gz"
-	if tool.ToolSpec.Source.URL != expectedURL {
-		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
-	}
+			loader := NewLoader(tt.env)
+			resources, err := loader.Load(dir)
+			if err != nil {
+				t.Fatalf("failed to load: %v", err)
+			}
 
-	// Test with darwin/amd64
-	loader = NewLoader(&Env{OS: "darwin", Arch: "amd64", Headless: false})
-	resources, err = loader.LoadFile(cueFile)
-	if err != nil {
-		t.Fatalf("failed to load file: %v", err)
-	}
-
-	tool = resources[0].(*resource.Tool)
-	expectedURL = "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_darwin_amd64.tar.gz"
-	if tool.ToolSpec.Source.URL != expectedURL {
-		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
+			tool := resources[0].(*resource.Tool)
+			if tool.ToolSpec.Source.URL != tt.expectedURL {
+				t.Errorf("expected URL %s, got %s", tt.expectedURL, tool.ToolSpec.Source.URL)
+			}
+		})
 	}
 }
 
-func TestLoader_InjectEnv_RuntimeURL(t *testing.T) {
+func TestLoader_Tag_RuntimeURL(t *testing.T) {
 	dir := t.TempDir()
-	cueFile := filepath.Join(dir, "runtime.cue")
 
-	// Use _env for runtime URL
-	content := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Runtime"
-metadata: name: "go"
-spec: {
-    type: "download"
-    version: "1.23.6"
-    source: {
-        url: "https://go.dev/dl/go1.23.6.\(_env.os)-\(_env.arch).tar.gz"
-        archiveType: "tar.gz"
+	content := `package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Runtime"
+    metadata: name: "go"
+    spec: {
+        type: "download"
+        version: "1.23.6"
+        source: {
+            url: "https://go.dev/dl/go1.23.6.\(_os)-\(_arch).tar.gz"
+            archiveType: "tar.gz"
+        }
+        binaries: ["go", "gofmt"]
+        toolBinPath: "~/go/bin"
     }
-    binaries: ["go", "gofmt"]
-    toolBinPath: "~/go/bin"
 }
 `
-	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "runtime.cue"), []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
 	loader := NewLoader(&Env{OS: "linux", Arch: "arm64", Headless: false})
-	resources, err := loader.LoadFile(cueFile)
+	resources, err := loader.Load(dir)
 	if err != nil {
-		t.Fatalf("failed to load file: %v", err)
+		t.Fatalf("failed to load: %v", err)
 	}
 
 	runtime := resources[0].(*resource.Runtime)
@@ -403,61 +416,66 @@ spec: {
 	}
 }
 
-func TestLoader_InjectEnv_Headless(t *testing.T) {
-	dir := t.TempDir()
-	cueFile := filepath.Join(dir, "tool.cue")
+func TestLoader_Tag_Headless(t *testing.T) {
+	content := `package tomei
 
-	// Use _env.headless for conditional field
-	content := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "test-tool"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-    if _env.headless {
-        enabled: false
-    }
-    if !_env.headless {
-        enabled: true
+_headless: bool @tag(headless,type=bool)
+
+testTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "test-tool"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+        if _headless {
+            enabled: false
+        }
+        if !_headless {
+            enabled: true
+        }
     }
 }
 `
-	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+	tests := []struct {
+		name        string
+		headless    bool
+		wantEnabled bool
+	}{
+		{name: "headless=true", headless: true, wantEnabled: false},
+		{name: "headless=false", headless: false, wantEnabled: true},
 	}
 
-	// Test with headless=true
-	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: true})
-	resources, err := loader.LoadFile(cueFile)
-	if err != nil {
-		t.Fatalf("failed to load file: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
+			}
 
-	tool := resources[0].(*resource.Tool)
-	if tool.ToolSpec.Enabled == nil || *tool.ToolSpec.Enabled != false {
-		t.Errorf("expected enabled=false for headless environment")
-	}
+			loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: tt.headless})
+			resources, err := loader.Load(dir)
+			if err != nil {
+				t.Fatalf("failed to load: %v", err)
+			}
 
-	// Test with headless=false
-	loader = NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
-	resources, err = loader.LoadFile(cueFile)
-	if err != nil {
-		t.Fatalf("failed to load file: %v", err)
-	}
-
-	tool = resources[0].(*resource.Tool)
-	if tool.ToolSpec.Enabled == nil || *tool.ToolSpec.Enabled != true {
-		t.Errorf("expected enabled=true for non-headless environment")
+			tool := resources[0].(*resource.Tool)
+			if tool.ToolSpec.Enabled == nil || *tool.ToolSpec.Enabled != tt.wantEnabled {
+				t.Errorf("expected enabled=%v for headless=%v", tt.wantEnabled, tt.headless)
+			}
+		})
 	}
 }
 
-func TestLoader_InjectEnv_DirectoryLoad(t *testing.T) {
+func TestLoader_Tag_DirectoryLoad(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write a CUE file with package declaration using _env
+	// Write a CUE file with package declaration using @tag()
 	content := `
 package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
 
 tool: {
     apiVersion: "tomei.terassyi.net/v1beta1"
@@ -467,7 +485,7 @@ tool: {
         installerRef: "download"
         version: "2.86.0"
         source: {
-            url: "https://example.com/gh_\(_env.os)_\(_env.arch).tar.gz"
+            url: "https://example.com/gh_\(_os)_\(_arch).tar.gz"
         }
     }
 }
@@ -490,123 +508,6 @@ tool: {
 	expectedURL := "https://example.com/gh_darwin_arm64.tar.gz"
 	if tool.ToolSpec.Source.URL != expectedURL {
 		t.Errorf("expected URL %s, got %s", expectedURL, tool.ToolSpec.Source.URL)
-	}
-}
-
-func TestLoader_InjectEnv_PlatformMapping(t *testing.T) {
-	tests := []struct {
-		name        string
-		env         *Env
-		cueTemplate string
-		expectedURL string
-	}{
-		{
-			name: "platform.os.apple darwin",
-			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
-			cueTemplate: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "gh"
-spec: {
-    installerRef: "download"
-    version: "2.86.0"
-    source: {
-        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
-    }
-}
-`,
-			expectedURL: "https://example.com/gh_macOS_arm64.tar.gz",
-		},
-		{
-			name: "platform.os.apple linux",
-			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
-			cueTemplate: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "gh"
-spec: {
-    installerRef: "download"
-    version: "2.86.0"
-    source: {
-        url: "https://example.com/gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
-    }
-}
-`,
-			expectedURL: "https://example.com/gh_Linux_amd64.tar.gz",
-		},
-		{
-			name: "platform.arch.gnu amd64",
-			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
-			cueTemplate: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "ripgrep"
-spec: {
-    installerRef: "download"
-    version: "14.0.0"
-    source: {
-        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
-    }
-}
-`,
-			expectedURL: "https://example.com/ripgrep-x86_64-unknown-linux-musl.tar.gz",
-		},
-		{
-			name: "platform.arch.gnu arm64",
-			env:  &Env{OS: "linux", Arch: "arm64", Headless: false},
-			cueTemplate: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "ripgrep"
-spec: {
-    installerRef: "download"
-    version: "14.0.0"
-    source: {
-        url: "https://example.com/ripgrep-\(_env.platform.arch.gnu)-unknown-\(_env.os)-musl.tar.gz"
-    }
-}
-`,
-			expectedURL: "https://example.com/ripgrep-aarch64-unknown-linux-musl.tar.gz",
-		},
-		{
-			name: "platform.os.go and platform.arch.go",
-			env:  &Env{OS: "darwin", Arch: "amd64", Headless: false},
-			cueTemplate: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "test"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-    source: {
-        url: "https://example.com/test_\(_env.platform.os.go)_\(_env.platform.arch.go).tar.gz"
-    }
-}
-`,
-			expectedURL: "https://example.com/test_darwin_amd64.tar.gz",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			cueFile := filepath.Join(dir, "tool.cue")
-
-			if err := os.WriteFile(cueFile, []byte(tt.cueTemplate), 0644); err != nil {
-				t.Fatalf("failed to write test file: %v", err)
-			}
-
-			loader := NewLoader(tt.env)
-			resources, err := loader.LoadFile(cueFile)
-			if err != nil {
-				t.Fatalf("failed to load file: %v", err)
-			}
-
-			tool := resources[0].(*resource.Tool)
-			if tool.ToolSpec.Source.URL != tt.expectedURL {
-				t.Errorf("expected URL %s, got %s", tt.expectedURL, tool.ToolSpec.Source.URL)
-			}
-		})
 	}
 }
 
@@ -1230,5 +1131,263 @@ func TestHasRealCueMod(t *testing.T) {
 				t.Errorf("hasRealCueMod(%s) = %v, want %v", dir, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoader_Tag_NotAvailableWithoutPackage(t *testing.T) {
+	// @tag() requires load.Instances() which needs a package declaration.
+	// Without a package, CompileString is used and tags are not resolved.
+	// When a tag value is used in string interpolation, it fails because
+	// the value is non-concrete (still typed as string, not a concrete value).
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tool.cue")
+
+	content := `
+_os: string @tag(os)
+
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "https://example.com/test_\(_os).tar.gz"
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	// LoadFile with no package → CompileString path → _os stays as string (incomplete)
+	_, err := loader.LoadFile(cueFile)
+	// Should fail because _os is not concrete (tag not resolved via CompileString)
+	if err == nil {
+		t.Error("expected error for @tag() without package, got nil")
+	}
+}
+
+func TestLoader_Tag_MultipleFilesShareTags(t *testing.T) {
+	dir := t.TempDir()
+
+	// Two files in the same package both declaring @tag()
+	file1 := `package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+gh: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh_\(_os)_\(_arch).tar.gz"
+        }
+    }
+}
+`
+	file2 := `package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Runtime"
+    metadata: name: "go"
+    spec: {
+        type: "download"
+        version: "1.25.6"
+        source: {
+            url: "https://go.dev/dl/go1.25.6.\(_os)-\(_arch).tar.gz"
+        }
+        binaries: ["go", "gofmt"]
+        toolBinPath: "~/go/bin"
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(file1), 0644); err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "runtime.cue"), []byte(file2), 0644); err != nil {
+		t.Fatalf("failed to write file2: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "darwin", Arch: "arm64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Fatalf("expected 2 resources, got %d", len(resources))
+	}
+
+	// Verify both resources got correct tag values
+	for _, res := range resources {
+		switch r := res.(type) {
+		case *resource.Tool:
+			expectedURL := "https://example.com/gh_darwin_arm64.tar.gz"
+			if r.ToolSpec.Source.URL != expectedURL {
+				t.Errorf("tool URL: expected %s, got %s", expectedURL, r.ToolSpec.Source.URL)
+			}
+		case *resource.Runtime:
+			expectedURL := "https://go.dev/dl/go1.25.6.darwin-arm64.tar.gz"
+			if r.RuntimeSpec.Source.URL != expectedURL {
+				t.Errorf("runtime URL: expected %s, got %s", expectedURL, r.RuntimeSpec.Source.URL)
+			}
+		}
+	}
+}
+
+func TestLoader_Tag_ConstrainedValues(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `package tomei
+
+_os: ("linux" | "darwin") @tag(os)
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+        source: {
+            url: "https://example.com/test_\(_os).tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Valid: linux
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load with linux: %v", err)
+	}
+	tool := resources[0].(*resource.Tool)
+	if tool.ToolSpec.Source.URL != "https://example.com/test_linux.tar.gz" {
+		t.Errorf("unexpected URL: %s", tool.ToolSpec.Source.URL)
+	}
+}
+
+func TestLoader_SchemaValidation_NoSchemaInjection(t *testing.T) {
+	// Verify that #Resource definition is NOT injected into user CUE files.
+	// Schema validation uses the internally compiled schema instead.
+	dir := t.TempDir()
+
+	content := `package tomei
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+        source: {
+            url: "https://example.com/test.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	// Should still work — schema validation happens internally
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+}
+
+func TestLoader_SchemaValidation_WorksWithoutPackage(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tool.cue")
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "test"
+spec: {
+    installerRef: "download"
+    version: "1.0.0"
+    source: {
+        url: "https://example.com/test.tar.gz"
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Name() != "test" {
+		t.Errorf("expected name test, got %s", resources[0].Name())
+	}
+}
+
+func TestLoader_Load_NoEnvOverlayFile(t *testing.T) {
+	// Regression test: verify that no _env.cue overlay file is generated
+	dir := t.TempDir()
+
+	content := `package tomei
+
+tool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind: "Tool"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+        source: {
+            url: "https://example.com/test.tar.gz"
+        }
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	_, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	// Verify no _env.cue or _schema.cue files were created on disk
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read dir: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == "_env.cue" || entry.Name() == "_schema.cue" {
+			t.Errorf("unexpected overlay file on disk: %s", entry.Name())
+		}
 	}
 }

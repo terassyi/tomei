@@ -1,5 +1,9 @@
 package go
 
+// _os and _arch are injected by the loader via overlay.
+_os:   string
+_arch: string
+
 // #GoRuntime declares a Go runtime installed from go.dev.
 // User only needs to provide spec.version.
 //
@@ -18,7 +22,7 @@ package go
 		type:    "download"
 		version: string & !=""
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
 		}
 		binaries: ["go", "gofmt"]
