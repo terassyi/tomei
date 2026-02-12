@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/terassyi/tomei/internal/installer/engine"
@@ -18,3 +19,9 @@ type applyDoneMsg struct {
 
 // tickMsg triggers periodic UI updates (elapsed time, spinner).
 type tickMsg time.Time
+
+// slogMsg delivers a structured log record to the TUI model.
+type slogMsg struct {
+	level   slog.Level
+	message string
+}

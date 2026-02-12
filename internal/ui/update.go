@@ -29,6 +29,9 @@ func (m *ApplyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case engineEventMsg:
 		return m.handleEngineEvent(msg.event)
 
+	case slogMsg:
+		return m.handleSlogMsg(msg)
+
 	case applyDoneMsg:
 		return m.handleApplyDone(msg)
 	}
@@ -166,6 +169,15 @@ func (m *ApplyModel) handleError(event engine.Event) (tea.Model, tea.Cmd) {
 	m.results.Failed++
 	m.completedOrder = append(m.completedOrder, key)
 
+	return m, nil
+}
+
+// handleSlogMsg appends a slog record to the log panel, keeping at most maxSlogLines.
+func (m *ApplyModel) handleSlogMsg(msg slogMsg) (tea.Model, tea.Cmd) {
+	m.slogLines = append(m.slogLines, slogLine(msg))
+	if len(m.slogLines) > maxSlogLines {
+		m.slogLines = m.slogLines[len(m.slogLines)-maxSlogLines:]
+	}
 	return m, nil
 }
 
