@@ -42,14 +42,65 @@ type Ref struct {
 	Name string
 }
 
+// knownKinds maps lowercase kind strings to their canonical Kind constants.
+var knownKinds map[string]Kind
+
+func init() {
+	kinds := []Kind{
+		KindSystemInstaller, KindSystemPackageRepository, KindSystemPackageSet,
+		KindInstaller, KindInstallerRepository, KindRuntime,
+		KindTool, KindToolSet,
+	}
+	knownKinds = make(map[string]Kind, len(kinds))
+	for _, k := range kinds {
+		knownKinds[strings.ToLower(string(k))] = k
+	}
+}
+
+// NormalizeKind converts a case-insensitive kind string to its canonical PascalCase Kind.
+// Returns the canonical Kind and true if found, or the zero Kind and false if unknown.
+func NormalizeKind(s string) (Kind, bool) {
+	k, ok := knownKinds[strings.ToLower(s)]
+	return k, ok
+}
+
 // ParseRef parses a "kind/name" string into a Ref.
-// Returns an error if the format is invalid.
+// The kind part is normalized to its canonical PascalCase form.
+// Returns an error if the format is invalid or the kind is unknown.
 func ParseRef(s string) (Ref, error) {
 	kind, name, ok := strings.Cut(s, "/")
 	if !ok || kind == "" || name == "" {
 		return Ref{}, fmt.Errorf("invalid resource reference %q, expected format: kind/name", s)
 	}
-	return Ref{Kind: Kind(kind), Name: name}, nil
+	normalized, known := NormalizeKind(kind)
+	if !known {
+		return Ref{}, fmt.Errorf("unknown resource kind %q", kind)
+	}
+	return Ref{Kind: normalized, Name: name}, nil
+}
+
+// ParseRefArgs parses 1 or 2 command-line arguments into a Ref.
+// Accepted formats:
+//   - 1 arg with slash: "kind/name" (delegates to ParseRef)
+//   - 2 args: kind name (e.g., "tool" "ripgrep")
+//
+// Returns an error if zero or more than 2 args are given, or if the kind is unknown.
+func ParseRefArgs(args []string) (Ref, error) {
+	switch len(args) {
+	case 1:
+		return ParseRef(args[0])
+	case 2:
+		kind, ok := NormalizeKind(args[0])
+		if !ok {
+			return Ref{}, fmt.Errorf("unknown resource kind %q", args[0])
+		}
+		if args[1] == "" {
+			return Ref{}, fmt.Errorf("resource name must not be empty")
+		}
+		return Ref{Kind: kind, Name: args[1]}, nil
+	default:
+		return Ref{}, fmt.Errorf("expected 1 or 2 arguments (kind/name or kind name), got %d", len(args))
+	}
 }
 
 // Spec is the interface that all spec types must implement.

@@ -16,16 +16,19 @@ var logsListSessions bool
 var logsNoColor bool
 
 var logsCmd = &cobra.Command{
-	Use:   "logs [kind/name]",
+	Use:   "logs [kind/name | kind name]",
 	Short: "Show installation logs from the last apply",
 	Long: `Show installation logs from the last tomei apply session.
 
 Without arguments, lists all failed resources from the most recent session.
 With a resource argument, shows the full log for that resource.
+Resource can be specified as "kind/name" or "kind name" (case-insensitive).
 
 Examples:
   tomei logs                  # list failed resources from last session
-  tomei logs tool/ripgrep     # show full log for tool/ripgrep
+  tomei logs Tool/ripgrep     # show full log for tool/ripgrep
+  tomei logs tool/ripgrep     # same (case-insensitive)
+  tomei logs tool ripgrep     # same (space-separated)
   tomei logs --list           # list all sessions`,
 	RunE: runLogs,
 }
@@ -50,7 +53,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) > 0 {
-		return showResourceLog(cmd, logsDir, args[0])
+		return showResourceLogFromArgs(cmd, logsDir, args)
 	}
 
 	return showLatestSession(cmd, logsDir)
@@ -132,8 +135,8 @@ func showLatestSession(cmd *cobra.Command, logsDir string) error {
 	return nil
 }
 
-func showResourceLog(cmd *cobra.Command, logsDir string, resourceRef string) error {
-	ref, err := resource.ParseRef(resourceRef)
+func showResourceLogFromArgs(cmd *cobra.Command, logsDir string, args []string) error {
+	ref, err := resource.ParseRefArgs(args)
 	if err != nil {
 		return err
 	}

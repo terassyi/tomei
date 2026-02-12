@@ -96,6 +96,43 @@ func TestAction_NeedsExecution(t *testing.T) {
 	}
 }
 
+func TestNormalizeKind(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  Kind
+		ok    bool
+	}{
+		{"lowercase tool", "tool", KindTool, true},
+		{"PascalCase Tool", "Tool", KindTool, true},
+		{"uppercase TOOL", "TOOL", KindTool, true},
+		{"lowercase runtime", "runtime", KindRuntime, true},
+		{"PascalCase Runtime", "Runtime", KindRuntime, true},
+		{"lowercase installerrepository", "installerrepository", KindInstallerRepository, true},
+		{"PascalCase InstallerRepository", "InstallerRepository", KindInstallerRepository, true},
+		{"lowercase toolset", "toolset", KindToolSet, true},
+		{"PascalCase ToolSet", "ToolSet", KindToolSet, true},
+		{"lowercase installer", "installer", KindInstaller, true},
+		{"lowercase systeminstaller", "systeminstaller", KindSystemInstaller, true},
+		{"lowercase systempackagerepository", "systempackagerepository", KindSystemPackageRepository, true},
+		{"lowercase systempackageset", "systempackageset", KindSystemPackageSet, true},
+		{"unknown kind", "unknown", Kind(""), false},
+		{"empty string", "", Kind(""), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := NormalizeKind(tt.input)
+			if ok != tt.ok {
+				t.Errorf("NormalizeKind(%q) ok = %v, want %v", tt.input, ok, tt.ok)
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeKind(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseRef(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -104,19 +141,29 @@ func TestParseRef(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:  "tool/ripgrep",
+			name:  "lowercase tool/ripgrep",
 			input: "tool/ripgrep",
-			want:  Ref{Kind: "tool", Name: "ripgrep"},
+			want:  Ref{Kind: KindTool, Name: "ripgrep"},
+		},
+		{
+			name:  "PascalCase Tool/ripgrep",
+			input: "Tool/ripgrep",
+			want:  Ref{Kind: KindTool, Name: "ripgrep"},
 		},
 		{
 			name:  "Runtime/go",
 			input: "Runtime/go",
-			want:  Ref{Kind: "Runtime", Name: "go"},
+			want:  Ref{Kind: KindRuntime, Name: "go"},
+		},
+		{
+			name:  "lowercase runtime/go",
+			input: "runtime/go",
+			want:  Ref{Kind: KindRuntime, Name: "go"},
 		},
 		{
 			name:  "name with slash",
 			input: "tool/foo/bar",
-			want:  Ref{Kind: "tool", Name: "foo/bar"},
+			want:  Ref{Kind: KindTool, Name: "foo/bar"},
 		},
 		{
 			name:    "no slash",
@@ -138,6 +185,11 @@ func TestParseRef(t *testing.T) {
 			input:   "",
 			wantErr: true,
 		},
+		{
+			name:    "unknown kind",
+			input:   "unknown/foo",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -155,6 +207,85 @@ func TestParseRef(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Errorf("ParseRef(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseRefArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		want    Ref
+		wantErr bool
+	}{
+		{
+			name: "slash format lowercase",
+			args: []string{"tool/ripgrep"},
+			want: Ref{Kind: KindTool, Name: "ripgrep"},
+		},
+		{
+			name: "slash format PascalCase",
+			args: []string{"Tool/ripgrep"},
+			want: Ref{Kind: KindTool, Name: "ripgrep"},
+		},
+		{
+			name: "two args lowercase",
+			args: []string{"tool", "ripgrep"},
+			want: Ref{Kind: KindTool, Name: "ripgrep"},
+		},
+		{
+			name: "two args PascalCase",
+			args: []string{"Tool", "ripgrep"},
+			want: Ref{Kind: KindTool, Name: "ripgrep"},
+		},
+		{
+			name: "two args runtime",
+			args: []string{"runtime", "go"},
+			want: Ref{Kind: KindRuntime, Name: "go"},
+		},
+		{
+			name:    "zero args",
+			args:    []string{},
+			wantErr: true,
+		},
+		{
+			name:    "three args",
+			args:    []string{"tool", "ripgrep", "extra"},
+			wantErr: true,
+		},
+		{
+			name:    "one arg no slash",
+			args:    []string{"ripgrep"},
+			wantErr: true,
+		},
+		{
+			name:    "two args unknown kind",
+			args:    []string{"unknown", "foo"},
+			wantErr: true,
+		},
+		{
+			name:    "two args empty name",
+			args:    []string{"tool", ""},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseRefArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseRefArgs(%v) expected error, got %v", tt.args, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseRefArgs(%v) unexpected error: %v", tt.args, err)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseRefArgs(%v) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
 	}
