@@ -226,6 +226,53 @@ func TestDedupStrings(t *testing.T) {
 	}
 }
 
+func TestGenerateCUERegistry(t *testing.T) {
+	tests := []struct {
+		name         string
+		cueModExists bool
+		cueRegistry  string
+		shell        ShellType
+		want         string
+	}{
+		{
+			name:         "with cue.mod posix",
+			cueModExists: true,
+			cueRegistry:  "tomei.terassyi.net=ghcr.io/terassyi",
+			shell:        ShellPosix,
+			want:         `export CUE_REGISTRY="tomei.terassyi.net=ghcr.io/terassyi"`,
+		},
+		{
+			name:         "with cue.mod fish",
+			cueModExists: true,
+			cueRegistry:  "tomei.terassyi.net=ghcr.io/terassyi",
+			shell:        ShellFish,
+			want:         `set -gx CUE_REGISTRY "tomei.terassyi.net=ghcr.io/terassyi"`,
+		},
+		{
+			name:         "without cue.mod",
+			cueModExists: false,
+			cueRegistry:  "tomei.terassyi.net=ghcr.io/terassyi",
+			shell:        ShellPosix,
+			want:         "",
+		},
+		{
+			name:         "empty registry string",
+			cueModExists: true,
+			cueRegistry:  "",
+			shell:        ShellPosix,
+			want:         "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := NewFormatter(tt.shell)
+			got := GenerateCUERegistry(tt.cueModExists, tt.cueRegistry, f)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func joinLines(lines []string) string {
 	var b strings.Builder
 	for _, l := range lines {

@@ -84,11 +84,6 @@ func runApply(cmd *cobra.Command, args []string) error {
 }
 
 func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
-	// Check schema.cue apiVersion in manifest directories
-	if err := config.CheckSchemaVersionForPaths(paths); err != nil {
-		return err
-	}
-
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(paths)

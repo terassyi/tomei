@@ -1,0 +1,5 @@
+module: "{{ .ModuleName }}"
+language: version: "{{ .LanguageVersion }}"
+deps: {
+	"{{ .TomeiModulePath }}": v: "{{ .ModuleVersion }}"
+}

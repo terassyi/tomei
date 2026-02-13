@@ -42,9 +42,20 @@ jobs:
       - name: Lint
         uses: ./.github/actions/lint
 
+  cue-validate:
+    name: CUE Validate
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate CUE module
+        uses: ./.github/actions/cue-validate
+
   integration-test:
     name: Integration Test
-    needs: [unit-test, lint]
+    needs: [unit-test, lint, cue-validate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

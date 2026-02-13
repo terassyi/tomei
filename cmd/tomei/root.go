@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/spf13/cobra"
+	cuecmd "github.com/terassyi/tomei/cmd/tomei/cue"
 	statecmd "github.com/terassyi/tomei/cmd/tomei/state"
 )
 
@@ -41,7 +42,7 @@ func init() {
 		logsCmd,
 		getCmd,
 		completionCmd,
-		schemaCmd,
+		cuecmd.Cmd,
 		statecmd.Cmd,
 	)
 }

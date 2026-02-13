@@ -21,45 +21,6 @@ func schemaValidationTests() {
 		_, _ = testExec.ExecBash("rm -rf ~/schema-test")
 	})
 
-	Context("tomei init Schema Placement", func() {
-		It("places schema.cue in current directory by default", func() {
-			By("Verifying schema.cue was created by init in working directory")
-			output, err := testExec.ExecBash("cat ~/schema.cue")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Checking schema contains key definitions")
-			Expect(output).To(ContainSubstring("package tomei"))
-			Expect(output).To(ContainSubstring("#APIVersion"))
-			Expect(output).To(ContainSubstring("#Resource"))
-			Expect(output).To(ContainSubstring("#HTTPSURL"))
-			Expect(output).To(ContainSubstring("#Metadata"))
-		})
-
-		It("places schema.cue in custom directory with --schema-dir", func() {
-			By("Creating custom schema directory")
-			_, err := testExec.ExecBash("mkdir -p ~/custom-schema-dir")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei init with --schema-dir")
-			output, err := testExec.Exec("tomei", "init", "--yes", "--force", "--schema-dir", "~/custom-schema-dir")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("Initialization complete"))
-
-			By("Verifying schema.cue exists in custom directory")
-			output, err = testExec.ExecBash("cat ~/custom-schema-dir/schema.cue")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("#APIVersion"))
-			Expect(output).To(ContainSubstring("#Resource"))
-
-			By("Cleaning up custom directory")
-			_, _ = testExec.ExecBash("rm -rf ~/custom-schema-dir")
-
-			By("Re-initializing with default settings for subsequent tests")
-			_, err = testExec.Exec("tomei", "init", "--yes", "--force")
-			Expect(err).NotTo(HaveOccurred())
-		})
-	})
-
 	Context("tomei validate Rejects Invalid Manifests", func() {
 		It("rejects wrong apiVersion", func() {
 			By("Writing manifest with wrong apiVersion")
@@ -203,7 +164,12 @@ EOF`)
 	Context("Error Message Quality", func() {
 		It("includes resource name in schema validation error", func() {
 			By("Creating directory with named resource that has invalid URL")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-test/bad-dir")
+			_, err := testExec.ExecBash("mkdir -p ~/schema-test/bad-dir/cue.mod")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash(`cat > ~/schema-test/bad-dir/cue.mod/module.cue << 'EOF'
+module: "tomei.local@v0"
+language: version: "v0.9.0"
+EOF`)
 			Expect(err).NotTo(HaveOccurred())
 			_, err = testExec.ExecBash(`cat > ~/schema-test/bad-dir/bad.cue << 'EOF'
 package tomei

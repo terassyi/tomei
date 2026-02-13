@@ -1,6 +1,6 @@
 # CUE Schema Reference
 
-This document describes the CUE schema used by `tomei` manifests. The source of truth is [`internal/config/schema/schema.cue`](../internal/config/schema/schema.cue).
+This document describes the CUE schema used by `tomei` manifests. The source of truth is [`cuemodule/schema/schema.cue`](../cuemodule/schema/schema.cue).
 
 ## Basics
 
@@ -34,6 +34,9 @@ Language runtime definition. Supports two installation patterns.
 tomei downloads and extracts a tarball directly.
 
 ```cue
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 apiVersion: "tomei.terassyi.net/v1beta1"
 kind:       "Runtime"
 metadata: name: "go"
@@ -41,7 +44,7 @@ spec: {
     type:    "download"
     version: "1.25.6"
     source: {
-        url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+        url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
         checksum: url: "https://go.dev/dl/?mode=json&include=all"
     }
     binaries:    ["go", "gofmt"]
@@ -120,6 +123,9 @@ spec: {
 #### Via explicit download
 
 ```cue
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 apiVersion: "tomei.terassyi.net/v1beta1"
 kind:       "Tool"
 metadata: name: "gh"
@@ -127,7 +133,7 @@ spec: {
     installerRef: "download"
     version:      "2.62.0"
     source: {
-        url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_\(_env.os)_\(_env.arch).tar.gz"
+        url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_\(_os)_\(_arch).tar.gz"
         checksum: url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
     }
 }
@@ -306,37 +312,61 @@ Extends CommandSet with version resolution support.
 }
 ```
 
-## Environment Overlay (`_env`)
+## Platform-Aware Manifests (`@tag()`)
 
-`tomei` automatically injects an `_env` hidden field into every CUE file at load time. Use it to write platform-aware manifests.
+`tomei` uses CUE's native `@tag()` feature to inject runtime environment values into manifests.
 
-### Available variables
+### Available tags
 
-| Variable | Type | Values | Description |
-|----------|------|--------|-------------|
-| `_env.os` | string | `"linux"`, `"darwin"` | Operating system |
-| `_env.arch` | string | `"amd64"`, `"arm64"` | CPU architecture |
-| `_env.headless` | bool | | Headless environment (container, SSH, CI, no display) |
-| `_env.platform.os.go` | string | `"linux"`, `"darwin"` | Same as `_env.os` |
-| `_env.platform.os.apple` | string | `"Linux"`, `"macOS"` | Apple-style naming |
-| `_env.platform.arch.go` | string | `"amd64"`, `"arm64"` | Same as `_env.arch` |
-| `_env.platform.arch.gnu` | string | `"x86_64"`, `"aarch64"` | GNU-style naming |
+| Tag | Values | Description |
+|-----|--------|-------------|
+| `os` | `"linux"`, `"darwin"` | Operating system |
+| `arch` | `"amd64"`, `"arm64"` | CPU architecture |
+| `headless` | `true`, `false` | Headless environment |
 
 ### Headless detection
 
-`_env.headless` is `true` when any of the following conditions apply:
+The `headless` tag is `true` when any of the following conditions apply:
 
 - Running in a container (Docker, Kubernetes, LXC, containerd)
 - No `DISPLAY` or `WAYLAND_DISPLAY` set on Linux
 - SSH session (`SSH_CLIENT` or `SSH_TTY` set)
 - CI environment (`CI` variable set)
 
-### Conditional configuration
+### Usage
 
-Use CUE `if` expressions with `_env` to branch by platform:
+Declare `@tag()` in your CUE file to access environment values:
 
 ```cue
 package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Runtime"
+    metadata: name: "go"
+    spec: {
+        type:    "download"
+        version: "1.25.6"
+        source: {
+            url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
+        }
+        // ...
+    }
+}
+```
+
+### Conditional configuration
+
+Use CUE `if` expressions with tag values to branch by platform:
+
+```cue
+package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
 
 _ghVersion: "2.62.0"
 
@@ -348,11 +378,11 @@ gh: {
         installerRef: "download"
         version:      _ghVersion
         source: {
-            if _env.os == "linux" {
-                url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_linux_\(_env.arch).tar.gz"
+            if _os == "linux" {
+                url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_linux_\(_arch).tar.gz"
             }
-            if _env.os == "darwin" {
-                url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_macOS_\(_env.arch).zip"
+            if _os == "darwin" {
+                url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_macOS_\(_arch).zip"
             }
             checksum: url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
         }
@@ -360,28 +390,105 @@ gh: {
 }
 ```
 
-URL interpolation using `_env`:
+### Using presets (recommended)
+
+Presets that need platform information accept explicit `platform` parameters from the user manifest. The user declares `@tag()` variables and passes them to the preset:
 
 ```cue
-source: {
-    url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
+    spec: version: "1.25.6"
 }
 ```
 
-Using alternative naming conventions:
+### CUE tooling compatibility
+
+Standard CUE tools work with the same tags:
+
+```bash
+cue eval -t os=linux -t arch=amd64 manifests/
+```
+
+## Schema Import
+
+The schema package is available via the CUE module registry (OCI). User manifests can import it for explicit type validation:
 
 ```cue
-source: {
-    url: "https://example.com/tool-\(_env.platform.arch.gnu)-\(_env.platform.os.apple).tar.gz"
-    // resolves to e.g. tool-x86_64-Linux.tar.gz or tool-aarch64-macOS.tar.gz
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.7.1"
+        package:      "jqlang/jq"
+    }
 }
 ```
 
-## Schema Management
+Available definitions: `schema.#Tool`, `schema.#ToolSet`, `schema.#Runtime`, `schema.#Installer`, `schema.#InstallerRepository`, `schema.#Resource`, etc.
 
-`tomei init` places `schema.cue` in the current directory (or the directory specified by `--schema-dir`). This file provides type definitions for CUE language servers. To update `schema.cue` after upgrading `tomei`, run `tomei schema`.
+Schema import is optional — `tomei` validates all resources against the embedded schema internally regardless of whether the manifest uses `import "tomei.terassyi.net/schema"`.
 
-The schema is versioned via `#APIVersion`. If the on-disk `schema.cue` has a different apiVersion than the binary, `tomei apply`, `tomei plan`, and `tomei validate` will exit with an error.
+## OCI Registry (Module Resolution)
+
+`tomei` resolves CUE imports like `import "tomei.terassyi.net/presets/go"` via a CUE module registry (OCI).
+
+### OCI registry resolution
+
+`tomei` builds a `modconfig.Registry` with a built-in default: `tomei.terassyi.net=ghcr.io/terassyi`. The module `tomei.terassyi.net@v0` is published as an OCI artifact on `ghcr.io/terassyi`. When `CUE_REGISTRY` is not set, this default mapping is used. When `CUE_REGISTRY` is set by the user, it takes precedence.
+
+For directory-mode loading (package-based CUE files), a `cue.mod/` directory is required. For single-file loading without imports, `cue.mod/` is not needed.
+
+### Setting up a CUE module
+
+Use `tomei cue init` to create the module structure, or manually create `cue.mod/module.cue`:
+
+```cue
+module: "manifests.local@v0"
+language: version: "v0.9.0"
+deps: {
+    "tomei.terassyi.net@v0": v: "v0.0.1"
+}
+```
+
+Then use imports with explicit platform parameters:
+
+```cue
+package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
+    spec: version: "1.25.6"
+}
+```
+
+#### CUE tooling integration
+
+For `cue eval` and LSP to resolve tomei imports, set `CUE_REGISTRY` via `eval $(tomei env)`:
+
+```bash
+eval $(tomei env)
+cue eval -t os=linux -t arch=amd64 tools.cue
+```
+
+#### Platform parameterization
+
+Presets that need platform information (e.g., Go) accept explicit `platform` parameters. The user's manifest declares `@tag()` variables and passes them to the preset. This approach works consistently in both modes — `@tag()` values are resolved at the top-level manifest, and platform information flows via explicit parameters rather than environment injection.
 
 ## Validation
 

@@ -1,4 +1,4 @@
-package schema
+package cuemodule_test
 
 import (
 	"testing"
@@ -7,35 +7,25 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/terassyi/tomei/cuemodule"
 )
 
-// compileSchemaWithEnv compiles the schema with concrete _env values injected,
-// mimicking what the loader does at runtime.
-func compileSchemaWithEnv(t *testing.T) cue.Value {
+// compileSchema compiles the schema CUE source.
+func compileSchema(t *testing.T) cue.Value {
 	t.Helper()
 	ctx := cuecontext.New()
-	env := `
-_env: {
-	os:       "linux"
-	arch:     "amd64"
-	headless: false
-	platform: {
-		os: {go: "linux", apple: "Linux"}
-		arch: {go: "amd64", gnu: "x86_64"}
-	}
-}
-`
-	v := ctx.CompileString(SchemaCUE + "\n" + env)
+	v := ctx.CompileString(cuemodule.SchemaCUE)
 	require.NoError(t, v.Err(), "schema must compile without error")
 	return v
 }
 
 func TestSchema_Compiles(t *testing.T) {
-	compileSchemaWithEnv(t)
+	compileSchema(t)
 }
 
 func TestSchema_Definitions_Exist(t *testing.T) {
-	v := compileSchemaWithEnv(t)
+	v := compileSchema(t)
 
 	definitions := []string{
 		"#APIVersion",
@@ -65,7 +55,7 @@ func TestSchema_Definitions_Exist(t *testing.T) {
 }
 
 func TestSchema_ValidResources(t *testing.T) {
-	v := compileSchemaWithEnv(t)
+	v := compileSchema(t)
 	resourceDef := v.LookupPath(cue.ParsePath("#Resource"))
 	require.True(t, resourceDef.Exists())
 	ctx := v.Context()
@@ -331,7 +321,7 @@ func TestSchema_ValidResources(t *testing.T) {
 }
 
 func TestSchema_InvalidResources(t *testing.T) {
-	v := compileSchemaWithEnv(t)
+	v := compileSchema(t)
 	resourceDef := v.LookupPath(cue.ParsePath("#Resource"))
 	require.True(t, resourceDef.Exists())
 	ctx := v.Context()
@@ -515,73 +505,6 @@ func TestSchema_InvalidResources(t *testing.T) {
 			unified := res.Unify(resourceDef)
 			err := unified.Validate(cue.Concrete(true))
 			assert.Error(t, err, "invalid resource should fail schema validation")
-		})
-	}
-}
-
-func TestSchema_EnvEnum(t *testing.T) {
-	ctx := cuecontext.New()
-
-	tests := []struct {
-		name    string
-		envCUE  string
-		wantErr bool
-	}{
-		{
-			name: "valid linux/amd64",
-			envCUE: `_env: {
-				os: "linux", arch: "amd64", headless: false
-				platform: {
-					os: {go: "linux", apple: "Linux"}
-					arch: {go: "amd64", gnu: "x86_64"}
-				}
-			}`,
-			wantErr: false,
-		},
-		{
-			name: "valid darwin/arm64",
-			envCUE: `_env: {
-				os: "darwin", arch: "arm64", headless: true
-				platform: {
-					os: {go: "darwin", apple: "macOS"}
-					arch: {go: "arm64", gnu: "aarch64"}
-				}
-			}`,
-			wantErr: false,
-		},
-		{
-			name: "invalid OS",
-			envCUE: `_env: {
-				os: "windows", arch: "amd64", headless: false
-				platform: {
-					os: {go: "windows", apple: "Windows"}
-					arch: {go: "amd64", gnu: "x86_64"}
-				}
-			}`,
-			wantErr: true,
-		},
-		{
-			name: "invalid arch",
-			envCUE: `_env: {
-				os: "linux", arch: "riscv64", headless: false
-				platform: {
-					os: {go: "linux", apple: "Linux"}
-					arch: {go: "riscv64", gnu: "riscv64"}
-				}
-			}`,
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			v := ctx.CompileString(SchemaCUE + "\n" + tt.envCUE)
-			if tt.wantErr {
-				err := v.Validate(cue.Concrete(true))
-				assert.Error(t, err, "invalid env should cause validation error")
-			} else {
-				require.NoError(t, v.Err(), "schema with valid env must compile")
-			}
 		})
 	}
 }

@@ -47,4 +47,6 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Installation Logs", logsTests)
 	Context("Get Command", getTests)
 	Context("Completion", completionTests)
+	Context("CUE Tags", tagTests)
+	Context("CUE Ecosystem", cueEcosystemTests)
 })

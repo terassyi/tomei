@@ -1,0 +1,31 @@
+name: Determine Version
+description: Extract version from tag push or workflow_dispatch input
+
+inputs:
+  tag-prefix:
+    description: "Tag prefix to strip (e.g. tomei-cue-)"
+    required: false
+    default: ""
+  version-input:
+    description: "Version from workflow_dispatch input"
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "Resolved version (e.g. v0.0.1)"
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve version
+      id: resolve
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version-input }}" ]; then
+          echo "version=${{ inputs.version-input }}" >> "$GITHUB_OUTPUT"
+        else
+          TAG="${GITHUB_REF#refs/tags/${{ inputs.tag-prefix }}}"
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+        fi

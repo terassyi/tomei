@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run
+.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run module-publish
 
 BINARY_NAME := tomei
 BUILD_DIR := bin
@@ -44,6 +44,11 @@ clean: ## Clean build artifacts
 	rm -f coverage.out coverage.html
 	rm -f tomei
 	$(MAKE) -C e2e clean
+
+MODULE_VERSION ?= $(VERSION)
+
+module-publish: ## Publish CUE module to OCI registry via cue mod publish
+	cd cuemodule && cue mod publish $(MODULE_VERSION)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'

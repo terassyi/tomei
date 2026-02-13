@@ -1,0 +1,30 @@
+name: CUE Validate
+description: Install CUE, check formatting, and validate module
+
+inputs:
+  cue-version:
+    description: "CUE CLI version"
+    required: false
+    default: "v0.15.4"
+  working-directory:
+    description: "Directory containing the CUE module"
+    required: false
+    default: "cuemodule"
+
+runs:
+  using: composite
+  steps:
+    - name: Install CUE
+      uses: cue-lang/setup-cue@v1.0.1
+      with:
+        version: ${{ inputs.cue-version }}
+
+    - name: Check formatting
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cue fmt --check ./...
+
+    - name: Validate module
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: cue vet ./...

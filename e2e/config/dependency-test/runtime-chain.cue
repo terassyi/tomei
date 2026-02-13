@@ -2,10 +2,13 @@ package tomei
 
 // Runtime to Tool dependency chain test: go runtime -> go installer -> gopls
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 _goVersion: "1.23.5"
 
 _goSource: {
-	url: "https://go.dev/dl/go\(_goVersion).\(_env.os)-\(_env.arch).tar.gz"
+	url: "https://go.dev/dl/go\(_goVersion).\(_os)-\(_arch).tar.gz"
 	checksum: url: "https://go.dev/dl/?mode=json&include=all"
 }
 

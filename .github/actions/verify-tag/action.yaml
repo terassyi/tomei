@@ -1,0 +1,30 @@
+name: Verify Tag
+description: Verify that a git tag exists and extract version
+
+inputs:
+  version:
+    description: "Version string (e.g. v0.0.1)"
+    required: true
+  tag-prefix:
+    description: "Tag prefix (e.g. tomei-cue-)"
+    required: false
+    default: ""
+
+outputs:
+  tag:
+    description: "Full tag name"
+    value: ${{ steps.verify.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify git tag exists
+      id: verify
+      shell: bash
+      run: |
+        TAG="${{ inputs.tag-prefix }}${{ inputs.version }}"
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        if ! git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+          echo "::error::Git tag '${TAG}' not found. Create the tag first: git tag ${TAG}"
+          exit 1
+        fi

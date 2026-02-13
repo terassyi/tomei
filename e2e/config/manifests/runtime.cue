@@ -2,7 +2,10 @@ package tomei
 
 // Go runtime for E2E testing
 // Initially installs Go 1.25.6, then can be upgraded to 1.25.7
-// Uses _env for OS/arch portability
+// Uses @tag(os)/@tag(arch) for OS/arch portability
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
 
 _goVersion: "1.25.6"
 
@@ -14,7 +17,7 @@ goRuntime: {
 		type:    "download"
 		version: _goVersion
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: {
 				url: "https://go.dev/dl/?mode=json&include=all"
 			}

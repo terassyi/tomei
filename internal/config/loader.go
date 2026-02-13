@@ -3,115 +3,119 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/ast"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
+	"cuelang.org/go/cue/parser"
+	"cuelang.org/go/mod/modconfig"
 
-	"github.com/terassyi/tomei/internal/config/schema"
+	"github.com/terassyi/tomei/cuemodule"
 	"github.com/terassyi/tomei/internal/resource"
-	"github.com/terassyi/tomei/presets"
 )
 
 const (
 	// ConfigFileName is the name of the tomei config file that should be ignored when loading manifests.
 	ConfigFileName = "config.cue"
-	// envOverlayFileName is the virtual file name for the injected _env overlay.
-	envOverlayFileName = "_env.cue"
-	// schemaOverlayFileName is the virtual file name for the injected _schema overlay.
-	schemaOverlayFileName = "_schema.cue"
 
-	// virtualModuleCUE is the contents of the virtual cue.mod/module.cue.
-	virtualModuleCUE = `module: "tomei.terassyi.net@v0"
-language: version: "v0.9.0"
-`
+	// TomeiModulePath is the CUE module path for the tomei module.
+	TomeiModulePath = "tomei.terassyi.net@v0"
+
+	// CUELanguageVersion is the CUE language version used by the tomei module.
+	CUELanguageVersion = "v0.9.0"
+
+	// DefaultCUERegistry is the built-in CUE_REGISTRY mapping for tomei modules.
+	// When CUE_REGISTRY is not set, this default is used to resolve
+	// tomei.terassyi.net imports from the OCI registry on ghcr.io.
+	DefaultCUERegistry = "tomei.terassyi.net=ghcr.io/terassyi"
 )
 
 // Loader loads and parses CUE configuration files.
 type Loader struct {
-	ctx *cue.Context
-	env *Env
+	ctx         *cue.Context
+	env         *Env
+	schemaValue cue.Value
 }
 
 // NewLoader creates a new Loader with the given environment.
+// Panics if the embedded CUE schema fails to compile (programming error).
 func NewLoader(env *Env) *Loader {
 	if env == nil {
 		env = DetectEnv()
 	}
+	ctx := cuecontext.New()
+	schemaValue := ctx.CompileString(cuemodule.SchemaCUE)
+	if schemaValue.Err() != nil {
+		panic(fmt.Sprintf("failed to compile embedded CUE schema: %v", schemaValue.Err()))
+	}
 	return &Loader{
-		ctx: cuecontext.New(),
-		env: env,
+		ctx:         ctx,
+		env:         env,
+		schemaValue: schemaValue,
 	}
 }
 
-// Platform name mappings for different conventions
-var (
-	osAppleMap = map[OS]string{
-		OSLinux:  "Linux",
-		OSDarwin: "macOS",
+// buildRegistry creates a modconfig.Registry for CUE module resolution.
+// It uses the CUE_REGISTRY environment variable if set, otherwise falls back
+// to the built-in default (tomei.terassyi.net=ghcr.io/terassyi).
+func buildRegistry() (modconfig.Registry, error) {
+	cueRegistry := os.Getenv("CUE_REGISTRY")
+	if cueRegistry == "" {
+		cueRegistry = DefaultCUERegistry
 	}
-	archGnuMap = map[Arch]string{
-		ArchAMD64: "x86_64",
-		ArchARM64: "aarch64",
-	}
-)
+	return modconfig.NewRegistry(&modconfig.Config{
+		CUERegistry: cueRegistry,
+	})
+}
 
-// envCUE returns CUE source code that defines the _env hidden field.
-// This is prepended to user CUE files to enable environment-specific configuration.
-//
-// Example usage in CUE:
-//
-//	// Basic (Go naming convention)
-//	url: "https://go.dev/dl/go1.25.5.\(_env.os)-\(_env.arch).tar.gz"
-//
-//	// Apple naming convention (macOS, Linux)
-//	url: "https://.../gh_\(_env.platform.os.apple)_\(_env.arch).tar.gz"
-//
-//	// GNU naming convention (x86_64, aarch64)
-//	url: "https://.../ripgrep-\(_env.platform.arch.gnu)-apple-\(_env.os).tar.gz"
-func (l *Loader) envCUE() string {
-	return fmt.Sprintf(`_env: {
-	os: %q
-	arch: %q
-	headless: %t
-	platform: {
-		os: {
-			go: %q
-			apple: %q
+// envTagsForSources scans CUE source texts for @tag() declarations via AST and returns
+// only the Tags entries that have matching declarations. This avoids the CUE loader
+// error "no tag for X" that occurs when Tags contains entries without corresponding
+// @tag() declarations in the loaded files.
+func (l *Loader) envTagsForSources(sources ...string) []string {
+	declared := scanDeclaredTags(sources...)
+	var tags []string
+	if declared["os"] {
+		tags = append(tags, "os="+string(l.env.OS))
+	}
+	if declared["arch"] {
+		tags = append(tags, "arch="+string(l.env.Arch))
+	}
+	if declared["headless"] {
+		tags = append(tags, fmt.Sprintf("headless=%t", l.env.Headless))
+	}
+	return tags
+}
+
+// scanDeclaredTags parses CUE sources and returns the set of tag names
+// declared via @tag() attributes on fields.
+func scanDeclaredTags(sources ...string) map[string]bool {
+	tags := make(map[string]bool)
+	for _, src := range sources {
+		f, err := parser.ParseFile("", src)
+		if err != nil {
+			continue
 		}
-		arch: {
-			go: %q
-			gnu: %q
-		}
+		ast.Walk(f, func(n ast.Node) bool {
+			field, ok := n.(*ast.Field)
+			if !ok {
+				return true
+			}
+			for _, a := range field.Attrs {
+				key, body := a.Split()
+				if key == "tag" {
+					name, _, _ := strings.Cut(body, ",")
+					tags[name] = true
+				}
+			}
+			return true
+		}, nil)
 	}
-}`,
-		l.env.OS, l.env.Arch, l.env.Headless,
-		l.env.OS, osAppleMap[l.env.OS],
-		l.env.Arch, archGnuMap[l.env.Arch],
-	)
-}
-
-// envCUEWithPackage returns CUE source code with package declaration.
-// Used when loading directories where package declaration is required.
-func (l *Loader) envCUEWithPackage(pkg string) string {
-	return fmt.Sprintf("package %s\n%s", pkg, l.envCUE())
-}
-
-// schemaCUEAfterPackage returns the schema content with the "package tomei" line stripped.
-// Used when injecting schema into files without a package declaration (LoadFile mode).
-func schemaCUEAfterPackage() string {
-	_, after, _ := strings.Cut(schema.SchemaCUE, "\n")
-	return after
-}
-
-// schemaCUEWithPackage returns the schema content with a custom package declaration.
-// Used when injecting schema into directories with a specific package name.
-func schemaCUEWithPackage(pkg string) string {
-	return fmt.Sprintf("package %s\n%s", pkg, schemaCUEAfterPackage())
+	return tags
 }
 
 // detectPackageName extracts the package name from CUE source code.
@@ -130,99 +134,18 @@ func detectPackageName(source string) string {
 	return ""
 }
 
-// buildOverlay creates the CUE overlay map with _env.cue, _schema.cue, and optionally
-// the virtual module structure for preset imports.
-func (l *Loader) buildOverlay(absDir, pkgName string) (map[string]load.Source, error) {
-	overlay := make(map[string]load.Source)
-
-	// Add _env.cue and _schema.cue
-	envFilePath := filepath.Join(absDir, envOverlayFileName)
-	schemaFilePath := filepath.Join(absDir, schemaOverlayFileName)
-	if pkgName != "" {
-		overlay[envFilePath] = load.FromString(l.envCUEWithPackage(pkgName))
-		overlay[schemaFilePath] = load.FromString(schemaCUEWithPackage(pkgName))
-	} else {
-		overlay[envFilePath] = load.FromString(l.envCUE())
-		overlay[schemaFilePath] = load.FromString(schemaCUEAfterPackage())
-	}
-
-	// Add virtual module overlay if no real cue.mod/ exists
-	if !hasRealCueMod(absDir) {
-		if err := l.buildVirtualModuleOverlay(absDir, overlay); err != nil {
-			return nil, fmt.Errorf("failed to build virtual module overlay: %w", err)
-		}
-	}
-
-	return overlay, nil
-}
-
-// buildVirtualModuleOverlay adds cue.mod/module.cue and preset packages to the overlay.
-// This enables CUE import statements like: import "tomei.terassyi.net/presets/aqua"
-//
-// Presets are placed as intra-module packages under <absDir>/presets/<pkg>/ because
-// the module is declared as "tomei.terassyi.net@v0", so CUE resolves imports starting
-// with "tomei.terassyi.net/" relative to the module root directory.
-func (l *Loader) buildVirtualModuleOverlay(absDir string, overlay map[string]load.Source) error {
-	// Add cue.mod/module.cue
-	moduleCuePath := filepath.Join(absDir, "cue.mod", "module.cue")
-	overlay[moduleCuePath] = load.FromString(virtualModuleCUE)
-
-	// Walk embedded preset files and place them as intra-module packages.
-	// _env is prepended directly into the preset file content because CUE's loader
-	// ignores files starting with '_' during package discovery.
-	err := fs.WalkDir(presets.FS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || filepath.Ext(path) != ".cue" {
-			return nil
-		}
-
-		data, err := presets.FS.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("failed to read embedded preset %s: %w", path, err)
-		}
-
-		// Inject _env after the package declaration so preset CUE can reference _env.os etc.
-		content := string(data)
-		pkgName := detectPackageName(content)
-		if pkgName != "" {
-			pkgDecl := "package " + pkgName
-			idx := strings.Index(content, pkgDecl)
-			if idx >= 0 {
-				afterPkg := idx + len(pkgDecl)
-				content = content[:afterPkg] + "\n" + l.envCUE() + "\n" + content[afterPkg:]
-			}
-		}
-
-		// Place at <absDir>/presets/<pkg>/<file>.cue (intra-module path)
-		overlayPath := filepath.Join(absDir, "presets", path)
-		overlay[overlayPath] = load.FromString(content)
-
-		return nil
-	})
+// buildLoadConfig creates a load.Config with CUE module registry for import resolution.
+// A cue.mod/ directory is expected to exist at or above absDir (created by `tomei cue init`).
+func (l *Loader) buildLoadConfig(absDir string, tags []string) (*load.Config, error) {
+	registry, err := buildRegistry()
 	if err != nil {
-		return fmt.Errorf("failed to walk preset files: %w", err)
+		return nil, fmt.Errorf("failed to build CUE registry: %w", err)
 	}
-
-	return nil
-}
-
-// hasRealCueMod checks whether a real cue.mod/ directory exists at or above dir.
-// If found, the virtual module overlay is skipped to respect user-managed modules.
-func hasRealCueMod(dir string) bool {
-	cur := dir
-	for {
-		if info, err := os.Stat(filepath.Join(cur, "cue.mod")); err == nil && info.IsDir() {
-			return true
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			break
-		}
-		cur = parent
-	}
-	return false
+	return &load.Config{
+		Dir:      absDir,
+		Tags:     tags,
+		Registry: registry,
+	}, nil
 }
 
 // Load loads CUE configuration from the given directory.
@@ -258,33 +181,30 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		return nil, nil
 	}
 
-	// Detect package name from the first CUE file
-	firstFileData, err := os.ReadFile(filepath.Join(dir, cueFiles[0]))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read first CUE file: %w", err)
-	}
-	pkgName := detectPackageName(string(firstFileData))
-
 	// Convert dir to absolute path for overlay (CUE requires absolute paths)
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Build overlay with _env.cue, _schema.cue, and virtual module
-	overlay, err := l.buildOverlay(absDir, pkgName)
+	// Read file sources to detect @tag() declarations
+	var sources []string
+	for _, f := range cueFiles {
+		data, err := os.ReadFile(filepath.Join(absDir, f))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %w", f, err)
+		}
+		sources = append(sources, string(data))
+	}
+
+	// Build load configuration with CUE module registry.
+	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(sources...))
 	if err != nil {
 		return nil, err
 	}
 
-	// Add _env.cue and _schema.cue to the list of files to load
-	cueFiles = append([]string{envOverlayFileName, schemaOverlayFileName}, cueFiles...)
-
-	// Load CUE files with overlay
-	instances := load.Instances(cueFiles, &load.Config{
-		Dir:     absDir,
-		Overlay: overlay,
-	})
+	// Load CUE files with configured loader
+	instances := load.Instances(cueFiles, loadCfg)
 
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no CUE files found in %s", dir)
@@ -366,16 +286,13 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 	source := string(data)
 	pkgName := detectPackageName(source)
 
-	// Files with a package declaration: use load.Instances() for import resolution
+	// Files with a package declaration: use load.Instances() for import and @tag() resolution
 	if pkgName != "" {
-		return l.loadFileWithInstances(path, pkgName)
+		return l.loadFileWithInstancesFromSource(path, source)
 	}
 
-	// No package declaration: use CompileString() (imports not possible)
-	schemaInject := schemaCUEAfterPackage()
-	dataWithEnv := l.envCUE() + "\n" + schemaInject + "\n" + source
-
-	value := l.ctx.CompileString(dataWithEnv, cue.Filename(path))
+	// No package declaration: use CompileString() (imports and @tag() not available)
+	value := l.ctx.CompileString(source, cue.Filename(path))
 	if value.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CUE: %w", value.Err())
 	}
@@ -383,8 +300,9 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 	return l.parseResources(value)
 }
 
-// loadFileWithInstances loads a single CUE file using load.Instances() to support imports.
-func (l *Loader) loadFileWithInstances(path, pkgName string) ([]resource.Resource, error) {
+// loadFileWithInstancesFromSource loads a single CUE file using load.Instances() to support imports.
+// The source parameter contains the already-read file content.
+func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resource.Resource, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
@@ -392,17 +310,14 @@ func (l *Loader) loadFileWithInstances(path, pkgName string) ([]resource.Resourc
 	absDir := filepath.Dir(absPath)
 	fileName := filepath.Base(absPath)
 
-	overlay, err := l.buildOverlay(absDir, pkgName)
+	files := []string{fileName}
+
+	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(source))
 	if err != nil {
 		return nil, err
 	}
 
-	files := []string{envOverlayFileName, schemaOverlayFileName, fileName}
-
-	instances := load.Instances(files, &load.Config{
-		Dir:     absDir,
-		Overlay: overlay,
-	})
+	instances := load.Instances(files, loadCfg)
 
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no CUE instances loaded for %s", path)
@@ -421,10 +336,10 @@ func (l *Loader) loadFileWithInstances(path, pkgName string) ([]resource.Resourc
 	return l.parseResources(value)
 }
 
-// validateResource validates a resource value against the #Resource schema definition.
-// If the schema is not available (e.g., for backward compatibility), it returns the original value.
-func (l *Loader) validateResource(root cue.Value, field cue.Value, name string) (cue.Value, error) {
-	resourceDef := root.LookupPath(cue.ParsePath("#Resource"))
+// validateResource validates a resource value against the #Resource schema definition
+// using the internally compiled schema.
+func (l *Loader) validateResource(field cue.Value, name string) (cue.Value, error) {
+	resourceDef := l.schemaValue.LookupPath(cue.ParsePath("#Resource"))
 	if !resourceDef.Exists() {
 		return field, nil
 	}
@@ -441,7 +356,7 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 	// Check if value is a list (multiple resources)
 	if iter, err := value.List(); err == nil {
 		for iter.Next() {
-			validated, err := l.validateResource(value, iter.Value(), "")
+			validated, err := l.validateResource(iter.Value(), "")
 			if err != nil {
 				return nil, err
 			}
@@ -456,7 +371,7 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 
 	// Check if it has apiVersion (single resource at top level)
 	if value.LookupPath(cue.ParsePath("apiVersion")).Exists() {
-		validated, err := l.validateResource(value, value, "")
+		validated, err := l.validateResource(value, "")
 		if err != nil {
 			return nil, err
 		}
@@ -479,7 +394,7 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 		if !fieldValue.LookupPath(cue.ParsePath("apiVersion")).Exists() {
 			continue
 		}
-		validated, err := l.validateResource(value, fieldValue, iter.Selector().String())
+		validated, err := l.validateResource(fieldValue, iter.Selector().String())
 		if err != nil {
 			return nil, err
 		}

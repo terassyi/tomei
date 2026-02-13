@@ -4,21 +4,23 @@ This document describes how `tomei` is implemented.
 
 ## Configuration Loading
 
-CUE manifests go through the following pipeline:
+CUE manifests are loaded via OCI registry resolution:
 
 ```mermaid
 flowchart TD
-    A[User CUE files] --> B[Inject _env overlay]
-    B --> C[Inject _schema overlay via go:embed]
+    A[User CUE files] --> B["Build modconfig.Registry (CUE_REGISTRY or built-in default)"]
+    B --> C["load.Instances with Registry + Tags"]
     C --> D[Build CUE context & validate]
     D --> E[Unmarshal to Go Resource types via JSON]
 ```
 
-The `_env` overlay is injected as a hidden CUE field. Its values are detected at runtime from `runtime.GOOS`, `runtime.GOARCH`, and environment variables. See [CUE Schema Reference](cue-schema.md#environment-overlay-_env) for the full variable list.
+The loader builds a `modconfig.Registry` from the `CUE_REGISTRY` environment variable (defaulting to `tomei.terassyi.net=ghcr.io/terassyi`). The registry resolves imports like `tomei.terassyi.net/presets/go` by fetching the published CUE module from the OCI registry. A `cue.mod/` directory is required for directory-mode loading (package-based CUE files). Use `tomei cue init` to generate it.
 
-The `_schema` overlay is [`internal/config/schema/schema.cue`](../internal/config/schema/schema.cue), embedded in the binary via [`embed.go`](../internal/config/schema/embed.go) and injected as a virtual file at load time.
+CUE's `@tag()` injection does not propagate to imported packages resolved via a registry. Therefore presets that need platform information accept explicit `platform` parameters from the user manifest (e.g., `gopreset.#GoRuntime & { platform: { os: _os, arch: _arch } }`).
 
-Schema validation uses CUE's `Unify()` to check conformance and `Validate(cue.Concrete(true))` for final validation.
+### Schema validation
+
+Schema validation uses CUE's `Unify()` to check conformance and `Validate(cue.Concrete(true))` for final validation. The schema ([`cuemodule/schema/schema.cue`](../cuemodule/schema/schema.cue)) is embedded in the binary via [`cuemodule/embed.go`](../cuemodule/embed.go).
 
 ## Resource System
 
@@ -288,7 +290,21 @@ Location: `e2e/`
 - Real downloads and installations
 - Ginkgo v2 BDD framework
 - Supports linux amd64/arm64 via `GOARCH` override
-- Schema management tests: `tomei schema` command, apiVersion mismatch, init guard, apply confirmation
+- Schema management tests: schema validation, init guard, apply confirmation
+
+## Versioning
+
+### Binary versioning
+
+The `tomei` binary version follows semver and is tracked via `v*` git tags (e.g., `v0.1.0`). Releases are built by goreleaser.
+
+### CUE module versioning
+
+The CUE module (`tomei.terassyi.net@v0`) version is **independent of the binary version**. Module versions follow semver and are tracked via `tomei-cue-v*` git tags (e.g., `tomei-cue-v0.0.1`).
+
+This separation allows schema and presets to evolve on their own cadence without forcing a tomei binary release. While in `@v0`, breaking changes to the module are permitted.
+
+See [Module Publishing](module-publishing.md) for the publish workflow.
 
 ## CI
 
@@ -299,8 +315,8 @@ Defined in `.github/workflows/`.
 Triggered on push to `main` and pull requests. Jobs run in sequence:
 
 1. **Build** — compile `tomei`
-2. **Unit Test** + **Lint** — run in parallel after build
-3. **Integration Test** — after unit test and lint pass
+2. **Unit Test** + **Lint** + **CUE Validate** — run in parallel after build
+3. **Integration Test** — after all parallel jobs pass
 4. **Build E2E** — cross-compile for linux/amd64, linux/arm64, darwin/arm64
 5. **E2E Test** — matrix of platform x mode (native + container for linux, native for darwin)
 
@@ -313,3 +329,9 @@ Triggered on `v*` tag push or manual `workflow_dispatch`.
 - Cross-compiles linux/darwin x amd64/arm64
 
 See [Releasing](releasing.md) for the release process.
+
+### publish-module.yaml
+
+Triggered on `tomei-cue-v*` tag push (dry run) or manual `workflow_dispatch` (publish).
+
+See [Module Publishing](module-publishing.md) for details.

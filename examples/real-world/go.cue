@@ -2,8 +2,12 @@ package tomei
 
 import gopreset "tomei.terassyi.net/presets/go"
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 // Go runtime installed via download from go.dev
 goRuntime: gopreset.#GoRuntime & {
+	platform: {os: _os, arch: _arch}
 	spec: version: "1.25.6"
 }
 

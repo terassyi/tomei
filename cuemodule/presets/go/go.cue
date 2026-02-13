@@ -1,13 +1,18 @@
 package go
 
 // #GoRuntime declares a Go runtime installed from go.dev.
-// User only needs to provide spec.version.
+// User provides spec.version and platform.
 //
 // Usage:
 //   goRuntime: #GoRuntime & {
+//       platform: { os: _os, arch: _arch }
 //       spec: version: "1.25.6"
 //   }
 #GoRuntime: {
+	platform: {
+		os:   string
+		arch: string
+	}
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: {
@@ -18,7 +23,7 @@ package go
 		type:    "download"
 		version: string & !=""
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(platform.os)-\(platform.arch).tar.gz"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
 		}
 		binaries: ["go", "gofmt"]

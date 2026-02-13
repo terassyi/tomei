@@ -460,6 +460,7 @@ goRuntime: {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
+			setupMinimalCueMod(t, dir)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "test.cue"), []byte(tt.content), 0644))
 
 			loader := config.NewLoader(nil)

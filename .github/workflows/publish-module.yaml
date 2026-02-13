@@ -1,0 +1,65 @@
+name: Publish CUE Module
+
+on:
+  push:
+    tags:
+      - "tomei-cue-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Module version (e.g. v0.0.1)"
+        required: true
+        type: string
+      dry-run:
+        description: "Dry run (validate only, do not publish)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish Module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Determine version
+        id: version
+        uses: ./.github/actions/determine-version
+        with:
+          tag-prefix: "tomei-cue-"
+          version-input: ${{ inputs.version }}
+
+      - name: Verify git tag exists
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+        uses: ./.github/actions/verify-tag
+        with:
+          version: ${{ steps.version.outputs.version }}
+          tag-prefix: "tomei-cue-"
+
+      - name: Validate CUE module
+        uses: ./.github/actions/cue-validate
+
+      - name: Log in to ghcr.io
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish module
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+        working-directory: cuemodule
+        env:
+          CUE_REGISTRY: tomei.terassyi.net=ghcr.io/terassyi
+        run: |
+          echo "Publishing tomei.terassyi.net@v0 version ${{ steps.version.outputs.version }}"
+          cue mod publish ${{ steps.version.outputs.version }}
+
+      - name: Dry run summary
+        if: github.event_name == 'push' || inputs.dry-run
+        run: echo "Dry run complete. Validated version ${{ steps.version.outputs.version }}"
