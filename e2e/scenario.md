@@ -23,6 +23,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
+| CUE Ecosystem | 7 | tomei cue init, env CUE_REGISTRY, validate with cue.mod |
 
 ## Scenario Flow
 
@@ -939,6 +940,55 @@ Full dependency chain test:
 ### `e2e/config/installer-repo-test/helm-only.cue`
 Reduced manifest for removal test:
 - Tool/helm latest (aqua) only (no InstallerRepository, no common-chart)
+
+---
+
+## 6. CUE Ecosystem
+
+### 6.1 `tomei cue init`
+
+#### Creates Module Files
+1. Create a target directory
+2. Run `tomei cue init <dir>`
+3. Verify:
+   - `cue.mod/module.cue` created
+   - Contains `module: "manifests.local@v0"`, `language: version:`, `"tomei.terassyi.net@v0"`
+   - `tomei_platform.cue` created
+   - Contains `package tomei`, `@tag(os)`, `@tag(arch)`, `@tag(headless,type=bool)`
+
+#### Refuses Overwrite Without `--force`
+1. Run `tomei cue init <dir>` (creates files)
+2. Run `tomei cue init <dir>` again (no --force)
+3. Command fails (file already exists)
+
+#### Overwrites With `--force`
+1. Run `tomei cue init <dir>` (creates files)
+2. Run `tomei cue init --force <dir>`
+3. Command succeeds, files updated
+
+#### Custom Module Name
+1. Run `tomei cue init --module-name myproject@v0 <dir>`
+2. Verify `cue.mod/module.cue` contains `module: "myproject@v0"`
+
+### 6.2 `tomei env` with CUE Module
+
+#### CUE_REGISTRY Present When `cue.mod/` Exists
+1. Run `tomei cue init <dir>` (creates `cue.mod/`)
+2. Run `tomei env` from that directory
+3. Output contains `CUE_REGISTRY`
+
+#### CUE_REGISTRY Absent When No `cue.mod/`
+1. Create a directory without `cue.mod/`
+2. Run `tomei env` from that directory
+3. Output does NOT contain `CUE_REGISTRY`
+
+### 6.3 Validate with `cue.mod/`
+
+#### Platform Tags Without Imports
+1. Run `tomei cue init <dir>`
+2. Write manifest with `@tag(os)` and `@tag(arch)` (no imports)
+3. Run `tomei validate <dir>`
+4. Validation succeeds, resource recognized
 
 ---
 
