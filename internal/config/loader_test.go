@@ -816,7 +816,11 @@ cliTools: aqua.#AquaToolSet & {
 
 import gopreset "tomei.terassyi.net/presets/go"
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
     spec: version: "1.25.6"
 }
 `,
@@ -849,7 +853,11 @@ import (
     "tomei.terassyi.net/presets/aqua"
 )
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
     spec: version: "1.25.6"
 }
 
@@ -921,7 +929,11 @@ func TestLoader_Load_WithPresetImport_EnvInterpolation(t *testing.T) {
 
 import gopreset "tomei.terassyi.net/presets/go"
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
     spec: version: "1.25.6"
 }
 `
@@ -1487,6 +1499,7 @@ cliTools: aqua.#AquaToolSet & {
     }
 }
 `
+
 	if err := os.WriteFile(filepath.Join(dir, "main.cue"), []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -1552,5 +1565,39 @@ tool: {
 		if entry.Name() == "_env.cue" || entry.Name() == "_schema.cue" {
 			t.Errorf("unexpected overlay file on disk: %s", entry.Name())
 		}
+	}
+}
+
+func TestBuildRegistry(t *testing.T) {
+	tests := []struct {
+		name        string
+		cueRegistry string
+	}{
+		{
+			name:        "default when CUE_REGISTRY not set",
+			cueRegistry: "",
+		},
+		{
+			name:        "custom CUE_REGISTRY",
+			cueRegistry: "tomei.terassyi.net=ghcr.io/custom",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.cueRegistry != "" {
+				t.Setenv("CUE_REGISTRY", tt.cueRegistry)
+			} else {
+				t.Setenv("CUE_REGISTRY", "")
+			}
+
+			registry, err := buildRegistry()
+			if err != nil {
+				t.Fatalf("buildRegistry() returned error: %v", err)
+			}
+			if registry == nil {
+				t.Fatal("buildRegistry() returned nil registry")
+			}
+		})
 	}
 }

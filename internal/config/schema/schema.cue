@@ -59,6 +59,10 @@ package schema
 	apiVersion: #APIVersion
 	kind:       "Runtime"
 	metadata:   #Metadata
+	platform?: {
+		os:   string
+		arch: string
+	}
 	spec: {
 		type:        "download" | "delegation"
 		version:     string & !=""

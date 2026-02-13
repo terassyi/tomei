@@ -52,14 +52,18 @@ EOF`)
 	})
 
 	Context("Preset Import", func() {
-		It("resolves tags without user @tag() declaration", func() {
-			By("Writing manifest that imports Go preset (no @tag in user file)")
+		It("resolves platform via explicit parameter", func() {
+			By("Writing manifest that imports Go preset with platform parameter")
 			_, err := testExec.ExecBash(`cat > ~/tag-test/preset-import.cue << 'EOF'
 package tomei
 
 import gopreset "tomei.terassyi.net/presets/go"
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
     spec: version: "1.25.6"
 }
 EOF`)

@@ -41,6 +41,7 @@ func init() {
 		logsCmd,
 		getCmd,
 		completionCmd,
+		cueCmd,
 		statecmd.Cmd,
 	)
 }

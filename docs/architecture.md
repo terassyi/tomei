@@ -4,21 +4,40 @@ This document describes how `tomei` is implemented.
 
 ## Configuration Loading
 
-CUE manifests go through the following pipeline:
+CUE manifests go through one of two pipelines depending on whether the user manages their own CUE module:
+
+### Virtual module overlay (no `cue.mod/`)
 
 ```mermaid
 flowchart TD
-    A[User CUE files] --> B[Inject _env overlay]
-    B --> C[Inject _schema overlay via go:embed]
-    C --> D[Build CUE context & validate]
-    D --> E[Unmarshal to Go Resource types via JSON]
+    A[User CUE files] --> B{cue.mod/ exists?}
+    B -- No --> C[Build virtual module overlay]
+    C --> D[Inject preset packages + env overlay + schema]
+    D --> E[load.Instances with overlay]
+    E --> F[Build CUE context & validate]
+    F --> G[Unmarshal to Go Resource types via JSON]
 ```
 
-The `_env` overlay is injected as a hidden CUE field. Its values are detected at runtime from `runtime.GOOS`, `runtime.GOARCH`, and environment variables. See [CUE Schema Reference](cue-schema.md#environment-overlay-_env) for the full variable list.
+The virtual module overlay creates an in-memory `cue.mod/module.cue` declaring module `tomei.terassyi.net@v0` and places embedded presets as intra-module packages. Environment values (`_headless`) are injected as concrete values via overlay files (`tomei_env_gen.cue`) in each preset package directory. Platform values (`_os`, `_arch`) are injected via CUE `@tag()` mechanism. The schema package is placed at `schema/schema.cue` for `import "tomei.terassyi.net/schema"`.
 
-The `_schema` overlay is [`internal/config/schema/schema.cue`](../internal/config/schema/schema.cue), embedded in the binary via [`embed.go`](../internal/config/schema/embed.go) and injected as a virtual file at load time.
+### OCI registry resolution (with `cue.mod/`)
 
-Schema validation uses CUE's `Unify()` to check conformance and `Validate(cue.Concrete(true))` for final validation.
+```mermaid
+flowchart TD
+    A[User CUE files] --> B{cue.mod/ exists?}
+    B -- Yes --> C["Build modconfig.Registry (CUE_REGISTRY or built-in default)"]
+    C --> D["load.Instances with Registry + Tags"]
+    D --> E[Build CUE context & validate]
+    E --> F[Unmarshal to Go Resource types via JSON]
+```
+
+When a `cue.mod/` directory exists, the loader skips the virtual overlay and instead builds a `modconfig.Registry` from the `CUE_REGISTRY` environment variable (defaulting to `tomei.terassyi.net=ghcr.io/terassyi`). The registry resolves imports like `tomei.terassyi.net/presets/go` by fetching the published CUE module from the OCI registry.
+
+CUE's `@tag()` injection does not propagate to imported packages resolved via a registry. Therefore presets that need platform information accept explicit `platform` parameters from the user manifest (e.g., `gopreset.#GoRuntime & { platform: { os: _os, arch: _arch } }`).
+
+### Schema validation
+
+Schema validation uses CUE's `Unify()` to check conformance and `Validate(cue.Concrete(true))` for final validation. The schema ([`internal/config/schema/schema.cue`](../internal/config/schema/schema.cue)) is embedded in the binary via [`embed.go`](../internal/config/schema/embed.go).
 
 ## Resource System
 

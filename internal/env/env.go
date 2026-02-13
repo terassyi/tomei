@@ -58,6 +58,15 @@ func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f F
 	return lines
 }
 
+// GenerateCUERegistry returns a CUE_REGISTRY export statement if cueModExists is true.
+// This enables CUE tooling (cue eval, LSP) to resolve tomei module imports.
+func GenerateCUERegistry(cueModExists bool, cueRegistry string, f Formatter) string {
+	if !cueModExists {
+		return ""
+	}
+	return f.ExportVar("CUE_REGISTRY", cueRegistry)
+}
+
 // toShellPath converts an absolute path under $HOME to $HOME/... form for shell portability.
 // e.g., "/home/user/go/bin" → "$HOME/go/bin"
 // Paths not under $HOME are returned as-is.

@@ -392,14 +392,18 @@ gh: {
 
 ### Using presets (recommended)
 
-Presets handle `@tag()` internally — no tag declarations are needed in user manifests:
+Presets that need platform information accept explicit `platform` parameters from the user manifest. The user declares `@tag()` variables and passes them to the preset:
 
 ```cue
 package tomei
 
 import gopreset "tomei.terassyi.net/presets/go"
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
     spec: version: "1.25.6"
 }
 ```
@@ -434,6 +438,61 @@ myTool: schema.#Tool & {
 Available definitions: `schema.#Tool`, `schema.#ToolSet`, `schema.#Runtime`, `schema.#Installer`, `schema.#InstallerRepository`, `schema.#Resource`, etc.
 
 Schema import is optional — `tomei` validates all resources against the embedded schema internally regardless of whether the manifest uses `import "tomei.terassyi.net/schema"`.
+
+## OCI Registry (Module Resolution)
+
+`tomei` supports two modes for resolving CUE imports like `import "tomei.terassyi.net/presets/go"`:
+
+### Virtual module overlay (default)
+
+When no `cue.mod/` directory exists in or above the manifest directory, `tomei` creates a virtual CUE module in memory. Presets and schema packages embedded in the binary are served as intra-module packages via the CUE overlay mechanism. This requires no setup and works out of the box.
+
+### OCI registry resolution
+
+When a `cue.mod/` directory exists (i.e., the user manages their own CUE module), `tomei` resolves imports via a CUE module registry instead of the virtual overlay. This follows the standard CUE module ecosystem.
+
+`tomei` builds a `modconfig.Registry` with a built-in default: `tomei.terassyi.net=ghcr.io/terassyi`. The module `tomei.terassyi.net@v0` is published as an OCI artifact on `ghcr.io/terassyi`. When `CUE_REGISTRY` is not set, this default mapping is used. When `CUE_REGISTRY` is set by the user, it takes precedence.
+
+#### Setting up a user-managed CUE module
+
+Use `tomei cue init` to create the module structure, or manually create `cue.mod/module.cue`:
+
+```cue
+module: "manifests.local@v0"
+language: version: "v0.9.0"
+deps: {
+    "tomei.terassyi.net@v0": v: "v0.0.1"
+}
+```
+
+Then use imports with explicit platform parameters:
+
+```cue
+package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+goRuntime: gopreset.#GoRuntime & {
+    platform: { os: _os, arch: _arch }
+    spec: version: "1.25.6"
+}
+```
+
+#### CUE tooling integration
+
+For `cue eval` and LSP to resolve tomei imports, set `CUE_REGISTRY` via `eval $(tomei env)`:
+
+```bash
+eval $(tomei env)
+cue eval -t os=linux -t arch=amd64 tools.cue
+```
+
+#### Platform parameterization
+
+Presets that need platform information (e.g., Go) accept explicit `platform` parameters. The user's manifest declares `@tag()` variables and passes them to the preset. This approach works consistently in both modes — `@tag()` values are resolved at the top-level manifest, and platform information flows via explicit parameters rather than environment injection.
 
 ## Validation
 

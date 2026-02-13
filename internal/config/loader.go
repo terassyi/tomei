@@ -13,6 +13,7 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
 	"cuelang.org/go/cue/parser"
+	"cuelang.org/go/mod/modconfig"
 
 	"github.com/terassyi/tomei/internal/config/schema"
 	"github.com/terassyi/tomei/internal/resource"
@@ -27,6 +28,11 @@ const (
 	virtualModuleCUE = `module: "tomei.terassyi.net@v0"
 language: version: "v0.9.0"
 `
+
+	// DefaultCUERegistry is the built-in CUE_REGISTRY mapping for tomei modules.
+	// When CUE_REGISTRY is not set, this default is used to resolve
+	// tomei.terassyi.net imports from the OCI registry on ghcr.io.
+	DefaultCUERegistry = "tomei.terassyi.net=ghcr.io/terassyi"
 )
 
 // Loader loads and parses CUE configuration files.
@@ -47,6 +53,19 @@ func NewLoader(env *Env) *Loader {
 		env:         env,
 		schemaValue: ctx.CompileString(schema.SchemaCUE),
 	}
+}
+
+// buildRegistry creates a modconfig.Registry for CUE module resolution.
+// It uses the CUE_REGISTRY environment variable if set, otherwise falls back
+// to the built-in default (tomei.terassyi.net=ghcr.io/terassyi).
+func buildRegistry() (modconfig.Registry, error) {
+	cueRegistry := os.Getenv("CUE_REGISTRY")
+	if cueRegistry == "" {
+		cueRegistry = DefaultCUERegistry
+	}
+	return modconfig.NewRegistry(&modconfig.Config{
+		CUERegistry: cueRegistry,
+	})
 }
 
 // envTagsForSources scans CUE source texts for @tag() declarations via AST and returns
@@ -95,13 +114,16 @@ func scanDeclaredTags(sources ...string) map[string]bool {
 	return tags
 }
 
-// presetEnvCUE returns a CUE source string that defines _os, _arch, and _headless
+// presetEnvCUE returns a CUE source string that defines _headless
 // for a given preset package. This is injected into preset package directories via overlay
 // because CUE's tag injection (Tags/TagVars) only applies to top-level loaded instances,
 // not to imported packages.
+//
+// Note: _os and _arch are no longer injected here. Presets that need platform
+// information (e.g., Go) now accept explicit platform parameters from the user manifest.
 func (l *Loader) presetEnvCUE(pkgName string) string {
-	return fmt.Sprintf("package %s\n\n_os: %q\n_arch: %q\n_headless: %v\n",
-		pkgName, l.env.OS, l.env.Arch, l.env.Headless)
+	return fmt.Sprintf("package %s\n\n_headless: %v\n",
+		pkgName, l.env.Headless)
 }
 
 // detectPackageName extracts the package name from CUE source code.
@@ -261,18 +283,31 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		sources = append(sources, string(data))
 	}
 
-	// Build overlay with virtual module
-	overlay, err := l.buildOverlay(absDir)
-	if err != nil {
-		return nil, err
+	// Build load configuration: use registry when cue.mod/ exists and registry is set,
+	// otherwise use virtual module overlay.
+	loadCfg := &load.Config{
+		Dir:  absDir,
+		Tags: l.envTagsForSources(sources...),
 	}
 
-	// Load CUE files with overlay and environment tags
-	instances := load.Instances(cueFiles, &load.Config{
-		Dir:     absDir,
-		Overlay: overlay,
-		Tags:    l.envTagsForSources(sources...),
-	})
+	if hasRealCueMod(absDir) {
+		// OCI registry path: build a registry and let CUE resolve imports.
+		registry, err := buildRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build CUE registry: %w", err)
+		}
+		loadCfg.Registry = registry
+	} else {
+		// Virtual overlay path: build in-memory module structure.
+		overlay, err := l.buildOverlay(absDir)
+		if err != nil {
+			return nil, err
+		}
+		loadCfg.Overlay = overlay
+	}
+
+	// Load CUE files with configured loader
+	instances := load.Instances(cueFiles, loadCfg)
 
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no CUE files found in %s", dir)
@@ -378,18 +413,28 @@ func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resourc
 	absDir := filepath.Dir(absPath)
 	fileName := filepath.Base(absPath)
 
-	overlay, err := l.buildOverlay(absDir)
-	if err != nil {
-		return nil, err
-	}
-
 	files := []string{fileName}
 
-	instances := load.Instances(files, &load.Config{
-		Dir:     absDir,
-		Overlay: overlay,
-		Tags:    l.envTagsForSources(source),
-	})
+	loadCfg := &load.Config{
+		Dir:  absDir,
+		Tags: l.envTagsForSources(source),
+	}
+
+	if hasRealCueMod(absDir) {
+		registry, err := buildRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build CUE registry: %w", err)
+		}
+		loadCfg.Registry = registry
+	} else {
+		overlay, err := l.buildOverlay(absDir)
+		if err != nil {
+			return nil, err
+		}
+		loadCfg.Overlay = overlay
+	}
+
+	instances := load.Instances(files, loadCfg)
 
 	if len(instances) == 0 {
 		return nil, fmt.Errorf("no CUE instances loaded for %s", path)

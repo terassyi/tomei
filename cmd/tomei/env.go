@@ -84,6 +84,17 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 	// Generate env output
 	formatter := env.NewFormatter(shellType)
 	lines := env.Generate(userState.Runtimes, paths.UserBinDir(), formatter)
+
+	// Add CUE_REGISTRY if cue.mod/ exists in the working directory
+	cwd, _ := os.Getwd()
+	if cueRegistryLine := env.GenerateCUERegistry(
+		hasCueMod(cwd),
+		config.DefaultCUERegistry,
+		formatter,
+	); cueRegistryLine != "" {
+		lines = append(lines, cueRegistryLine)
+	}
+
 	output := strings.Join(lines, "\n")
 	if len(lines) > 0 {
 		output += "\n"
@@ -96,6 +107,22 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprint(cmd.OutOrStdout(), output)
 	return nil
+}
+
+// hasCueMod checks whether a cue.mod/ directory exists at or above dir.
+func hasCueMod(dir string) bool {
+	cur := dir
+	for {
+		if info, err := os.Stat(filepath.Join(cur, "cue.mod")); err == nil && info.IsDir() {
+			return true
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return false
 }
 
 func writeEnvFile(cmd *cobra.Command, content, envDir, ext string) error {

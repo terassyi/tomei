@@ -1,0 +1,51 @@
+name: Publish CUE Module
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Module version (e.g. v0.0.1)"
+        required: true
+        type: string
+      dry-run:
+        description: "Assemble only (do not push to registry)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish Module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "version=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to ghcr.io
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry-run) }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Assemble module (dry-run)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        run: make module-assemble MODULE_VERSION=${{ steps.version.outputs.version }}
+
+      - name: Publish module
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry-run) }}
+        run: make module-publish MODULE_VERSION=${{ steps.version.outputs.version }}
