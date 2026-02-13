@@ -1,5 +1,5 @@
 name: Determine Version
-description: Extract version from tag push or workflow_dispatch input
+description: Extract version from GITHUB_REF by stripping a tag prefix, or from explicit input
 
 inputs:
   tag-prefix:
@@ -7,7 +7,7 @@ inputs:
     required: false
     default: ""
   version-input:
-    description: "Version from workflow_dispatch input"
+    description: "Explicit version string (takes precedence over GITHUB_REF)"
     required: false
     default: ""
 
