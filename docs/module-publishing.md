@@ -32,8 +32,7 @@ This pins the exact version for reproducibility. To update to a newer module ver
 | Trigger | Action |
 |---------|--------|
 | `git push` tag `tomei-cue-v*` | Dry run only (`cue fmt --check` + `cue vet`) |
-| `workflow_dispatch` with version | Verify tag exists, then publish to ghcr.io |
-| `workflow_dispatch` with dry-run | Validate only, do not publish |
+| `workflow_dispatch` on tag `tomei-cue-v*` | Verify tag exists, then publish to ghcr.io |
 
 ### Steps
 
@@ -43,7 +42,7 @@ This pins the exact version for reproducibility. To update to a newer module ver
    git push origin tomei-cue-v0.0.1
    ```
 2. CI runs dry-run validation automatically (formatting + schema validation)
-3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow with `version: v0.0.1` to publish
+3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow, selecting the `tomei-cue-v0.0.1` tag
 
 ### Validation
 
