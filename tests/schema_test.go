@@ -13,30 +13,22 @@ import (
 	"github.com/terassyi/tomei/internal/config"
 )
 
-// TestSchemaVersionCheck_BlocksLoadOnMismatch verifies that
-// CheckSchemaVersionForPaths returns an error when schema.cue has a
-// different apiVersion than the embedded schema.
-func TestSchemaVersionCheck_BlocksLoadOnMismatch(t *testing.T) {
+// TestSchemaImport_LoadWithImport verifies that manifests using
+// import "tomei.terassyi.net/schema" are loaded successfully.
+func TestSchemaImport_LoadWithImport(t *testing.T) {
 	dir := t.TempDir()
 
-	// Write schema.cue with wrong apiVersion
-	wrongSchema := `package tomei
+	toolCue := `package tomei
 
-#APIVersion: "tomei.terassyi.net/v0old"
-`
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, config.SchemaFileName),
-		[]byte(wrongSchema), 0644,
-	))
+import "tomei.terassyi.net/schema"
 
-	// Write a valid tool manifest
-	toolCue := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "jq"
-spec: {
-	installerRef: "aqua"
-	version: "1.7.1"
+myTool: schema.#Tool & {
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "1.7.1"
+		package:      "jqlang/jq"
+	}
 }
 `
 	require.NoError(t, os.WriteFile(
@@ -44,61 +36,29 @@ spec: {
 		[]byte(toolCue), 0644,
 	))
 
-	// CheckSchemaVersionForPaths should detect the mismatch
-	err := config.CheckSchemaVersionForPaths([]string{dir})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "apiVersion mismatch")
-}
-
-// TestSchemaVersionCheck_PassesOnMatch verifies that
-// CheckSchemaVersionForPaths succeeds when schema.cue has the correct
-// apiVersion.
-func TestSchemaVersionCheck_PassesOnMatch(t *testing.T) {
-	dir := t.TempDir()
-
-	// Write schema.cue with correct apiVersion
-	correctSchema := `package tomei
-
-#APIVersion: "tomei.terassyi.net/v1beta1"
-`
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, config.SchemaFileName),
-		[]byte(correctSchema), 0644,
-	))
-
-	// Write a valid tool manifest
-	toolCue := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "jq"
-spec: {
-	installerRef: "aqua"
-	version: "1.7.1"
-}
-`
-	require.NoError(t, os.WriteFile(
-		filepath.Join(dir, "tools.cue"),
-		[]byte(toolCue), 0644,
-	))
-
-	err := config.CheckSchemaVersionForPaths([]string{dir})
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
 	require.NoError(t, err)
+	require.Len(t, resources, 1)
+	assert.Equal(t, "jq", resources[0].Name())
 }
 
-// TestSchemaVersionCheck_SkipsWhenNoSchema verifies that
-// CheckSchemaVersionForPaths succeeds (skips check) when no schema.cue
-// exists in the manifest directory.
-func TestSchemaVersionCheck_SkipsWhenNoSchema(t *testing.T) {
+// TestSchemaImport_WorksWithoutImport verifies that loading without
+// schema import still validates resources via the internal schema.
+func TestSchemaImport_WorksWithoutImport(t *testing.T) {
 	dir := t.TempDir()
 
-	// Only a tool manifest, no schema.cue
-	toolCue := `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "jq"
-spec: {
-	installerRef: "aqua"
-	version: "1.7.1"
+	toolCue := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "1.7.1"
+		package:      "jqlang/jq"
+	}
 }
 `
 	require.NoError(t, os.WriteFile(
@@ -106,6 +66,9 @@ spec: {
 		[]byte(toolCue), 0644,
 	))
 
-	err := config.CheckSchemaVersionForPaths([]string{dir})
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
 	require.NoError(t, err)
+	require.Len(t, resources, 1)
+	assert.Equal(t, "jq", resources[0].Name())
 }

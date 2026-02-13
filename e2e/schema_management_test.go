@@ -18,126 +18,58 @@ func schemaManagementTests() {
 		_, _ = testExec.ExecBash("rm -rf ~/schema-mgmt-test")
 	})
 
-	Context("tomei schema Command", func() {
-		It("creates schema.cue in a new directory", func() {
-			By("Creating target directory")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/new-dir")
+	Context("Schema Import", func() {
+		It("validates manifest using import tomei.terassyi.net/schema", func() {
+			By("Creating directory with schema-import manifest")
+			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/import-test")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running tomei schema")
-			output, err := testExec.Exec("tomei", "schema", "~/schema-mgmt-test/new-dir")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("Created"))
-
-			By("Verifying schema.cue content")
-			content, err := testExec.ExecBash("cat ~/schema-mgmt-test/new-dir/schema.cue")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(content).To(ContainSubstring("package tomei"))
-			Expect(content).To(ContainSubstring("#APIVersion"))
-		})
-
-		It("reports up-to-date when schema.cue matches", func() {
-			By("Running tomei schema again on same directory")
-			output, err := testExec.Exec("tomei", "schema", "~/schema-mgmt-test/new-dir")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("up to date"))
-		})
-
-		It("updates schema.cue when content differs", func() {
-			By("Writing outdated schema.cue")
-			_, err := testExec.ExecBash(`echo 'package tomei' > ~/schema-mgmt-test/new-dir/schema.cue`)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei schema")
-			output, err := testExec.Exec("tomei", "schema", "~/schema-mgmt-test/new-dir")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("Updated"))
-		})
-
-		It("defaults to current directory when no argument given", func() {
-			By("Running tomei schema without arguments")
-			output, err := testExec.Exec("tomei", "schema")
-			Expect(err).NotTo(HaveOccurred())
-			// schema.cue already exists from init, so it should be up-to-date or updated
-			Expect(output).To(Or(ContainSubstring("up to date"), ContainSubstring("Updated"), ContainSubstring("Created")))
-		})
-	})
-
-	Context("Schema apiVersion Mismatch", func() {
-		It("rejects apply when schema.cue has wrong apiVersion", func() {
-			By("Creating directory with mismatched schema.cue")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/mismatch")
-			Expect(err).NotTo(HaveOccurred())
-
-			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/mismatch/schema.cue << 'EOF'
+			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/import-test/tools.cue << 'EOF'
 package tomei
 
-#APIVersion: "tomei.terassyi.net/v0old"
-EOF`)
-			Expect(err).NotTo(HaveOccurred())
+import "tomei.terassyi.net/schema"
 
-			By("Writing a standalone manifest in the same directory")
-			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/mismatch/tools.cue << 'EOF'
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind:       "Tool"
-metadata: name: "jq"
-spec: {
-    installerRef: "aqua"
-    version:      "1.7.1"
+myTool: schema.#Tool & {
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.7.1"
+        package:      "jqlang/jq"
+    }
 }
 EOF`)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei apply on the manifest file — should fail with apiVersion mismatch")
-			output, err := testExec.Exec("tomei", "apply", "--yes", "~/schema-mgmt-test/mismatch/tools.cue")
-			Expect(err).To(HaveOccurred())
-			Expect(output).To(ContainSubstring("apiVersion mismatch"))
-			Expect(output).To(ContainSubstring("tomei schema"))
-		})
-
-		It("rejects validate when schema.cue has wrong apiVersion", func() {
-			By("Running tomei validate — should fail with apiVersion mismatch")
-			output, err := testExec.Exec("tomei", "validate", "~/schema-mgmt-test/mismatch/tools.cue")
-			Expect(err).To(HaveOccurred())
-			Expect(output).To(ContainSubstring("apiVersion mismatch"))
-		})
-
-		It("rejects plan when schema.cue has wrong apiVersion", func() {
-			By("Running tomei plan on the manifest file — should fail with apiVersion mismatch")
-			output, err := testExec.Exec("tomei", "plan", "~/schema-mgmt-test/mismatch/tools.cue")
-			Expect(err).To(HaveOccurred())
-			Expect(output).To(ContainSubstring("apiVersion mismatch"))
-		})
-
-		It("succeeds when schema.cue has correct apiVersion", func() {
-			By("Updating schema.cue to correct version")
-			_, err := testExec.Exec("tomei", "schema", "~/schema-mgmt-test/mismatch")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei validate — should succeed")
-			_, err = testExec.Exec("tomei", "validate", "~/schema-mgmt-test/mismatch/tools.cue")
+			output, err := testExec.Exec("tomei", "validate", "~/schema-mgmt-test/import-test/")
 			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("Validation successful"))
 		})
 
-		It("skips check when no schema.cue in directory", func() {
-			By("Creating directory without schema.cue")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/no-schema")
+		It("rejects invalid resource via schema import", func() {
+			By("Creating manifest with wrong apiVersion via schema.#Tool")
+			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/import-invalid")
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/no-schema/tools.cue << 'EOF'
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind:       "Tool"
-metadata: name: "jq"
-spec: {
-    installerRef: "aqua"
-    version:      "1.7.1"
+			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/import-invalid/tools.cue << 'EOF'
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+badTool: schema.#Tool & {
+    apiVersion: "wrong/v1"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+    }
 }
 EOF`)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running tomei validate — should succeed without schema.cue")
-			_, err = testExec.Exec("tomei", "validate", "~/schema-mgmt-test/no-schema/tools.cue")
-			Expect(err).NotTo(HaveOccurred())
+			By("Running tomei validate — should fail")
+			_, err = testExec.Exec("tomei", "validate", "~/schema-mgmt-test/import-invalid/")
+			Expect(err).To(HaveOccurred())
 		})
 	})
 

@@ -16,8 +16,8 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Suite | Tests | Description |
 |-------|-------|-------------|
 | tomei on Ubuntu | 33 | Basic commands, installation, env export, idempotency, doctor, runtime upgrade, resource removal |
-| Schema Validation | 9 | Schema placement, invalid manifest rejection (validate/apply), error message quality |
-| Schema Management | 9 | `tomei schema` command, apiVersion mismatch detection, init guard, apply confirmation |
+| Schema Validation | 7 | Invalid manifest rejection (validate/apply), error message quality |
+| Schema Management | 4 | Schema import validation, init guard, apply confirmation |
 | State Backup and Diff | 13 | Backup creation, diff (text/JSON), idempotent diff, upgrade diff, removal diff, backup overwrite |
 | Aqua Registry | 10 | Registry initialization, tool installation via aqua registry, OS/arch resolution |
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
@@ -100,12 +100,11 @@ flowchart TD
 
     subgraph S1a["1a. Schema Validation"]
         direction TB
-        S1a_1["1a.1 Init Schema Placement<br/>default / --schema-dir custom"]
-        S1a_2["1a.2 Validate Rejects Invalid<br/>apiVersion / URL / name / source / checksum"]
-        S1a_3["1a.3 Apply Rejects Invalid<br/>HTTP URL → fail, state unchanged"]
-        S1a_4["1a.4 Error Message Quality<br/>resource name in error"]
+        S1a_2["1a.1 Validate Rejects Invalid<br/>apiVersion / URL / name / source / checksum"]
+        S1a_3["1a.2 Apply Rejects Invalid<br/>HTTP URL → fail, state unchanged"]
+        S1a_4["1a.3 Error Message Quality<br/>resource name in error"]
 
-        S1a_1 --> S1a_2 --> S1a_3 --> S1a_4
+        S1a_2 --> S1a_3 --> S1a_4
     end
 
     S1 --> S1a --> S1b --> S2 --> S3 --> S4 --> S5
@@ -362,25 +361,7 @@ graph LR
 
 ## 1a. Schema Validation
 
-### 1a.1 Init Schema Placement
-
-#### Default Location
-- `tomei init --yes` places `schema.cue` at `~/.config/tomei/schema.cue`
-- File contains key CUE definitions:
-  - `package tomei`
-  - `#APIVersion`
-  - `#Resource`
-  - `#HTTPSURL`
-  - `#Metadata`
-
-#### Custom Directory (`--schema-dir`)
-1. Create custom directory: `~/custom-schema-dir/`
-2. Run `tomei init --yes --force --schema-dir ~/custom-schema-dir`
-3. Verify `~/custom-schema-dir/schema.cue` exists and contains `#APIVersion`, `#Resource`
-4. Cleanup custom directory
-5. Re-initialize with default settings for subsequent tests
-
-### 1a.2 Validate Rejects Invalid Manifests
+### 1a.1 Validate Rejects Invalid Manifests
 
 All tests write an inline CUE manifest to `~/schema-test/` and run `tomei validate` against it.
 
@@ -405,7 +386,7 @@ All tests write an inline CUE manifest to `~/schema-test/` and run `tomei valida
 - `checksum.value: "md5:abc123"` (not `sha256:<64 hex chars>`)
 - `tomei validate` fails with "validation failed"
 
-### 1a.3 Apply Rejects Invalid Manifests
+### 1a.2 Apply Rejects Invalid Manifests
 
 #### State Preservation on Failure
 1. Record `state.json` content before apply
@@ -413,7 +394,7 @@ All tests write an inline CUE manifest to `~/schema-test/` and run `tomei valida
 3. Run `tomei apply` — fails with "failed to load resources"
 4. Verify `state.json` content is unchanged (byte-for-byte equal)
 
-### 1a.4 Error Message Quality
+### 1a.3 Error Message Quality
 
 #### Resource Name in Error
 1. Create directory `~/schema-test/bad-dir/` with `package tomei` manifest
@@ -425,54 +406,19 @@ All tests write an inline CUE manifest to `~/schema-test/` and run `tomei valida
 
 ## 1c. Schema Management
 
-### 1c.1 `tomei schema` Command
+### 1c.1 Schema Import
 
-#### Create Schema
-1. Create empty directory `~/schema-mgmt-test/new-dir/`
-2. Run `tomei schema ~/schema-mgmt-test/new-dir`
-3. Output contains "Created"
-4. `~/schema-mgmt-test/new-dir/schema.cue` contains `package tomei` and `#APIVersion`
-
-#### Up-to-date Schema
-1. Run `tomei schema ~/schema-mgmt-test/new-dir` again
-2. Output contains "up to date"
-
-#### Update Schema
-1. Overwrite `schema.cue` with `package tomei` (minimal content)
-2. Run `tomei schema ~/schema-mgmt-test/new-dir`
-3. Output contains "Updated"
-
-#### Default Directory
-1. Run `tomei schema` (no arguments)
-2. Command succeeds (schema.cue in working directory from init)
-
-### 1c.2 Schema apiVersion Mismatch
-
-#### Apply Rejects Mismatch
-1. Create `~/schema-mgmt-test/mismatch/schema.cue` with `#APIVersion: "tomei.terassyi.net/v0old"`
-2. Create valid manifest `~/schema-mgmt-test/mismatch/tools.cue`
-3. Run `tomei apply --yes ~/schema-mgmt-test/mismatch/`
-4. Error contains "apiVersion mismatch" and "tomei schema"
-
-#### Validate Rejects Mismatch
-1. Run `tomei validate ~/schema-mgmt-test/mismatch/tools.cue`
-2. Error contains "apiVersion mismatch"
-
-#### Plan Rejects Mismatch
-1. Run `tomei plan ~/schema-mgmt-test/mismatch/`
-2. Error contains "apiVersion mismatch"
-
-#### Fix and Succeed
-1. Run `tomei schema ~/schema-mgmt-test/mismatch` to update schema.cue
-2. Run `tomei validate ~/schema-mgmt-test/mismatch/tools.cue`
+#### Valid Import
+1. Create `~/schema-mgmt-test/import-test/tools.cue` with `import "tomei.terassyi.net/schema"` and `schema.#Tool`
+2. Run `tomei validate ~/schema-mgmt-test/import-test/`
 3. Validation succeeds
 
-#### No Schema Skips Check
-1. Create `~/schema-mgmt-test/no-schema/tools.cue` (no schema.cue in directory)
-2. Run `tomei validate ~/schema-mgmt-test/no-schema/tools.cue`
-3. Validation succeeds
+#### Invalid Resource via Import
+1. Create manifest using `schema.#Tool` with wrong `apiVersion: "wrong/v1"`
+2. Run `tomei validate ~/schema-mgmt-test/import-invalid/`
+3. Validation fails
 
-### 1c.3 Init Guard
+### 1c.2 Init Guard
 
 #### Apply Before Init
 1. Move `~/.local/share/tomei/state.json` to backup
@@ -480,7 +426,7 @@ All tests write an inline CUE manifest to `~/schema-test/` and run `tomei valida
 3. Error contains "tomei is not initialized" and "tomei init"
 4. Restore `state.json` from backup
 
-### 1c.4 Apply Confirmation Prompt
+### 1c.3 Apply Confirmation Prompt
 
 #### Proceeds with --yes
 1. Run `tomei apply --yes ~/manifests/`

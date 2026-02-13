@@ -40,17 +40,15 @@ Use --yes to skip the prompt and create config.cue automatically.`,
 }
 
 var (
-	forceInit     bool
-	yesInit       bool
-	initNoColor   bool
-	initSchemaDir string
+	forceInit   bool
+	yesInit     bool
+	initNoColor bool
 )
 
 func init() {
 	initCmd.Flags().BoolVar(&forceInit, "force", false, "Force reinitialization (resets state.json)")
 	initCmd.Flags().BoolVarP(&yesInit, "yes", "y", false, "Skip confirmation prompt and create config.cue with defaults")
 	initCmd.Flags().BoolVar(&initNoColor, "no-color", false, "Disable color output")
-	initCmd.Flags().StringVar(&initSchemaDir, "schema-dir", "", "Directory to place schema.cue for CUE LSP support (default: current directory)")
 }
 
 func runInit(cmd *cobra.Command, _ []string) error {
@@ -94,9 +92,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 		// Build config and write config.cue once
 		initCfg := config.DefaultConfig()
-		if initSchemaDir != "" {
-			initCfg.SchemaDir = initSchemaDir
-		}
 		cueContent, err := initCfg.ToCue()
 		if err != nil {
 			return fmt.Errorf("failed to generate config.cue: %w", err)
@@ -104,19 +99,6 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		if err := os.WriteFile(configFile, cueContent, 0644); err != nil {
 			return fmt.Errorf("failed to write config.cue: %w", err)
 		}
-	}
-
-	// Place schema.cue for CUE LSP support (default: current directory)
-	schemaTargetDir := "."
-	if initSchemaDir != "" {
-		expanded, err := path.Expand(initSchemaDir)
-		if err != nil {
-			return fmt.Errorf("failed to expand schema directory: %w", err)
-		}
-		schemaTargetDir = expanded
-	}
-	if _, err := config.WriteSchema(schemaTargetDir); err != nil {
-		return fmt.Errorf("failed to write schema.cue: %w", err)
 	}
 
 	// Load config
@@ -164,7 +146,7 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	// Schema section
 	style.Header.Fprintln(cmd.OutOrStdout(), "Schema:")
-	cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprint(filepath.Join(schemaTargetDir, config.SchemaFileName)))
+	cmd.Printf("  %s Available via %s\n", style.SuccessMark, style.Path.Sprint(`import "tomei.terassyi.net/schema"`))
 	cmd.Println()
 
 	// Initialize state.json

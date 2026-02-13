@@ -36,11 +36,6 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		color.NoColor = true
 	}
 
-	// Check schema.cue apiVersion in manifest directories
-	if err := config.CheckSchemaVersionForPaths(args); err != nil {
-		return err
-	}
-
 	style := ui.NewStyle()
 
 	cmd.Println("Validating configuration...")

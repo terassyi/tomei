@@ -188,6 +188,10 @@ func (l *Loader) buildVirtualModuleOverlay(absDir string, overlay map[string]loa
 		overlay[envPath] = load.FromString(l.presetEnvCUE(pkg))
 	}
 
+	// Add schema package for import "tomei.terassyi.net/schema"
+	schemaPath := filepath.Join(absDir, "schema", "schema.cue")
+	overlay[schemaPath] = load.FromString(schema.SchemaCUE)
+
 	return nil
 }
 

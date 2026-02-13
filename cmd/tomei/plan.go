@@ -69,11 +69,6 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Check schema.cue apiVersion in manifest directories
-	if err := config.CheckSchemaVersionForPaths(args); err != nil {
-		return err
-	}
-
 	// Load configuration
 	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)

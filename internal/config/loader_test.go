@@ -1351,6 +1351,169 @@ spec: {
 	}
 }
 
+func TestLoader_Load_WithSchemaImport(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version: "1.7.1"
+        package: "jqlang/jq"
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Kind() != resource.KindTool {
+		t.Errorf("expected kind Tool, got %s", resources[0].Kind())
+	}
+	if resources[0].Name() != "jq" {
+		t.Errorf("expected name jq, got %s", resources[0].Name())
+	}
+
+	tool := resources[0].(*resource.Tool)
+	if tool.ToolSpec.Version != "1.7.1" {
+		t.Errorf("expected version 1.7.1, got %s", tool.ToolSpec.Version)
+	}
+}
+
+func TestLoader_Load_WithSchemaImport_InvalidResource(t *testing.T) {
+	dir := t.TempDir()
+
+	// schema.#Tool requires apiVersion == #APIVersion ("tomei.terassyi.net/v1beta1")
+	content := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+badTool: schema.#Tool & {
+    apiVersion: "wrong/v1"
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version: "1.0.0"
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	_, err := loader.Load(dir)
+	if err == nil {
+		t.Error("expected error for invalid schema.#Tool, got nil")
+	}
+}
+
+func TestLoader_LoadFile_WithSchemaImport(t *testing.T) {
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "tools.cue")
+
+	content := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    metadata: name: "fd"
+    spec: {
+        installerRef: "aqua"
+        version: "10.3.0"
+        package: "sharkdp/fd"
+    }
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	if len(resources) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resources))
+	}
+	if resources[0].Kind() != resource.KindTool {
+		t.Errorf("expected kind Tool, got %s", resources[0].Kind())
+	}
+	if resources[0].Name() != "fd" {
+		t.Errorf("expected name fd, got %s", resources[0].Name())
+	}
+}
+
+func TestLoader_Load_SchemaAndPresetImport(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `package tomei
+
+import (
+    "tomei.terassyi.net/schema"
+    "tomei.terassyi.net/presets/aqua"
+)
+
+myTool: schema.#Tool & {
+    metadata: name: "gh"
+    spec: {
+        installerRef: "download"
+        version: "2.86.0"
+        source: {
+            url: "https://example.com/gh.tar.gz"
+        }
+    }
+}
+
+cliTools: aqua.#AquaToolSet & {
+    metadata: name: "cli-tools"
+    spec: tools: {
+        rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
+    }
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "main.cue"), []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	if err != nil {
+		t.Fatalf("failed to load: %v", err)
+	}
+
+	if len(resources) != 2 {
+		t.Fatalf("expected 2 resources, got %d", len(resources))
+	}
+
+	// Verify both resources loaded correctly
+	kinds := make(map[resource.Kind]bool)
+	for _, res := range resources {
+		kinds[res.Kind()] = true
+	}
+	if !kinds[resource.KindTool] {
+		t.Error("expected Tool resource")
+	}
+	if !kinds[resource.KindToolSet] {
+		t.Error("expected ToolSet resource")
+	}
+}
+
 func TestLoader_Load_NoEnvOverlayFile(t *testing.T) {
 	// Regression test: verify that no _env.cue overlay file is generated
 	dir := t.TempDir()

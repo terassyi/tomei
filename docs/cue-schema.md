@@ -412,11 +412,28 @@ Standard CUE tools work with the same tags:
 cue eval -t os=linux -t arch=amd64 manifests/
 ```
 
-## Schema Management
+## Schema Import
 
-`tomei init` places `schema.cue` in the current directory (or the directory specified by `--schema-dir`). This file provides type definitions for CUE language servers. To update `schema.cue` after upgrading `tomei`, run `tomei schema`.
+The schema package is available via the virtual module overlay. User manifests can import it for explicit type validation:
 
-The schema is versioned via `#APIVersion`. If the on-disk `schema.cue` has a different apiVersion than the binary, `tomei apply`, `tomei plan`, and `tomei validate` will exit with an error.
+```cue
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.7.1"
+        package:      "jqlang/jq"
+    }
+}
+```
+
+Available definitions: `schema.#Tool`, `schema.#ToolSet`, `schema.#Runtime`, `schema.#Installer`, `schema.#InstallerRepository`, `schema.#Resource`, etc.
+
+Schema import is optional — `tomei` validates all resources against the embedded schema internally regardless of whether the manifest uses `import "tomei.terassyi.net/schema"`.
 
 ## Validation
 
