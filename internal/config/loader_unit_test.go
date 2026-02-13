@@ -165,50 +165,6 @@ func TestDetectPackageName(t *testing.T) {
 	}
 }
 
-func TestPresetEnvCUE(t *testing.T) {
-	tests := []struct {
-		name     string
-		headless bool
-		pkgName  string
-		want     string
-	}{
-		{
-			name:     "headless false with go package",
-			headless: false,
-			pkgName:  "go",
-			want:     "package go\n\n_headless: false\n",
-		},
-		{
-			name:     "headless true with go package",
-			headless: true,
-			pkgName:  "go",
-			want:     "package go\n\n_headless: true\n",
-		},
-		{
-			name:     "different package name",
-			headless: false,
-			pkgName:  "aqua",
-			want:     "package aqua\n\n_headless: false\n",
-		},
-		{
-			name:     "headless true with rust package",
-			headless: true,
-			pkgName:  "rust",
-			want:     "package rust\n\n_headless: true\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			loader := &Loader{
-				env: &Env{OS: "linux", Arch: "amd64", Headless: tt.headless},
-			}
-			got := loader.presetEnvCUE(tt.pkgName)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestEnvTagsForSources(t *testing.T) {
 	tests := []struct {
 		name    string

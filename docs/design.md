@@ -119,7 +119,8 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 └── *.cue                  # User manifests
 
 ./ (manifest directory)    # Where user runs tomei
-├── schema.cue             # CUE schema for LSP support (placed by tomei init)
+├── cue.mod/module.cue     # CUE module declaration (placed by tomei cue init)
+├── tomei_platform.cue     # Platform @tag() declarations (placed by tomei cue init)
 └── *.cue                  # User manifests
 
 ~/.local/share/tomei/      # Data (configurable via config.cue)
@@ -144,17 +145,15 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 
 ## 8. Schema Versioning
 
-The CUE schema (`schema.cue`) provides type definitions for manifests and is used by CUE language servers for editor completion and validation. `tomei init` places `schema.cue` in the manifest directory (current directory by default).
+The CUE schema is published as part of the `tomei.terassyi.net@v0` module on the OCI registry (`ghcr.io/terassyi`). User manifests can `import "tomei.terassyi.net/schema"` for explicit type validation and editor completion via CUE LSP.
 
-The schema is versioned via `#APIVersion` (currently `"tomei.terassyi.net/v1beta1"`). When `tomei apply`, `tomei plan`, or `tomei validate` runs, it compares the on-disk `schema.cue` apiVersion with the version embedded in the binary. If they differ, the command exits with an error instructing the user to run `tomei schema` to update.
-
-The schema is never updated automatically. Users run `tomei schema` explicitly when upgrading `tomei` to a version with a new schema. This avoids silently overwriting user-visible files.
+The schema is versioned via `#APIVersion` (currently `"tomei.terassyi.net/v1beta1"`). `tomei apply` validates all resources against the schema embedded in the binary, regardless of whether the manifest uses schema imports.
 
 **Versioning policy:**
 
 - v1beta1 is frozen at the v0.1.0 release
 - Schema changes require a new apiVersion (e.g., v1beta2, v1)
-- Users update via `tomei schema` after upgrading the binary
+- Module version is independent of the tomei binary version (see [Module Publishing](module-publishing.md))
 
 ## 9. Implementation Status
 
@@ -174,7 +173,8 @@ Completed:
 - GitHub token authentication for API rate limit mitigation
 - Diagnostics: `tomei get`, `tomei logs`, `tomei state diff`, `tomei completion`, `tomei doctor`
 - Performance: batch state writes per execution layer (StateCache)
-- Schema management: `tomei schema` command, apiVersion mismatch check, init guard, apply confirmation prompt (`--yes`)
+- Schema management: schema validation via embedded CUE, init guard, apply confirmation prompt (`--yes`)
+- CUE module ecosystem: `tomei cue init`, OCI registry resolution, `CUE_REGISTRY` in `tomei env`
 
 ## 10. Roadmap
 
@@ -246,4 +246,7 @@ Whether to unify these or keep the current split is an open question.
 
 - [Architecture](architecture.md) — implementation details for contributors
 - [CUE Schema Reference](cue-schema.md) — full field reference for writing manifests
+- [CUE Ecosystem Integration](cue-ecosystem.md) — OCI registry, `tomei cue init`, CUE tooling
+- [Module Publishing](module-publishing.md) — versioning strategy, publish workflow
+- [Releasing](releasing.md) — binary release process
 - [Usage](usage.md) — command reference

@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run module-assemble module-publish
+.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run module-publish
 
 BINARY_NAME := tomei
 BUILD_DIR := bin
@@ -46,13 +46,9 @@ clean: ## Clean build artifacts
 	$(MAKE) -C e2e clean
 
 MODULE_VERSION ?= $(VERSION)
-MODULE_REGISTRY ?= ghcr.io/terassyi
 
-module-assemble: ## Assemble CUE module directory (dry-run)
-	go run ./hack/publish-module --version $(MODULE_VERSION) --assemble-only --output-dir $(BUILD_DIR)/module
-
-module-publish: ## Publish CUE module to OCI registry
-	go run ./hack/publish-module --version $(MODULE_VERSION) --registry $(MODULE_REGISTRY)
+module-publish: ## Publish CUE module to OCI registry via cue mod publish
+	cd cuemodule && cue mod publish $(MODULE_VERSION)
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'

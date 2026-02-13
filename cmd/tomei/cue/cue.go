@@ -1,8 +1,9 @@
-package main
+package cue
 
 import "github.com/spf13/cobra"
 
-var cueCmd = &cobra.Command{
+// Cmd is the parent command for cue subcommands.
+var Cmd = &cobra.Command{
 	Use:   "cue",
 	Short: "CUE module management commands",
 	Long: `Commands for managing CUE module configuration.
@@ -12,5 +13,5 @@ Subcommands:
 }
 
 func init() {
-	cueCmd.AddCommand(cueInitCmd)
+	Cmd.AddCommand(initCmd)
 }

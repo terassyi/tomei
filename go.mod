@@ -3,7 +3,6 @@ module github.com/terassyi/tomei
 go 1.25.6
 
 require (
-	cuelabs.dev/go/oci/ociregistry v0.0.0-20250722084951-074d06050084
 	cuelang.org/go v0.15.4
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/charmbracelet/bubbletea v1.3.10
@@ -24,6 +23,7 @@ require (
 )
 
 require (
+	cuelabs.dev/go/oci/ociregistry v0.0.0-20250722084951-074d06050084 // indirect
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect

@@ -164,4 +164,36 @@ EOF`)
 			Expect(output).To(ContainSubstring("Validation successful"))
 		})
 	})
+
+	Context("validate without cue.mod", func() {
+		It("fails with clear error when importing without cue.mod", func() {
+			dir := "~/cue-ecosystem-test/no-cuemod-import"
+
+			By("Creating directory without cue.mod")
+			_, err := testExec.ExecBash("mkdir -p " + dir)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Writing manifest that uses import")
+			_, err = testExec.ExecBash(`cat > ` + dir + `/tools.cue << 'EOF'
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    metadata: name: "test"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+        source: url: "https://example.com/test.tar.gz"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running tomei validate — should fail with cue.mod error")
+			output, err := testExec.Exec("tomei", "validate", dir)
+			Expect(err).To(HaveOccurred())
+			Expect(output).To(ContainSubstring("cue.mod"))
+		})
+	})
 }

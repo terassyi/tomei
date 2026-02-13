@@ -18,7 +18,7 @@ Rather than reinventing package managers, tomei delegates to existing tools like
 
 Native [aqua registry](https://github.com/aquaproj/aqua-registry) integration lets you install thousands of CLI tools by just specifying a package name and version.
 
-[CUE](https://cuelang.org/) provides schema validation, environment-aware overlays (`_env.os`, `_env.arch`), and type-safe manifest composition.
+[CUE](https://cuelang.org/) provides schema validation, platform-aware `@tag()` injection (`_os`, `_arch`, `_headless`), and type-safe manifest composition.
 
 ## Install
 
@@ -55,7 +55,7 @@ Directories:
   ✓ ~/.local/bin
 
 Schema:
-  ✓ ~/.config/tomei/schema.cue
+  ✓ Available via import "tomei.terassyi.net/schema"
 
 State:
   ✓ ~/.local/share/tomei/state.json
@@ -73,6 +73,9 @@ Initialization complete!
 ```cue
 package tomei
 
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
 goRuntime: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
@@ -81,7 +84,7 @@ goRuntime: {
 		type:    "download"
 		version: "1.25.6"
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_env.os)-\(_env.arch).tar.gz"
+			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
 		}
 		binaries: ["go", "gofmt"]
@@ -295,6 +298,9 @@ tomei completion fish | source
 - [Design](docs/design.md)
 - [Architecture](docs/architecture.md)
 - [CUE Schema Reference](docs/cue-schema.md)
+- [CUE Ecosystem Integration](docs/cue-ecosystem.md)
+- [Module Publishing](docs/module-publishing.md)
+- [Releasing](docs/releasing.md)
 - [Usage](docs/usage.md)
 - [Examples](examples/)
 

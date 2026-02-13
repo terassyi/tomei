@@ -1,4 +1,4 @@
-package main
+package cuemod
 
 import (
 	"os"
@@ -17,7 +17,7 @@ func TestGenerateModuleCUE_TableDriven(t *testing.T) {
 	}{
 		{
 			name:       "default module name",
-			moduleName: defaultModuleName,
+			moduleName: DefaultModuleName,
 			wantContains: []string{
 				`module: "manifests.local@v0"`,
 				`language: version: "v0.9.0"`,
@@ -55,16 +55,18 @@ func TestGenerateModuleCUE_TableDriven(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			content := string(generateModuleCUE(tt.moduleName))
+			content, err := GenerateModuleCUE(tt.moduleName)
+			require.NoError(t, err)
 			for _, want := range tt.wantContains {
-				assert.Contains(t, content, want)
+				assert.Contains(t, string(content), want)
 			}
 		})
 	}
 }
 
 func TestGeneratePlatformCUE_TableDriven(t *testing.T) {
-	content := string(generatePlatformCUE())
+	content, err := GeneratePlatformCUE()
+	require.NoError(t, err)
 
 	wantContains := []string{
 		"package tomei",
@@ -74,7 +76,7 @@ func TestGeneratePlatformCUE_TableDriven(t *testing.T) {
 	}
 
 	for _, want := range wantContains {
-		assert.Contains(t, content, want)
+		assert.Contains(t, string(content), want)
 	}
 }
 
@@ -113,7 +115,7 @@ func TestRelativePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := relativePath(tt.base, tt.target)
+			got := RelativePath(tt.base, tt.target)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -170,7 +172,7 @@ func TestWriteFileIfAllowed(t *testing.T) {
 			}
 
 			content := []byte("new content")
-			err := writeFileIfAllowed(targetPath, content, tt.force)
+			err := WriteFileIfAllowed(targetPath, content, tt.force)
 
 			if tt.wantErr {
 				require.Error(t, err)

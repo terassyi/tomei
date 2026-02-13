@@ -19,6 +19,8 @@ import (
 func TestTagIntegration_LoadPaths_MultiDirectory(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
+	setupMinimalCueMod(t, dir1)
+	setupMinimalCueMod(t, dir2)
 
 	content1 := `package tomei
 

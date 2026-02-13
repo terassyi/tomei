@@ -53,6 +53,18 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
 
+      - name: Determine version
+        id: version
+        uses: ./.github/actions/determine-version
+        with:
+          version-input: ${{ inputs.tag }}
+
+      - name: Verify git tag exists
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+        uses: ./.github/actions/verify-tag
+        with:
+          version: ${{ steps.version.outputs.version }}
+
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod

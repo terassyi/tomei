@@ -11,7 +11,12 @@ func tagTests() {
 
 	BeforeAll(func() {
 		_, _ = testExec.Exec("tomei", "init", "--yes")
-		_, err := testExec.ExecBash("mkdir -p ~/tag-test")
+		_, err := testExec.ExecBash("mkdir -p ~/tag-test/cue.mod")
+		Expect(err).NotTo(HaveOccurred())
+		_, err = testExec.ExecBash(`cat > ~/tag-test/cue.mod/module.cue << 'EOF'
+module: "tomei.local@v0"
+language: version: "v0.9.0"
+EOF`)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -51,29 +56,8 @@ EOF`)
 		})
 	})
 
-	Context("Preset Import", func() {
-		It("resolves platform via explicit parameter", func() {
-			By("Writing manifest that imports Go preset with platform parameter")
-			_, err := testExec.ExecBash(`cat > ~/tag-test/preset-import.cue << 'EOF'
-package tomei
-
-import gopreset "tomei.terassyi.net/presets/go"
-
-_os:   string @tag(os)
-_arch: string @tag(arch)
-
-goRuntime: gopreset.#GoRuntime & {
-    platform: { os: _os, arch: _arch }
-    spec: version: "1.25.6"
-}
-EOF`)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei validate on preset import manifest")
-			output, err := testExec.Exec("tomei", "validate", "~/tag-test/preset-import.cue")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("Runtime/go"))
-			Expect(output).To(ContainSubstring("Validation successful"))
-		})
-	})
+	// NOTE: Preset import tests (import "tomei.terassyi.net/presets/go") require the
+	// module to be published to the OCI registry (ghcr.io/terassyi). These are
+	// covered by modregistrytest-based integration tests in
+	// tests/cue_ecosystem_integration_test.go instead.
 }

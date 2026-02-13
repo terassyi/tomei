@@ -164,7 +164,12 @@ EOF`)
 	Context("Error Message Quality", func() {
 		It("includes resource name in schema validation error", func() {
 			By("Creating directory with named resource that has invalid URL")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-test/bad-dir")
+			_, err := testExec.ExecBash("mkdir -p ~/schema-test/bad-dir/cue.mod")
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash(`cat > ~/schema-test/bad-dir/cue.mod/module.cue << 'EOF'
+module: "tomei.local@v0"
+language: version: "v0.9.0"
+EOF`)
 			Expect(err).NotTo(HaveOccurred())
 			_, err = testExec.ExecBash(`cat > ~/schema-test/bad-dir/bad.cue << 'EOF'
 package tomei

@@ -1,6 +1,6 @@
 # CUE Schema Reference
 
-This document describes the CUE schema used by `tomei` manifests. The source of truth is [`internal/config/schema/schema.cue`](../internal/config/schema/schema.cue).
+This document describes the CUE schema used by `tomei` manifests. The source of truth is [`cuemodule/schema/schema.cue`](../cuemodule/schema/schema.cue).
 
 ## Basics
 
@@ -418,7 +418,7 @@ cue eval -t os=linux -t arch=amd64 manifests/
 
 ## Schema Import
 
-The schema package is available via the virtual module overlay. User manifests can import it for explicit type validation:
+The schema package is available via the CUE module registry (OCI). User manifests can import it for explicit type validation:
 
 ```cue
 package tomei
@@ -441,19 +441,15 @@ Schema import is optional — `tomei` validates all resources against the embedd
 
 ## OCI Registry (Module Resolution)
 
-`tomei` supports two modes for resolving CUE imports like `import "tomei.terassyi.net/presets/go"`:
-
-### Virtual module overlay (default)
-
-When no `cue.mod/` directory exists in or above the manifest directory, `tomei` creates a virtual CUE module in memory. Presets and schema packages embedded in the binary are served as intra-module packages via the CUE overlay mechanism. This requires no setup and works out of the box.
+`tomei` resolves CUE imports like `import "tomei.terassyi.net/presets/go"` via a CUE module registry (OCI).
 
 ### OCI registry resolution
 
-When a `cue.mod/` directory exists (i.e., the user manages their own CUE module), `tomei` resolves imports via a CUE module registry instead of the virtual overlay. This follows the standard CUE module ecosystem.
-
 `tomei` builds a `modconfig.Registry` with a built-in default: `tomei.terassyi.net=ghcr.io/terassyi`. The module `tomei.terassyi.net@v0` is published as an OCI artifact on `ghcr.io/terassyi`. When `CUE_REGISTRY` is not set, this default mapping is used. When `CUE_REGISTRY` is set by the user, it takes precedence.
 
-#### Setting up a user-managed CUE module
+For directory-mode loading (package-based CUE files), a `cue.mod/` directory is required. For single-file loading without imports, `cue.mod/` is not needed.
+
+### Setting up a CUE module
 
 Use `tomei cue init` to create the module structure, or manually create `cue.mod/module.cue`:
 

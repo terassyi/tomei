@@ -14,7 +14,6 @@ tomei init [flags]
 |------|-------------|
 | `--yes`, `-y` | Skip confirmation prompt and create config.cue with defaults |
 | `--force` | Force reinitialization (resets state.json) |
-| `--schema-dir <dir>` | Directory to place schema.cue for CUE LSP support (default: current directory) |
 | `--no-color` | Disable colored output |
 
 Creates the following:
@@ -22,7 +21,6 @@ Creates the following:
 ```
 ~/.config/tomei/           # Config directory
 └── config.cue             # Path settings
-./schema.cue               # CUE schema for LSP support (in current directory)
 ~/.local/share/tomei/      # Data directory
 ├── state.json             # State file
 ├── tools/                 # Tool install directory
@@ -30,17 +28,35 @@ Creates the following:
 ~/.local/bin/              # Symlink directory
 ```
 
-## tomei schema
+## tomei cue init
 
-Generate or update `schema.cue` for CUE LSP support.
+Initialize a CUE module directory for use with tomei manifests.
 
 ```
-tomei schema [directory]
+tomei cue init [dir] [flags]
 ```
 
-If `directory` is not specified, the current directory is used. Creates `schema.cue` if it doesn't exist, updates it if the content differs, or does nothing if already up to date.
+| Flag | Description |
+|------|-------------|
+| `--module-name` | CUE module name (default: `manifests.local@v0`) |
+| `--force` | Overwrite existing files |
 
-Run this after upgrading `tomei` to a version with a new schema.
+Creates the following:
+
+```
+<dir>/
+├── cue.mod/
+│   └── module.cue         # CUE module declaration with tomei dependency
+└── tomei_platform.cue     # Platform @tag() declarations
+```
+
+After initialization, set `CUE_REGISTRY` for CUE tooling:
+
+```bash
+eval $(tomei env)
+```
+
+See [CUE Ecosystem Integration](cue-ecosystem.md) for details.
 
 ## tomei validate
 

@@ -90,7 +90,7 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 	if err == nil {
 		if cueRegistryLine := env.GenerateCUERegistry(
 			hasCueMod(cwd),
-			"tomei.terassyi.net=ghcr.io/terassyi",
+			config.DefaultCUERegistry,
 			formatter,
 		); cueRegistryLine != "" {
 			lines = append(lines, cueRegistryLine)

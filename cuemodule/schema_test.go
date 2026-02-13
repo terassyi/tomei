@@ -1,4 +1,4 @@
-package schema
+package cuemodule_test
 
 import (
 	"testing"
@@ -7,13 +7,15 @@ import (
 	"cuelang.org/go/cue/cuecontext"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/terassyi/tomei/cuemodule"
 )
 
 // compileSchema compiles the schema CUE source.
 func compileSchema(t *testing.T) cue.Value {
 	t.Helper()
 	ctx := cuecontext.New()
-	v := ctx.CompileString(SchemaCUE)
+	v := ctx.CompileString(cuemodule.SchemaCUE)
 	require.NoError(t, v.Err(), "schema must compile without error")
 	return v
 }

@@ -18,18 +18,28 @@ func schemaManagementTests() {
 		_, _ = testExec.ExecBash("rm -rf ~/schema-mgmt-test")
 	})
 
-	Context("Schema Import", func() {
-		It("validates manifest using import tomei.terassyi.net/schema", func() {
-			By("Creating directory with schema-import manifest")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/import-test")
+	// NOTE: Schema import tests (import "tomei.terassyi.net/schema") require the
+	// module to be published to the OCI registry (ghcr.io/terassyi). These are
+	// covered by modregistrytest-based integration tests in
+	// tests/cue_ecosystem_integration_test.go instead.
+
+	Context("Schema Validation Without Import", func() {
+		It("validates manifest without schema import via internal schema", func() {
+			dir := "~/schema-mgmt-test/no-import"
+
+			By("Setting up cue.mod via tomei cue init")
+			_, err := testExec.ExecBash("mkdir -p " + dir)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("tomei cue init " + dir)
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/import-test/tools.cue << 'EOF'
+			By("Writing manifest without schema import")
+			_, err = testExec.ExecBash(`cat > ` + dir + `/tools.cue << 'EOF'
 package tomei
 
-import "tomei.terassyi.net/schema"
-
-myTool: schema.#Tool & {
+myTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
     metadata: name: "jq"
     spec: {
         installerRef: "aqua"
@@ -40,36 +50,42 @@ myTool: schema.#Tool & {
 EOF`)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running tomei validate — should succeed")
-			output, err := testExec.Exec("tomei", "validate", "~/schema-mgmt-test/import-test/")
+			By("Running tomei validate — should succeed via internal schema")
+			output, err := testExec.Exec("tomei", "validate", dir+"/")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 		})
 
-		It("rejects invalid resource via schema import", func() {
-			By("Creating manifest with wrong apiVersion via schema.#Tool")
-			_, err := testExec.ExecBash("mkdir -p ~/schema-mgmt-test/import-invalid")
+		It("rejects invalid resource via internal schema", func() {
+			dir := "~/schema-mgmt-test/invalid-no-import"
+
+			By("Setting up cue.mod via tomei cue init")
+			_, err := testExec.ExecBash("mkdir -p " + dir)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("tomei cue init " + dir)
 			Expect(err).NotTo(HaveOccurred())
 
-			_, err = testExec.ExecBash(`cat > ~/schema-mgmt-test/import-invalid/tools.cue << 'EOF'
+			By("Writing manifest with HTTP URL (should fail schema validation)")
+			_, err = testExec.ExecBash(`cat > ` + dir + `/tools.cue << 'EOF'
 package tomei
 
-import "tomei.terassyi.net/schema"
-
-badTool: schema.#Tool & {
-    apiVersion: "wrong/v1"
+badTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
     metadata: name: "test"
     spec: {
         installerRef: "download"
         version:      "1.0.0"
+        source: url: "http://insecure.example.com/test.tar.gz"
     }
 }
 EOF`)
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei validate — should fail")
-			_, err = testExec.Exec("tomei", "validate", "~/schema-mgmt-test/import-invalid/")
+			output, err := testExec.Exec("tomei", "validate", dir+"/")
 			Expect(err).To(HaveOccurred())
+			Expect(output).To(ContainSubstring("schema validation failed"))
 		})
 	})
 

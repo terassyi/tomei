@@ -14,10 +14,10 @@ import (
 
 	"cuelang.org/go/mod/modregistrytest"
 
+	"github.com/terassyi/tomei/cuemodule"
 	"github.com/terassyi/tomei/internal/config"
-	"github.com/terassyi/tomei/internal/config/schema"
+	"github.com/terassyi/tomei/internal/cuemod"
 	"github.com/terassyi/tomei/internal/resource"
-	"github.com/terassyi/tomei/presets"
 )
 
 // TestCueEcosystem_CueInitOutput_LoadableByLoader verifies that the files generated
@@ -26,27 +26,15 @@ import (
 func TestCueEcosystem_CueInitOutput_LoadableByLoader(t *testing.T) {
 	dir := t.TempDir()
 
-	// Simulate "tomei cue init" output: cue.mod/module.cue
-	cueModDir := filepath.Join(dir, "cue.mod")
-	require.NoError(t, os.MkdirAll(cueModDir, 0755))
-	moduleCue := `module: "example.com@v0"
-language: version: "v0.9.0"
-deps: {
-	"tomei.terassyi.net@v0": v: "v0.0.1"
-}
-`
-	require.NoError(t, os.WriteFile(filepath.Join(cueModDir, "module.cue"), []byte(moduleCue), 0644))
+	// Simulate "tomei cue init" output
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	require.NoError(t, err)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 
-	// Simulate "tomei cue init" output: tomei_platform.cue
-	platformCue := `package tomei
-
-// Platform values resolved by tomei apply.
-// For cue eval: cue eval -t os=linux -t arch=amd64
-_os:       string @tag(os)
-_arch:     string @tag(arch)
-_headless: bool | *false @tag(headless,type=bool)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	// User manifest that uses the platform tags (without imports)
 	toolCue := `package tomei
@@ -79,22 +67,15 @@ myTool: {
 func TestCueEcosystem_CueInitOutput_HeadlessTag(t *testing.T) {
 	dir := t.TempDir()
 
-	// cue.mod/module.cue
-	cueModDir := filepath.Join(dir, "cue.mod")
-	require.NoError(t, os.MkdirAll(cueModDir, 0755))
-	moduleCue := `module: "example.com@v0"
-language: version: "v0.9.0"
-`
-	require.NoError(t, os.WriteFile(filepath.Join(cueModDir, "module.cue"), []byte(moduleCue), 0644))
+	// Simulate "tomei cue init" output
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	require.NoError(t, err)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 
-	// tomei_platform.cue (from cue init)
-	platformCue := `package tomei
-
-_os:       string @tag(os)
-_arch:     string @tag(arch)
-_headless: bool | *false @tag(headless,type=bool)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	// Manifest using _headless for conditional URL
 	toolCue := `package tomei
@@ -147,26 +128,27 @@ func buildModuleFS(t *testing.T) fstest.MapFS {
 			Data: []byte("module: \"tomei.terassyi.net@v0\"\nlanguage: version: \"v0.9.0\"\n"),
 		},
 		prefix + "schema/schema.cue": &fstest.MapFile{
-			Data: []byte(schema.SchemaCUE),
+			Data: []byte(cuemodule.SchemaCUE),
 		},
 	}
 
 	// Add presets from embedded FS
-	presetsEntries, err := presets.FS.ReadDir(".")
+	const presetsDir = "presets"
+	presetsEntries, err := cuemodule.PresetsFS.ReadDir(presetsDir)
 	require.NoError(t, err)
 	for _, entry := range presetsEntries {
 		if !entry.IsDir() {
 			continue
 		}
-		subEntries, err := presets.FS.ReadDir(entry.Name())
+		subEntries, err := cuemodule.PresetsFS.ReadDir(filepath.Join(presetsDir, entry.Name()))
 		require.NoError(t, err)
 		for _, sub := range subEntries {
 			if sub.IsDir() || filepath.Ext(sub.Name()) != ".cue" {
 				continue
 			}
-			data, err := presets.FS.ReadFile(filepath.Join(entry.Name(), sub.Name()))
+			data, err := cuemodule.PresetsFS.ReadFile(filepath.Join(presetsDir, entry.Name(), sub.Name()))
 			require.NoError(t, err)
-			fs[prefix+"presets/"+entry.Name()+"/"+sub.Name()] = &fstest.MapFile{Data: data}
+			fs[prefix+presetsDir+"/"+entry.Name()+"/"+sub.Name()] = &fstest.MapFile{Data: data}
 		}
 	}
 
@@ -191,15 +173,10 @@ func setupMockRegistryDir(t *testing.T, reg *modregistrytest.Registry) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	cueModDir := filepath.Join(dir, "cue.mod")
-	require.NoError(t, os.MkdirAll(cueModDir, 0755))
-	moduleCue := `module: "example.com@v0"
-language: version: "v0.9.0"
-deps: {
-	"tomei.terassyi.net@v0": v: "v0.0.1"
-}
-`
-	require.NoError(t, os.WriteFile(filepath.Join(cueModDir, "module.cue"), []byte(moduleCue), 0644))
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	require.NoError(t, err)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
 
 	return dir
@@ -212,13 +189,9 @@ func TestCueEcosystem_MockRegistry_PresetImportResolution(t *testing.T) {
 	reg := startMockRegistry(t)
 	dir := setupMockRegistryDir(t, reg)
 
-	// tomei_platform.cue
-	platformCue := `package tomei
-
-_os:   string @tag(os)
-_arch: string @tag(arch)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	// User manifest with import
 	manifest := `package tomei
@@ -279,13 +252,9 @@ func TestCueEcosystem_MockRegistry_PresetAndSchemaImport(t *testing.T) {
 	reg := startMockRegistry(t)
 	dir := setupMockRegistryDir(t, reg)
 
-	// tomei_platform.cue
-	platformCue := `package tomei
-
-_os:   string @tag(os)
-_arch: string @tag(arch)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	// Manifest using both imports
 	manifest := `package tomei
@@ -378,11 +347,9 @@ func TestCueEcosystem_MockRegistry_PlatformVariations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := setupMockRegistryDir(t, reg)
 
-			platformCue := `package tomei
-_os:   string @tag(os)
-_arch: string @tag(arch)
-`
-			require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+			platformCue, err := cuemod.GeneratePlatformCUE()
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 			manifest := `package tomei
 import gopreset "tomei.terassyi.net/presets/go"
@@ -476,11 +443,9 @@ func TestCueEcosystem_MockRegistry_MultiplePresetImports(t *testing.T) {
 	reg := startMockRegistry(t)
 	dir := setupMockRegistryDir(t, reg)
 
-	platformCue := `package tomei
-_os:   string @tag(os)
-_arch: string @tag(arch)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	manifest := `package tomei
 
@@ -550,25 +515,15 @@ func TestCueEcosystem_MockRegistry_CueInitThenLoad(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
 
-	// Simulate cue init output: cue.mod/module.cue
-	cueModDir := filepath.Join(dir, "cue.mod")
-	require.NoError(t, os.MkdirAll(cueModDir, 0755))
-	moduleCue := `module: "manifests.local@v0"
-language: version: "v0.9.0"
-deps: {
-	"tomei.terassyi.net@v0": v: "v0.0.1"
-}
-`
-	require.NoError(t, os.WriteFile(filepath.Join(cueModDir, "module.cue"), []byte(moduleCue), 0644))
+	// Simulate cue init output
+	moduleCue, err := cuemod.GenerateModuleCUE(cuemod.DefaultModuleName)
+	require.NoError(t, err)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 
-	// Simulate cue init output: tomei_platform.cue
-	platformCue := `package tomei
-
-_os:       string @tag(os)
-_arch:     string @tag(arch)
-_headless: bool | *false @tag(headless,type=bool)
-`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), []byte(platformCue), 0644))
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
 	// User writes a manifest using schema + preset imports
 	manifest := `package tomei

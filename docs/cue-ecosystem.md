@@ -112,9 +112,11 @@ export CUE_REGISTRY="tomei.terassyi.net=ghcr.io/terassyi"
 module: "manifests.local@v0"
 language: version: "v0.9.0"
 deps: {
-    "tomei.terassyi.net@v0": v: "v0.0.1"
+    "tomei.terassyi.net@v0": v: "<latest from ghcr.io>"
 }
 ```
+
+The `deps` version is resolved at `tomei cue init` time by querying the OCI registry (ghcr.io) for the latest published tag. This pins the exact patch version for reproducibility. To update, run `cue mod tidy`.
 
 **tomei_platform.cue:**
 ```cue
@@ -127,21 +129,12 @@ _arch:     string @tag(arch)
 _headless: bool | *false @tag(headless,type=bool)
 ```
 
-## Two Resolution Modes
+## Module Resolution
 
-### Virtual module overlay (no `cue.mod/`)
+`tomei` uses `modconfig.NewRegistry()` to create a CUE registry that resolves imports via OCI. The default registry mapping is `tomei.terassyi.net=ghcr.io/terassyi`. When `CUE_REGISTRY` is set by the user, it takes precedence.
 
-When no `cue.mod/` directory exists, `tomei` creates a virtual CUE module in memory. Presets and schema embedded in the binary are served via the CUE overlay mechanism. This is the default behavior and requires no setup.
-
-### OCI registry resolution (with `cue.mod/`)
-
-When `cue.mod/` exists, `tomei` uses `modconfig.NewRegistry()` to create a CUE registry that resolves imports via OCI. The virtual overlay is skipped. This enables standard CUE tooling integration.
+For directory-mode loading (package-based CUE files), a `cue.mod/` directory is required. Use `tomei cue init` to generate it. For single-file loading without imports, `cue.mod/` is not needed.
 
 ## Module Publishing
 
-The `tomei.terassyi.net@v0` module is published to `ghcr.io/terassyi` via:
-
-1. `hack/publish-module/main.go` — assembles the module from `presets/` and `schema/`
-2. `.github/workflows/publish-module.yaml` — triggers on release, pushes to ghcr.io
-
-The module zip is created using `modzip.CreateFromDir` and pushed via `modregistry.Client.PutModule`.
+See [Module Publishing](module-publishing.md) for versioning strategy, tag conventions, and publish workflow.
