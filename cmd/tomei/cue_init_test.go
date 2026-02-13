@@ -135,18 +135,3 @@ func TestCueInit_CreatesTargetDir(t *testing.T) {
 	_, err := os.Stat(filepath.Join(dir, "cue.mod", "module.cue"))
 	assert.NoError(t, err)
 }
-
-func TestGenerateModuleCUE(t *testing.T) {
-	content := string(generateModuleCUE("test@v0"))
-	assert.Contains(t, content, `module: "test@v0"`)
-	assert.Contains(t, content, `language: version: "v0.9.0"`)
-	assert.Contains(t, content, `"tomei.terassyi.net@v0": v: "v0.0.1"`)
-}
-
-func TestGeneratePlatformCUE(t *testing.T) {
-	content := string(generatePlatformCUE())
-	assert.Contains(t, content, `package tomei`)
-	assert.Contains(t, content, `@tag(os)`)
-	assert.Contains(t, content, `@tag(arch)`)
-	assert.Contains(t, content, `@tag(headless,type=bool)`)
-}

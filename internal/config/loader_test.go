@@ -1083,7 +1083,7 @@ tool: {
 	}
 }
 
-func TestHasRealCueMod(t *testing.T) {
+func Test_hasRealCueMod(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(t *testing.T) string

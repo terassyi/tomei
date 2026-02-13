@@ -156,6 +156,17 @@ func (e *nativeExecutor) ExecBash(script string) (string, error) {
 
 func (e *nativeExecutor) buildEnv() []string {
 	env := append(os.Environ(), "HOME="+e.testHome)
+	// Prepend the directory containing the tomei binary to PATH so that
+	// ExecBash scripts can find "tomei" without a full path.
+	if e.tomeiBinary != "" {
+		binDir := filepath.Dir(e.tomeiBinary)
+		for i, v := range env {
+			if strings.HasPrefix(v, "PATH=") {
+				env[i] = "PATH=" + binDir + string(os.PathListSeparator) + strings.TrimPrefix(v, "PATH=")
+				break
+			}
+		}
+	}
 	for k, v := range e.envVars {
 		env = append(env, k+"="+v)
 	}
@@ -307,6 +318,15 @@ func newExecutor() (executor, error) {
 			if err != nil {
 				return nil, fmt.Errorf("tomei binary not found in PATH, set TOMEI_E2E_BINARY")
 			}
+		}
+		// Resolve to absolute path so that buildEnv can reliably prepend
+		// the binary's directory to PATH for ExecBash.
+		if !filepath.IsAbs(binary) {
+			abs, err := filepath.Abs(binary)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve absolute path for %s: %w", binary, err)
+			}
+			binary = abs
 		}
 		return &nativeExecutor{tomeiBinary: binary}, nil
 	}

@@ -29,10 +29,10 @@ const (
 language: version: "v0.9.0"
 `
 
-	// DefaultCUERegistry is the built-in CUE_REGISTRY mapping for tomei modules.
+	// defaultCUERegistry is the built-in CUE_REGISTRY mapping for tomei modules.
 	// When CUE_REGISTRY is not set, this default is used to resolve
 	// tomei.terassyi.net imports from the OCI registry on ghcr.io.
-	DefaultCUERegistry = "tomei.terassyi.net=ghcr.io/terassyi"
+	defaultCUERegistry = "tomei.terassyi.net=ghcr.io/terassyi"
 )
 
 // Loader loads and parses CUE configuration files.
@@ -61,7 +61,7 @@ func NewLoader(env *Env) *Loader {
 func buildRegistry() (modconfig.Registry, error) {
 	cueRegistry := os.Getenv("CUE_REGISTRY")
 	if cueRegistry == "" {
-		cueRegistry = DefaultCUERegistry
+		cueRegistry = defaultCUERegistry
 	}
 	return modconfig.NewRegistry(&modconfig.Config{
 		CUERegistry: cueRegistry,
@@ -142,17 +142,37 @@ func detectPackageName(source string) string {
 	return ""
 }
 
-// buildOverlay creates the CUE overlay map with the virtual module structure for preset imports.
-func (l *Loader) buildOverlay(absDir string) (map[string]load.Source, error) {
-	overlay := make(map[string]load.Source)
-
-	// Add virtual module overlay if no real cue.mod/ exists
-	if !hasRealCueMod(absDir) {
-		if err := l.buildVirtualModuleOverlay(absDir, overlay); err != nil {
-			return nil, fmt.Errorf("failed to build virtual module overlay: %w", err)
-		}
+// buildLoadConfig creates a load.Config with either registry or virtual overlay,
+// depending on whether a real cue.mod/ directory exists.
+func (l *Loader) buildLoadConfig(absDir string, tags []string) (*load.Config, error) {
+	loadCfg := &load.Config{
+		Dir:  absDir,
+		Tags: tags,
 	}
 
+	if hasRealCueMod(absDir) {
+		registry, err := buildRegistry()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build CUE registry: %w", err)
+		}
+		loadCfg.Registry = registry
+	} else {
+		overlay, err := l.buildVirtualOverlay(absDir)
+		if err != nil {
+			return nil, err
+		}
+		loadCfg.Overlay = overlay
+	}
+
+	return loadCfg, nil
+}
+
+// buildVirtualOverlay creates a CUE overlay map with the virtual module structure for preset imports.
+func (l *Loader) buildVirtualOverlay(absDir string) (map[string]load.Source, error) {
+	overlay := make(map[string]load.Source)
+	if err := l.buildVirtualModuleOverlay(absDir, overlay); err != nil {
+		return nil, fmt.Errorf("failed to build virtual module overlay: %w", err)
+	}
 	return overlay, nil
 }
 
@@ -283,27 +303,11 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 		sources = append(sources, string(data))
 	}
 
-	// Build load configuration: use registry when cue.mod/ exists and registry is set,
+	// Build load configuration: use registry when cue.mod/ exists,
 	// otherwise use virtual module overlay.
-	loadCfg := &load.Config{
-		Dir:  absDir,
-		Tags: l.envTagsForSources(sources...),
-	}
-
-	if hasRealCueMod(absDir) {
-		// OCI registry path: build a registry and let CUE resolve imports.
-		registry, err := buildRegistry()
-		if err != nil {
-			return nil, fmt.Errorf("failed to build CUE registry: %w", err)
-		}
-		loadCfg.Registry = registry
-	} else {
-		// Virtual overlay path: build in-memory module structure.
-		overlay, err := l.buildOverlay(absDir)
-		if err != nil {
-			return nil, err
-		}
-		loadCfg.Overlay = overlay
+	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(sources...))
+	if err != nil {
+		return nil, err
 	}
 
 	// Load CUE files with configured loader
@@ -415,23 +419,9 @@ func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resourc
 
 	files := []string{fileName}
 
-	loadCfg := &load.Config{
-		Dir:  absDir,
-		Tags: l.envTagsForSources(source),
-	}
-
-	if hasRealCueMod(absDir) {
-		registry, err := buildRegistry()
-		if err != nil {
-			return nil, fmt.Errorf("failed to build CUE registry: %w", err)
-		}
-		loadCfg.Registry = registry
-	} else {
-		overlay, err := l.buildOverlay(absDir)
-		if err != nil {
-			return nil, err
-		}
-		loadCfg.Overlay = overlay
+	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(source))
+	if err != nil {
+		return nil, err
 	}
 
 	instances := load.Instances(files, loadCfg)

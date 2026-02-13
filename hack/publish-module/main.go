@@ -36,16 +36,16 @@ const (
 
 func main() {
 	var (
-		version     string
-		registry    string
-		assembleDir string
-		assembleOly bool
+		version      string
+		registry     string
+		assembleDir  string
+		assembleOnly bool
 	)
 
 	flag.StringVar(&version, "version", "", "Module version (e.g., v0.0.1) (required)")
 	flag.StringVar(&registry, "registry", "ghcr.io/terassyi", "OCI registry host/path")
 	flag.StringVar(&assembleDir, "output-dir", "", "Directory to write assembled module (default: temp dir)")
-	flag.BoolVar(&assembleOly, "assemble-only", false, "Only assemble the module directory, do not push")
+	flag.BoolVar(&assembleOnly, "assemble-only", false, "Only assemble the module directory, do not push")
 	flag.Parse()
 
 	if version == "" {
@@ -70,7 +70,7 @@ func main() {
 	}
 
 	// If assemble-only, write to directory and exit
-	if assembleOly {
+	if assembleOnly {
 		outDir := assembleDir
 		if outDir == "" {
 			outDir, err = os.MkdirTemp("", "tomei-module-*")
@@ -86,10 +86,19 @@ func main() {
 		return
 	}
 
-	// Create module zip
+	// Create module zip and push to registry
+	if err := pushModule(version, registry, files); err != nil {
+		log.Fatalf("Failed to publish module: %v", err)
+	}
+
+	log.Printf("Published %s@%s to %s", modulePath, version, registry)
+}
+
+// pushModule creates a module zip from the given files and pushes it to the OCI registry.
+func pushModule(version, registry string, files map[string][]byte) error {
 	mv, err := module.NewVersion(modulePath, version)
 	if err != nil {
-		log.Fatalf("Failed to create module version: %v", err)
+		return fmt.Errorf("failed to create module version: %w", err)
 	}
 
 	var zipBuf bytes.Buffer
@@ -98,17 +107,16 @@ func main() {
 		memFiles = append(memFiles, memFile{path: p, content: data})
 	}
 	if err := modzip.Create(&zipBuf, mv, memFiles, memFileIO{}); err != nil { //nolint:staticcheck // modzip.Create is the current API
-		log.Fatalf("Failed to create module zip: %v", err)
+		return fmt.Errorf("failed to create module zip: %w", err)
 	}
 	log.Printf("Created module zip: %d bytes", zipBuf.Len())
 
-	// Push to OCI registry
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	authConfig, err := ociauth.Load(nil)
 	if err != nil {
-		log.Fatalf("Failed to load OCI auth config: %v", err)
+		return fmt.Errorf("failed to load OCI auth config: %w", err)
 	}
 	transport := ociauth.NewStdTransport(ociauth.StdTransportParams{
 		Config: authConfig,
@@ -117,16 +125,12 @@ func main() {
 		Transport: transport,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create OCI client for %s: %v", registry, err)
+		return fmt.Errorf("failed to create OCI client for %s: %w", registry, err)
 	}
 
 	client := modregistry.NewClient(ociClient)
 	zipBytes := zipBuf.Bytes()
-	if err := client.PutModule(ctx, mv, bytes.NewReader(zipBytes), int64(len(zipBytes))); err != nil {
-		log.Fatalf("Failed to push module to %s: %v", registry, err)
-	}
-
-	log.Printf("Published %s@%s to %s", modulePath, version, registry)
+	return client.PutModule(ctx, mv, bytes.NewReader(zipBytes), int64(len(zipBytes)))
 }
 
 // findRepoRoot walks up from the current directory to find the repository root

@@ -86,13 +86,15 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 	lines := env.Generate(userState.Runtimes, paths.UserBinDir(), formatter)
 
 	// Add CUE_REGISTRY if cue.mod/ exists in the working directory
-	cwd, _ := os.Getwd()
-	if cueRegistryLine := env.GenerateCUERegistry(
-		hasCueMod(cwd),
-		config.DefaultCUERegistry,
-		formatter,
-	); cueRegistryLine != "" {
-		lines = append(lines, cueRegistryLine)
+	cwd, err := os.Getwd()
+	if err == nil {
+		if cueRegistryLine := env.GenerateCUERegistry(
+			hasCueMod(cwd),
+			"tomei.terassyi.net=ghcr.io/terassyi",
+			formatter,
+		); cueRegistryLine != "" {
+			lines = append(lines, cueRegistryLine)
+		}
 	}
 
 	output := strings.Join(lines, "\n")
