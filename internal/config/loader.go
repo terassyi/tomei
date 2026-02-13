@@ -42,15 +42,20 @@ type Loader struct {
 }
 
 // NewLoader creates a new Loader with the given environment.
+// Panics if the embedded CUE schema fails to compile (programming error).
 func NewLoader(env *Env) *Loader {
 	if env == nil {
 		env = DetectEnv()
 	}
 	ctx := cuecontext.New()
+	schemaValue := ctx.CompileString(cuemodule.SchemaCUE)
+	if schemaValue.Err() != nil {
+		panic(fmt.Sprintf("failed to compile embedded CUE schema: %v", schemaValue.Err()))
+	}
 	return &Loader{
 		ctx:         ctx,
 		env:         env,
-		schemaValue: ctx.CompileString(cuemodule.SchemaCUE),
+		schemaValue: schemaValue,
 	}
 }
 

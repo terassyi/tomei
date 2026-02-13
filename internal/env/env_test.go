@@ -255,6 +255,13 @@ func TestGenerateCUERegistry(t *testing.T) {
 			shell:        ShellPosix,
 			want:         "",
 		},
+		{
+			name:         "empty registry string",
+			cueModExists: true,
+			cueRegistry:  "",
+			shell:        ShellPosix,
+			want:         "",
+		},
 	}
 
 	for _, tt := range tests {

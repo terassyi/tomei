@@ -58,10 +58,11 @@ func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f F
 	return lines
 }
 
-// GenerateCUERegistry returns a CUE_REGISTRY export statement if cueModExists is true.
+// GenerateCUERegistry returns a CUE_REGISTRY export statement if cueModExists is true
+// and cueRegistry is non-empty.
 // This enables CUE tooling (cue eval, LSP) to resolve tomei module imports.
 func GenerateCUERegistry(cueModExists bool, cueRegistry string, f Formatter) string {
-	if !cueModExists {
+	if !cueModExists || cueRegistry == "" {
 		return ""
 	}
 	return f.ExportVar("CUE_REGISTRY", cueRegistry)

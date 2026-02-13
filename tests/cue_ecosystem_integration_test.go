@@ -63,7 +63,8 @@ myTool: {
 }
 
 // TestCueEcosystem_CueInitOutput_HeadlessTag verifies that the _headless tag
-// from tomei_platform.cue is resolved correctly in the cue.mod/ path.
+// from tomei_platform.cue is resolved correctly and produces different output
+// depending on the headless value.
 func TestCueEcosystem_CueInitOutput_HeadlessTag(t *testing.T) {
 	dir := t.TempDir()
 
@@ -77,8 +78,16 @@ func TestCueEcosystem_CueInitOutput_HeadlessTag(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
 
-	// Manifest using _headless for conditional URL
+	// Manifest that branches on _headless to produce different tool versions
 	toolCue := `package tomei
+
+_version: string
+if _headless {
+	_version: "2.86.0-headless"
+}
+if !_headless {
+	_version: "2.86.0"
+}
 
 myTool: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
@@ -86,7 +95,7 @@ myTool: {
 	metadata: name: "gh"
 	spec: {
 		installerRef: "download"
-		version:      "2.86.0"
+		version:      _version
 		source: url: "https://example.com/gh_\(_os)_\(_arch).tar.gz"
 	}
 }
@@ -94,11 +103,12 @@ myTool: {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(toolCue), 0644))
 
 	tests := []struct {
-		name     string
-		headless bool
+		name        string
+		headless    bool
+		wantVersion string
 	}{
-		{name: "headless=false", headless: false},
-		{name: "headless=true", headless: true},
+		{name: "headless=false", headless: false, wantVersion: "2.86.0"},
+		{name: "headless=true", headless: true, wantVersion: "2.86.0-headless"},
 	}
 
 	for _, tt := range tests {
@@ -108,6 +118,11 @@ myTool: {
 			require.NoError(t, err)
 			require.Len(t, resources, 1)
 			assert.Equal(t, "gh", resources[0].Name())
+
+			tool, ok := resources[0].(*resource.Tool)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantVersion, tool.ToolSpec.Version,
+				"_headless=%v should produce version %s", tt.headless, tt.wantVersion)
 		})
 	}
 }

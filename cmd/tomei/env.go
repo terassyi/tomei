@@ -85,15 +85,19 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 	formatter := env.NewFormatter(shellType)
 	lines := env.Generate(userState.Runtimes, paths.UserBinDir(), formatter)
 
-	// Add CUE_REGISTRY if cue.mod/ exists in the working directory
-	cwd, err := os.Getwd()
-	if err == nil {
-		if cueRegistryLine := env.GenerateCUERegistry(
-			hasCueMod(cwd),
-			config.DefaultCUERegistry,
-			formatter,
-		); cueRegistryLine != "" {
-			lines = append(lines, cueRegistryLine)
+	// Add CUE_REGISTRY if cue.mod/ exists and CUE_REGISTRY is not already set.
+	// Respecting an existing CUE_REGISTRY avoids overwriting user-configured
+	// registry mappings (e.g., private registries or additional mappings).
+	if _, exists := os.LookupEnv("CUE_REGISTRY"); !exists {
+		cwd, err := os.Getwd()
+		if err == nil {
+			if cueRegistryLine := env.GenerateCUERegistry(
+				hasCueMod(cwd),
+				config.DefaultCUERegistry,
+				formatter,
+			); cueRegistryLine != "" {
+				lines = append(lines, cueRegistryLine)
+			}
 		}
 	}
 
