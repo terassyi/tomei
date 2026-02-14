@@ -241,6 +241,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy logs-test: %w", err)
 	}
 
+	// Copy three-segment-test configs
+	if err := copyDir(filepath.Join(configDir, "three-segment-test"), filepath.Join(e.testHome, "three-segment-test")); err != nil {
+		return fmt.Errorf("failed to copy three-segment-test: %w", err)
+	}
+
 	return nil
 }
 

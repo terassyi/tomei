@@ -2,7 +2,7 @@ package manifests
 
 _rgVersion: "15.1.0"
 _fdVersion: "v10.3.0"
-_jqVersion: "jq-1.8.1"
+_jqVersion: "1.8.1"
 
 // ripgrep - Install via aqua registry
 ripgrep: {
