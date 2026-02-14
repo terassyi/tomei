@@ -8,6 +8,8 @@ import (
 )
 
 func TestDetectFileFormat(t *testing.T) {
+	t.Parallel()
+
 	sha256Hash := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 
 	tests := []struct {
@@ -69,6 +71,8 @@ func TestDetectFileFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := DetectFileFormat(tt.content)
 			assert.Equal(t, tt.want, got)
 		})
@@ -76,6 +80,8 @@ func TestDetectFileFormat(t *testing.T) {
 }
 
 func TestParseFile_GNU(t *testing.T) {
+	t.Parallel()
+
 	sha256Hash := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 
 	tests := []struct {
@@ -134,6 +140,8 @@ func TestParseFile_GNU(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			algo, hash, err := ParseFile(tt.content, tt.filename)
 
 			if tt.wantErr {
@@ -152,6 +160,8 @@ func TestParseFile_GNU(t *testing.T) {
 }
 
 func TestParseFile_BSD(t *testing.T) {
+	t.Parallel()
+
 	sha256Hash := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 	sha512Hash := "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
 
@@ -211,6 +221,8 @@ func TestParseFile_BSD(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			algo, hash, err := ParseFile(tt.content, tt.filename)
 
 			if tt.wantErr {
@@ -229,6 +241,8 @@ func TestParseFile_BSD(t *testing.T) {
 }
 
 func TestParseFile_GoJSON(t *testing.T) {
+	t.Parallel()
+
 	sha256Hash := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
 
 	tests := []struct {
@@ -314,6 +328,8 @@ func TestParseFile_GoJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			algo, hash, err := ParseFile(tt.content, tt.filename)
 
 			if tt.wantErr {

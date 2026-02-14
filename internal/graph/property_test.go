@@ -267,6 +267,7 @@ func cyclicManifestGenerator() *rapid.Generator[*testResolver] {
 // TestProperty_Manifest_TopologicalOrder verifies that dependencies are always
 // resolved before their dependents when using actual manifest structures.
 func TestProperty_Manifest_TopologicalOrder(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -303,6 +304,7 @@ func TestProperty_Manifest_TopologicalOrder(t *testing.T) {
 // TestProperty_Manifest_AllNodesIncluded verifies that all resources appear
 // exactly once in the execution plan.
 func TestProperty_Manifest_AllNodesIncluded(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -333,6 +335,7 @@ func TestProperty_Manifest_AllNodesIncluded(t *testing.T) {
 // TestProperty_Manifest_LayerParallelism verifies that resources in the same
 // layer have no dependencies between them (safe for parallel execution).
 func TestProperty_Manifest_LayerParallelism(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -361,6 +364,7 @@ func TestProperty_Manifest_LayerParallelism(t *testing.T) {
 // TestProperty_ToolChain_ExecutionOrder verifies execution order for
 // tool-as-installer patterns (e.g., cargo-binstall -> binstall -> ripgrep).
 func TestProperty_ToolChain_ExecutionOrder(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := toolChainGenerator().Draw(t, "toolChain")
 
@@ -398,6 +402,7 @@ func TestProperty_ToolChain_ExecutionOrder(t *testing.T) {
 // TestProperty_CycleDetection_Consistency verifies that Validate() and Resolve()
 // are consistent in cycle detection when using actual manifests.
 func TestProperty_CycleDetection_Consistency(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := cyclicManifestGenerator().Draw(t, "manifest")
 
@@ -419,6 +424,7 @@ func TestProperty_CycleDetection_Consistency(t *testing.T) {
 
 // TestProperty_Manifest_LayerCount verifies layer count bounds.
 func TestProperty_Manifest_LayerCount(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -443,6 +449,7 @@ func TestProperty_Manifest_LayerCount(t *testing.T) {
 // TestProperty_Manifest_RuntimesFirst verifies that runtimes with no dependencies
 // are always in the first layer.
 func TestProperty_Manifest_RuntimesFirst(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -478,6 +485,7 @@ func TestProperty_Manifest_RuntimesFirst(t *testing.T) {
 // TestProperty_Manifest_KindOrderWithinLayer verifies that nodes within each layer
 // are sorted by Kind priority: Runtime -> Installer -> Tool.
 func TestProperty_Manifest_KindOrderWithinLayer(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		tr := manifestGenerator().Draw(t, "manifest")
 
@@ -534,7 +542,9 @@ func kindPriorityForTest(kind resource.Kind) int {
 
 // TestProperty_KnownStructures tests layer count for known manifest structures.
 func TestProperty_KnownStructures(t *testing.T) {
+	t.Parallel()
 	t.Run("single runtime", func(t *testing.T) {
+		t.Parallel()
 		resolver := NewResolver()
 		resolver.AddResource(createRuntimeWithPattern("go", resource.InstallTypeDownload))
 
@@ -544,6 +554,7 @@ func TestProperty_KnownStructures(t *testing.T) {
 	})
 
 	t.Run("runtime with tools", func(t *testing.T) {
+		t.Parallel()
 		resolver := NewResolver()
 		resolver.AddResource(createRuntimeWithPattern("go", resource.InstallTypeDownload))
 		resolver.AddResource(createToolWithRuntime("gopls", "go"))
@@ -557,6 +568,7 @@ func TestProperty_KnownStructures(t *testing.T) {
 	})
 
 	t.Run("tool chain", func(t *testing.T) {
+		t.Parallel()
 		resolver := NewResolver()
 		// Runtime -> Tool -> Installer -> Tool
 		resolver.AddResource(createRuntimeWithPattern("rust", resource.InstallTypeDelegation))
@@ -570,6 +582,7 @@ func TestProperty_KnownStructures(t *testing.T) {
 	})
 
 	t.Run("multiple independent chains", func(t *testing.T) {
+		t.Parallel()
 		resolver := NewResolver()
 		// Go chain
 		resolver.AddResource(createRuntimeWithPattern("go", resource.InstallTypeDownload))

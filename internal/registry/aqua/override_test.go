@@ -7,6 +7,7 @@ import (
 )
 
 func TestApplyOSOverrides(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		info   *PackageInfo
@@ -161,6 +162,7 @@ func TestApplyOSOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := applyOSOverrides(tt.info, tt.goos, tt.goarch)
 			tt.check(t, result)
 		})
@@ -168,6 +170,7 @@ func TestApplyOSOverrides(t *testing.T) {
 }
 
 func TestMatchesOS(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		override Override
@@ -228,6 +231,7 @@ func TestMatchesOS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := matchesOS(tt.override, tt.goos, tt.goarch)
 			assert.Equal(t, tt.want, got)
 		})
@@ -235,6 +239,7 @@ func TestMatchesOS(t *testing.T) {
 }
 
 func TestApplyReplacement(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		replacements map[string]string
@@ -282,6 +287,7 @@ func TestApplyReplacement(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := applyReplacement(tt.replacements, tt.key)
 			assert.Equal(t, tt.want, got)
 		})

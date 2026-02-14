@@ -10,6 +10,8 @@ import (
 )
 
 func TestError_Error(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		err      *Error
@@ -38,12 +40,16 @@ func TestError_Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Equal(t, tt.expected, tt.err.Error())
 		})
 	}
 }
 
 func TestError_Unwrap(t *testing.T) {
+	t.Parallel()
+
 	cause := errors.New("underlying error")
 	err := &Error{
 		Category: CategoryInstall,
@@ -56,6 +62,8 @@ func TestError_Unwrap(t *testing.T) {
 }
 
 func TestError_WithMethods(t *testing.T) {
+	t.Parallel()
+
 	err := New(CategoryConfig, "test error")
 
 	_ = err.WithHint("try this").
@@ -68,7 +76,11 @@ func TestError_WithMethods(t *testing.T) {
 }
 
 func TestDependencyError(t *testing.T) {
+	t.Parallel()
+
 	t.Run("cycle error", func(t *testing.T) {
+		t.Parallel()
+
 		cycle := []string{"A", "B", "C", "A"}
 		err := NewCycleError(cycle)
 
@@ -79,6 +91,8 @@ func TestDependencyError(t *testing.T) {
 	})
 
 	t.Run("missing dependency error", func(t *testing.T) {
+		t.Parallel()
+
 		err := NewMissingDependencyError("Tool/gopls", []string{"Runtime/go"})
 
 		assert.False(t, err.IsCycle())
@@ -88,6 +102,8 @@ func TestDependencyError(t *testing.T) {
 	})
 
 	t.Run("unwrap", func(t *testing.T) {
+		t.Parallel()
+
 		cause := errors.New("original error")
 		err := &DependencyError{
 			Base: Error{
@@ -103,7 +119,11 @@ func TestDependencyError(t *testing.T) {
 }
 
 func TestConfigError(t *testing.T) {
+	t.Parallel()
+
 	t.Run("basic", func(t *testing.T) {
+		t.Parallel()
+
 		cause := errors.New("syntax error")
 		err := NewConfigError("failed to load config", cause)
 
@@ -112,6 +132,8 @@ func TestConfigError(t *testing.T) {
 	})
 
 	t.Run("with location", func(t *testing.T) {
+		t.Parallel()
+
 		err := NewConfigErrorAt("config.cue", 10, 5, "invalid field", nil)
 
 		assert.Equal(t, "config.cue", err.File)
@@ -120,6 +142,8 @@ func TestConfigError(t *testing.T) {
 	})
 
 	t.Run("with methods", func(t *testing.T) {
+		t.Parallel()
+
 		err := NewConfigError("error", nil).
 			WithFile("test.cue").
 			WithLocation(15, 3).
@@ -133,6 +157,8 @@ func TestConfigError(t *testing.T) {
 }
 
 func TestValidationError(t *testing.T) {
+	t.Parallel()
+
 	err := NewValidationError("Tool/rg", "version", "string", "number")
 
 	assert.Equal(t, CodeValidationFailed, err.Base.Code)
@@ -143,6 +169,8 @@ func TestValidationError(t *testing.T) {
 }
 
 func TestInstallError(t *testing.T) {
+	t.Parallel()
+
 	cause := errors.New("download failed")
 	err := NewInstallError("Tool/gh", "install", cause).
 		WithVersion("2.86.0").
@@ -157,6 +185,8 @@ func TestInstallError(t *testing.T) {
 }
 
 func TestChecksumError(t *testing.T) {
+	t.Parallel()
+
 	err := NewChecksumError("Tool/rg", "https://example.com/rg.tar.gz", "sha256:abc", "sha256:def")
 
 	assert.Equal(t, CodeChecksumMismatch, err.Base.Code)
@@ -167,7 +197,11 @@ func TestChecksumError(t *testing.T) {
 }
 
 func TestNetworkError(t *testing.T) {
+	t.Parallel()
+
 	t.Run("basic", func(t *testing.T) {
+		t.Parallel()
+
 		cause := errors.New("connection refused")
 		err := NewNetworkError("https://example.com", cause)
 
@@ -177,6 +211,8 @@ func TestNetworkError(t *testing.T) {
 	})
 
 	t.Run("HTTP error", func(t *testing.T) {
+		t.Parallel()
+
 		err := NewHTTPError("https://example.com/file.tar.gz", 404)
 
 		assert.Equal(t, CodeHTTPError, err.Base.Code)
@@ -186,7 +222,11 @@ func TestNetworkError(t *testing.T) {
 }
 
 func TestStateError(t *testing.T) {
+	t.Parallel()
+
 	t.Run("basic", func(t *testing.T) {
+		t.Parallel()
+
 		cause := errors.New("file not found")
 		err := NewStateError("failed to load state", cause)
 
@@ -195,6 +235,8 @@ func TestStateError(t *testing.T) {
 	})
 
 	t.Run("lock error", func(t *testing.T) {
+		t.Parallel()
+
 		err := NewLockError("/tmp/state.lock", 12345)
 
 		assert.Equal(t, CodeStateLocked, err.Base.Code)
@@ -205,6 +247,8 @@ func TestStateError(t *testing.T) {
 }
 
 func TestRegistryError(t *testing.T) {
+	t.Parallel()
+
 	cause := errors.New("404 not found")
 	err := NewRegistryError("aqua", "package not found", cause).
 		WithPackage("cli/cli").
@@ -218,7 +262,11 @@ func TestRegistryError(t *testing.T) {
 }
 
 func TestErrorsIs(t *testing.T) {
+	t.Parallel()
+
 	t.Run("same code matches", func(t *testing.T) {
+		t.Parallel()
+
 		err1 := NewCycleError([]string{"A", "B", "A"})
 		err2 := NewCycleError([]string{"X", "Y", "X"})
 
@@ -226,6 +274,8 @@ func TestErrorsIs(t *testing.T) {
 	})
 
 	t.Run("different code does not match", func(t *testing.T) {
+		t.Parallel()
+
 		cycleErr := NewCycleError([]string{"A", "B", "A"})
 		missingErr := NewMissingDependencyError("Tool/x", []string{"Runtime/y"})
 
@@ -233,6 +283,8 @@ func TestErrorsIs(t *testing.T) {
 	})
 
 	t.Run("different types do not match", func(t *testing.T) {
+		t.Parallel()
+
 		depErr := NewCycleError([]string{"A", "B", "A"})
 		configErr := NewConfigError("test", nil)
 
@@ -240,6 +292,8 @@ func TestErrorsIs(t *testing.T) {
 	})
 
 	t.Run("base error Is", func(t *testing.T) {
+		t.Parallel()
+
 		err1 := &Error{Code: CodeInstallFailed, Message: "install failed"}
 		err2 := &Error{Code: CodeInstallFailed, Message: "different message"}
 
@@ -247,6 +301,8 @@ func TestErrorsIs(t *testing.T) {
 	})
 
 	t.Run("network error codes", func(t *testing.T) {
+		t.Parallel()
+
 		err1 := NewHTTPError("https://a.com", 404)
 		err2 := NewHTTPError("https://b.com", 500)
 
@@ -255,6 +311,8 @@ func TestErrorsIs(t *testing.T) {
 	})
 
 	t.Run("network vs install does not match", func(t *testing.T) {
+		t.Parallel()
+
 		netErr := NewNetworkError("https://example.com", nil)
 		installErr := NewInstallError("Tool/x", "install", nil)
 
@@ -263,8 +321,12 @@ func TestErrorsIs(t *testing.T) {
 }
 
 func TestErrorsAs(t *testing.T) {
+	t.Parallel()
+
 	// Test that errors.As works correctly with our error types
 	t.Run("DependencyError", func(t *testing.T) {
+		t.Parallel()
+
 		var err error = NewCycleError([]string{"A", "B", "A"})
 
 		var depErr *DependencyError
@@ -273,6 +335,8 @@ func TestErrorsAs(t *testing.T) {
 	})
 
 	t.Run("ConfigError", func(t *testing.T) {
+		t.Parallel()
+
 		var err error = NewConfigError("test", nil)
 
 		var configErr *ConfigError
@@ -281,6 +345,8 @@ func TestErrorsAs(t *testing.T) {
 	})
 
 	t.Run("wrapped error", func(t *testing.T) {
+		t.Parallel()
+
 		original := NewInstallError("Tool/gh", "install", nil)
 		wrapped := Wrap(CategoryInstall, "operation failed", original)
 

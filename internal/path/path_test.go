@@ -11,6 +11,8 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -64,6 +66,8 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p, err := New(tt.opts...)
 			require.NoError(t, err)
 
@@ -75,6 +79,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestPaths_ToolInstallDir(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		userDataDir string
@@ -100,6 +106,8 @@ func TestPaths_ToolInstallDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p, err := New(WithUserDataDir(tt.userDataDir))
 			require.NoError(t, err)
 
@@ -110,6 +118,8 @@ func TestPaths_ToolInstallDir(t *testing.T) {
 }
 
 func TestPaths_RuntimeInstallDir(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		userDataDir string
@@ -135,6 +145,8 @@ func TestPaths_RuntimeInstallDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p, err := New(WithUserDataDir(tt.userDataDir))
 			require.NoError(t, err)
 
@@ -145,6 +157,8 @@ func TestPaths_RuntimeInstallDir(t *testing.T) {
 }
 
 func TestPaths_StateFiles(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name          string
 		userDataDir   string
@@ -167,6 +181,8 @@ func TestPaths_StateFiles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p, err := New(
 				WithUserDataDir(tt.userDataDir),
 				WithSystemDataDir(tt.systemDataDir),
@@ -182,6 +198,8 @@ func TestPaths_StateFiles(t *testing.T) {
 }
 
 func TestEnsureDir(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		subPath string
@@ -198,6 +216,8 @@ func TestEnsureDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			tmpDir := t.TempDir()
 			targetDir := filepath.Join(tmpDir, tt.subPath)
 
@@ -212,6 +232,8 @@ func TestEnsureDir(t *testing.T) {
 }
 
 func TestExpand(t *testing.T) {
+	t.Parallel()
+
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -250,6 +272,8 @@ func TestExpand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := Expand(tt.path)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -262,6 +286,8 @@ func TestExpand(t *testing.T) {
 }
 
 func TestNewFromConfig(t *testing.T) {
+	t.Parallel()
+
 	home, err := os.UserHomeDir()
 	require.NoError(t, err)
 
@@ -302,6 +328,8 @@ func TestNewFromConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			p, err := NewFromConfig(tt.cfg)
 			require.NoError(t, err)
 

@@ -23,6 +23,7 @@ import (
 )
 
 func TestNewInstaller(t *testing.T) {
+	t.Parallel()
 	downloader := download.NewDownloader()
 	installer := NewInstaller(downloader, "/runtimes")
 
@@ -31,6 +32,7 @@ func TestNewInstaller(t *testing.T) {
 }
 
 func TestInstaller_Install(t *testing.T) {
+	t.Parallel()
 	// Create a mock runtime tarball with a top-level directory
 	binContent := []byte("#!/bin/sh\necho 'mock runtime'\n")
 	tarGzContent := createRuntimeTarGz(t, "myruntime", []mockBinary{
@@ -184,6 +186,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation basic", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 
@@ -232,6 +235,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation with ResolveVersion", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 
@@ -273,6 +277,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation check fails", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{
@@ -300,6 +305,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation ResolveVersion fails", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{
@@ -328,6 +334,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation install command fails", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{
@@ -355,6 +362,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("delegation missing bootstrap", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		installer := NewInstaller(download.NewDownloader(), tmpDir)
 
@@ -372,6 +380,7 @@ func TestInstaller_Install(t *testing.T) {
 	})
 
 	t.Run("missing source URL", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		installer := NewInstaller(download.NewDownloader(), tmpDir)
 
@@ -391,7 +400,9 @@ func TestInstaller_Install(t *testing.T) {
 }
 
 func TestInstaller_Remove(t *testing.T) {
+	t.Parallel()
 	t.Run("successful remove with BinDir", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
@@ -423,6 +434,7 @@ func TestInstaller_Remove(t *testing.T) {
 	})
 
 	t.Run("delegation remove with command", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{}
@@ -444,6 +456,7 @@ func TestInstaller_Remove(t *testing.T) {
 	})
 
 	t.Run("delegation remove without command", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{}
@@ -460,6 +473,7 @@ func TestInstaller_Remove(t *testing.T) {
 	})
 
 	t.Run("delegation remove command fails", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		runner := &mockCommandRunner{
@@ -479,6 +493,7 @@ func TestInstaller_Remove(t *testing.T) {
 	})
 
 	t.Run("successful remove without BinDir", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 
@@ -505,7 +520,9 @@ func TestInstaller_Remove(t *testing.T) {
 }
 
 func TestFindExtractedRoot(t *testing.T) {
+	t.Parallel()
 	t.Run("single directory", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		subDir := filepath.Join(tmpDir, "myruntime")
 		require.NoError(t, os.MkdirAll(subDir, 0755))
@@ -516,6 +533,7 @@ func TestFindExtractedRoot(t *testing.T) {
 	})
 
 	t.Run("multiple entries", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir1"), 0755))
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir2"), 0755))
@@ -526,6 +544,7 @@ func TestFindExtractedRoot(t *testing.T) {
 	})
 
 	t.Run("hidden files ignored", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		subDir := filepath.Join(tmpDir, "myruntime")
 		require.NoError(t, os.MkdirAll(subDir, 0755))
@@ -538,6 +557,7 @@ func TestFindExtractedRoot(t *testing.T) {
 }
 
 func TestFindBinary(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create bin/mybin
@@ -549,16 +569,19 @@ func TestFindBinary(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "rootbin"), []byte("binary"), 0755))
 
 	t.Run("find in bin directory", func(t *testing.T) {
+		t.Parallel()
 		path := findBinary(tmpDir, "mybin")
 		assert.Equal(t, filepath.Join(tmpDir, "bin", "mybin"), path)
 	})
 
 	t.Run("find in root directory", func(t *testing.T) {
+		t.Parallel()
 		path := findBinary(tmpDir, "rootbin")
 		assert.Equal(t, filepath.Join(tmpDir, "rootbin"), path)
 	})
 
 	t.Run("not found", func(t *testing.T) {
+		t.Parallel()
 		path := findBinary(tmpDir, "notexist")
 		assert.Empty(t, path)
 	})
@@ -691,6 +714,7 @@ func (m *mockRuntimeDownloader) Verify(_ context.Context, _ string, _ *resource.
 }
 
 func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
+	t.Parallel()
 	binContent := []byte("#!/bin/sh\necho 'mock runtime'\n")
 	archiveData := createRuntimeTarGz(t, "myruntime", []mockBinary{
 		{name: "mybin", content: binContent},
@@ -747,6 +771,7 @@ func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			runtimesDir := filepath.Join(tmpDir, "runtimes")
 

@@ -12,6 +12,7 @@ import (
 )
 
 func TestStore_LockUnlock(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -39,6 +40,7 @@ func TestStore_LockUnlock(t *testing.T) {
 }
 
 func TestStore_LoadSave(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -113,6 +115,7 @@ func TestStore_LoadSave(t *testing.T) {
 }
 
 func TestStore_LoadReadOnly(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T, store *Store[UserState])
@@ -169,6 +172,7 @@ func TestStore_LoadReadOnly(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			store, err := NewStore[UserState](dir)
 			if err != nil {
@@ -195,6 +199,7 @@ func TestStore_LoadReadOnly(t *testing.T) {
 }
 
 func TestStore_LoadWithoutLock(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -208,6 +213,7 @@ func TestStore_LoadWithoutLock(t *testing.T) {
 }
 
 func TestStore_SaveWithoutLock(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -222,6 +228,7 @@ func TestStore_SaveWithoutLock(t *testing.T) {
 }
 
 func TestStore_AtomicWrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -254,6 +261,7 @@ func TestStore_AtomicWrite(t *testing.T) {
 }
 
 func TestStore_SystemState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[SystemState](dir)
 	if err != nil {
@@ -299,6 +307,7 @@ func TestStore_SystemState(t *testing.T) {
 }
 
 func TestNewStore_CreatesDirectory(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "nested", "path")
 	_, err := NewStore[UserState](dir)
 	if err != nil {
@@ -311,6 +320,7 @@ func TestNewStore_CreatesDirectory(t *testing.T) {
 }
 
 func TestStore_LockBehavior(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		test func(t *testing.T, dir string)
@@ -398,6 +408,7 @@ func TestStore_LockBehavior(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			tt.test(t, dir)
 		})
@@ -405,6 +416,7 @@ func TestStore_LockBehavior(t *testing.T) {
 }
 
 func TestStore_PathAccessors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	if err != nil {
@@ -430,6 +442,7 @@ func TestStore_PathAccessors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if tt.got != tt.expected {
 				t.Errorf("expected %s, got %s", tt.expected, tt.got)
 			}
@@ -438,6 +451,7 @@ func TestStore_PathAccessors(t *testing.T) {
 }
 
 func TestStore_LoadErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		setup     func(store *Store[UserState]) error
@@ -468,6 +482,7 @@ func TestStore_LoadErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			store, err := NewStore[UserState](dir)
 			if err != nil {
@@ -495,6 +510,7 @@ func TestStore_LoadErrors(t *testing.T) {
 }
 
 func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
+	t.Parallel()
 	now := time.Now().Truncate(time.Second) // Truncate for JSON round-trip
 
 	tests := []struct {
@@ -585,6 +601,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			store, err := NewStore[UserState](dir)
 			if err != nil {
@@ -611,6 +628,7 @@ func TestStore_SaveAndLoadPreservesAllFields(t *testing.T) {
 }
 
 func TestStore_RegistryState(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 
 	tests := []struct {
@@ -756,6 +774,7 @@ func TestStore_RegistryState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			store, err := NewStore[UserState](dir)
 			if err != nil {
@@ -782,6 +801,7 @@ func TestStore_RegistryState(t *testing.T) {
 }
 
 func TestStore_SetQuiet(t *testing.T) {
+	// NOTE: Not parallel — this test modifies global slog.Default().
 	// Create state with empty version fields to trigger warnings
 	stateJSON := `{
 		"version": "1",

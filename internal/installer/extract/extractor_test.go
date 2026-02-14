@@ -16,6 +16,7 @@ import (
 )
 
 func TestDetectArchiveType(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -65,6 +66,7 @@ func TestDetectArchiveType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := DetectArchiveType(tt.input)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -72,6 +74,7 @@ func TestDetectArchiveType(t *testing.T) {
 }
 
 func TestNewExtractor(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		archiveType ArchiveType
@@ -103,6 +106,7 @@ func TestNewExtractor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			extractor, err := NewExtractor(tt.archiveType)
 
 			if tt.wantErr {
@@ -121,6 +125,7 @@ func TestNewExtractor(t *testing.T) {
 }
 
 func TestExtractor_Extract_TarGz_Stream(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		createData func(t *testing.T) io.Reader
@@ -149,6 +154,7 @@ func TestExtractor_Extract_TarGz_Stream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			destDir := filepath.Join(tmpDir, "dest")
 
@@ -180,6 +186,7 @@ func TestExtractor_Extract_TarGz_Stream(t *testing.T) {
 }
 
 func TestExtractor_Extract_Zip_File(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, archivePath string)
@@ -201,6 +208,7 @@ func TestExtractor_Extract_Zip_File(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			archivePath := filepath.Join(tmpDir, "archive.zip")
 			destDir := filepath.Join(tmpDir, "dest")
@@ -239,6 +247,7 @@ func TestExtractor_Extract_Zip_File(t *testing.T) {
 }
 
 func TestExtractor_TarGz_PreservesExecutablePermission(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "dest")
 
@@ -257,6 +266,7 @@ func TestExtractor_TarGz_PreservesExecutablePermission(t *testing.T) {
 }
 
 func TestExtractor_InvalidStream(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "dest")
 
@@ -278,6 +288,7 @@ func (p *pureReader) Read(b []byte) (int, error) {
 }
 
 func TestExtractor_Zip_RequiresReaderAt(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "dest")
 
@@ -294,6 +305,7 @@ func TestExtractor_Zip_RequiresReaderAt(t *testing.T) {
 }
 
 func TestExtractor_Extract_Raw(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		destDirName string // final component of destDir becomes binary name
@@ -316,6 +328,7 @@ func TestExtractor_Extract_Raw(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			destDir := filepath.Join(tmpDir, tt.destDirName)
 
@@ -347,6 +360,7 @@ func TestExtractor_Extract_Raw(t *testing.T) {
 }
 
 func TestExtractor_Raw_CreatesParentDirectory(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "nested", "path", "toolname")
 

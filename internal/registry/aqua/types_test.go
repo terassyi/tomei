@@ -9,6 +9,7 @@ import (
 )
 
 func TestPackageInfo_YAMLParse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		yaml     string
@@ -156,6 +157,7 @@ format: tar.gz
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var got PackageInfo
 			err := yaml.Unmarshal([]byte(tt.yaml), &got)
 
@@ -182,6 +184,7 @@ format: tar.gz
 }
 
 func TestRegistryRef_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		ref     RegistryRef
@@ -241,6 +244,7 @@ func TestRegistryRef_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.ref.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
@@ -253,6 +257,7 @@ func TestRegistryRef_Validate(t *testing.T) {
 }
 
 func TestRegistryRef_IsEmpty(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		ref  RegistryRef
@@ -272,17 +277,20 @@ func TestRegistryRef_IsEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.ref.IsEmpty())
 		})
 	}
 }
 
 func TestRegistryRef_String(t *testing.T) {
+	t.Parallel()
 	ref := RegistryRef("v4.465.0")
 	assert.Equal(t, "v4.465.0", ref.String())
 }
 
 func TestFileSpec_YAMLParse(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		yaml     string
@@ -310,6 +318,7 @@ src: gh_v2.0.0_linux_amd64/bin/gh
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var got FileSpec
 			err := yaml.Unmarshal([]byte(tt.yaml), &got)
 			require.NoError(t, err)
@@ -319,6 +328,7 @@ src: gh_v2.0.0_linux_amd64/bin/gh
 }
 
 func TestVersionOverride_YAMLParse(t *testing.T) {
+	t.Parallel()
 	yamlData := `
 version_constraint: semver("< 1.0.0")
 asset: old-asset-{{.Version}}.tar.gz

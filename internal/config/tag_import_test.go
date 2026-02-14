@@ -22,6 +22,8 @@ import (
 //   - Imported packages cannot use @tag() to receive values from the caller.
 //   - Therefore, presets that need platform info accept explicit parameters.
 func TestTagImportBehavior(t *testing.T) {
+	t.Parallel()
+
 	// Build an in-memory registry module "example.com@v0" with a package
 	// "mypkg" that declares `_os: string @tag(os)`.
 	registryFS := fstest.MapFS{

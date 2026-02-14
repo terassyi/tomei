@@ -30,6 +30,7 @@ func containsANSI(s string) bool {
 }
 
 func TestFormatElapsed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		d    time.Duration
@@ -42,12 +43,14 @@ func TestFormatElapsed(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, formatElapsed(tt.d))
 		})
 	}
 }
 
 func TestFormatSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		bytes int64
@@ -61,12 +64,14 @@ func TestFormatSize(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, formatSize(tt.bytes))
 		})
 	}
 }
 
 func TestFitNodeNames(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		names    []string
@@ -100,6 +105,7 @@ func TestFitNodeNames(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := fitNodeNames(tt.names, tt.maxWidth)
 			assert.Equal(t, tt.want, result)
 		})
@@ -107,6 +113,7 @@ func TestFitNodeNames(t *testing.T) {
 }
 
 func TestRenderProgressBar(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		downloaded int64
@@ -121,6 +128,7 @@ func TestRenderProgressBar(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			bar := renderProgressBar(tt.downloaded, tt.total)
 			full := strings.Count(bar, string(progressFull))
 			empty := strings.Count(bar, string(progressEmpty))
@@ -132,12 +140,14 @@ func TestRenderProgressBar(t *testing.T) {
 }
 
 func TestRenderLayerHeader(t *testing.T) {
+	t.Parallel()
 	header := renderLayerHeader(0, 2, []string{"Runtime/go"}, "4.4s", 80)
 	assert.Contains(t, header, "Layer 1/2: Runtime/go")
 	assert.Contains(t, header, "4.4s")
 }
 
 func TestRenderLayerHeader_Styled(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	header := renderLayerHeader(0, 2, []string{"Runtime/go"}, "4.4s", 80)
@@ -147,6 +157,7 @@ func TestRenderLayerHeader_Styled(t *testing.T) {
 }
 
 func TestRenderCompletedLine(t *testing.T) {
+	t.Parallel()
 	task := &taskState{
 		kind:        resource.KindTool,
 		name:        "bat",
@@ -163,6 +174,7 @@ func TestRenderCompletedLine(t *testing.T) {
 }
 
 func TestRenderFailedLine(t *testing.T) {
+	t.Parallel()
 	task := &taskState{
 		kind:    resource.KindTool,
 		name:    "bat",
@@ -176,6 +188,7 @@ func TestRenderFailedLine(t *testing.T) {
 }
 
 func TestRenderProgressLine(t *testing.T) {
+	t.Parallel()
 	task := &taskState{
 		kind:        resource.KindRuntime,
 		name:        "go",
@@ -193,6 +206,7 @@ func TestRenderProgressLine(t *testing.T) {
 }
 
 func TestRenderDelegationLines(t *testing.T) {
+	t.Parallel()
 	task := &taskState{
 		kind:      resource.KindTool,
 		name:      "gopls",
@@ -214,6 +228,7 @@ func TestRenderDelegationLines(t *testing.T) {
 }
 
 func TestRenderDelegationLines_Styled(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	task := &taskState{
@@ -233,6 +248,7 @@ func TestRenderDelegationLines_Styled(t *testing.T) {
 }
 
 func TestTaskLabel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		task *taskState
@@ -261,12 +277,14 @@ func TestTaskLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, taskLabel(tt.task))
 		})
 	}
 }
 
 func TestView_ShowsCurrentLayerAndPendingHeaders(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -285,6 +303,7 @@ func TestView_ShowsCurrentLayerAndPendingHeaders(t *testing.T) {
 }
 
 func TestView_OnlyRendersStartedTasks(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -316,6 +335,7 @@ func TestView_OnlyRendersStartedTasks(t *testing.T) {
 }
 
 func TestView_RendersFinalStateWhenDone(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -342,6 +362,7 @@ func TestView_RendersFinalStateWhenDone(t *testing.T) {
 }
 
 func TestView_EmptyBeforeFirstEvent(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -349,6 +370,7 @@ func TestView_EmptyBeforeFirstEvent(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesWhileRunning(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -391,6 +413,7 @@ func TestView_DelegationLogLinesWhileRunning(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesClearedAfterCompletion(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -429,6 +452,7 @@ func TestView_DelegationLogLinesClearedAfterCompletion(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesClearedInFinalSnapshot(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -468,6 +492,7 @@ func TestView_DelegationLogLinesClearedInFinalSnapshot(t *testing.T) {
 }
 
 func TestView_NoLayerHeaderDuplication_TwoLayers(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -502,6 +527,7 @@ func TestView_NoLayerHeaderDuplication_TwoLayers(t *testing.T) {
 }
 
 func TestView_NoLayerHeaderDuplication_AfterDone(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -546,6 +572,7 @@ func TestView_NoLayerHeaderDuplication_AfterDone(t *testing.T) {
 }
 
 func TestView_NoLayerHeaderDuplication_ThreeLayers(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -622,6 +649,7 @@ func TestView_NoLayerHeaderDuplication_ThreeLayers(t *testing.T) {
 }
 
 func TestLayerHeaderStyle(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	input := "Layer 1/2: Runtime/go"
@@ -632,6 +660,7 @@ func TestLayerHeaderStyle(t *testing.T) {
 }
 
 func TestDelegationLogStyle(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	input := "go: downloading golang.org/x/tools v0.31.0"
@@ -642,6 +671,7 @@ func TestDelegationLogStyle(t *testing.T) {
 }
 
 func TestRenderTaskList_CompletedDelegationNoLogs(t *testing.T) {
+	t.Parallel()
 	tasks := map[string]*taskState{
 		"Tool/gopls": {
 			key:     "Tool/gopls",
@@ -672,6 +702,7 @@ func TestRenderTaskList_CompletedDelegationNoLogs(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesStyledWhileRunning(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	results := &ApplyResults{}
@@ -707,6 +738,7 @@ func TestView_DelegationLogLinesStyledWhileRunning(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesClearedAfterCompletionView(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -739,6 +771,7 @@ func TestView_DelegationLogLinesClearedAfterCompletionView(t *testing.T) {
 }
 
 func TestView_SnapshotClearsDelegationLogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -784,6 +817,7 @@ func TestView_SnapshotClearsDelegationLogLines(t *testing.T) {
 }
 
 func TestView_CompletedTasksRenderedBeforeRunning(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -844,12 +878,14 @@ func TestView_CompletedTasksRenderedBeforeRunning(t *testing.T) {
 }
 
 func TestRenderLogPanel_Empty(t *testing.T) {
+	t.Parallel()
 	var b strings.Builder
 	renderLogPanel(&b, nil, 80)
 	assert.Empty(t, b.String(), "log panel should not render when there are no log lines")
 }
 
 func TestRenderLogPanel_WithLines(t *testing.T) {
+	t.Parallel()
 	lines := []slogLine{
 		{level: slog.LevelWarn, message: "backup failed"},
 		{level: slog.LevelError, message: "state write error"},
@@ -866,6 +902,7 @@ func TestRenderLogPanel_WithLines(t *testing.T) {
 }
 
 func TestRenderLogPanel_Styled(t *testing.T) {
+	t.Parallel()
 	enableColorForTest(t)
 
 	lines := []slogLine{
@@ -880,6 +917,7 @@ func TestRenderLogPanel_Styled(t *testing.T) {
 }
 
 func TestSlogLevelLabel(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		level slog.Level
 		want  string
@@ -891,6 +929,7 @@ func TestSlogLevelLabel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
 			label := slogLevelLabel(tt.level)
 			assert.Contains(t, label, tt.want)
 		})
@@ -898,6 +937,7 @@ func TestSlogLevelLabel(t *testing.T) {
 }
 
 func TestView_LogPanelShownWithSlogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -919,6 +959,7 @@ func TestView_LogPanelShownWithSlogLines(t *testing.T) {
 }
 
 func TestView_LogPanelHiddenWithoutSlogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -933,6 +974,7 @@ func TestView_LogPanelHiddenWithoutSlogLines(t *testing.T) {
 }
 
 func TestView_FinalViewIncludesLogPanel(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 

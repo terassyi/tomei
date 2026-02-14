@@ -12,12 +12,14 @@ import (
 )
 
 func TestNewExecutor(t *testing.T) {
+	t.Parallel()
 	e := NewExecutor("/tmp")
 	assert.NotNil(t, e)
 	assert.Equal(t, "/tmp", e.workDir)
 }
 
 func TestExecutor_expand(t *testing.T) {
+	t.Parallel()
 	e := NewExecutor("")
 
 	tests := []struct {
@@ -63,6 +65,7 @@ func TestExecutor_expand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result, err := e.expand(tt.cmdStr, tt.vars)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result)
@@ -71,15 +74,18 @@ func TestExecutor_expand(t *testing.T) {
 }
 
 func TestExecutor_Execute(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("successful command", func(t *testing.T) {
+		t.Parallel()
 		e := NewExecutor("")
 		err := e.Execute(ctx, "echo hello", Vars{})
 		require.NoError(t, err)
 	})
 
 	t.Run("command with variables", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		testFile := filepath.Join(tmpDir, "test.txt")
 
@@ -93,6 +99,7 @@ func TestExecutor_Execute(t *testing.T) {
 	})
 
 	t.Run("failing command", func(t *testing.T) {
+		t.Parallel()
 		e := NewExecutor("")
 		err := e.Execute(ctx, "exit 1", Vars{})
 		require.Error(t, err)
@@ -100,6 +107,7 @@ func TestExecutor_Execute(t *testing.T) {
 	})
 
 	t.Run("with working directory", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 		e := NewExecutor(tmpDir)
 		err := e.Execute(ctx, "pwd > output.txt", Vars{})
@@ -112,10 +120,12 @@ func TestExecutor_Execute(t *testing.T) {
 }
 
 func TestExecutor_ExecuteWithEnv(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
 	t.Run("with environment variables", func(t *testing.T) {
+		t.Parallel()
 		e := NewExecutor("")
 		testFile := filepath.Join(tmpDir, "env_test.txt")
 
@@ -133,20 +143,24 @@ func TestExecutor_ExecuteWithEnv(t *testing.T) {
 }
 
 func TestExecutor_Check(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := NewExecutor("")
 
 	t.Run("successful check", func(t *testing.T) {
+		t.Parallel()
 		result := e.Check(ctx, "true", Vars{}, nil)
 		assert.True(t, result)
 	})
 
 	t.Run("failing check", func(t *testing.T) {
+		t.Parallel()
 		result := e.Check(ctx, "false", Vars{}, nil)
 		assert.False(t, result)
 	})
 
 	t.Run("check with command -v", func(t *testing.T) {
+		t.Parallel()
 		// sh should exist on all systems
 		result := e.Check(ctx, "command -v sh", Vars{}, nil)
 		assert.True(t, result)
@@ -157,6 +171,7 @@ func TestExecutor_Check(t *testing.T) {
 	})
 
 	t.Run("check with variables", func(t *testing.T) {
+		t.Parallel()
 		result := e.Check(ctx, "test {{.Name}} = gopls", Vars{Name: "gopls"}, nil)
 		assert.True(t, result)
 
@@ -166,6 +181,7 @@ func TestExecutor_Check(t *testing.T) {
 }
 
 func TestExecutor_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
@@ -175,10 +191,12 @@ func TestExecutor_ContextCancellation(t *testing.T) {
 }
 
 func TestExecutor_ExecuteWithOutput(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := NewExecutor("")
 
 	t.Run("streams output lines", func(t *testing.T) {
+		t.Parallel()
 		var lines []string
 		callback := func(line string) {
 			lines = append(lines, line)
@@ -190,6 +208,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("captures stderr", func(t *testing.T) {
+		t.Parallel()
 		var mu sync.Mutex
 		var lines []string
 		callback := func(line string) {
@@ -205,6 +224,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("with variables", func(t *testing.T) {
+		t.Parallel()
 		var lines []string
 		callback := func(line string) {
 			lines = append(lines, line)
@@ -216,6 +236,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("with environment variables", func(t *testing.T) {
+		t.Parallel()
 		var lines []string
 		callback := func(line string) {
 			lines = append(lines, line)
@@ -228,11 +249,13 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 	})
 
 	t.Run("nil callback drains output", func(t *testing.T) {
+		t.Parallel()
 		err := e.ExecuteWithOutput(ctx, "echo hello", Vars{}, nil, nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("failing command", func(t *testing.T) {
+		t.Parallel()
 		var mu sync.Mutex
 		var lines []string
 		callback := func(line string) {
@@ -249,28 +272,33 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 }
 
 func TestExecutor_ExecuteCapture(t *testing.T) {
+	t.Parallel()
 	e := NewExecutor("")
 	ctx := context.Background()
 
 	t.Run("captures stdout", func(t *testing.T) {
+		t.Parallel()
 		result, err := e.ExecuteCapture(ctx, "echo hello", Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "hello", result)
 	})
 
 	t.Run("trims whitespace", func(t *testing.T) {
+		t.Parallel()
 		result, err := e.ExecuteCapture(ctx, "echo '  1.83.0  '", Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "1.83.0", result)
 	})
 
 	t.Run("with variables", func(t *testing.T) {
+		t.Parallel()
 		result, err := e.ExecuteCapture(ctx, "echo {{.Version}}", Vars{Version: "stable"}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "stable", result)
 	})
 
 	t.Run("with environment", func(t *testing.T) {
+		t.Parallel()
 		env := map[string]string{"MY_VER": "2.0.0"}
 		result, err := e.ExecuteCapture(ctx, "echo $MY_VER", Vars{}, env)
 		require.NoError(t, err)
@@ -278,12 +306,14 @@ func TestExecutor_ExecuteCapture(t *testing.T) {
 	})
 
 	t.Run("failing command", func(t *testing.T) {
+		t.Parallel()
 		_, err := e.ExecuteCapture(ctx, "exit 1", Vars{}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "command failed")
 	})
 
 	t.Run("stderr not captured in result", func(t *testing.T) {
+		t.Parallel()
 		result, err := e.ExecuteCapture(ctx, "echo stdout; echo stderr >&2", Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "stdout", result)

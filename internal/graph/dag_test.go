@@ -9,6 +9,7 @@ import (
 )
 
 func TestNewNodeID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		kind     resource.Kind
 		name     string
@@ -21,6 +22,7 @@ func TestNewNodeID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected.String(), func(t *testing.T) {
+			t.Parallel()
 			got := NewNodeID(tt.kind, tt.name)
 			assert.Equal(t, tt.expected, got)
 		})
@@ -28,6 +30,7 @@ func TestNewNodeID(t *testing.T) {
 }
 
 func TestDAG_AddNode(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	d.addNode(resource.KindRuntime, "go")
@@ -42,6 +45,7 @@ func TestDAG_AddNode(t *testing.T) {
 }
 
 func TestDAG_AddEdge(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	goplsNode := d.addNode(resource.KindTool, "gopls")
@@ -56,6 +60,7 @@ func TestDAG_AddEdge(t *testing.T) {
 }
 
 func TestDAG_AddEdge_PanicOnNilNode(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 	node := d.addNode(resource.KindTool, "test")
 
@@ -69,6 +74,7 @@ func TestDAG_AddEdge_PanicOnNilNode(t *testing.T) {
 }
 
 func TestDAG_AddEdge_PanicOnNonExistentNode(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 	node := d.addNode(resource.KindTool, "test")
 	fakeNode := &Node{ID: "Tool/fake", Kind: resource.KindTool, Name: "fake"}
@@ -79,6 +85,7 @@ func TestDAG_AddEdge_PanicOnNonExistentNode(t *testing.T) {
 }
 
 func TestDAG_DetectCycle_NoCycle(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Runtime -> Installer -> Tool (no cycle)
@@ -94,6 +101,7 @@ func TestDAG_DetectCycle_NoCycle(t *testing.T) {
 }
 
 func TestDAG_DetectCycle_SimpleCycle(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// A -> B -> A (cycle)
@@ -109,6 +117,7 @@ func TestDAG_DetectCycle_SimpleCycle(t *testing.T) {
 }
 
 func TestDAG_DetectCycle_ComplexCycle(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// A -> B -> C -> A (3-node cycle)
@@ -126,6 +135,7 @@ func TestDAG_DetectCycle_ComplexCycle(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_Simple(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Runtime <- Installer <- Tool
@@ -154,6 +164,7 @@ func TestDAG_TopologicalSort_Simple(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_Diamond(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	//     A
@@ -191,6 +202,7 @@ func TestDAG_TopologicalSort_Diamond(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_MultiLayer(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Tool chain: Runtime(rust) <- Installer(cargo) <- Tool(cargo-binstall) <- Installer(binstall) <- Tool(ripgrep)
@@ -218,6 +230,7 @@ func TestDAG_TopologicalSort_MultiLayer(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_WithCycle(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	a := d.addNode(resource.KindTool, "a")
@@ -233,6 +246,7 @@ func TestDAG_TopologicalSort_WithCycle(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_ParallelNodes(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Multiple independent tools
@@ -259,7 +273,9 @@ func TestDAG_TopologicalSort_ParallelNodes(t *testing.T) {
 }
 
 func TestDAG_TopologicalSort_KindPriority(t *testing.T) {
+	t.Parallel()
 	t.Run("same layer sorted by kind priority", func(t *testing.T) {
+		t.Parallel()
 		d := newDAG()
 
 		// All independent nodes (no dependencies) - should be in same layer
@@ -291,6 +307,7 @@ func TestDAG_TopologicalSort_KindPriority(t *testing.T) {
 	})
 
 	t.Run("mixed layer with dependencies", func(t *testing.T) {
+		t.Parallel()
 		d := newDAG()
 
 		// Layer 0: go runtime and aqua installer (independent)
@@ -320,6 +337,7 @@ func TestDAG_TopologicalSort_KindPriority(t *testing.T) {
 	})
 
 	t.Run("installer with tool dependency in same potential layer", func(t *testing.T) {
+		t.Parallel()
 		d := newDAG()
 
 		// Independent nodes that would be in layer 0
@@ -362,6 +380,7 @@ func TestDAG_TopologicalSort_KindPriority(t *testing.T) {
 }
 
 func TestKindPriority(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		kind     resource.Kind
 		expected int
@@ -375,6 +394,7 @@ func TestKindPriority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.kind), func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.expected, kindPriority(tt.kind))
 		})
 	}
@@ -387,6 +407,7 @@ func TestKindPriority(t *testing.T) {
 }
 
 func TestSortNodesByKind(t *testing.T) {
+	t.Parallel()
 	nodes := []*Node{
 		{ID: "Tool/ripgrep", Kind: resource.KindTool, Name: "ripgrep"},
 		{ID: "Runtime/go", Kind: resource.KindRuntime, Name: "go"},

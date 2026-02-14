@@ -10,12 +10,16 @@ import (
 )
 
 func TestDefaultConfig(t *testing.T) {
+	t.Parallel()
+
 	cfg := DefaultConfig()
 	assert.Equal(t, DefaultDataDir, cfg.DataDir)
 	assert.Equal(t, DefaultBinDir, cfg.BinDir)
 }
 
 func TestLoadConfig_NoConfigFile(t *testing.T) {
+	t.Parallel()
+
 	tmpDir := t.TempDir()
 
 	cfg, err := LoadConfig(tmpDir)
@@ -27,6 +31,8 @@ func TestLoadConfig_NoConfigFile(t *testing.T) {
 }
 
 func TestLoadConfig_WithConfigFile(t *testing.T) {
+	t.Parallel()
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.cue")
 
@@ -48,6 +54,8 @@ config: {
 }
 
 func TestLoadConfig_PartialConfig(t *testing.T) {
+	t.Parallel()
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.cue")
 
@@ -70,6 +78,8 @@ config: {
 }
 
 func TestLoadConfig_NoConfigBlock(t *testing.T) {
+	t.Parallel()
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.cue")
 
@@ -90,6 +100,8 @@ somethingElse: "value"
 }
 
 func TestLoadConfig_InvalidCue(t *testing.T) {
+	t.Parallel()
+
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.cue")
 
@@ -107,6 +119,8 @@ config: {
 }
 
 func TestConfig_ToCue(t *testing.T) {
+	t.Parallel()
+
 	cfg := &Config{
 		DataDir: "~/my-data",
 		BinDir:  "~/my-bin",
@@ -128,6 +142,8 @@ func TestConfig_ToCue(t *testing.T) {
 }
 
 func TestConfig_ToCue_RoundTrip(t *testing.T) {
+	t.Parallel()
+
 	// Generate CUE from default config
 	cfg := DefaultConfig()
 	cueBytes, err := cfg.ToCue()

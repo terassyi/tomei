@@ -11,7 +11,9 @@ import (
 )
 
 func TestListSessions(t *testing.T) {
+	t.Parallel()
 	t.Run("returns sessions sorted newest first", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		dirs := []string{"20260201T100000", "20260203T100000", "20260202T100000"}
@@ -31,6 +33,7 @@ func TestListSessions(t *testing.T) {
 	})
 
 	t.Run("skips non-session directories", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "20260201T100000"), 0755))
@@ -44,12 +47,14 @@ func TestListSessions(t *testing.T) {
 	})
 
 	t.Run("returns nil for nonexistent directory", func(t *testing.T) {
+		t.Parallel()
 		sessions, err := ListSessions("/nonexistent/path")
 		require.NoError(t, err)
 		assert.Nil(t, sessions)
 	})
 
 	t.Run("returns nil for empty directory", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		sessions, err := ListSessions(tmpDir)
@@ -59,7 +64,9 @@ func TestListSessions(t *testing.T) {
 }
 
 func TestReadSessionLogs(t *testing.T) {
+	t.Parallel()
 	t.Run("reads log files", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		// Filenames use resource.Kind values (capitalized: Tool, Runtime)
@@ -81,6 +88,7 @@ func TestReadSessionLogs(t *testing.T) {
 	})
 
 	t.Run("skips non-log files and directories", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "Tool_foo.log"), []byte("ok"), 0644))
@@ -94,6 +102,7 @@ func TestReadSessionLogs(t *testing.T) {
 	})
 
 	t.Run("skips invalid filenames", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "nounderscore.log"), []byte("skip"), 0644))
@@ -107,7 +116,9 @@ func TestReadSessionLogs(t *testing.T) {
 }
 
 func TestReadResourceLog(t *testing.T) {
+	t.Parallel()
 	t.Run("reads specific resource log", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		content := "# tomei installation log\nsome output\n"
@@ -119,6 +130,7 @@ func TestReadResourceLog(t *testing.T) {
 	})
 
 	t.Run("returns error for missing log", func(t *testing.T) {
+		t.Parallel()
 		tmpDir := t.TempDir()
 
 		_, err := ReadResourceLog(tmpDir, resource.KindTool, "nonexistent")
@@ -128,6 +140,7 @@ func TestReadResourceLog(t *testing.T) {
 }
 
 func TestParseLogFilename(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		filename string
@@ -181,6 +194,7 @@ func TestParseLogFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			kind, name, ok := parseLogFilename(tt.filename)
 			assert.Equal(t, tt.wantOK, ok)
 			assert.Equal(t, tt.wantKind, kind)

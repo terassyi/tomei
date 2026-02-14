@@ -8,6 +8,7 @@ import (
 )
 
 func TestValidateUserState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		state        *UserState
@@ -101,6 +102,7 @@ func TestValidateUserState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := ValidateUserState(tt.state)
 			assert.Equal(t, tt.wantValid, result.IsValid())
 			assert.Len(t, result.Warnings, tt.wantWarnings)
@@ -109,6 +111,7 @@ func TestValidateUserState(t *testing.T) {
 }
 
 func TestValidateSystemState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		state        *SystemState
@@ -137,6 +140,7 @@ func TestValidateSystemState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := ValidateSystemState(tt.state)
 			assert.Equal(t, tt.wantValid, result.IsValid())
 			assert.Len(t, result.Warnings, tt.wantWarnings)
@@ -145,11 +149,13 @@ func TestValidateSystemState(t *testing.T) {
 }
 
 func TestValidationError_String(t *testing.T) {
+	t.Parallel()
 	e := ValidationError{Field: "version", Message: "version is empty"}
 	assert.Equal(t, "version: version is empty", e.String())
 }
 
 func TestValidationResult_HasWarnings(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		result *ValidationResult
@@ -171,6 +177,7 @@ func TestValidationResult_HasWarnings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.result.HasWarnings())
 		})
 	}

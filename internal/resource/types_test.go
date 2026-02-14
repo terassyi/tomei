@@ -6,6 +6,7 @@ import (
 )
 
 func TestToolSpec_IsEnabled(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		enabled *bool
@@ -18,6 +19,7 @@ func TestToolSpec_IsEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			spec := &ToolSpec{Enabled: tt.enabled}
 			if got := spec.IsEnabled(); got != tt.want {
 				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
@@ -27,6 +29,7 @@ func TestToolSpec_IsEnabled(t *testing.T) {
 }
 
 func TestToolItem_IsEnabled(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		enabled *bool
@@ -39,6 +42,7 @@ func TestToolItem_IsEnabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			item := &ToolItem{Enabled: tt.enabled}
 			if got := item.IsEnabled(); got != tt.want {
 				t.Errorf("IsEnabled() = %v, want %v", got, tt.want)
@@ -48,6 +52,7 @@ func TestToolItem_IsEnabled(t *testing.T) {
 }
 
 func TestToolState_Taint(t *testing.T) {
+	t.Parallel()
 	state := &ToolState{
 		InstallerRef: "go",
 		Version:      "0.16.0",
@@ -73,6 +78,7 @@ func TestToolState_Taint(t *testing.T) {
 }
 
 func TestAction_NeedsExecution(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		actionType ActionType
@@ -88,6 +94,7 @@ func TestAction_NeedsExecution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			action := &Action{ActionType: tt.actionType}
 			if got := action.NeedsExecution(); got != tt.want {
 				t.Errorf("NeedsExecution() = %v, want %v", got, tt.want)
@@ -97,6 +104,7 @@ func TestAction_NeedsExecution(t *testing.T) {
 }
 
 func TestNormalizeKind(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
@@ -122,6 +130,7 @@ func TestNormalizeKind(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, ok := NormalizeKind(tt.input)
 			if ok != tt.ok {
 				t.Errorf("NormalizeKind(%q) ok = %v, want %v", tt.input, ok, tt.ok)
@@ -134,6 +143,7 @@ func TestNormalizeKind(t *testing.T) {
 }
 
 func TestParseRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		input   string
@@ -194,6 +204,7 @@ func TestParseRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ParseRef(tt.input)
 			if tt.wantErr {
 				if err == nil {
@@ -213,6 +224,7 @@ func TestParseRef(t *testing.T) {
 }
 
 func TestParseRefArgs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		args    []string
@@ -273,6 +285,7 @@ func TestParseRefArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ParseRefArgs(tt.args)
 			if tt.wantErr {
 				if err == nil {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestResolver_Resolve_GitHubRelease(t *testing.T) {
+	t.Parallel()
 	// Setup: create cache with package info
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
@@ -51,6 +52,7 @@ func TestResolver_Resolve_GitHubRelease(t *testing.T) {
 }
 
 func TestResolver_Resolve_HTTP(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -75,6 +77,7 @@ func TestResolver_Resolve_HTTP(t *testing.T) {
 }
 
 func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "cli/cli"
@@ -105,6 +108,7 @@ func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
 }
 
 func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -134,6 +138,7 @@ func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
 }
 
 func TestResolver_Resolve_WithReplacements(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "BurntSushi/ripgrep"
@@ -162,6 +167,7 @@ func TestResolver_Resolve_WithReplacements(t *testing.T) {
 }
 
 func TestResolver_Resolve_UnsupportedEnv(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -191,6 +197,7 @@ func TestResolver_Resolve_UnsupportedEnv(t *testing.T) {
 }
 
 func TestResolver_Resolve_SupportedEnv(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -219,6 +226,7 @@ func TestResolver_Resolve_SupportedEnv(t *testing.T) {
 }
 
 func TestResolver_Resolve_PackageNotFound(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 
 	mockClient := &http.Client{
@@ -242,6 +250,7 @@ func TestResolver_Resolve_PackageNotFound(t *testing.T) {
 }
 
 func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
+	t.Parallel()
 	// Test that Resolve() uses runtime.GOOS and runtime.GOARCH
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
@@ -269,6 +278,7 @@ func TestResolver_Resolve_UsesRuntimeOS(t *testing.T) {
 }
 
 func TestResolver_VersionClient(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	resolver := NewResolver(cacheDir, nil)
 
@@ -282,6 +292,7 @@ func TestResolver_VersionClient(t *testing.T) {
 }
 
 func TestResolver_Resolve_NoChecksum(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -309,6 +320,7 @@ func TestResolver_Resolve_NoChecksum(t *testing.T) {
 }
 
 func TestResolver_Resolve_UnsupportedType(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -334,6 +346,7 @@ func TestResolver_Resolve_UnsupportedType(t *testing.T) {
 }
 
 func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := RegistryRef("v4.465.0")
 	pkg := "example/tool"
@@ -362,6 +375,7 @@ func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
 }
 
 func TestIsSupportedEnv(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		supportedEnvs []string
@@ -415,6 +429,7 @@ func TestIsSupportedEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := isSupportedEnv(tt.supportedEnvs, tt.goos, tt.goarch)
 			assert.Equal(t, tt.want, got)
 		})

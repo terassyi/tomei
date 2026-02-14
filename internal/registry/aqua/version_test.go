@@ -7,6 +7,7 @@ import (
 )
 
 func TestMatchVersionConstraint(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		constraint string
@@ -56,6 +57,7 @@ func TestMatchVersionConstraint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := matchVersionConstraint(tt.constraint, tt.version)
 			assert.Equal(t, tt.want, got)
 		})
@@ -63,6 +65,7 @@ func TestMatchVersionConstraint(t *testing.T) {
 }
 
 func TestApplyVersionOverrides(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		info    *PackageInfo
@@ -236,6 +239,7 @@ func TestApplyVersionOverrides(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			result := ApplyVersionOverrides(tt.info, tt.version)
 			tt.check(t, result)
 		})

@@ -22,6 +22,8 @@ func setupMinimalCueMod(t *testing.T, dir string) {
 }
 
 func TestLoader_LoadFile_Tool(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "tool.cue")
 
@@ -76,6 +78,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_ToolSet(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "toolset.cue")
 
@@ -123,6 +127,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_Runtime(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "runtime.cue")
 
@@ -172,6 +178,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_SystemPackageSet(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "syspkg.cue")
 
@@ -209,6 +217,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_WithLabels(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "tool.cue")
 
@@ -248,6 +258,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_WithDescription(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "tool.cue")
 
@@ -290,6 +302,8 @@ spec: {
 }
 
 func TestLoader_Load_Directory(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -321,6 +335,8 @@ spec: {
 }
 
 func TestEnv_Detect(t *testing.T) {
+	t.Parallel()
+
 	env := DetectEnv()
 
 	// Basic sanity checks
@@ -333,6 +349,8 @@ func TestEnv_Detect(t *testing.T) {
 }
 
 func TestLoader_Tag_StringInterpolation(t *testing.T) {
+	t.Parallel()
+
 	content := `package tomei
 
 _os:   string @tag(os)
@@ -370,6 +388,8 @@ gh: {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir := t.TempDir()
 			setupMinimalCueMod(t, dir)
 			if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
@@ -391,6 +411,8 @@ gh: {
 }
 
 func TestLoader_Tag_RuntimeURL(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -433,6 +455,8 @@ goRuntime: {
 }
 
 func TestLoader_Tag_Headless(t *testing.T) {
+	t.Parallel()
+
 	content := `package tomei
 
 _headless: bool @tag(headless,type=bool)
@@ -464,6 +488,8 @@ testTool: {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir := t.TempDir()
 			setupMinimalCueMod(t, dir)
 			if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
@@ -485,6 +511,8 @@ testTool: {
 }
 
 func TestLoader_Tag_DirectoryLoad(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -530,6 +558,8 @@ tool: {
 }
 
 func TestLoader_LoadFile_InstallerRepository_Delegation(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "repo.cue")
 
@@ -587,6 +617,8 @@ spec: {
 }
 
 func TestLoader_LoadFile_InstallerRepository_Git(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "repo.cue")
 
@@ -629,6 +661,8 @@ spec: {
 }
 
 func TestLoader_SchemaValidation_RejectsInvalid(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		content string
@@ -716,6 +750,8 @@ spec: {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			dir := t.TempDir()
 			cueFile := filepath.Join(dir, "test.cue")
 			if err := os.WriteFile(cueFile, []byte(tt.content), 0644); err != nil {
@@ -732,6 +768,8 @@ spec: {
 }
 
 func TestLoader_SchemaValidation_DirectoryMode(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -771,6 +809,8 @@ gh: {
 }
 
 func TestLoader_SchemaValidation_DirectoryRejectsInvalid(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -803,6 +843,8 @@ tool: {
 }
 
 func TestLoader_Load_NoImports_StillWorks(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -841,6 +883,8 @@ tool: {
 }
 
 func TestLoader_Tag_NotAvailableWithoutPackage(t *testing.T) {
+	t.Parallel()
+
 	// @tag() requires load.Instances() which needs a package declaration.
 	// Without a package, CompileString is used and tags are not resolved.
 	// When a tag value is used in string interpolation, it fails because
@@ -876,6 +920,8 @@ spec: {
 }
 
 func TestLoader_Tag_MultipleFilesShareTags(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -953,6 +999,8 @@ goRuntime: {
 }
 
 func TestLoader_Tag_ConstrainedValues(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
 
@@ -990,6 +1038,8 @@ tool: {
 }
 
 func TestLoader_SchemaValidation_NoSchemaInjection(t *testing.T) {
+	t.Parallel()
+
 	// Verify that #Resource definition is NOT injected into user CUE files.
 	// Schema validation uses the internally compiled schema instead.
 	dir := t.TempDir()
@@ -1027,6 +1077,8 @@ tool: {
 }
 
 func TestLoader_SchemaValidation_WorksWithoutPackage(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	cueFile := filepath.Join(dir, "tool.cue")
 

@@ -9,6 +9,7 @@ import (
 )
 
 func TestResolver_AddResource_Runtime(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	runtime := &resource.Runtime{
@@ -29,6 +30,7 @@ func TestResolver_AddResource_Runtime(t *testing.T) {
 }
 
 func TestResolver_AddResource_ToolWithRuntimeRef(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	tool := &resource.Tool{
@@ -51,6 +53,7 @@ func TestResolver_AddResource_ToolWithRuntimeRef(t *testing.T) {
 }
 
 func TestResolver_AddResource_InstallerWithToolRef(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	installer := &resource.Installer{
@@ -75,6 +78,7 @@ func TestResolver_AddResource_InstallerWithToolRef(t *testing.T) {
 }
 
 func TestResolver_AddResource_ToolWithInstallerRef(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	tool := &resource.Tool{
@@ -96,6 +100,7 @@ func TestResolver_AddResource_ToolWithInstallerRef(t *testing.T) {
 }
 
 func TestResolver_Resolve_ToolChain(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Build: Runtime(rust) <- Tool(cargo-binstall) <- Installer(binstall) <- Tool(ripgrep)
@@ -179,6 +184,7 @@ func TestResolver_Resolve_ToolChain(t *testing.T) {
 }
 
 func TestResolver_Validate_CircularDependency(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Create circular dependency: tool A depends on installer B, installer B depends on tool A
@@ -218,6 +224,7 @@ func TestResolver_Validate_CircularDependency(t *testing.T) {
 }
 
 func TestResolver_Resolve_ParallelTools(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	aquaInstaller := &resource.Installer{

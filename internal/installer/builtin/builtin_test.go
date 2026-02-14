@@ -9,6 +9,7 @@ import (
 )
 
 func TestInstallers(t *testing.T) {
+	t.Parallel()
 	installers := Installers()
 
 	// Should have both "download" and "aqua" installers
@@ -60,10 +61,12 @@ func TestInstallers(t *testing.T) {
 }
 
 func TestInstallers_AllValid(t *testing.T) {
+	t.Parallel()
 	installers := Installers()
 
 	for _, inst := range installers {
 		t.Run(inst.Metadata.Name, func(t *testing.T) {
+			t.Parallel()
 			// Verify required fields
 			assert.NotEmpty(t, inst.APIVersion)
 			assert.NotEmpty(t, inst.Metadata.Name)
@@ -77,6 +80,7 @@ func TestInstallers_AllValid(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		installerID string
@@ -101,6 +105,7 @@ func TestGet(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			inst := Get(tt.installerID)
 			if tt.wantNil {
 				assert.Nil(t, inst)
@@ -113,6 +118,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestIsBuiltin(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		installerID string
@@ -142,6 +148,7 @@ func TestIsBuiltin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := IsBuiltin(tt.installerID)
 			assert.Equal(t, tt.want, got)
 		})

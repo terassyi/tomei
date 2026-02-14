@@ -8,6 +8,8 @@ import (
 )
 
 func TestScanDeclaredTags(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		sources []string
@@ -108,6 +110,8 @@ _arch: string @tag(arch)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := scanDeclaredTags(tt.sources...)
 			assert.Equal(t, tt.want, got)
 		})
@@ -115,6 +119,8 @@ _arch: string @tag(arch)
 }
 
 func TestDetectPackageName(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		source string
@@ -159,6 +165,8 @@ func TestDetectPackageName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := detectPackageName(tt.source)
 			assert.Equal(t, tt.want, got)
 		})
@@ -166,6 +174,8 @@ func TestDetectPackageName(t *testing.T) {
 }
 
 func TestEnvTagsForSources(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		env     *Env
@@ -233,6 +243,8 @@ _headless: bool   @tag(headless,type=bool)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			loader := &Loader{env: tt.env}
 			got := loader.envTagsForSources(tt.sources...)
 			require.Equal(t, tt.want, got)

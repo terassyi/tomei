@@ -8,6 +8,7 @@ import (
 )
 
 func TestInstallerRepositorySpec_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		spec    InstallerRepositorySpec
@@ -114,6 +115,7 @@ func TestInstallerRepositorySpec_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.spec.Validate()
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -126,6 +128,7 @@ func TestInstallerRepositorySpec_Validate(t *testing.T) {
 }
 
 func TestInstallerRepositorySpec_Dependencies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		spec InstallerRepositorySpec
@@ -149,6 +152,7 @@ func TestInstallerRepositorySpec_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.spec.Dependencies()
 			assert.Equal(t, tt.want, got)
 		})
@@ -156,11 +160,13 @@ func TestInstallerRepositorySpec_Dependencies(t *testing.T) {
 }
 
 func TestInstallerRepository_Kind(t *testing.T) {
+	t.Parallel()
 	repo := &InstallerRepository{}
 	assert.Equal(t, KindInstallerRepository, repo.Kind())
 }
 
 func TestInstallerRepository_Spec(t *testing.T) {
+	t.Parallel()
 	spec := &InstallerRepositorySpec{
 		InstallerRef: "helm",
 		Source: InstallerRepositorySourceSpec{
@@ -181,6 +187,7 @@ func TestInstallerRepository_Spec(t *testing.T) {
 }
 
 func TestInstallerRepositoryState_IsState(t *testing.T) {
+	t.Parallel()
 	// Verify InstallerRepositoryState satisfies the State interface
 	var _ State = (*InstallerRepositoryState)(nil)
 }

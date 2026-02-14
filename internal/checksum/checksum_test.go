@@ -15,6 +15,8 @@ import (
 )
 
 func TestParse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name          string
 		value         string
@@ -50,6 +52,8 @@ func TestParse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			alg, hash, err := Parse(tt.value)
 
 			if tt.wantErr {
@@ -65,6 +69,8 @@ func TestParse(t *testing.T) {
 }
 
 func TestExtractHash(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		checksum *resource.Checksum
@@ -105,6 +111,8 @@ func TestExtractHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := ExtractHash(tt.checksum)
 			assert.Equal(t, tt.want, got)
 		})
@@ -112,6 +120,8 @@ func TestExtractHash(t *testing.T) {
 }
 
 func TestCalculate(t *testing.T) {
+	t.Parallel()
+
 	content := []byte("hello world")
 	expectedSHA256 := fmt.Sprintf("%x", sha256.Sum256(content))
 	expectedSHA512 := fmt.Sprintf("%x", sha512.Sum512(content))
@@ -148,6 +158,8 @@ func TestCalculate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := Calculate(filePath, tt.algorithm)
 
 			if tt.wantErr {
@@ -162,6 +174,8 @@ func TestCalculate(t *testing.T) {
 }
 
 func TestCalculateFromReader(t *testing.T) {
+	t.Parallel()
+
 	content := []byte("hello world")
 	expectedSHA256 := fmt.Sprintf("%x", sha256.Sum256(content))
 
@@ -171,6 +185,8 @@ func TestCalculateFromReader(t *testing.T) {
 }
 
 func TestVerify(t *testing.T) {
+	t.Parallel()
+
 	content := []byte("hello world")
 	expectedSHA256 := fmt.Sprintf("%x", sha256.Sum256(content))
 
@@ -201,6 +217,8 @@ func TestVerify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := Verify(filePath, tt.algorithm, tt.hash)
 
 			if tt.wantErr {
@@ -214,6 +232,8 @@ func TestVerify(t *testing.T) {
 }
 
 func TestDetectAlgorithm(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		hash string
@@ -238,6 +258,8 @@ func TestDetectAlgorithm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := DetectAlgorithm(tt.hash)
 			assert.Equal(t, tt.want, got)
 		})

@@ -33,6 +33,7 @@ func (m *mockSender) messages() []tea.Msg {
 }
 
 func TestThrottledReporter_ForwardsNonProgressEvents(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		eventType engine.EventType
@@ -46,6 +47,7 @@ func TestThrottledReporter_ForwardsNonProgressEvents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ms := &mockSender{}
 			r := NewThrottledReporter(ms)
 
@@ -66,6 +68,7 @@ func TestThrottledReporter_ForwardsNonProgressEvents(t *testing.T) {
 }
 
 func TestThrottledReporter_ThrottlesProgressEvents(t *testing.T) {
+	t.Parallel()
 	ms := &mockSender{}
 	r := NewThrottledReporter(ms)
 
@@ -97,6 +100,7 @@ func TestThrottledReporter_ThrottlesProgressEvents(t *testing.T) {
 }
 
 func TestThrottledReporter_ThrottlesPerResource(t *testing.T) {
+	t.Parallel()
 	ms := &mockSender{}
 	r := NewThrottledReporter(ms)
 
@@ -123,6 +127,7 @@ func TestThrottledReporter_ThrottlesPerResource(t *testing.T) {
 }
 
 func TestThrottledReporter_Done(t *testing.T) {
+	t.Parallel()
 	ms := &mockSender{}
 	r := NewThrottledReporter(ms)
 
@@ -136,6 +141,7 @@ func TestThrottledReporter_Done(t *testing.T) {
 }
 
 func TestThrottledReporter_DoneWithError(t *testing.T) {
+	t.Parallel()
 	ms := &mockSender{}
 	r := NewThrottledReporter(ms)
 
