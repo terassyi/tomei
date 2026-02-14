@@ -28,7 +28,7 @@ jq: {
 	metadata: name: "jq"
 	spec: {
 		installerRef: "aqua"
-		version:      "jq-1.8.1"
+		version:      "1.8.1"
 		package:      "jqlang/jq"
 	}
 }
