@@ -1,8 +1,5 @@
 package tomei
 
-_os:   string @tag(os)
-_arch: string @tag(arch)
-
 goRuntime: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
