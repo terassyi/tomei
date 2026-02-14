@@ -88,7 +88,7 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 	// Add CUE_REGISTRY if cue.mod/ exists and CUE_REGISTRY is not already set.
 	// Respecting an existing CUE_REGISTRY avoids overwriting user-configured
 	// registry mappings (e.g., private registries or additional mappings).
-	if _, exists := os.LookupEnv("CUE_REGISTRY"); !exists {
+	if _, exists := os.LookupEnv(config.EnvCUERegistry); !exists {
 		cwd, err := os.Getwd()
 		if err == nil {
 			if cueRegistryLine := env.GenerateCUERegistry(

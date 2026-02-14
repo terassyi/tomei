@@ -1078,9 +1078,9 @@ func TestBuildRegistry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.cueRegistry != "" {
-				t.Setenv("CUE_REGISTRY", tt.cueRegistry)
+				t.Setenv(EnvCUERegistry, tt.cueRegistry)
 			} else {
-				t.Setenv("CUE_REGISTRY", "")
+				t.Setenv(EnvCUERegistry, "")
 			}
 
 			registry, err := buildRegistry()

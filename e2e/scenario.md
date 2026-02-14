@@ -23,7 +23,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
-| CUE Ecosystem | 7 | tomei cue init, env CUE_REGISTRY, validate with cue.mod |
+| CUE Ecosystem | 8 | tomei cue init, env CUE_REGISTRY, validate with cue.mod |
 
 ## Scenario Flow
 
@@ -969,6 +969,13 @@ Reduced manifest for removal test:
 #### Custom Module Name
 1. Run `tomei cue init --module-name myproject@v0 <dir>`
 2. Verify `cue.mod/module.cue` contains `module: "myproject@v0"`
+
+#### Resolves Module Version from OCI Registry
+1. Create a target directory
+2. Run `tomei cue init <dir>` (queries ghcr.io for latest version)
+3. Verify `cue.mod/module.cue`:
+   - Contains `"tomei.terassyi.net@v0"`
+   - Dependency version matches `v: "v0.\d+.\d+"` (resolved from registry, not hardcoded)
 
 ### 6.2 `tomei env` with CUE Module
 
