@@ -236,4 +236,43 @@ func dependencyTests() {
 			Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
 		})
 	})
+
+	Context("Parallel Execution Continue-on-Error", func() {
+		BeforeAll(func() {
+			// Reset state.json and clean up tools/symlinks
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
+			_, _ = testExec.ExecBash(`rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fail-tool`)
+			_, _ = testExec.ExecBash(`rm -f ~/.local/bin/rg ~/.local/bin/fail-tool`)
+		})
+
+		It("continues installing other tools when one fails", func() {
+			By("Running tomei apply on parallel-failure.cue — should return error")
+			output, err := testExec.Exec("tomei", "apply", "--yes", "~/dependency-test/parallel-failure.cue")
+			Expect(err).To(HaveOccurred(), "apply should fail due to fail-tool")
+			Expect(output).To(ContainSubstring("simulated failure"))
+
+			By("Verifying rg was still installed despite fail-tool's failure")
+			rgOutput, rgErr := testExec.ExecBash("~/.local/bin/rg --version")
+			Expect(rgErr).NotTo(HaveOccurred())
+			Expect(rgOutput).To(ContainSubstring("ripgrep"))
+
+			By("Verifying state.json contains rg but not fail-tool")
+			stateOutput, stateErr := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
+			Expect(stateErr).NotTo(HaveOccurred())
+			Expect(stateOutput).To(ContainSubstring(`"rg"`))
+			Expect(stateOutput).NotTo(ContainSubstring(`"fail-tool"`))
+		})
+
+		It("second apply retries only the failed tool", func() {
+			By("Running tomei apply again — rg should be no-op, fail-tool should fail again")
+			output, err := testExec.Exec("tomei", "apply", "--yes", "~/dependency-test/parallel-failure.cue")
+			Expect(err).To(HaveOccurred())
+			Expect(output).To(ContainSubstring("simulated failure"))
+
+			By("Verifying rg still works")
+			rgOutput, rgErr := testExec.ExecBash("~/.local/bin/rg --version")
+			Expect(rgErr).NotTo(HaveOccurred())
+			Expect(rgOutput).To(ContainSubstring("ripgrep"))
+		})
+	})
 }

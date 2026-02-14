@@ -140,9 +140,9 @@ func (p *Package) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// isRegistryFormat checks if a string looks like an "owner/repo" format
+// isRegistryFormat checks if a string looks like an "owner/repo" or "owner/repo/sub" format
 // rather than a package path like "golang.org/x/tools/gopls".
-// Registry format: exactly one slash, no dots before the slash, not starting with @.
+// Registry format: at least one slash, no dots before the first slash, not starting with @.
 func isRegistryFormat(s string) bool {
 	// npm scoped packages start with @ (e.g., @biomejs/biome)
 	if len(s) > 0 && s[0] == '@' {
@@ -152,17 +152,15 @@ func isRegistryFormat(s string) bool {
 	slashIdx := -1
 	for i, c := range s {
 		if c == '/' {
-			if slashIdx != -1 {
-				// More than one slash - not registry format
-				return false
+			if slashIdx == -1 {
+				slashIdx = i
 			}
-			slashIdx = i
 		} else if c == '.' && slashIdx == -1 {
 			// Dot before first slash - looks like a domain (e.g., golang.org)
 			return false
 		}
 	}
-	// Must have exactly one slash and non-empty parts
+	// Must have at least one slash and non-empty first segment
 	return slashIdx > 0 && slashIdx < len(s)-1
 }
 

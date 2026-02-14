@@ -39,6 +39,8 @@ type e2eVersions struct {
 	RegFdVersionOld string // tools.cue.old → Tool/fd (older)
 	RegJqVersionOld string // tools.cue.old → Tool/jq (older)
 
+	// Three-segment package test (e2e/config/three-segment-test/)
+	RegLogcliVersion string // logcli.cue → Tool/logcli
 }
 
 // versions is the global version holder, populated in BeforeSuite.
@@ -161,6 +163,15 @@ func loadVersions() (*e2eVersions, error) {
 		return nil, fmt.Errorf("registry tools.cue.old jq: %w", err)
 	} else {
 		v.RegJqVersionOld = ver
+	}
+
+	// Three-segment package test
+	threeSegDir := filepath.Join(e2eDir, "config", "three-segment-test")
+
+	if ver, err := loadVersion(loader, filepath.Join(threeSegDir, "logcli.cue"), resource.KindTool, "logcli"); err != nil {
+		return nil, fmt.Errorf("logcli.cue: %w", err)
+	} else {
+		v.RegLogcliVersion = ver
 	}
 
 	return v, nil

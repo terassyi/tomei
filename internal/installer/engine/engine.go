@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -311,13 +312,16 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 			AllLayerNodes: allLayerNodes,
 		})
 
-		if err := e.executeLayer(ctx, layer, resourceMap, updatedRuntimes, &totalActions); err != nil {
-			return err
-		}
+		layerErr := e.executeLayer(ctx, layer, resourceMap, updatedRuntimes, &totalActions)
 
-		// Flush cached state changes to disk after each layer
+		// Flush cached state changes to disk after each layer, even on error.
+		// This persists successfully installed tools for idempotent retries.
 		if err := e.stateCache.Flush(); err != nil {
 			return fmt.Errorf("failed to flush state after layer %d: %w", i, err)
+		}
+
+		if layerErr != nil {
+			return layerErr
 		}
 
 		// Use snapshot for inter-layer state reads
@@ -424,8 +428,9 @@ func (e *Engine) executeNodeGroup(
 	return e.executeNodesParallel(ctx, nodes, resourceMap, updatedRuntimes, totalActions)
 }
 
-// executeNodesParallel executes nodes concurrently with cancel-on-error semantics.
-// When any node fails, the context is canceled to abort all running nodes.
+// executeNodesParallel executes nodes concurrently with continue-on-error semantics.
+// When a node fails, other nodes in the same layer continue to completion.
+// All errors are collected and returned as a joined error.
 func (e *Engine) executeNodesParallel(
 	ctx context.Context,
 	nodes []*graph.Node,
@@ -433,23 +438,22 @@ func (e *Engine) executeNodesParallel(
 	updatedRuntimes map[string]bool,
 	totalActions *int,
 ) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	sem := semaphore.NewWeighted(int64(e.parallelism))
 
 	var (
 		atomicTotal atomic.Int64
-		mu          sync.Mutex // protects updatedRuntimes and firstErr
-		firstErr    error
+		mu          sync.Mutex // protects updatedRuntimes and errs
+		errs        []error
 		wg          sync.WaitGroup
 	)
 
 	for _, node := range nodes {
 		// Acquire semaphore before launching goroutine to respect concurrency limit.
-		// Check context before blocking on semaphore to exit early on cancellation.
+		// Parent context cancellation (e.g., SIGINT) still causes early exit here.
 		if err := sem.Acquire(ctx, 1); err != nil {
-			// Context was canceled (another goroutine failed)
+			mu.Lock()
+			errs = append(errs, err)
+			mu.Unlock()
 			break
 		}
 
@@ -463,11 +467,8 @@ func (e *Engine) executeNodesParallel(
 
 			if err := e.executeNode(nodeCtx, node, resourceMap, localUpdated, &localActions); err != nil {
 				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
+				errs = append(errs, err)
 				mu.Unlock()
-				cancel() // Cancel all other running nodes
 				return
 			}
 
@@ -485,7 +486,7 @@ func (e *Engine) executeNodesParallel(
 
 	*totalActions += int(atomicTotal.Load())
 
-	return firstErr
+	return errors.Join(errs...)
 }
 
 // buildNodeContext creates a context with per-node progress and output callbacks.

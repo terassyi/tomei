@@ -36,7 +36,6 @@ COPY --chown=testuser:testuser config/delegation-test/ /home/testuser/delegation
 # tools.cue.old contains older versions for upgrade/downgrade tests
 COPY --chown=testuser:testuser config/registry/tools.cue /home/testuser/manifests/registry/tools.cue
 COPY --chown=testuser:testuser config/registry/tools.cue.old /home/testuser/manifests/registry/tools.cue.old
-
 # Copy dependency test manifests
 COPY --chown=testuser:testuser config/dependency-test/ /home/testuser/dependency-test/
 
@@ -45,6 +44,9 @@ COPY --chown=testuser:testuser config/installer-repo-test/ /home/testuser/instal
 
 # Copy logs-test manifests
 COPY --chown=testuser:testuser config/logs-test/ /home/testuser/logs-test/
+
+# Copy three-segment package test manifests
+COPY --chown=testuser:testuser config/three-segment-test/ /home/testuser/three-segment-test/
 
 # Default command
 CMD ["tomei", "version"]

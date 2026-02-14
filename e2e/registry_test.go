@@ -249,4 +249,30 @@ func registryTests() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
+
+	Context("Three-Segment Package", func() {
+		BeforeAll(func() {
+			// Re-init to get fresh state with aqua registry configured
+			_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
+		})
+
+		It("validates 3-segment package manifest", func() {
+			By("Running tomei validate on three-segment logcli manifest")
+			output, err := testExec.Exec("tomei", "validate", "~/three-segment-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("Validation successful"))
+			Expect(output).To(ContainSubstring("Tool/logcli"))
+		})
+
+		It("resolves 3-segment package via plan", func() {
+			By("Running tomei plan — should resolve registry and show install action")
+			output, err := testExec.Exec("tomei", "plan", "~/three-segment-test/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking plan recognizes the tool")
+			Expect(output).To(ContainSubstring("Tool/logcli"))
+			Expect(output).To(ContainSubstring(versions.RegLogcliVersion))
+			Expect(output).To(ContainSubstring("install"))
+		})
+	})
 }
