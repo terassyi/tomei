@@ -56,8 +56,10 @@ func ApplyVersionOverrides(info *PackageInfo, version string) *PackageInfo {
 		return info
 	}
 
-	// If the top-level version_constraint matches, use top-level fields directly.
-	if matchVersionConstraint(info.VersionConstraint, version) {
+	// If the top-level version_constraint is explicitly set and matches,
+	// use top-level fields directly (skip overrides).
+	// An empty VersionConstraint means "not set" — proceed to overrides.
+	if info.VersionConstraint != "" && matchVersionConstraint(info.VersionConstraint, version) {
 		return info
 	}
 

@@ -109,6 +109,31 @@ func TestApplyVersionOverrides(t *testing.T) {
 			},
 		},
 		{
+			name: "empty top-level constraint does not skip overrides",
+			info: &PackageInfo{
+				Type:   "github_release",
+				Asset:  "base_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz",
+				Format: "tar.gz",
+				// VersionConstraint is empty (not set in registry YAML)
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver(">= 2.0.0")`,
+						Asset:             "v2_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz",
+					},
+					{
+						VersionConstraint: `semver("< 2.0.0")`,
+						Asset:             "legacy_{{.Version}}.zip",
+						Format:            "zip",
+					},
+				},
+			},
+			version: "v2.5.0",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "v2_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz", result.Asset, "override should be applied")
+				assert.Equal(t, "tar.gz", result.Format, "format should remain from base")
+			},
+		},
+		{
 			name: "no match",
 			info: &PackageInfo{
 				Type:              "github_release",
