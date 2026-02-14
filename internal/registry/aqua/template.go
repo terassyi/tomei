@@ -9,8 +9,8 @@ import (
 
 // TemplateVars holds variables for rendering asset name templates.
 type TemplateVars struct {
-	Version string // Version with "v" prefix (e.g., "v2.86.0")
-	SemVer  string // Version without "v" prefix (e.g., "2.86.0")
+	Version string // Package version (e.g., "v2.86.0")
+	SemVer  string // Version with version_prefix stripped (e.g., "v2.86.0" when prefix is "kustomize/")
 	OS      string // OS name after replacements (e.g., "darwin", "linux")
 	Arch    string // Architecture after replacements (e.g., "amd64", "x86_64")
 	Format  string // Archive format (e.g., "tar.gz", "zip")

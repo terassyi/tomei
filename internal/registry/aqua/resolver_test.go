@@ -88,6 +88,7 @@ func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
     repo_name: cli
     asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
     format: tar.gz
+    version_constraint: semver(">= 2.0.0")
     version_overrides:
       - version_constraint: semver("< 2.0.0")
         asset: gh_old_{{trimV .Version}}_{{.OS}}_{{.Arch}}.zip
@@ -372,6 +373,182 @@ func TestResolver_Resolve_SupportedEnvAll(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.URL)
 	assert.Empty(t, result.Errors)
+}
+
+func TestResolver_Resolve_VersionPrefix(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "kubernetes-sigs/kustomize"
+
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: kubernetes-sigs
+    repo_name: kustomize
+    asset: kustomize_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    version_prefix: "kustomize/"
+    checksum:
+      type: github_release
+      asset: checksums.txt
+      algorithm: sha256
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v5.8.1", "darwin", "arm64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_darwin_arm64.tar.gz", result.URL)
+	assert.Equal(t, "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/checksums.txt", result.ChecksumURL)
+}
+
+func TestResolver_Resolve_VersionPrefixWithTrimV(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "jqlang/jq"
+
+	// jq uses version_prefix "jq-" and trimV in asset template
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: jqlang
+    repo_name: jq
+    asset: jq-{{.OS}}-{{.Arch}}
+    version_prefix: "jq-"
+    supported_envs:
+      - linux
+      - darwin
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "1.8.1", "linux", "amd64")
+
+	require.NoError(t, err)
+	// version_prefix "jq-" + version "1.8.1" = tag "jq-1.8.1"
+	assert.Equal(t, "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64", result.URL)
+	assert.Equal(t, "raw", result.Format, "should auto-detect raw format")
+}
+
+func TestResolver_Resolve_NoVersionPrefix_SemVerEqualsVersion(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "sharkdp/bat"
+
+	// No version_prefix: SemVer should equal Version, trimV strips "v"
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: sharkdp
+    repo_name: bat
+    asset: bat-{{trimV .Version}}-{{.Arch}}-{{.OS}}.tar.gz
+    format: tar.gz
+    replacements:
+      amd64: x86_64
+      linux: unknown-linux-musl
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v0.26.0", "linux", "amd64")
+
+	require.NoError(t, err)
+	// No version_prefix: tag = "v0.26.0", trimV removes "v" in asset name
+	assert.Equal(t, "https://github.com/sharkdp/bat/releases/download/v0.26.0/bat-0.26.0-x86_64-unknown-linux-musl.tar.gz", result.URL)
+}
+
+func TestResolver_Resolve_HTTPWithURLInVersionOverride(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "kubernetes/kubernetes/kubectl"
+
+	registryYAML := `packages:
+  - type: http
+    repo_owner: kubernetes
+    repo_name: kubectl
+    format: raw
+    version_constraint: semver(">= 99.0.0")
+    version_overrides:
+      - version_constraint: "true"
+        url: "https://dl.k8s.io/{{.Version}}/bin/{{.OS}}/{{.Arch}}/kubectl"
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.35.1", "linux", "amd64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://dl.k8s.io/v1.35.1/bin/linux/amd64/kubectl", result.URL)
+	assert.Equal(t, "raw", result.Format)
+}
+
+func TestResolver_Resolve_RawFormatAutoDetect(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "mikefarah/yq"
+
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: mikefarah
+    repo_name: yq
+    asset: yq_{{.OS}}_{{.Arch}}
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v4.52.2", "linux", "amd64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/mikefarah/yq/releases/download/v4.52.2/yq_linux_amd64", result.URL)
+	assert.Equal(t, "raw", result.Format, "should auto-detect raw format when asset has no archive extension")
+}
+
+func TestHasArchiveExtension(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		asset string
+		want  bool
+	}{
+		{"tar.gz", "tool_{{.OS}}_{{.Arch}}.tar.gz", true},
+		{"tgz", "tool_{{.OS}}_{{.Arch}}.tgz", true},
+		{"zip", "tool_{{.OS}}_{{.Arch}}.zip", true},
+		{"gz", "tool_{{.OS}}_{{.Arch}}.gz", true},
+		{"no extension", "tool_{{.OS}}_{{.Arch}}", false},
+		{"yq raw binary", "yq_{{.OS}}_{{.Arch}}", false},
+		{"single name", "kubectl", false},
+		{"uppercase tar.gz", "tool_{{.OS}}_{{.Arch}}.TAR.GZ", true},
+		{"tar.bz2 not recognized", "tool_{{.OS}}_{{.Arch}}.tar.bz2", false},
+		{"xz not recognized", "tool_{{.OS}}_{{.Arch}}.xz", false},
+		{"signature file", "tool.tar.gz.sig", false},
+		{"empty string", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := hasArchiveExtension(tt.asset)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestIsSupportedEnv(t *testing.T) {

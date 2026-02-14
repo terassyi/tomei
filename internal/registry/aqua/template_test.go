@@ -36,14 +36,37 @@ func TestRenderTemplate(t *testing.T) {
 			want: "tool_v1.2.3_darwin_arm64.tar.gz",
 		},
 		{
-			name:     "semver without v prefix",
+			name:     "semver equals version when no prefix",
 			template: "tool_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
 			vars: TemplateVars{
-				SemVer: "1.2.3",
-				OS:     "darwin",
-				Arch:   "arm64",
+				Version: "v1.2.3",
+				SemVer:  "v1.2.3",
+				OS:      "darwin",
+				Arch:    "arm64",
 			},
-			want: "tool_1.2.3_darwin_arm64.tar.gz",
+			want: "tool_v1.2.3_darwin_arm64.tar.gz",
+		},
+		{
+			name:     "semver with version_prefix stripped retains v",
+			template: "kustomize_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
+			vars: TemplateVars{
+				Version: "v5.8.1",
+				SemVer:  "v5.8.1", // version_prefix "kustomize/" stripped, v retained
+				OS:      "linux",
+				Arch:    "amd64",
+			},
+			want: "kustomize_v5.8.1_linux_amd64.tar.gz",
+		},
+		{
+			name:     "trimV on SemVer to remove v prefix",
+			template: "tool_{{trimV .SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
+			vars: TemplateVars{
+				Version: "v2.0.0",
+				SemVer:  "v2.0.0",
+				OS:      "darwin",
+				Arch:    "arm64",
+			},
+			want: "tool_2.0.0_darwin_arm64.tar.gz",
 		},
 		{
 			name:     "trimV function",

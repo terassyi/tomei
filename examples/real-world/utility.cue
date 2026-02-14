@@ -12,7 +12,7 @@ utilityTools: aqua.#AquaToolSet & {
 		bat: {package: "sharkdp/bat", version: "v0.26.0"}
 		rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
 		fd: {package: "sharkdp/fd", version: "v10.3.0"}
-		jq: {package: "jqlang/jq", version: "jq-1.8.1"}
+		jq: {package: "jqlang/jq", version: "1.8.1"}
 		yq: {package: "mikefarah/yq", version: "v4.52.2"}
 		fzf: {package: "junegunn/fzf", version: "v0.67.0"}
 	}

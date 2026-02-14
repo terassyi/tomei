@@ -183,9 +183,13 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 	archName := applyReplacement(info.Replacements, goarch)
 
 	// 6. Build template variables for asset name rendering
+	//    SemVer = Version with version_prefix stripped (aqua spec).
+	//    Example: version_prefix "kustomize/", version "v5.8.1" → SemVer "v5.8.1" (no prefix to strip).
+	//    When version_prefix is empty, SemVer equals Version.
+	semVer := strings.TrimPrefix(version, info.VersionPrefix)
 	vars := TemplateVars{
 		Version: version,
-		SemVer:  strings.TrimPrefix(version, "v"),
+		SemVer:  semVer,
 		OS:      osName,
 		Arch:    archName,
 		Format:  info.Format,
@@ -224,6 +228,12 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 
 	// 10. Set format and files
 	result.Format = info.Format
+	if result.Format == "" && info.Asset != "" {
+		// Auto-detect raw binary format when asset has no archive extension
+		if !hasArchiveExtension(info.Asset) {
+			result.Format = "raw"
+		}
+	}
 	result.Files = info.Files
 
 	return result, nil
@@ -241,8 +251,7 @@ func (r *Resolver) buildURL(info *PackageInfo, vars TemplateVars) (string, error
 		if err != nil {
 			return "", fmt.Errorf("failed to render asset template: %w", err)
 		}
-		return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
-			info.RepoOwner, info.RepoName, vars.Version, asset), nil
+		return githubReleaseURL(info, vars.Version, asset), nil
 
 	case "http":
 		return RenderTemplate(info.URL, vars)
@@ -265,11 +274,18 @@ func (r *Resolver) buildChecksumURL(info *PackageInfo, vars TemplateVars) (strin
 
 	switch info.Checksum.Type {
 	case "github_release", "":
-		return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
-			info.RepoOwner, info.RepoName, vars.Version, checksumAsset), nil
+		return githubReleaseURL(info, vars.Version, checksumAsset), nil
 	default:
 		return "", fmt.Errorf("unsupported checksum type: %s", info.Checksum.Type)
 	}
+}
+
+// githubReleaseURL builds a GitHub release download URL.
+// It applies VersionPrefix to the tag (e.g., "kustomize/" + "v5.8.1" → "kustomize/v5.8.1").
+func githubReleaseURL(info *PackageInfo, version, asset string) string {
+	tag := info.VersionPrefix + version
+	return fmt.Sprintf("https://github.com/%s/%s/releases/download/%s/%s",
+		info.RepoOwner, info.RepoName, tag, asset)
 }
 
 // isSupportedEnv checks if the given OS/Arch is in the supported environments list.
@@ -293,4 +309,13 @@ func isSupportedEnv(supportedEnvs []string, goos, goarch string) bool {
 		}
 	}
 	return false
+}
+
+// hasArchiveExtension checks if an asset template suggests an archive file.
+func hasArchiveExtension(asset string) bool {
+	lower := strings.ToLower(asset)
+	return strings.HasSuffix(lower, ".tar.gz") ||
+		strings.HasSuffix(lower, ".tgz") ||
+		strings.HasSuffix(lower, ".zip") ||
+		strings.HasSuffix(lower, ".gz")
 }
