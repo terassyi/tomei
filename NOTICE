@@ -34,7 +34,11 @@ SOFTWARE.
 
 Files derived from aqua:
 - internal/registry/aqua/types.go (PackageInfo, FileSpec, ChecksumSpec, VersionOverride, Override types)
+- internal/registry/aqua/version.go (version_constraint matching, version_overrides resolution)
+- internal/registry/aqua/resolver.go (template variables: Version, SemVer, version_prefix handling)
+- internal/registry/aqua/template.go (template functions: trimV, trimPrefix, trimSuffix)
 
 Reference:
 - aqua source: https://github.com/aquaproj/aqua/blob/main/pkg/config/registry/package_info.go
 - aqua-registry: https://github.com/aquaproj/aqua-registry
+- aqua docs: https://aquaproj.github.io/docs/reference/registry-config/

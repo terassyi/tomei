@@ -821,9 +821,9 @@ bat: {
 	assert.Greater(t, maxConcurrent.Load(), int32(1), "expected concurrent execution of independent tools")
 }
 
-func TestEngine_Apply_ParallelExecution_CancelOnError(t *testing.T) {
+func TestEngine_Apply_ParallelExecution_ContinueOnError(t *testing.T) {
 	t.Parallel()
-	// Test that when one tool fails in a parallel layer, other tools are canceled
+	// Test that when one tool fails in a parallel layer, other tools continue to completion
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
 	cueContent := `package tomei
@@ -892,7 +892,6 @@ bat: {
 
 	var mu sync.Mutex
 	installedTools := make(map[string]bool)
-	var canceledCount atomic.Int32
 
 	toolMock := &mockToolInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
@@ -901,13 +900,8 @@ bat: {
 				return nil, fmt.Errorf("simulated install failure for fd")
 			}
 
-			// Other tools simulate work and check for cancellation
-			select {
-			case <-ctx.Done():
-				canceledCount.Add(1)
-				return nil, ctx.Err()
-			case <-time.After(200 * time.Millisecond):
-			}
+			// Other tools simulate work (no cancellation check needed)
+			time.Sleep(50 * time.Millisecond)
 
 			mu.Lock()
 			installedTools[name] = true
@@ -924,13 +918,128 @@ bat: {
 
 	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
 
-	// Run Apply - should return error
+	// Run Apply - should return error for fd
 	err = eng.Apply(context.Background(), resources)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fd")
 
 	// fd should not be installed
 	assert.False(t, installedTools["fd"], "fd should not be installed")
+
+	// Other tools should have completed despite fd's failure
+	assert.True(t, installedTools["ripgrep"], "ripgrep should be installed")
+	assert.True(t, installedTools["bat"], "bat should be installed")
+
+	// State should be flushed with successful tools
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, loadErr := store.Load()
+	require.NoError(t, loadErr)
+	assert.Contains(t, st.Tools, "ripgrep", "ripgrep should be in state")
+	assert.Contains(t, st.Tools, "bat", "bat should be in state")
+	assert.NotContains(t, st.Tools, "fd", "fd should not be in state")
+}
+
+func TestEngine_Apply_ParallelExecution_MultipleErrors(t *testing.T) {
+	t.Parallel()
+	// Test that multiple failures in the same layer are all reported
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+aquaInstaller: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: {
+		type: "download"
+	}
+}
+
+toolA: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "tool-a"
+	spec: {
+		installerRef: "aqua"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/a.tar.gz"
+			checksum: { value: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+		}
+	}
+}
+
+toolB: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "tool-b"
+	spec: {
+		installerRef: "aqua"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/b.tar.gz"
+			checksum: { value: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+		}
+	}
+}
+
+toolC: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "tool-c"
+	spec: {
+		installerRef: "aqua"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/c.tar.gz"
+			checksum: { value: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			// tool-a and tool-b both fail
+			if name == "tool-a" {
+				return nil, fmt.Errorf("failure-a")
+			}
+			if name == "tool-b" {
+				return nil, fmt.Errorf("failure-b")
+			}
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failure-a")
+	assert.Contains(t, err.Error(), "failure-b")
+
+	// tool-c should be in state despite other failures
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, loadErr := store.Load()
+	require.NoError(t, loadErr)
+	assert.Contains(t, st.Tools, "tool-c", "tool-c should be in state")
 }
 
 func TestEngine_Apply_RuntimeBeforeTool_SameLayer(t *testing.T) {
@@ -1819,7 +1928,7 @@ func TestEngine_Property_ParallelismLimit(t *testing.T) {
 	})
 }
 
-func TestEngine_Property_CancelOnError(t *testing.T) {
+func TestEngine_Property_ContinueOnError(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(2, 10).Draw(t, "numTools")
@@ -1852,16 +1961,12 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 		installed := make(map[string]bool)
 
 		toolMock := &mockToolInstaller{
-			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 				if name == failName {
 					return nil, fmt.Errorf("simulated failure for %s", name)
 				}
 
-				select {
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				case <-time.After(50 * time.Millisecond):
-				}
+				time.Sleep(50 * time.Millisecond)
 
 				mu.Lock()
 				installed[name] = true
@@ -1890,7 +1995,17 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 			t.Fatalf("failed tool %s should not be installed", failName)
 		}
 
-		// Property: the failed tool must NOT be in state
+		// Property: all non-failing tools must be installed
+		for _, name := range toolNames {
+			if name == failName {
+				continue
+			}
+			if !installed[name] {
+				t.Fatalf("tool %s should have been installed despite %s failing", name, failName)
+			}
+		}
+
+		// Property: state must contain all non-failing tools but not the failed one
 		if lockErr := store.Lock(); lockErr != nil {
 			t.Fatal(lockErr)
 		}
@@ -1902,6 +2017,14 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 
 		if _, ok := st.Tools[failName]; ok {
 			t.Fatalf("failed tool %s should not be in state", failName)
+		}
+		for _, name := range toolNames {
+			if name == failName {
+				continue
+			}
+			if _, ok := st.Tools[name]; !ok {
+				t.Fatalf("tool %s should be in state despite %s failing", name, failName)
+			}
 		}
 	})
 }

@@ -88,11 +88,58 @@ func TestApplyVersionOverrides(t *testing.T) {
 			},
 		},
 		{
-			name: "no match",
+			name: "top-level constraint match skips overrides",
+			info: &PackageInfo{
+				Type:              "github_release",
+				Asset:             "tool_{{.SemVer}}_{{.OS}}.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 5.0.0")`,
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver(">= 4.0.0")`,
+						Asset:             "should_not_be_applied.zip",
+						Format:            "zip",
+					},
+				},
+			},
+			version: "v5.8.1",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "tool_{{.SemVer}}_{{.OS}}.tar.gz", result.Asset, "top-level asset should be used")
+				assert.Equal(t, "tar.gz", result.Format, "top-level format should be used")
+			},
+		},
+		{
+			name: "empty top-level constraint does not skip overrides",
 			info: &PackageInfo{
 				Type:   "github_release",
-				Asset:  "original.tar.gz",
+				Asset:  "base_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz",
 				Format: "tar.gz",
+				// VersionConstraint is empty (not set in registry YAML)
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver(">= 2.0.0")`,
+						Asset:             "v2_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz",
+					},
+					{
+						VersionConstraint: `semver("< 2.0.0")`,
+						Asset:             "legacy_{{.Version}}.zip",
+						Format:            "zip",
+					},
+				},
+			},
+			version: "v2.5.0",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "v2_{{.Version}}_{{.OS}}_{{.Arch}}.tar.gz", result.Asset, "override should be applied")
+				assert.Equal(t, "tar.gz", result.Format, "format should remain from base")
+			},
+		},
+		{
+			name: "no match",
+			info: &PackageInfo{
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				VersionOverrides: []VersionOverride{
 					{
 						VersionConstraint: `semver("< 1.0.0")`,
@@ -110,9 +157,10 @@ func TestApplyVersionOverrides(t *testing.T) {
 		{
 			name: "first match wins",
 			info: &PackageInfo{
-				Type:   "github_release",
-				Asset:  "original.tar.gz",
-				Format: "tar.gz",
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				VersionOverrides: []VersionOverride{
 					{
 						VersionConstraint: `semver("< 2.0.0")`,
@@ -136,9 +184,10 @@ func TestApplyVersionOverrides(t *testing.T) {
 		{
 			name: "partial override",
 			info: &PackageInfo{
-				Type:   "github_release",
-				Asset:  "original.tar.gz",
-				Format: "tar.gz",
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				Replacements: map[string]string{
 					"amd64": "x86_64",
 				},
@@ -160,9 +209,10 @@ func TestApplyVersionOverrides(t *testing.T) {
 		{
 			name: "checksum override",
 			info: &PackageInfo{
-				Type:   "github_release",
-				Asset:  "original.tar.gz",
-				Format: "tar.gz",
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				Checksum: &ChecksumSpec{
 					Type:      "github_release",
 					Asset:     "checksums.txt",
@@ -188,9 +238,10 @@ func TestApplyVersionOverrides(t *testing.T) {
 		{
 			name: "replacements override",
 			info: &PackageInfo{
-				Type:   "github_release",
-				Asset:  "original.tar.gz",
-				Format: "tar.gz",
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				Replacements: map[string]string{
 					"amd64": "x86_64",
 				},
@@ -213,9 +264,10 @@ func TestApplyVersionOverrides(t *testing.T) {
 		{
 			name: "overrides override",
 			info: &PackageInfo{
-				Type:   "github_release",
-				Asset:  "original.tar.gz",
-				Format: "tar.gz",
+				Type:              "github_release",
+				Asset:             "original.tar.gz",
+				Format:            "tar.gz",
+				VersionConstraint: `semver(">= 3.0.0")`,
 				VersionOverrides: []VersionOverride{
 					{
 						VersionConstraint: `semver("< 2.0.0")`,
@@ -235,6 +287,97 @@ func TestApplyVersionOverrides(t *testing.T) {
 				assert.Equal(t, "zip", result.Overrides[0].Format)
 			},
 		},
+		{
+			name: "URL override (type: http)",
+			info: &PackageInfo{
+				Type:              "http",
+				RepoOwner:         "kubernetes",
+				RepoName:          "kubectl",
+				VersionConstraint: `semver(">= 99.0.0")`,
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: "true",
+						URL:               "https://dl.k8s.io/{{.Version}}/bin/{{.OS}}/{{.Arch}}/kubectl",
+					},
+				},
+			},
+			version: "v1.35.1",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "https://dl.k8s.io/{{.Version}}/bin/{{.OS}}/{{.Arch}}/kubectl", result.URL)
+			},
+		},
+		{
+			name: "version_prefix override",
+			info: &PackageInfo{
+				Type:              "github_release",
+				RepoOwner:         "kubernetes-sigs",
+				RepoName:          "kustomize",
+				Asset:             "kustomize_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
+				VersionPrefix:     "kustomize/",
+				VersionConstraint: `semver(">= 5.0.0")`,
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver("< 4.0.0")`,
+						VersionPrefix:     strPtr(""),
+					},
+				},
+			},
+			version: "v3.5.0",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Empty(t, result.VersionPrefix, "version_prefix should be cleared by override")
+			},
+		},
+		{
+			name: "combined override (URL + VersionPrefix + Format)",
+			info: &PackageInfo{
+				Type:              "github_release",
+				RepoOwner:         "example",
+				RepoName:          "tool",
+				Asset:             "tool_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
+				Format:            "tar.gz",
+				VersionPrefix:     "app/",
+				VersionConstraint: `semver(">= 3.0.0")`,
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver("< 2.0.0")`,
+						URL:               "https://cdn.example.com/{{.Version}}/tool.zip",
+						VersionPrefix:     strPtr("legacy/"),
+						Format:            "zip",
+						Asset:             "tool_legacy.zip",
+					},
+				},
+			},
+			version: "v1.5.0",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "https://cdn.example.com/{{.Version}}/tool.zip", result.URL)
+				assert.Equal(t, "legacy/", result.VersionPrefix)
+				assert.Equal(t, "zip", result.Format)
+				assert.Equal(t, "tool_legacy.zip", result.Asset)
+			},
+		},
+		{
+			name: "version_prefix not overridden when nil",
+			info: &PackageInfo{
+				Type:              "github_release",
+				RepoOwner:         "kubernetes-sigs",
+				RepoName:          "kustomize",
+				Asset:             "kustomize_{{.SemVer}}_{{.OS}}_{{.Arch}}.tar.gz",
+				VersionPrefix:     "kustomize/",
+				VersionConstraint: `semver(">= 6.0.0")`,
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: "true",
+						Asset:             "new_asset.tar.gz",
+						// VersionPrefix not set (nil)
+					},
+				},
+			},
+			version: "v5.8.1",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "kustomize/", result.VersionPrefix, "version_prefix should be preserved")
+				assert.Equal(t, "new_asset.tar.gz", result.Asset)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -244,4 +387,8 @@ func TestApplyVersionOverrides(t *testing.T) {
 			tt.check(t, result)
 		})
 	}
+}
+
+func strPtr(s string) *string {
+	return &s
 }

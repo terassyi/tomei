@@ -2,7 +2,7 @@ package manifests
 
 _rgVersionOld: "14.1.1"
 _fdVersionOld: "v10.2.0"
-_jqVersionOld: "jq-1.7.1"
+_jqVersionOld: "1.7.1"
 
 // ripgrep - Install via aqua registry (older version for upgrade test)
 ripgrep: {

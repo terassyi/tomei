@@ -68,10 +68,10 @@ func (f *fetcher) cachePath(ref, pkg string) (string, error) {
 	if err := validatePathComponent(ref); err != nil {
 		return "", fmt.Errorf("invalid ref: %w", err)
 	}
-	// pkg can contain one slash (e.g., "cli/cli"), validate each part
+	// pkg contains at least one slash (e.g., "cli/cli" or "kubernetes/kubernetes/kubectl")
 	parts := strings.Split(pkg, "/")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid package format: %s (expected owner/repo)", pkg)
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid package format: %s (expected owner/repo[/sub...])", pkg)
 	}
 	for _, part := range parts {
 		if err := validatePathComponent(part); err != nil {

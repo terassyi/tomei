@@ -261,10 +261,10 @@ func TestFetcher_cachePath_PathTraversal(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid pkg format (three parts)",
+			name:    "valid pkg format (three parts)",
 			ref:     "v4.465.0",
-			pkg:     "org/repo/extra",
-			wantErr: true,
+			pkg:     "kubernetes/kubernetes/kubectl",
+			wantErr: false,
 		},
 	}
 

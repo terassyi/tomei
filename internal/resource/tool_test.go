@@ -313,6 +313,11 @@ func TestPackage_IsRegistry(t *testing.T) {
 			pkg:  &Package{},
 			want: false,
 		},
+		{
+			name: "registry package with 3-segment repo",
+			pkg:  &Package{Owner: "kubernetes", Repo: "kubernetes/kubectl"},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -469,7 +474,19 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 			want: &Package{Owner: "jqlang", Repo: "jq"},
 		},
 
-		// Name format strings (with dots or multiple slashes) - stored as Name
+		// Registry format strings with 3+ segments - auto-parsed to Owner+Repo
+		{
+			name: "string owner/repo/sub format - kubernetes/kubernetes/kubectl",
+			json: `"kubernetes/kubernetes/kubectl"`,
+			want: &Package{Owner: "kubernetes", Repo: "kubernetes/kubectl"},
+		},
+		{
+			name: "string owner/repo/sub format - a/b/c",
+			json: `"a/b/c"`,
+			want: &Package{Owner: "a", Repo: "b/c"},
+		},
+
+		// Name format strings (with dots) - stored as Name
 		{
 			name: "string with go package path",
 			json: `"golang.org/x/tools/gopls"`,
@@ -621,9 +638,11 @@ func TestIsRegistryFormat(t *testing.T) {
 		{"github.com/user/repo", false},
 		{"example.com/pkg", false},
 
-		// Not registry format - multiple slashes
-		{"a/b/c", false},
-		{"org/repo/subpkg", false},
+		// Registry format - multiple slashes (3+ segment aqua packages)
+		{"a/b/c", true},
+		{"org/repo/subpkg", true},
+		{"kubernetes/kubernetes/kubectl", true},
+		{"a/b/c/d", true},
 
 		// Not registry format - no slash
 		{"ripgrep", false},

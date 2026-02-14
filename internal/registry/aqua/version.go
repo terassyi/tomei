@@ -46,10 +46,20 @@ func matchVersionConstraint(constraint, version string) bool {
 }
 
 // ApplyVersionOverrides applies version-specific overrides to the package info.
-// It returns a new PackageInfo with the first matching override applied.
-// If no override matches, the original info is returned unchanged.
+//
+// Aqua's resolution order:
+//  1. If the top-level version_constraint matches, use top-level fields as-is (skip overrides).
+//  2. Otherwise, iterate version_overrides and apply the first matching override.
+//  3. If no override matches, return the original info unchanged.
 func ApplyVersionOverrides(info *PackageInfo, version string) *PackageInfo {
 	if len(info.VersionOverrides) == 0 {
+		return info
+	}
+
+	// If the top-level version_constraint is explicitly set and matches,
+	// use top-level fields directly (skip overrides).
+	// An empty VersionConstraint means "not set" — proceed to overrides.
+	if info.VersionConstraint != "" && matchVersionConstraint(info.VersionConstraint, version) {
 		return info
 	}
 
@@ -61,6 +71,12 @@ func ApplyVersionOverrides(info *PackageInfo, version string) *PackageInfo {
 			// Apply override fields if they are set
 			if override.Asset != "" {
 				result.Asset = override.Asset
+			}
+			if override.URL != "" {
+				result.URL = override.URL
+			}
+			if override.VersionPrefix != nil {
+				result.VersionPrefix = *override.VersionPrefix
 			}
 			if override.Format != "" {
 				result.Format = override.Format

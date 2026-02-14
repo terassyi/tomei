@@ -61,19 +61,21 @@ func (r RegistryRef) Validate() error {
 
 // PackageInfo represents a package definition from aqua registry.yaml.
 type PackageInfo struct {
-	Type             string            `yaml:"type"`
-	RepoOwner        string            `yaml:"repo_owner"`
-	RepoName         string            `yaml:"repo_name"`
-	Description      string            `yaml:"description,omitempty"`
-	Asset            string            `yaml:"asset,omitempty"`
-	URL              string            `yaml:"url,omitempty"`
-	Format           string            `yaml:"format,omitempty"`
-	Files            []FileSpec        `yaml:"files,omitempty"`
-	Replacements     map[string]string `yaml:"replacements,omitempty"`
-	Checksum         *ChecksumSpec     `yaml:"checksum,omitempty"`
-	VersionOverrides []VersionOverride `yaml:"version_overrides,omitempty"`
-	SupportedEnvs    []string          `yaml:"supported_envs,omitempty"`
-	Overrides        []Override        `yaml:"overrides,omitempty"`
+	Type              string            `yaml:"type"`
+	RepoOwner         string            `yaml:"repo_owner"`
+	RepoName          string            `yaml:"repo_name"`
+	Description       string            `yaml:"description,omitempty"`
+	Asset             string            `yaml:"asset,omitempty"`
+	URL               string            `yaml:"url,omitempty"`
+	Format            string            `yaml:"format,omitempty"`
+	VersionPrefix     string            `yaml:"version_prefix,omitempty"`
+	VersionConstraint string            `yaml:"version_constraint,omitempty"`
+	Files             []FileSpec        `yaml:"files,omitempty"`
+	Replacements      map[string]string `yaml:"replacements,omitempty"`
+	Checksum          *ChecksumSpec     `yaml:"checksum,omitempty"`
+	VersionOverrides  []VersionOverride `yaml:"version_overrides,omitempty"`
+	SupportedEnvs     []string          `yaml:"supported_envs,omitempty"`
+	Overrides         []Override        `yaml:"overrides,omitempty"`
 }
 
 // FileSpec specifies a file to install from the archive.
@@ -94,7 +96,9 @@ type ChecksumSpec struct {
 type VersionOverride struct {
 	VersionConstraint string            `yaml:"version_constraint"`
 	Asset             string            `yaml:"asset,omitempty"`
+	URL               string            `yaml:"url,omitempty"`
 	Format            string            `yaml:"format,omitempty"`
+	VersionPrefix     *string           `yaml:"version_prefix,omitempty"`
 	Checksum          *ChecksumSpec     `yaml:"checksum,omitempty"`
 	Replacements      map[string]string `yaml:"replacements,omitempty"`
 	Overrides         []Override        `yaml:"overrides,omitempty"`
