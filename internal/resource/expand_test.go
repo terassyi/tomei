@@ -11,6 +11,7 @@ import (
 func boolPtr(b bool) *bool { return &b }
 
 func TestExpandSets(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		resources []Resource
@@ -201,6 +202,7 @@ func TestExpandSets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ExpandSets(tt.resources)
 
 			if tt.wantErr != "" {
@@ -232,7 +234,9 @@ func TestExpandSets(t *testing.T) {
 }
 
 func TestExpandSets_InheritedFields(t *testing.T) {
+	t.Parallel()
 	t.Run("installerRef inherited", func(t *testing.T) {
+		t.Parallel()
 		resources := []Resource{
 			&ToolSet{
 				BaseResource: BaseResource{Metadata: Metadata{Name: "cli-tools"}},
@@ -256,6 +260,7 @@ func TestExpandSets_InheritedFields(t *testing.T) {
 	})
 
 	t.Run("runtimeRef inherited", func(t *testing.T) {
+		t.Parallel()
 		resources := []Resource{
 			&ToolSet{
 				BaseResource: BaseResource{Metadata: Metadata{Name: "go-tools"}},
@@ -280,6 +285,7 @@ func TestExpandSets_InheritedFields(t *testing.T) {
 	})
 
 	t.Run("source inherited", func(t *testing.T) {
+		t.Parallel()
 		src := &DownloadSource{URL: "https://example.com/fd.tar.gz"}
 		resources := []Resource{
 			&ToolSet{

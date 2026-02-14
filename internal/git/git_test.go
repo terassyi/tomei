@@ -11,6 +11,8 @@ import (
 )
 
 func TestNewRepository(t *testing.T) {
+	t.Parallel()
+
 	repo := NewRepository("octocat", "Hello-World")
 
 	assert.Equal(t, "octocat", repo.Owner)
@@ -19,12 +21,18 @@ func TestNewRepository(t *testing.T) {
 }
 
 func TestRepository_URL(t *testing.T) {
+	t.Parallel()
+
 	t.Run("default host", func(t *testing.T) {
+		t.Parallel()
+
 		repo := NewRepository("octocat", "Hello-World")
 		assert.Equal(t, "https://github.com/octocat/Hello-World.git", repo.URL())
 	})
 
 	t.Run("custom host", func(t *testing.T) {
+		t.Parallel()
+
 		repo := &Repository{
 			Owner: "user",
 			Name:  "repo",
@@ -34,6 +42,8 @@ func TestRepository_URL(t *testing.T) {
 	})
 
 	t.Run("empty host defaults to github.com", func(t *testing.T) {
+		t.Parallel()
+
 		repo := &Repository{
 			Owner: "user",
 			Name:  "repo",
@@ -44,10 +54,14 @@ func TestRepository_URL(t *testing.T) {
 }
 
 func TestRepository_Clone(t *testing.T) {
+	t.Parallel()
+
 	// Use a small, stable public repository for testing
 	repo := NewRepository("octocat", "Hello-World")
 
 	t.Run("clone repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -64,6 +78,8 @@ func TestRepository_Clone(t *testing.T) {
 	})
 
 	t.Run("clone with shallow depth", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world-shallow")
 
@@ -78,6 +94,8 @@ func TestRepository_Clone(t *testing.T) {
 	})
 
 	t.Run("clone with branch", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world-branch")
 
@@ -93,6 +111,8 @@ func TestRepository_Clone(t *testing.T) {
 	})
 
 	t.Run("clone already exists error", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -107,6 +127,8 @@ func TestRepository_Clone(t *testing.T) {
 	})
 
 	t.Run("clone invalid repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "invalid")
 
@@ -116,6 +138,8 @@ func TestRepository_Clone(t *testing.T) {
 	})
 
 	t.Run("clone context canceled", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "canceled")
 
@@ -128,9 +152,13 @@ func TestRepository_Clone(t *testing.T) {
 }
 
 func TestRepository_Pull(t *testing.T) {
+	t.Parallel()
+
 	repo := NewRepository("octocat", "Hello-World")
 
 	t.Run("pull existing repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -144,6 +172,8 @@ func TestRepository_Pull(t *testing.T) {
 	})
 
 	t.Run("pull non-existent repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "nonexistent")
 
@@ -154,9 +184,13 @@ func TestRepository_Pull(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
+	t.Parallel()
+
 	repo := NewRepository("octocat", "Hello-World")
 
 	t.Run("exists returns true for git repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -167,19 +201,27 @@ func TestExists(t *testing.T) {
 	})
 
 	t.Run("exists returns false for non-repository", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		assert.False(t, Exists(tmpDir))
 	})
 
 	t.Run("exists returns false for non-existent path", func(t *testing.T) {
+		t.Parallel()
+
 		assert.False(t, Exists("/nonexistent/path"))
 	})
 }
 
 func TestRepository_CloneOrPull(t *testing.T) {
+	t.Parallel()
+
 	repo := NewRepository("octocat", "Hello-World")
 
 	t.Run("clone when not exists", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -190,6 +232,8 @@ func TestRepository_CloneOrPull(t *testing.T) {
 	})
 
 	t.Run("pull when exists", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "hello-world")
 
@@ -215,6 +259,8 @@ func TestRepository_CloneOrPull(t *testing.T) {
 	})
 
 	t.Run("creates parent directory", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		destPath := filepath.Join(tmpDir, "nested", "dir", "hello-world")
 

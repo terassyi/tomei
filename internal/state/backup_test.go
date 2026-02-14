@@ -12,6 +12,7 @@ import (
 )
 
 func TestBackupPath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		statePath string
@@ -31,12 +32,14 @@ func TestBackupPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, BackupPath(tt.statePath))
 		})
 	}
 }
 
 func TestCreateBackup(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		setup     func(t *testing.T, dir string)
@@ -69,6 +72,7 @@ func TestCreateBackup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			tt.setup(t, dir)
 
@@ -103,6 +107,7 @@ func TestCreateBackup(t *testing.T) {
 }
 
 func TestCreateBackup_AtomicWrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := NewStore[UserState](dir)
 	require.NoError(t, err)
@@ -122,6 +127,7 @@ func TestCreateBackup_AtomicWrite(t *testing.T) {
 }
 
 func TestLoadBackup(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T, dir string) string
@@ -173,6 +179,7 @@ func TestLoadBackup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			statePath := tt.setup(t, dir)
 

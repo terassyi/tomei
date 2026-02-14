@@ -50,6 +50,7 @@ func newStateCacheRapid(t *rapid.T) *StateCache {
 // --- StateCache Tests ---
 
 func TestStateCache_InitAndFlush(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
@@ -76,6 +77,7 @@ func TestStateCache_InitAndFlush(t *testing.T) {
 }
 
 func TestStateCache_FlushOnlyWhenDirty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
@@ -90,6 +92,7 @@ func TestStateCache_FlushOnlyWhenDirty(t *testing.T) {
 }
 
 func TestStateCache_Snapshot(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 
@@ -100,6 +103,7 @@ func TestStateCache_Snapshot(t *testing.T) {
 }
 
 func TestStateCache_ConcurrentSaveThenFlush(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
@@ -132,6 +136,7 @@ func TestStateCache_ConcurrentSaveThenFlush(t *testing.T) {
 }
 
 func TestCachedStore_markDirtyViaSave(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
@@ -157,6 +162,7 @@ func TestCachedStore_markDirtyViaSave(t *testing.T) {
 // --- cachedStore Integration Tests ---
 
 func TestToolStore_SaveAndLoad(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 
@@ -176,6 +182,7 @@ func TestToolStore_SaveAndLoad(t *testing.T) {
 }
 
 func TestToolStore_Delete(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 
@@ -188,6 +195,7 @@ func TestToolStore_Delete(t *testing.T) {
 }
 
 func TestToolStore_LoadNotFound(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 
@@ -197,6 +205,7 @@ func TestToolStore_LoadNotFound(t *testing.T) {
 }
 
 func TestRuntimeStore_SaveAndLoad(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	rs := NewRuntimeStore(sc)
 
@@ -215,6 +224,7 @@ func TestRuntimeStore_SaveAndLoad(t *testing.T) {
 }
 
 func TestRuntimeStore_Delete(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	rs := NewRuntimeStore(sc)
 
@@ -229,6 +239,7 @@ func TestRuntimeStore_Delete(t *testing.T) {
 // --- Concurrency Integration Tests ---
 
 func TestToolStore_ConcurrentSave(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 
@@ -262,6 +273,7 @@ func TestToolStore_ConcurrentSave(t *testing.T) {
 }
 
 func TestRuntimeStore_ConcurrentSave(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	rs := NewRuntimeStore(sc)
 
@@ -295,6 +307,7 @@ func TestRuntimeStore_ConcurrentSave(t *testing.T) {
 }
 
 func TestToolAndRuntimeStore_ConcurrentMixed(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	ts := NewToolStore(sc)
 	rs := NewRuntimeStore(sc)
@@ -350,6 +363,7 @@ func TestToolAndRuntimeStore_ConcurrentMixed(t *testing.T) {
 // --- Property-Based Tests ---
 
 func TestToolStore_Property_ConcurrentSavePreservesAll(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		sc := newStateCacheRapid(t)
 		ts := NewToolStore(sc)
@@ -394,6 +408,7 @@ func TestToolStore_Property_ConcurrentSavePreservesAll(t *testing.T) {
 }
 
 func TestToolStore_Property_SaveDeleteConsistency(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		sc := newStateCacheRapid(t)
 		ts := NewToolStore(sc)
@@ -447,6 +462,7 @@ func TestToolStore_Property_SaveDeleteConsistency(t *testing.T) {
 // --- InstallerRepository Store Tests ---
 
 func TestInstallerRepositoryStore_SaveAndLoad(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	irs := NewInstallerRepositoryStore(sc)
 
@@ -466,6 +482,7 @@ func TestInstallerRepositoryStore_SaveAndLoad(t *testing.T) {
 }
 
 func TestInstallerRepositoryStore_Delete(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	irs := NewInstallerRepositoryStore(sc)
 
@@ -478,6 +495,7 @@ func TestInstallerRepositoryStore_Delete(t *testing.T) {
 }
 
 func TestInstallerRepositoryStore_LoadNotFound(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	irs := NewInstallerRepositoryStore(sc)
 
@@ -487,6 +505,7 @@ func TestInstallerRepositoryStore_LoadNotFound(t *testing.T) {
 }
 
 func TestInstallerRepositoryStore_ConcurrentSave(t *testing.T) {
+	t.Parallel()
 	sc := newStateCache(t)
 	irs := NewInstallerRepositoryStore(sc)
 
@@ -518,6 +537,7 @@ func TestInstallerRepositoryStore_ConcurrentSave(t *testing.T) {
 }
 
 func TestToolStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		sc := newStateCacheRapid(t)
 		ts := NewToolStore(sc)
@@ -553,6 +573,7 @@ func TestToolStore_Property_ConcurrentSameTool_LastWriteWins(t *testing.T) {
 // --- StateCache Property Tests ---
 
 func TestStateCache_Property_ConcurrentSaveThenFlush(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		sc := newStateCacheRapid(t)
 		ts := NewToolStore(sc)

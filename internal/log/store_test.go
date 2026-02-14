@@ -12,6 +12,7 @@ import (
 )
 
 func TestLogStore_RecordAndFailedResources(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
@@ -48,6 +49,7 @@ func TestLogStore_RecordAndFailedResources(t *testing.T) {
 }
 
 func TestLogStore_RecordComplete_DiscardsFile(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
@@ -77,6 +79,7 @@ func TestLogStore_RecordComplete_DiscardsFile(t *testing.T) {
 }
 
 func TestLogStore_Flush(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
@@ -120,6 +123,7 @@ func TestLogStore_Flush(t *testing.T) {
 }
 
 func TestLogStore_Flush_NoFailures(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
@@ -139,6 +143,7 @@ func TestLogStore_Flush_NoFailures(t *testing.T) {
 }
 
 func TestLogStore_Cleanup(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create 7 fake session directories
@@ -180,6 +185,7 @@ func TestLogStore_Cleanup(t *testing.T) {
 }
 
 func TestLogStore_Cleanup_FewSessions(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Only 2 sessions, keep 5
@@ -199,6 +205,7 @@ func TestLogStore_Cleanup_FewSessions(t *testing.T) {
 }
 
 func TestLogStore_MultipleFailures_Sorted(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)
@@ -226,6 +233,7 @@ func TestLogStore_MultipleFailures_Sorted(t *testing.T) {
 }
 
 func TestLogStore_Close_CleansUpTmpFiles(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 
 	store, err := NewStore(tmpDir)

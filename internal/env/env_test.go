@@ -11,6 +11,8 @@ import (
 )
 
 func TestGenerate(t *testing.T) {
+	t.Parallel()
+
 	home, _ := os.UserHomeDir()
 	userBinDir := home + "/.local/bin"
 
@@ -128,6 +130,8 @@ func TestGenerate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			f := NewFormatter(tt.shell)
 			lines := Generate(tt.runtimes, userBinDir, f)
 			output := joinLines(lines)
@@ -143,6 +147,8 @@ func TestGenerate(t *testing.T) {
 }
 
 func TestToShellPath(t *testing.T) {
+	t.Parallel()
+
 	home, _ := os.UserHomeDir()
 
 	tests := []struct {
@@ -179,6 +185,8 @@ func TestToShellPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := toShellPath(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
@@ -186,6 +194,8 @@ func TestToShellPath(t *testing.T) {
 }
 
 func TestDedupStrings(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		input []string
@@ -220,6 +230,8 @@ func TestDedupStrings(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := dedupStrings(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
@@ -227,6 +239,8 @@ func TestDedupStrings(t *testing.T) {
 }
 
 func TestGenerateCUERegistry(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		cueModExists bool
@@ -266,6 +280,8 @@ func TestGenerateCUERegistry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			f := NewFormatter(tt.shell)
 			got := GenerateCUERegistry(tt.cueModExists, tt.cueRegistry, f)
 			assert.Equal(t, tt.want, got)

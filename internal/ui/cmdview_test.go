@@ -11,6 +11,7 @@ import (
 )
 
 func TestCommandView_StartTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -29,6 +30,7 @@ func TestCommandView_StartTask(t *testing.T) {
 }
 
 func TestCommandView_AddOutput(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -39,6 +41,7 @@ func TestCommandView_AddOutput(t *testing.T) {
 }
 
 func TestCommandView_AddOutput_IgnoresUnknownTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -47,6 +50,7 @@ func TestCommandView_AddOutput_IgnoresUnknownTask(t *testing.T) {
 }
 
 func TestCommandView_AddOutput_IgnoresDoneTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -58,6 +62,7 @@ func TestCommandView_AddOutput_IgnoresDoneTask(t *testing.T) {
 }
 
 func TestCommandView_LastLog(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		setup    func(cv *CommandView)
@@ -94,6 +99,7 @@ func TestCommandView_LastLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var buf bytes.Buffer
 			cv := NewCommandView(&buf)
 			tt.setup(cv)
@@ -103,6 +109,7 @@ func TestCommandView_LastLog(t *testing.T) {
 }
 
 func TestCommandView_CompleteTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -120,6 +127,7 @@ func TestCommandView_CompleteTask(t *testing.T) {
 }
 
 func TestCommandView_FailTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -136,6 +144,7 @@ func TestCommandView_FailTask(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskStart(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -151,6 +160,7 @@ func TestCommandView_PrintTaskStart(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskStart_HeaderOnce(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -171,6 +181,7 @@ func TestCommandView_PrintTaskStart_HeaderOnce(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskStart_NilTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -180,6 +191,7 @@ func TestCommandView_PrintTaskStart_NilTask(t *testing.T) {
 }
 
 func TestCommandView_PrintOutput(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -191,6 +203,7 @@ func TestCommandView_PrintOutput(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskComplete_Success(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -204,6 +217,7 @@ func TestCommandView_PrintTaskComplete_Success(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskComplete_Error(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -217,6 +231,7 @@ func TestCommandView_PrintTaskComplete_Error(t *testing.T) {
 }
 
 func TestCommandView_PrintTaskComplete_NilTask(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
@@ -226,6 +241,7 @@ func TestCommandView_PrintTaskComplete_NilTask(t *testing.T) {
 }
 
 func TestTruncateLine(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		input  string
@@ -260,6 +276,7 @@ func TestTruncateLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := truncateLine(tt.input, tt.maxLen)
 			assert.Equal(t, tt.want, got)
 		})
@@ -267,6 +284,7 @@ func TestTruncateLine(t *testing.T) {
 }
 
 func TestCommandView_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 

@@ -11,11 +11,13 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	r := NewToolReconciler()
 	assert.NotNil(t, r)
 }
 
 func TestReconciler_Reconcile_Install(t *testing.T) {
+	t.Parallel()
 	// Tool exists in spec but not in state -> Install
 	tools := []*resource.Tool{
 		{
@@ -43,6 +45,7 @@ func TestReconciler_Reconcile_Install(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Upgrade(t *testing.T) {
+	t.Parallel()
 	// Tool exists in both but version differs -> Upgrade
 	tools := []*resource.Tool{
 		{
@@ -80,6 +83,7 @@ func TestReconciler_Reconcile_Upgrade(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Skip(t *testing.T) {
+	t.Parallel()
 	// Tool exists in both with same version -> Skip (no action)
 	tools := []*resource.Tool{
 		{
@@ -114,6 +118,7 @@ func TestReconciler_Reconcile_Skip(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Remove(t *testing.T) {
+	t.Parallel()
 	// Tool exists in state but not in spec -> Remove
 	tools := []*resource.Tool{} // Empty spec
 
@@ -139,6 +144,7 @@ func TestReconciler_Reconcile_Remove(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_MultipleTools(t *testing.T) {
+	t.Parallel()
 	// Multiple tools with different actions
 	tools := []*resource.Tool{
 		{
@@ -203,6 +209,7 @@ func TestReconciler_Reconcile_MultipleTools(t *testing.T) {
 }
 
 func TestReconciler_Reconcile_Tainted(t *testing.T) {
+	t.Parallel()
 	// Tool is tainted -> Reinstall (upgrade action)
 	tools := []*resource.Tool{
 		{
@@ -244,6 +251,7 @@ func TestReconciler_Reconcile_Tainted(t *testing.T) {
 // --- specVersionChanged unit tests ---
 
 func TestSpecVersionChanged(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name             string
 		specVersion      string
@@ -341,6 +349,7 @@ func TestSpecVersionChanged(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := specVersionChanged(tt.specVersion, tt.stateVersionKind, tt.stateVersion, tt.stateSpecVersion)
 			assert.Equal(t, tt.want, got)
 		})
@@ -350,6 +359,7 @@ func TestSpecVersionChanged(t *testing.T) {
 // --- ToolComparator tests with VersionKind ---
 
 func TestToolComparator_VersionKind(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		specVersion string
@@ -435,6 +445,7 @@ func TestToolComparator_VersionKind(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			comparator := ToolComparator()
 
 			res := &resource.Tool{
@@ -468,6 +479,7 @@ func TestToolComparator_VersionKind(t *testing.T) {
 // --- RuntimeComparator tests with VersionKind ---
 
 func TestRuntimeComparator_VersionKind(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		specVersion string
@@ -524,6 +536,7 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			comparator := RuntimeComparator()
 
 			res := &resource.Runtime{
@@ -554,6 +567,7 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 
 // Property: VersionExact with same spec and state version → always false
 func TestSpecVersionChanged_Property_ExactSameVersion(t *testing.T) {
+	t.Parallel()
 	f := func(version string) bool {
 		if version == "" {
 			return true // skip: empty is VersionLatest, not VersionExact
@@ -567,6 +581,7 @@ func TestSpecVersionChanged_Property_ExactSameVersion(t *testing.T) {
 
 // Property: VersionExact with different spec and state version → always true
 func TestSpecVersionChanged_Property_ExactDifferentVersion(t *testing.T) {
+	t.Parallel()
 	f := func(specVersion, stateVersion string) bool {
 		if specVersion == stateVersion {
 			return true // skip: same version
@@ -580,6 +595,7 @@ func TestSpecVersionChanged_Property_ExactDifferentVersion(t *testing.T) {
 
 // Property: VersionLatest with empty spec → always false (updates driven by --sync)
 func TestSpecVersionChanged_Property_LatestStaysEmpty(t *testing.T) {
+	t.Parallel()
 	f := func(stateVersion string) bool {
 		return !specVersionChanged("", resource.VersionLatest, stateVersion, "")
 	}
@@ -590,6 +606,7 @@ func TestSpecVersionChanged_Property_LatestStaysEmpty(t *testing.T) {
 
 // Property: VersionLatest with non-empty spec → always true (spec changed from latest to explicit)
 func TestSpecVersionChanged_Property_LatestToExplicit(t *testing.T) {
+	t.Parallel()
 	f := func(specVersion, stateVersion string) bool {
 		if specVersion == "" {
 			return true // skip: still latest
@@ -603,6 +620,7 @@ func TestSpecVersionChanged_Property_LatestToExplicit(t *testing.T) {
 
 // Property: VersionAlias with same alias → always false
 func TestSpecVersionChanged_Property_AliasSameAlias(t *testing.T) {
+	t.Parallel()
 	f := func(alias, resolvedVersion string) bool {
 		if alias == "" {
 			return true // skip: empty alias is meaningless
@@ -616,6 +634,7 @@ func TestSpecVersionChanged_Property_AliasSameAlias(t *testing.T) {
 
 // Property: VersionAlias with different spec → always true
 func TestSpecVersionChanged_Property_AliasDifferentSpec(t *testing.T) {
+	t.Parallel()
 	f := func(specVersion, stateSpecVersion, stateVersion string) bool {
 		if specVersion == stateSpecVersion {
 			return true // skip: same alias

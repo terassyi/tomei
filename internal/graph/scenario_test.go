@@ -17,6 +17,7 @@ import (
 // TestResolver_ComplexManifest_MultipleRuntimeChains tests a realistic scenario
 // with multiple runtimes and their tool chains.
 func TestResolver_ComplexManifest_MultipleRuntimeChains(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Go runtime chain
@@ -86,6 +87,7 @@ func TestResolver_ComplexManifest_MultipleRuntimeChains(t *testing.T) {
 // TestResolver_ComplexManifest_DeepChain tests a deep dependency chain
 // to ensure correct layer assignment.
 func TestResolver_ComplexManifest_DeepChain(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Create a deep chain: Runtime -> Tool1 -> Installer1 -> Tool2 -> Installer2 -> Tool3
@@ -123,6 +125,7 @@ func TestResolver_ComplexManifest_DeepChain(t *testing.T) {
 
 // TestResolver_ComplexManifest_WideDependencies tests wide (fan-out) dependencies.
 func TestResolver_ComplexManifest_WideDependencies(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// One runtime with many direct tool dependencies
@@ -149,6 +152,7 @@ func TestResolver_ComplexManifest_WideDependencies(t *testing.T) {
 
 // TestResolver_ComplexManifest_DiamondDependency tests diamond dependency patterns.
 func TestResolver_ComplexManifest_DiamondDependency(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Diamond pattern:
@@ -215,6 +219,7 @@ func TestResolver_ComplexManifest_DiamondDependency(t *testing.T) {
 
 // TestResolver_CycleDetection_SelfReference tests self-referential dependency.
 func TestResolver_CycleDetection_SelfReference(t *testing.T) {
+	t.Parallel()
 	// Note: This would be caught at CUE validation level,
 	// but we test the graph layer anyway.
 	d := newDAG()
@@ -227,6 +232,7 @@ func TestResolver_CycleDetection_SelfReference(t *testing.T) {
 
 // TestResolver_CycleDetection_TwoNodeCycle tests A -> B -> A cycle.
 func TestResolver_CycleDetection_TwoNodeCycle(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	toolA := &resource.Tool{
@@ -270,6 +276,7 @@ func TestResolver_CycleDetection_TwoNodeCycle(t *testing.T) {
 
 // TestResolver_CycleDetection_ThreeNodeCycle tests A -> B -> C -> A cycle.
 func TestResolver_CycleDetection_ThreeNodeCycle(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	toolA := &resource.Tool{
@@ -338,6 +345,7 @@ func TestResolver_CycleDetection_ThreeNodeCycle(t *testing.T) {
 
 // TestResolver_CycleDetection_LongCycle tests a longer cycle (5 nodes).
 func TestResolver_CycleDetection_LongCycle(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Create a cycle: 1 -> 2 -> 3 -> 4 -> 5 -> 1
@@ -358,6 +366,7 @@ func TestResolver_CycleDetection_LongCycle(t *testing.T) {
 
 // TestResolver_CycleDetection_CycleInSubgraph tests cycle detection in a subgraph.
 func TestResolver_CycleDetection_CycleInSubgraph(t *testing.T) {
+	t.Parallel()
 	d := newDAG()
 
 	// Independent chain: A -> B -> C
@@ -401,6 +410,7 @@ func TestResolver_CycleDetection_CycleInSubgraph(t *testing.T) {
 
 // TestResolver_EdgeCase_EmptyManifest tests empty manifest handling.
 func TestResolver_EdgeCase_EmptyManifest(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	layers, err := resolver.Resolve()
@@ -410,6 +420,7 @@ func TestResolver_EdgeCase_EmptyManifest(t *testing.T) {
 
 // TestResolver_EdgeCase_SingleNode tests single node handling.
 func TestResolver_EdgeCase_SingleNode(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 	resolver.AddResource(createRuntime("go", resource.InstallTypeDownload))
 
@@ -421,6 +432,7 @@ func TestResolver_EdgeCase_SingleNode(t *testing.T) {
 
 // TestResolver_EdgeCase_DisconnectedComponents tests multiple disconnected components.
 func TestResolver_EdgeCase_DisconnectedComponents(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	// Component 1: Go chain
@@ -456,6 +468,7 @@ func TestResolver_EdgeCase_DisconnectedComponents(t *testing.T) {
 
 // TestResolver_EdgeCase_DuplicateResources tests duplicate resource handling.
 func TestResolver_EdgeCase_DuplicateResources(t *testing.T) {
+	t.Parallel()
 	resolver := NewResolver()
 
 	runtime := createRuntime("go", resource.InstallTypeDownload)
@@ -473,6 +486,7 @@ func TestResolver_EdgeCase_DuplicateResources(t *testing.T) {
 
 // TestResolver_Stress_LargeGraph tests performance with large graphs.
 func TestResolver_Stress_LargeGraph(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping stress test in short mode")
 	}
@@ -508,6 +522,7 @@ func TestResolver_Stress_LargeGraph(t *testing.T) {
 
 // TestResolver_Stress_DeepGraph tests performance with deep dependency chains.
 func TestResolver_Stress_DeepGraph(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("Skipping stress test in short mode")
 	}
@@ -556,6 +571,7 @@ func TestResolver_Stress_DeepGraph(t *testing.T) {
 // TestResolver_Determinism_SameOutput verifies that the resolver produces
 // deterministic output for the same input.
 func TestResolver_Determinism_SameOutput(t *testing.T) {
+	t.Parallel()
 	for range 10 {
 		resolver1 := NewResolver()
 		resolver2 := NewResolver()

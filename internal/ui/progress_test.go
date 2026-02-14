@@ -24,6 +24,7 @@ func newNonTTYProgressManager(w *bytes.Buffer) *ProgressManager {
 }
 
 func TestProgressManager_HandleEvent_DownloadStart_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 
@@ -43,6 +44,7 @@ func TestProgressManager_HandleEvent_DownloadStart_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_HandleEvent_DownloadHeaderOnce_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -64,6 +66,7 @@ func TestProgressManager_HandleEvent_DownloadHeaderOnce_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_HandleEvent_CommandLifecycle_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -107,6 +110,7 @@ func TestProgressManager_HandleEvent_CommandLifecycle_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_HandleEvent_CommandError_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -132,6 +136,7 @@ func TestProgressManager_HandleEvent_CommandError_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_HandleEvent_DownloadError_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -158,6 +163,7 @@ func TestProgressManager_HandleEvent_DownloadError_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_UpdateResults(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		action    resource.ActionType
@@ -171,6 +177,7 @@ func TestProgressManager_UpdateResults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			results := &ApplyResults{}
 			updateResults(tt.action, results)
 			switch tt.wantField {
@@ -186,6 +193,7 @@ func TestProgressManager_UpdateResults(t *testing.T) {
 }
 
 func TestProgressManager_HandleEvent_MixedDownloadAndCommand_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -235,6 +243,7 @@ func TestProgressManager_HandleEvent_MixedDownloadAndCommand_NonTTY(t *testing.T
 }
 
 func TestProgressManager_IsDownloadMethod(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		method string
 		want   bool
@@ -247,17 +256,20 @@ func TestProgressManager_IsDownloadMethod(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, isDownloadMethod(tt.method))
 		})
 	}
 }
 
 func TestProgressManager_ResourceKey(t *testing.T) {
+	t.Parallel()
 	assert.Equal(t, "Tool/rg", resourceKey(resource.KindTool, "rg"))
 	assert.Equal(t, "Runtime/go", resourceKey(resource.KindRuntime, "go"))
 }
 
 func TestPrintApplySummary_NoChanges(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	PrintApplySummary(&buf, &ApplyResults{})
 	output := buf.String()
@@ -265,6 +277,7 @@ func TestPrintApplySummary_NoChanges(t *testing.T) {
 }
 
 func TestPrintApplySummary_WithResults(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	PrintApplySummary(&buf, &ApplyResults{
 		Installed: 3,
@@ -279,6 +292,7 @@ func TestPrintApplySummary_WithResults(t *testing.T) {
 }
 
 func TestPrintApplySummary_AllSuccess(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	PrintApplySummary(&buf, &ApplyResults{
 		Installed: 2,
@@ -288,6 +302,7 @@ func TestPrintApplySummary_AllSuccess(t *testing.T) {
 }
 
 func TestProgressManager_ConcurrentHandleEvent_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}
@@ -329,6 +344,7 @@ func TestProgressManager_ConcurrentHandleEvent_NonTTY(t *testing.T) {
 }
 
 func TestProgressManager_ConcurrentMixedEvents_NonTTY(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	pm := newNonTTYProgressManager(&buf)
 	results := &ApplyResults{}

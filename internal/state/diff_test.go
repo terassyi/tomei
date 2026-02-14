@@ -9,6 +9,7 @@ import (
 )
 
 func TestDiffUserStates(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		old         *UserState
@@ -242,6 +243,7 @@ func TestDiffUserStates(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			diff := DiffUserStates(tt.old, tt.current)
 			require.Len(t, diff.Changes, tt.wantChanges)
 			if tt.check != nil {
@@ -252,6 +254,7 @@ func TestDiffUserStates(t *testing.T) {
 }
 
 func TestDiff_HasChanges(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		diff *Diff
@@ -271,12 +274,14 @@ func TestDiff_HasChanges(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.diff.HasChanges())
 		})
 	}
 }
 
 func TestDiff_Summary(t *testing.T) {
+	t.Parallel()
 	diff := &Diff{
 		Changes: []ResourceDiff{
 			{Type: DiffAdded},
@@ -293,6 +298,7 @@ func TestDiff_Summary(t *testing.T) {
 }
 
 func TestCollectKeys(t *testing.T) {
+	t.Parallel()
 	a := map[string]int{"b": 1, "a": 2}
 	b := map[string]int{"c": 3, "a": 4}
 

@@ -17,11 +17,13 @@ import (
 )
 
 func TestNewDownloader(t *testing.T) {
+	t.Parallel()
 	d := NewDownloader()
 	assert.NotNil(t, d)
 }
 
 func TestDownloader_Download(t *testing.T) {
+	t.Parallel()
 	testContent := []byte("hello world")
 
 	tests := []struct {
@@ -58,6 +60,7 @@ func TestDownloader_Download(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 
@@ -88,6 +91,7 @@ func TestDownloader_Download(t *testing.T) {
 }
 
 func TestDownloader_Download_ContextCanceled(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
@@ -107,6 +111,7 @@ func TestDownloader_Download_ContextCanceled(t *testing.T) {
 }
 
 func TestDownloader_Verify_NilChecksum(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "testfile")
 	err := os.WriteFile(filePath, []byte("hello world"), 0644)
@@ -119,6 +124,7 @@ func TestDownloader_Verify_NilChecksum(t *testing.T) {
 }
 
 func TestDownloader_Verify_DirectValue(t *testing.T) {
+	t.Parallel()
 	testContent := []byte("hello world")
 	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
 	sha512sum := fmt.Sprintf("%x", sha512.Sum512(testContent))
@@ -171,6 +177,7 @@ func TestDownloader_Verify_DirectValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			filePath := filepath.Join(tmpDir, "testfile")
 			err := os.WriteFile(filePath, testContent, 0644)
@@ -193,6 +200,7 @@ func TestDownloader_Verify_DirectValue(t *testing.T) {
 }
 
 func TestDownloader_Verify_URLChecksum(t *testing.T) {
+	t.Parallel()
 	testContent := []byte("hello world")
 	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
 
@@ -264,6 +272,7 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 
@@ -294,6 +303,7 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 }
 
 func TestDownloader_Verify_GoJSONChecksum(t *testing.T) {
+	t.Parallel()
 	testContent := []byte("hello world")
 	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
 
@@ -386,6 +396,7 @@ func TestDownloader_Verify_GoJSONChecksum(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 
@@ -415,6 +426,7 @@ func TestDownloader_Verify_GoJSONChecksum(t *testing.T) {
 }
 
 func TestDownloader_Verify_EmptyChecksum(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "testfile")
 	err := os.WriteFile(filePath, []byte("hello world"), 0644)
@@ -430,6 +442,7 @@ func TestDownloader_Verify_EmptyChecksum(t *testing.T) {
 }
 
 func TestDownloader_Verify_FileNotFound(t *testing.T) {
+	t.Parallel()
 	checksum := &resource.Checksum{
 		Value: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}

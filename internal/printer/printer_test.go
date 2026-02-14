@@ -15,6 +15,8 @@ import (
 // --- Helper / Utility tests ---
 
 func TestResolveResourceType(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		input   string
 		want    string
@@ -39,6 +41,8 @@ func TestResolveResourceType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := ResolveResourceType(tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -51,6 +55,8 @@ func TestResolveResourceType(t *testing.T) {
 }
 
 func TestFormatVersionKind(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		vk          resource.VersionKind
@@ -65,6 +71,8 @@ func TestFormatVersionKind(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := formatVersionKind(tt.vk, tt.specVersion)
 			assert.Equal(t, tt.want, got)
 		})
@@ -72,29 +80,39 @@ func TestFormatVersionKind(t *testing.T) {
 }
 
 func TestFilterMap(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]*resource.ToolState{
 		"a": {Version: "1"},
 		"b": {Version: "2"},
 	}
 
 	t.Run("no filter returns all", func(t *testing.T) {
+		t.Parallel()
+
 		result := filterMap(m, "")
 		assert.Len(t, result, 2)
 	})
 
 	t.Run("filter by name", func(t *testing.T) {
+		t.Parallel()
+
 		result := filterMap(m, "a")
 		assert.Len(t, result, 1)
 		assert.Equal(t, "1", result["a"].Version)
 	})
 
 	t.Run("filter not found", func(t *testing.T) {
+		t.Parallel()
+
 		result := filterMap(m, "c")
 		assert.Nil(t, result)
 	})
 }
 
 func TestSortedKeys(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]*resource.ToolState{
 		"c": {},
 		"a": {},
@@ -108,23 +126,33 @@ func TestSortedKeys(t *testing.T) {
 // --- Formatter unit tests ---
 
 func TestToolFormatter_Headers(t *testing.T) {
+	t.Parallel()
+
 	f := toolFormatter{}
 
 	t.Run("normal", func(t *testing.T) {
+		t.Parallel()
+
 		h := f.Headers(false)
 		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME"}, h)
 	})
 
 	t.Run("wide", func(t *testing.T) {
+		t.Parallel()
+
 		h := f.Headers(true)
 		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "PACKAGE", "BIN_PATH"}, h)
 	})
 }
 
 func TestToolFormatter_FormatRow(t *testing.T) {
+	t.Parallel()
+
 	f := toolFormatter{}
 
 	t.Run("installed with installerRef", func(t *testing.T) {
+		t.Parallel()
+
 		ts := &resource.ToolState{
 			Version:      "14.1.1",
 			InstallerRef: "aqua",
@@ -140,6 +168,8 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 	})
 
 	t.Run("with runtimeRef", func(t *testing.T) {
+		t.Parallel()
+
 		ts := &resource.ToolState{
 			Version:     "v0.17.0",
 			RuntimeRef:  "go",
@@ -151,6 +181,8 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 	})
 
 	t.Run("wide adds package and binpath", func(t *testing.T) {
+		t.Parallel()
+
 		ts := &resource.ToolState{
 			Version:      "14.1.1",
 			InstallerRef: "aqua",
@@ -166,23 +198,33 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 }
 
 func TestRuntimeFormatter_Headers(t *testing.T) {
+	t.Parallel()
+
 	f := runtimeFormatter{}
 
 	t.Run("normal", func(t *testing.T) {
+		t.Parallel()
+
 		h := f.Headers(false)
 		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE"}, h)
 	})
 
 	t.Run("wide", func(t *testing.T) {
+		t.Parallel()
+
 		h := f.Headers(true)
 		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "TYPE", "INSTALL_PATH", "BINARIES"}, h)
 	})
 }
 
 func TestRuntimeFormatter_FormatRow(t *testing.T) {
+	t.Parallel()
+
 	f := runtimeFormatter{}
 
 	t.Run("download", func(t *testing.T) {
+		t.Parallel()
+
 		rs := &resource.RuntimeState{
 			Type:        resource.InstallTypeDownload,
 			Version:     "1.25.1",
@@ -193,6 +235,8 @@ func TestRuntimeFormatter_FormatRow(t *testing.T) {
 	})
 
 	t.Run("delegation with alias", func(t *testing.T) {
+		t.Parallel()
+
 		rs := &resource.RuntimeState{
 			Type:        resource.InstallTypeDelegation,
 			Version:     "1.75.0",
@@ -205,6 +249,8 @@ func TestRuntimeFormatter_FormatRow(t *testing.T) {
 	})
 
 	t.Run("wide adds install_path and binaries", func(t *testing.T) {
+		t.Parallel()
+
 		rs := &resource.RuntimeState{
 			Type:        resource.InstallTypeDownload,
 			Version:     "1.25.1",
@@ -220,15 +266,21 @@ func TestRuntimeFormatter_FormatRow(t *testing.T) {
 }
 
 func TestInstallerFormatter_FormatRow(t *testing.T) {
+	t.Parallel()
+
 	f := installerFormatter{}
 
 	t.Run("with toolRef", func(t *testing.T) {
+		t.Parallel()
+
 		is := &resource.InstallerState{Version: "v1.10.0", ToolRef: "cargo-binstall"}
 		row := f.FormatRow("binstall", is, false)
 		assert.Equal(t, []string{"binstall", "v1.10.0", "cargo-binstall"}, row)
 	})
 
 	t.Run("without toolRef", func(t *testing.T) {
+		t.Parallel()
+
 		is := &resource.InstallerState{Version: "v2.45.0"}
 		row := f.FormatRow("aqua", is, false)
 		assert.Equal(t, []string{"aqua", "v2.45.0", ""}, row)
@@ -236,6 +288,8 @@ func TestInstallerFormatter_FormatRow(t *testing.T) {
 }
 
 func TestInstallerRepoFormatter_FormatRow(t *testing.T) {
+	t.Parallel()
+
 	f := installerRepoFormatter{}
 
 	rs := &resource.InstallerRepositoryState{
@@ -250,6 +304,8 @@ func TestInstallerRepoFormatter_FormatRow(t *testing.T) {
 // --- printTable integration tests ---
 
 func TestPrintTable_Tools(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {
@@ -288,6 +344,8 @@ func TestPrintTable_Tools(t *testing.T) {
 }
 
 func TestPrintTable_Tools_Wide(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {
@@ -309,6 +367,8 @@ func TestPrintTable_Tools_Wide(t *testing.T) {
 }
 
 func TestPrintTable_Tools_NameFilter(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {Version: "14.1.1", InstallerRef: "aqua", VersionKind: resource.VersionExact},
@@ -323,6 +383,8 @@ func TestPrintTable_Tools_NameFilter(t *testing.T) {
 }
 
 func TestPrintTable_Empty(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 
 	printTable(buf, map[string]*resource.ToolState{}, "", false, toolFormatter{})
@@ -331,6 +393,8 @@ func TestPrintTable_Empty(t *testing.T) {
 }
 
 func TestPrintTable_NameFilter_NotFound(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {Version: "14.1.1", InstallerRef: "aqua"},
@@ -342,6 +406,8 @@ func TestPrintTable_NameFilter_NotFound(t *testing.T) {
 }
 
 func TestPrintTable_Runtimes(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	runtimes := map[string]*resource.RuntimeState{
 		"go": {
@@ -368,6 +434,8 @@ func TestPrintTable_Runtimes(t *testing.T) {
 }
 
 func TestPrintTable_Installers(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	installers := map[string]*resource.InstallerState{
 		"aqua":     {Version: "v2.45.0"},
@@ -385,6 +453,8 @@ func TestPrintTable_Installers(t *testing.T) {
 }
 
 func TestPrintTable_InstallerRepositories(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	repos := map[string]*resource.InstallerRepositoryState{
 		"custom-registry": {
@@ -406,6 +476,8 @@ func TestPrintTable_InstallerRepositories(t *testing.T) {
 // --- printResources tests ---
 
 func TestPrintResources_JSON(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {Version: "14.1.1", InstallerRef: "aqua", VersionKind: resource.VersionExact},
@@ -422,6 +494,8 @@ func TestPrintResources_JSON(t *testing.T) {
 }
 
 func TestPrintResources_JSON_NameFilter(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {Version: "14.1.1", InstallerRef: "aqua"},
@@ -439,6 +513,8 @@ func TestPrintResources_JSON_NameFilter(t *testing.T) {
 }
 
 func TestPrintResources_Table(t *testing.T) {
+	t.Parallel()
+
 	buf := &bytes.Buffer{}
 	tools := map[string]*resource.ToolState{
 		"ripgrep": {Version: "14.1.1", InstallerRef: "aqua", VersionKind: resource.VersionExact},
@@ -455,6 +531,8 @@ func TestPrintResources_Table(t *testing.T) {
 // --- Run integration test ---
 
 func TestRun(t *testing.T) {
+	t.Parallel()
+
 	userState := &state.UserState{
 		Tools: map[string]*resource.ToolState{
 			"ripgrep": {Version: "14.1.1", InstallerRef: "aqua", VersionKind: resource.VersionExact},
@@ -465,6 +543,8 @@ func TestRun(t *testing.T) {
 	}
 
 	t.Run("tools table", func(t *testing.T) {
+		t.Parallel()
+
 		buf := &bytes.Buffer{}
 		err := Run(buf, userState, "tools", "", false, false)
 		require.NoError(t, err)
@@ -472,6 +552,8 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("tools json", func(t *testing.T) {
+		t.Parallel()
+
 		buf := &bytes.Buffer{}
 		err := Run(buf, userState, "tools", "", false, true)
 		require.NoError(t, err)
@@ -483,6 +565,8 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("empty runtimes", func(t *testing.T) {
+		t.Parallel()
+
 		buf := &bytes.Buffer{}
 		err := Run(buf, userState, "runtimes", "", false, false)
 		require.NoError(t, err)
@@ -490,6 +574,8 @@ func TestRun(t *testing.T) {
 	})
 
 	t.Run("unknown type", func(t *testing.T) {
+		t.Parallel()
+
 		buf := &bytes.Buffer{}
 		err := Run(buf, userState, "unknown", "", false, false)
 		require.Error(t, err)

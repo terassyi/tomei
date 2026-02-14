@@ -5,6 +5,7 @@ import (
 )
 
 func TestInstallerSpec_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		spec    InstallerSpec
@@ -84,6 +85,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := tt.spec.Validate()
 			if tt.wantErr == "" {
 				if err != nil {
@@ -101,6 +103,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 }
 
 func TestInstallerSpec_Dependencies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		spec InstallerSpec
@@ -133,6 +136,7 @@ func TestInstallerSpec_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.spec.Dependencies()
 			if len(got) != len(tt.want) {
 				t.Errorf("Dependencies() = %v, want %v", got, tt.want)

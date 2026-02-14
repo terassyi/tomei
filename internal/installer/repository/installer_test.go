@@ -77,6 +77,7 @@ func (m *mockGitRunner) Exists(_ string) bool {
 // --- delegation tests ---
 
 func TestInstaller_Install_Delegation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		checkResult bool
@@ -119,6 +120,7 @@ func TestInstaller_Install_Delegation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cmd := &mockCommandRunner{
 				checkResult: tt.checkResult,
 				executeErr:  tt.executeErr,
@@ -186,6 +188,7 @@ func TestInstaller_Install_Delegation(t *testing.T) {
 }
 
 func TestInstaller_Remove_Delegation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		removeCmd   string
@@ -214,6 +217,7 @@ func TestInstaller_Remove_Delegation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			cmd := &mockCommandRunner{executeErr: tt.executeErr}
 			git := &mockGitRunner{}
 			inst := newInstallerWithRunners(t.TempDir(), cmd, git)
@@ -246,7 +250,9 @@ func TestInstaller_Remove_Delegation(t *testing.T) {
 // --- git tests ---
 
 func TestInstaller_Install_Git(t *testing.T) {
+	t.Parallel()
 	t.Run("fresh clone", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		cmd := &mockCommandRunner{}
 		git := &mockGitRunner{}
@@ -281,6 +287,7 @@ func TestInstaller_Install_Git(t *testing.T) {
 	})
 
 	t.Run("already cloned - pulls", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		localPath := filepath.Join(dir, "aqua", "custom-registry")
 
@@ -311,6 +318,7 @@ func TestInstaller_Install_Git(t *testing.T) {
 	})
 
 	t.Run("pull fails - continues with existing", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		localPath := filepath.Join(dir, "aqua", "custom-registry")
 
@@ -338,6 +346,7 @@ func TestInstaller_Install_Git(t *testing.T) {
 	})
 
 	t.Run("clone fails", func(t *testing.T) {
+		t.Parallel()
 		dir := t.TempDir()
 		cmd := &mockCommandRunner{}
 		git := &mockGitRunner{cloneErr: fmt.Errorf("clone failed: repository not found")}
@@ -365,6 +374,7 @@ func TestInstaller_Install_Git(t *testing.T) {
 }
 
 func TestInstaller_Remove_Git(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		localPath string
@@ -387,6 +397,7 @@ func TestInstaller_Remove_Git(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			localPath := tt.localPath
 			if localPath == "to-be-set" {
@@ -426,11 +437,13 @@ func TestInstaller_Remove_Git(t *testing.T) {
 // --- unsupported source type ---
 
 func TestInstaller_UnsupportedSourceType(t *testing.T) {
+	t.Parallel()
 	cmd := &mockCommandRunner{}
 	git := &mockGitRunner{}
 	inst := newInstallerWithRunners(t.TempDir(), cmd, git)
 
 	t.Run("install", func(t *testing.T) {
+		t.Parallel()
 		repo := &resource.InstallerRepository{
 			InstallerRepositorySpec: &resource.InstallerRepositorySpec{
 				Source: resource.InstallerRepositorySourceSpec{
@@ -444,6 +457,7 @@ func TestInstaller_UnsupportedSourceType(t *testing.T) {
 	})
 
 	t.Run("remove", func(t *testing.T) {
+		t.Parallel()
 		st := &resource.InstallerRepositoryState{
 			SourceType: "unknown",
 		}

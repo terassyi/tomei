@@ -9,6 +9,7 @@ import (
 )
 
 func TestTUILogHandler_WarnAndErrorAreSent(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelWarn)
 	logger := slog.New(handler)
@@ -29,6 +30,7 @@ func TestTUILogHandler_WarnAndErrorAreSent(t *testing.T) {
 }
 
 func TestTUILogHandler_DebugAndInfoIgnoredAtWarnLevel(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelWarn)
 	logger := slog.New(handler)
@@ -41,6 +43,7 @@ func TestTUILogHandler_DebugAndInfoIgnoredAtWarnLevel(t *testing.T) {
 }
 
 func TestTUILogHandler_AllLevelsAtDebugLevel(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelDebug)
 	logger := slog.New(handler)
@@ -60,6 +63,7 @@ func TestTUILogHandler_AllLevelsAtDebugLevel(t *testing.T) {
 }
 
 func TestTUILogHandler_AttrsIncludedInMessage(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelWarn)
 	logger := slog.New(handler)
@@ -76,6 +80,7 @@ func TestTUILogHandler_AttrsIncludedInMessage(t *testing.T) {
 }
 
 func TestTUILogHandler_WithAttrs(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelWarn)
 	child := handler.WithAttrs([]slog.Attr{slog.String("component", "engine")})
@@ -92,6 +97,7 @@ func TestTUILogHandler_WithAttrs(t *testing.T) {
 }
 
 func TestTUILogHandler_WithGroup(t *testing.T) {
+	t.Parallel()
 	s := &mockSender{}
 	handler := NewTUILogHandler(s, slog.LevelWarn)
 	child := handler.WithGroup("installer")

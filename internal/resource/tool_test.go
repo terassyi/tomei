@@ -203,6 +203,7 @@ func TestPackage_Validate(t *testing.T) {
 }
 
 func TestPackage_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		pkg  *Package
@@ -232,12 +233,14 @@ func TestPackage_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.pkg.String())
 		})
 	}
 }
 
 func TestPackage_IsEmpty(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		pkg  *Package
@@ -277,12 +280,14 @@ func TestPackage_IsEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.pkg.IsEmpty())
 		})
 	}
 }
 
 func TestPackage_IsRegistry(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		pkg  *Package
@@ -312,12 +317,14 @@ func TestPackage_IsRegistry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.pkg.IsRegistry())
 		})
 	}
 }
 
 func TestPackage_IsName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		pkg  *Package
@@ -347,12 +354,14 @@ func TestPackage_IsName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.pkg.IsName())
 		})
 	}
 }
 
 func TestToolSpec_Dependencies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		spec *ToolSpec
@@ -423,6 +432,7 @@ func TestToolSpec_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.spec.Dependencies()
 			assert.Equal(t, tt.want, got)
 		})
@@ -430,6 +440,7 @@ func TestToolSpec_Dependencies(t *testing.T) {
 }
 
 func TestPackage_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		json    string
@@ -502,6 +513,7 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var got Package
 			err := got.UnmarshalJSON([]byte(tt.json))
 			if tt.wantErr {
@@ -515,6 +527,7 @@ func TestPackage_UnmarshalJSON(t *testing.T) {
 }
 
 func TestToolSetSpec_Dependencies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		spec *ToolSetSpec
@@ -552,6 +565,7 @@ func TestToolSetSpec_Dependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.spec.Dependencies()
 			assert.Equal(t, tt.want, got)
 		})
@@ -559,6 +573,7 @@ func TestToolSetSpec_Dependencies(t *testing.T) {
 }
 
 func TestToolSet_Expand_WithRepositoryRef(t *testing.T) {
+	t.Parallel()
 	ts := &ToolSet{
 		BaseResource: BaseResource{
 			APIVersion:   GroupVersion,
@@ -589,6 +604,7 @@ func TestToolSet_Expand_WithRepositoryRef(t *testing.T) {
 }
 
 func TestIsRegistryFormat(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		want  bool
@@ -624,6 +640,7 @@ func TestIsRegistryFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
 			got := isRegistryFormat(tt.input)
 			assert.Equal(t, tt.want, got, "isRegistryFormat(%q)", tt.input)
 		})

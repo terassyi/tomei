@@ -15,6 +15,8 @@ import (
 )
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	paths, err := path.New()
 	require.NoError(t, err)
 
@@ -29,7 +31,11 @@ func TestNew(t *testing.T) {
 }
 
 func TestDoctor_ScanForUnmanaged(t *testing.T) {
+	t.Parallel()
+
 	t.Run("detects unmanaged tools", func(t *testing.T) {
+		t.Parallel()
+
 		// Setup temp directories
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
@@ -58,6 +64,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 	})
 
 	t.Run("does not detect managed tools", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -88,6 +96,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 	})
 
 	t.Run("empty directory", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -106,6 +116,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 	})
 
 	t.Run("skips hidden files", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -128,6 +140,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 	})
 
 	t.Run("scans runtime toolBinPath", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		goBinDir := filepath.Join(tmpDir, "go", "bin")
@@ -162,6 +176,8 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 	})
 
 	t.Run("does not detect runtime delegation tools", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		goBinDir := filepath.Join(tmpDir, "go", "bin")
@@ -200,7 +216,11 @@ func TestDoctor_ScanForUnmanaged(t *testing.T) {
 }
 
 func TestDoctor_DetectConflicts(t *testing.T) {
+	t.Parallel()
+
 	t.Run("detects conflicts", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		goBinDir := filepath.Join(tmpDir, "go", "bin")
@@ -234,6 +254,8 @@ func TestDoctor_DetectConflicts(t *testing.T) {
 	})
 
 	t.Run("no conflicts when unique", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		goBinDir := filepath.Join(tmpDir, "go", "bin")
@@ -266,7 +288,11 @@ func TestDoctor_DetectConflicts(t *testing.T) {
 }
 
 func TestDoctor_CheckStateIntegrity(t *testing.T) {
+	t.Parallel()
+
 	t.Run("detects missing binary", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -295,6 +321,8 @@ func TestDoctor_CheckStateIntegrity(t *testing.T) {
 	})
 
 	t.Run("detects broken symlink", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -326,6 +354,8 @@ func TestDoctor_CheckStateIntegrity(t *testing.T) {
 	})
 
 	t.Run("no issues when healthy", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		toolDir := filepath.Join(tmpDir, "tools", "mytool", "1.0.0")
@@ -363,7 +393,11 @@ func TestDoctor_CheckStateIntegrity(t *testing.T) {
 }
 
 func TestDoctor_Check(t *testing.T) {
+	t.Parallel()
+
 	t.Run("full check with no issues", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -383,7 +417,11 @@ func TestDoctor_Check(t *testing.T) {
 }
 
 func TestResult_HasIssues(t *testing.T) {
+	t.Parallel()
+
 	t.Run("no issues", func(t *testing.T) {
+		t.Parallel()
+
 		result := &Result{
 			UnmanagedTools: make(map[string][]UnmanagedTool),
 		}
@@ -391,6 +429,8 @@ func TestResult_HasIssues(t *testing.T) {
 	})
 
 	t.Run("has unmanaged tools", func(t *testing.T) {
+		t.Parallel()
+
 		result := &Result{
 			UnmanagedTools: map[string][]UnmanagedTool{
 				"tomei": {{Name: "tool", Path: "/path"}},
@@ -400,6 +440,8 @@ func TestResult_HasIssues(t *testing.T) {
 	})
 
 	t.Run("has conflicts", func(t *testing.T) {
+		t.Parallel()
+
 		result := &Result{
 			UnmanagedTools: make(map[string][]UnmanagedTool),
 			Conflicts:      []Conflict{{Name: "tool"}},
@@ -408,6 +450,8 @@ func TestResult_HasIssues(t *testing.T) {
 	})
 
 	t.Run("has state issues", func(t *testing.T) {
+		t.Parallel()
+
 		result := &Result{
 			UnmanagedTools: make(map[string][]UnmanagedTool),
 			StateIssues:    []StateIssue{{Kind: StateIssueMissingBinary}},
@@ -417,6 +461,8 @@ func TestResult_HasIssues(t *testing.T) {
 }
 
 func TestResult_UnmanagedToolNames(t *testing.T) {
+	t.Parallel()
+
 	result := &Result{
 		UnmanagedTools: map[string][]UnmanagedTool{
 			"tomei": {{Name: "tool1", Path: "/path1"}},
@@ -431,7 +477,11 @@ func TestResult_UnmanagedToolNames(t *testing.T) {
 }
 
 func TestDoctor_IsRuntimeBinary(t *testing.T) {
+	t.Parallel()
+
 	t.Run("returns true for runtime binaries of specific runtime", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -457,6 +507,8 @@ func TestDoctor_IsRuntimeBinary(t *testing.T) {
 	})
 
 	t.Run("returns false for nil state", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		require.NoError(t, os.MkdirAll(binDir, 0755))
@@ -470,6 +522,8 @@ func TestDoctor_IsRuntimeBinary(t *testing.T) {
 	})
 
 	t.Run("does not report runtime binaries as unmanaged in runtime BinDir", func(t *testing.T) {
+		t.Parallel()
+
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 		goBinDir := filepath.Join(tmpDir, "go", "bin")

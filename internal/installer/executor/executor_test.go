@@ -71,6 +71,7 @@ func (s *mockStateStore) Delete(name string) error {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
 	mock := &mockInstaller{}
 	store := newMockStateStore()
 
@@ -79,6 +80,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestExecutor_Execute_Install(t *testing.T) {
+	t.Parallel()
 	mock := &mockInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 			return &resource.ToolState{
@@ -113,6 +115,7 @@ func TestExecutor_Execute_Install(t *testing.T) {
 }
 
 func TestExecutor_Execute_Upgrade(t *testing.T) {
+	t.Parallel()
 	mock := &mockInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 			return &resource.ToolState{
@@ -152,6 +155,7 @@ func TestExecutor_Execute_Upgrade(t *testing.T) {
 }
 
 func TestExecutor_Execute_Remove(t *testing.T) {
+	t.Parallel()
 	removed := false
 	mock := &mockInstaller{
 		removeFunc: func(ctx context.Context, st *resource.ToolState, name string) error {
@@ -183,6 +187,7 @@ func TestExecutor_Execute_Remove(t *testing.T) {
 }
 
 func TestExecutor_Execute_InstallError(t *testing.T) {
+	t.Parallel()
 	mock := &mockInstaller{
 		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 			return nil, errors.New("download failed")
@@ -209,6 +214,7 @@ func TestExecutor_Execute_InstallError(t *testing.T) {
 }
 
 func TestExecutor_Execute_UnsupportedActionType(t *testing.T) {
+	t.Parallel()
 	mock := &mockInstaller{}
 	store := newMockStateStore()
 

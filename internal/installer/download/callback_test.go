@@ -8,6 +8,7 @@ import (
 )
 
 func TestCallbackFromContext_Progress(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(ctx context.Context) context.Context
@@ -29,6 +30,7 @@ func TestCallbackFromContext_Progress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := tt.setup(context.Background())
 			cb := CallbackFromContext[ProgressCallback](ctx)
 			if tt.wantNil {
@@ -41,6 +43,7 @@ func TestCallbackFromContext_Progress(t *testing.T) {
 }
 
 func TestCallbackFromContext_Output(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(ctx context.Context) context.Context
@@ -62,6 +65,7 @@ func TestCallbackFromContext_Output(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := tt.setup(context.Background())
 			cb := CallbackFromContext[OutputCallback](ctx)
 			if tt.wantNil {
@@ -74,6 +78,7 @@ func TestCallbackFromContext_Output(t *testing.T) {
 }
 
 func TestCallbackFromContext_ProgressInvocable(t *testing.T) {
+	t.Parallel()
 	var called bool
 	var gotDownloaded, gotTotal int64
 
@@ -93,6 +98,7 @@ func TestCallbackFromContext_ProgressInvocable(t *testing.T) {
 }
 
 func TestCallbackFromContext_OutputInvocable(t *testing.T) {
+	t.Parallel()
 	var called bool
 	var gotLine string
 
@@ -110,6 +116,7 @@ func TestCallbackFromContext_OutputInvocable(t *testing.T) {
 }
 
 func TestCallbackFromContext_TypeIsolation(t *testing.T) {
+	t.Parallel()
 	ctx := WithCallback(context.Background(), ProgressCallback(func(downloaded, total int64) {}))
 
 	// ProgressCallback is set, but OutputCallback should be nil

@@ -15,6 +15,7 @@ import (
 )
 
 func TestGenerateModuleCUE_TableDriven(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		moduleName    string
@@ -64,6 +65,7 @@ func TestGenerateModuleCUE_TableDriven(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			content, err := GenerateModuleCUE(tt.moduleName, tt.moduleVersion)
 			require.NoError(t, err)
 			for _, want := range tt.wantContains {
@@ -74,6 +76,7 @@ func TestGenerateModuleCUE_TableDriven(t *testing.T) {
 }
 
 func TestGeneratePlatformCUE_TableDriven(t *testing.T) {
+	t.Parallel()
 	content, err := GeneratePlatformCUE()
 	require.NoError(t, err)
 
@@ -90,6 +93,7 @@ func TestGeneratePlatformCUE_TableDriven(t *testing.T) {
 }
 
 func TestRelativePath(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		base   string
@@ -124,6 +128,7 @@ func TestRelativePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := RelativePath(tt.base, tt.target)
 			assert.Equal(t, tt.want, got)
 		})
@@ -191,6 +196,7 @@ func TestResolveLatestVersion(t *testing.T) {
 }
 
 func TestWriteFileIfAllowed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		setup     func(t *testing.T, dir string)
@@ -230,6 +236,7 @@ func TestWriteFileIfAllowed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dir := t.TempDir()
 			tt.setup(t, dir)
 

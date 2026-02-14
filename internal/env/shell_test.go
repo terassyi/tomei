@@ -8,6 +8,8 @@ import (
 )
 
 func TestParseShellType(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		input   string
@@ -53,6 +55,8 @@ func TestParseShellType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := ParseShellType(tt.input)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -66,42 +70,60 @@ func TestParseShellType(t *testing.T) {
 }
 
 func TestPosixFormatter(t *testing.T) {
+	t.Parallel()
+
 	f := posixFormatter{}
 
 	t.Run("ExportVar", func(t *testing.T) {
+		t.Parallel()
+
 		got := f.ExportVar("GOROOT", "$HOME/.local/share/tomei/runtimes/go/1.25.6")
 		assert.Equal(t, `export GOROOT="$HOME/.local/share/tomei/runtimes/go/1.25.6"`, got)
 	})
 
 	t.Run("ExportPath", func(t *testing.T) {
+		t.Parallel()
+
 		got := f.ExportPath([]string{"$HOME/.local/bin", "$HOME/go/bin"})
 		assert.Equal(t, `export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"`, got)
 	})
 
 	t.Run("Ext", func(t *testing.T) {
+		t.Parallel()
+
 		assert.Equal(t, ".sh", f.Ext())
 	})
 }
 
 func TestFishFormatter(t *testing.T) {
+	t.Parallel()
+
 	f := fishFormatter{}
 
 	t.Run("ExportVar", func(t *testing.T) {
+		t.Parallel()
+
 		got := f.ExportVar("GOROOT", "$HOME/.local/share/tomei/runtimes/go/1.25.6")
 		assert.Equal(t, `set -gx GOROOT "$HOME/.local/share/tomei/runtimes/go/1.25.6"`, got)
 	})
 
 	t.Run("ExportPath", func(t *testing.T) {
+		t.Parallel()
+
 		got := f.ExportPath([]string{"$HOME/.local/bin", "$HOME/go/bin"})
 		assert.Equal(t, `fish_add_path "$HOME/.local/bin" "$HOME/go/bin"`, got)
 	})
 
 	t.Run("Ext", func(t *testing.T) {
+		t.Parallel()
+
 		assert.Equal(t, ".fish", f.Ext())
 	})
 }
 
 func TestNewFormatter(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		shellType ShellType
@@ -121,6 +143,8 @@ func TestNewFormatter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			f := NewFormatter(tt.shellType)
 			assert.Equal(t, tt.wantType, f.Ext())
 		})

@@ -10,6 +10,7 @@ import (
 )
 
 func TestInstallerRepositoryReconciler_Install(t *testing.T) {
+	t.Parallel()
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
@@ -40,6 +41,7 @@ func TestInstallerRepositoryReconciler_Install(t *testing.T) {
 }
 
 func TestInstallerRepositoryReconciler_NoChange(t *testing.T) {
+	t.Parallel()
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
@@ -71,6 +73,7 @@ func TestInstallerRepositoryReconciler_NoChange(t *testing.T) {
 }
 
 func TestInstallerRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
+	t.Parallel()
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
@@ -107,6 +110,7 @@ func TestInstallerRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
 }
 
 func TestInstallerRepositoryReconciler_Upgrade_TypeChanged(t *testing.T) {
+	t.Parallel()
 	repos := []*resource.InstallerRepository{
 		{
 			BaseResource: resource.BaseResource{
@@ -142,6 +146,7 @@ func TestInstallerRepositoryReconciler_Upgrade_TypeChanged(t *testing.T) {
 }
 
 func TestInstallerRepositoryReconciler_Remove(t *testing.T) {
+	t.Parallel()
 	repos := []*resource.InstallerRepository{} // empty spec
 
 	states := map[string]*resource.InstallerRepositoryState{

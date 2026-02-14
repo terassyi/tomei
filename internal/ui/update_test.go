@@ -14,6 +14,7 @@ import (
 )
 
 func TestUpdate_EventLayerStart_InitializesModel(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -40,6 +41,7 @@ func TestUpdate_EventLayerStart_InitializesModel(t *testing.T) {
 }
 
 func TestUpdate_EventLayerStart_SnapshotsOnSecondLayer(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -100,6 +102,7 @@ func TestUpdate_EventLayerStart_SnapshotsOnSecondLayer(t *testing.T) {
 }
 
 func TestUpdate_EventStart_CreatesTask(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -131,6 +134,7 @@ func TestUpdate_EventStart_CreatesTask(t *testing.T) {
 }
 
 func TestUpdate_EventProgress_SetsHasProgress(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -161,6 +165,7 @@ func TestUpdate_EventProgress_SetsHasProgress(t *testing.T) {
 }
 
 func TestUpdate_EventProgress_IgnoredWithoutStart(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -184,6 +189,7 @@ func TestUpdate_EventProgress_IgnoredWithoutStart(t *testing.T) {
 }
 
 func TestUpdate_EventOutput_AddsLogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -214,6 +220,7 @@ func TestUpdate_EventOutput_AddsLogLines(t *testing.T) {
 }
 
 func TestUpdate_EventComplete_UpdatesResults(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -244,6 +251,7 @@ func TestUpdate_EventComplete_UpdatesResults(t *testing.T) {
 }
 
 func TestUpdate_EventError_UpdatesResults(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -271,6 +279,7 @@ func TestUpdate_EventError_UpdatesResults(t *testing.T) {
 }
 
 func TestUpdate_ApplyDone_QuitsProgram(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -289,6 +298,7 @@ func TestUpdate_ApplyDone_QuitsProgram(t *testing.T) {
 }
 
 func TestUpdate_ApplyDone_WithError(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -305,6 +315,7 @@ func TestUpdate_ApplyDone_WithError(t *testing.T) {
 }
 
 func TestUpdate_WindowSizeMsg(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -315,6 +326,7 @@ func TestUpdate_WindowSizeMsg(t *testing.T) {
 }
 
 func TestUpdate_SnapshotDeepCopy(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -359,6 +371,7 @@ func TestUpdate_SnapshotDeepCopy(t *testing.T) {
 }
 
 func TestUpdate_SlogMsg_AppendsToSlogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 
@@ -377,6 +390,7 @@ func TestUpdate_SlogMsg_AppendsToSlogLines(t *testing.T) {
 }
 
 func TestUpdate_SlogMsg_TruncatesAtMaxSlogLines(t *testing.T) {
+	t.Parallel()
 	results := &ApplyResults{}
 	m := NewApplyModel(results)
 

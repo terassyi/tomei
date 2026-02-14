@@ -32,6 +32,7 @@ func newMockResponse(statusCode int, body string) *http.Response {
 }
 
 func TestFetcher_Fetch_CacheHit(t *testing.T) {
+	t.Parallel()
 	// Setup: create a cache directory with a cached registry.yaml
 	cacheDir := t.TempDir()
 	ref := "v4.465.0"
@@ -75,6 +76,7 @@ func TestFetcher_Fetch_CacheHit(t *testing.T) {
 }
 
 func TestFetcher_Fetch_CacheMiss(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := "v4.465.0"
 	pkg := "cli/cli"
@@ -115,6 +117,7 @@ func TestFetcher_Fetch_CacheMiss(t *testing.T) {
 }
 
 func TestFetcher_Fetch_NotFound(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := "v4.465.0"
 	pkg := "nonexistent/package"
@@ -139,6 +142,7 @@ func TestFetcher_Fetch_NotFound(t *testing.T) {
 }
 
 func TestFetcher_Fetch_ServerError(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ref := "v4.465.0"
 	pkg := "cli/cli"
@@ -163,6 +167,7 @@ func TestFetcher_Fetch_ServerError(t *testing.T) {
 }
 
 func TestFetcher_cachePath(t *testing.T) {
+	t.Parallel()
 	f := newFetcher("/home/user/.cache/tomei/registry/aqua", nil)
 
 	tests := []struct {
@@ -184,6 +189,7 @@ func TestFetcher_cachePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.pkg, func(t *testing.T) {
+			t.Parallel()
 			path, err := f.cachePath(tt.ref, tt.pkg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expected, path)
@@ -192,6 +198,7 @@ func TestFetcher_cachePath(t *testing.T) {
 }
 
 func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	f := newFetcher(cacheDir, nil)
 
@@ -214,6 +221,7 @@ func TestFetcher_writeCache_AtomicWrite(t *testing.T) {
 }
 
 func TestFetcher_cachePath_PathTraversal(t *testing.T) {
+	t.Parallel()
 	f := newFetcher("/home/user/.cache/tomei/registry/aqua", nil)
 
 	tests := []struct {
@@ -262,6 +270,7 @@ func TestFetcher_cachePath_PathTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := f.cachePath(tt.ref, tt.pkg)
 			if tt.wantErr {
 				assert.Error(t, err)

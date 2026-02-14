@@ -49,6 +49,8 @@ func TestTokenFromEnv(t *testing.T) {
 }
 
 func TestIsGitHubHost(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		host string
 		want bool
@@ -68,12 +70,16 @@ func TestIsGitHubHost(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+
 			assert.Equal(t, tt.want, isGitHubHost(tt.host))
 		})
 	}
 }
 
 func TestTokenTransport(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		token    string
@@ -114,6 +120,8 @@ func TestTokenTransport(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var gotAuth string
 			transport := &tokenTransport{
 				token: tt.token,
@@ -134,7 +142,11 @@ func TestTokenTransport(t *testing.T) {
 }
 
 func TestNewHTTPClient(t *testing.T) {
+	t.Parallel()
+
 	t.Run("with token", func(t *testing.T) {
+		t.Parallel()
+
 		client := NewHTTPClient("my-token")
 		assert.NotNil(t, client)
 		assert.Equal(t, defaultTimeout, client.Timeout)
@@ -145,6 +157,8 @@ func TestNewHTTPClient(t *testing.T) {
 	})
 
 	t.Run("with empty token", func(t *testing.T) {
+		t.Parallel()
+
 		client := NewHTTPClient("")
 		assert.NotNil(t, client)
 

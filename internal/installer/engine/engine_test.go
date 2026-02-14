@@ -112,6 +112,7 @@ func (m *mockInstallerRepositoryInstaller) Remove(ctx context.Context, st *resou
 func (m *mockInstallerRepositoryInstaller) SetToolBinPaths(_ map[string]string) {}
 
 func TestNewEngine(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](tmpDir)
 	require.NoError(t, err)
@@ -124,6 +125,7 @@ func TestNewEngine(t *testing.T) {
 }
 
 func TestEngine_Apply(t *testing.T) {
+	t.Parallel()
 	// Create test config directory with CUE file
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "tools.cue")
@@ -194,6 +196,7 @@ tool: {
 }
 
 func TestEngine_Apply_NoChanges(t *testing.T) {
+	t.Parallel()
 	// Create test config directory with CUE file
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "tools.cue")
@@ -262,6 +265,7 @@ tool: {
 }
 
 func TestEngine_Apply_WithRuntime(t *testing.T) {
+	t.Parallel()
 	// Create test config directory with CUE file
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -373,6 +377,7 @@ tool: {
 }
 
 func TestEngine_TaintDependentTools(t *testing.T) {
+	t.Parallel()
 	// Create test config directory with CUE file
 	// Include both runtime and dependent tool - tool should be tainted when runtime is upgraded
 	configDir := t.TempDir()
@@ -497,6 +502,7 @@ tool: {
 }
 
 func TestEngine_Apply_DependencyOrder(t *testing.T) {
+	t.Parallel()
 	// Test that DAG-based execution respects dependency order:
 	// Runtime(go) -> Tool(pnpm) -> Installer(pnpm) -> Tool(biome)
 	// Tool can directly reference Runtime via runtimeRef
@@ -643,6 +649,7 @@ biomeTool: {
 }
 
 func TestEngine_Apply_CircularDependency(t *testing.T) {
+	t.Parallel()
 	// Test that circular dependencies are detected and rejected
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -693,6 +700,7 @@ toolB: {
 }
 
 func TestEngine_Apply_ParallelExecution(t *testing.T) {
+	t.Parallel()
 	// Test that independent tools are executed in parallel
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -814,6 +822,7 @@ bat: {
 }
 
 func TestEngine_Apply_ParallelExecution_CancelOnError(t *testing.T) {
+	t.Parallel()
 	// Test that when one tool fails in a parallel layer, other tools are canceled
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -925,6 +934,7 @@ bat: {
 }
 
 func TestEngine_Apply_RuntimeBeforeTool_SameLayer(t *testing.T) {
+	t.Parallel()
 	// Test that Runtime nodes always execute before Tool nodes even in the same layer
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -1026,6 +1036,7 @@ ripgrep: {
 }
 
 func TestEngine_Apply_ParallelRuntimeExecution(t *testing.T) {
+	t.Parallel()
 	// Test that multiple independent runtimes are executed in parallel
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -1138,6 +1149,7 @@ nodeRuntime: {
 }
 
 func TestEngine_SetParallelism(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input int
@@ -1154,6 +1166,7 @@ func TestEngine_SetParallelism(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			stateDir := t.TempDir()
 			store, err := state.NewStore[state.UserState](stateDir)
 			require.NoError(t, err)
@@ -1166,6 +1179,7 @@ func TestEngine_SetParallelism(t *testing.T) {
 }
 
 func TestEngine_Apply_ParallelismLimit(t *testing.T) {
+	t.Parallel()
 	// Test that parallelism is limited to the configured value
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -1252,6 +1266,7 @@ aquaInstaller: {
 }
 
 func TestEngine_ResolverConfigurer(t *testing.T) {
+	t.Parallel()
 	// Test that ResolverConfigurer callback is called after state is loaded
 	// but before any installation happens
 	configDir := t.TempDir()
@@ -1343,6 +1358,7 @@ tool: {
 }
 
 func TestEngine_ResolverConfigurer_NilRegistry(t *testing.T) {
+	t.Parallel()
 	// Test that ResolverConfigurer handles nil registry gracefully
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "tools.cue")
@@ -1405,6 +1421,7 @@ tool: {
 }
 
 func TestEngine_PlanAll(t *testing.T) {
+	t.Parallel()
 	// Create test config directory with CUE file
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -1567,6 +1584,7 @@ func newStoreForRapid(t *rapid.T) *state.Store[state.UserState] {
 // --- Property-Based Tests ---
 
 func TestEngine_Property_ParallelSafety(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(2, 15).Draw(t, "numTools")
 		toolNames := make([]string, n)
@@ -1641,6 +1659,7 @@ func TestEngine_Property_ParallelSafety(t *testing.T) {
 }
 
 func TestEngine_Property_RuntimeBeforeTool(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		nRuntimes := rapid.IntRange(1, 5).Draw(t, "numRuntimes")
 		nTools := rapid.IntRange(1, 5).Draw(t, "numTools")
@@ -1733,6 +1752,7 @@ func TestEngine_Property_RuntimeBeforeTool(t *testing.T) {
 }
 
 func TestEngine_Property_ParallelismLimit(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		nTools := rapid.IntRange(2, 20).Draw(t, "numTools")
 		parallelism := rapid.IntRange(1, 10).Draw(t, "parallelism")
@@ -1800,6 +1820,7 @@ func TestEngine_Property_ParallelismLimit(t *testing.T) {
 }
 
 func TestEngine_Property_CancelOnError(t *testing.T) {
+	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		n := rapid.IntRange(2, 10).Draw(t, "numTools")
 		failIdx := rapid.IntRange(0, n-1).Draw(t, "failIdx")
@@ -1886,6 +1907,7 @@ func TestEngine_Property_CancelOnError(t *testing.T) {
 }
 
 func TestEngine_Apply_ToolSet(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
@@ -1948,6 +1970,7 @@ func TestEngine_Apply_ToolSet(t *testing.T) {
 }
 
 func TestEngine_Apply_ToolSet_DisabledItem(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
@@ -1999,6 +2022,7 @@ func TestEngine_Apply_ToolSet_DisabledItem(t *testing.T) {
 }
 
 func TestEngine_Apply_ToolSet_NameConflict(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
@@ -2029,6 +2053,7 @@ func TestEngine_Apply_ToolSet_NameConflict(t *testing.T) {
 }
 
 func TestCheckRemovalDependencies(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		runtimeRemovals []string
@@ -2081,6 +2106,7 @@ func TestCheckRemovalDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := checkRemovalDependencies(tt.runtimeRemovals, tt.remainingTools)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -2093,6 +2119,7 @@ func TestCheckRemovalDependencies(t *testing.T) {
 }
 
 func TestEngine_Apply_RemoveRuntimeWithDependentTool(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	stateDir := t.TempDir()
 
@@ -2176,6 +2203,7 @@ gopls: {
 }
 
 func TestEngine_PlanAll_RemoveRuntimeWithDependentTool(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	stateDir := t.TempDir()
 
@@ -2230,6 +2258,7 @@ gopls: {
 }
 
 func TestEngine_Apply_RemoveRuntimeAndDependentTool(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	stateDir := t.TempDir()
 
@@ -2323,6 +2352,7 @@ placeholder: {
 }
 
 func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		tools          map[string]*resource.ToolState
@@ -2402,6 +2432,7 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			stateDir := t.TempDir()
 			store, err := state.NewStore[state.UserState](stateDir)
 			require.NoError(t, err)
@@ -2438,6 +2469,7 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 }
 
 func TestEngine_SyncMode_Apply(t *testing.T) {
+	t.Parallel()
 	// End-to-end: sync mode triggers reinstall of latest-specified tool
 	configDir := t.TempDir()
 	stateDir := t.TempDir()
@@ -2505,6 +2537,7 @@ fd: {
 }
 
 func TestEngine_SyncMode_ExactVersionNotReinstalled(t *testing.T) {
+	t.Parallel()
 	// Sync mode should NOT reinstall tools with exact version
 	configDir := t.TempDir()
 	stateDir := t.TempDir()
@@ -2566,6 +2599,7 @@ rg: {
 }
 
 func TestEngine_Apply_InstallerRepository(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
 	cueContent := `package tomei
@@ -2623,6 +2657,7 @@ repo: {
 }
 
 func TestEngine_Apply_InstallerRepositoryWithTool(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
 	cueContent := `package tomei
@@ -2712,6 +2747,7 @@ tool: {
 }
 
 func TestEngine_Apply_InstallerRepository_Remove(t *testing.T) {
+	t.Parallel()
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.UserState](stateDir)
 	require.NoError(t, err)
@@ -2745,6 +2781,7 @@ func TestEngine_Apply_InstallerRepository_Remove(t *testing.T) {
 }
 
 func TestEngine_PlanAll_InstallerRepository(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
 	cueContent := `package tomei
@@ -2790,7 +2827,9 @@ repo: {
 }
 
 func TestAppendBuiltinInstallers(t *testing.T) {
+	t.Parallel()
 	t.Run("adds download and aqua when absent", func(t *testing.T) {
+		t.Parallel()
 		resources := []resource.Resource{
 			&resource.Tool{
 				BaseResource: resource.BaseResource{
@@ -2818,6 +2857,7 @@ func TestAppendBuiltinInstallers(t *testing.T) {
 	})
 
 	t.Run("does not duplicate existing installer", func(t *testing.T) {
+		t.Parallel()
 		existing := &resource.Installer{
 			BaseResource: resource.BaseResource{
 				APIVersion:   resource.GroupVersion,
@@ -2844,6 +2884,7 @@ func TestAppendBuiltinInstallers(t *testing.T) {
 }
 
 func TestEngine_Apply_EventLayerStart(t *testing.T) {
+	t.Parallel()
 	// Setup CUE config with runtime and tool (2 layers: runtime first, then tool)
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
@@ -2963,6 +3004,7 @@ tool: {
 }
 
 func TestEngine_Apply_EventComplete_InstallPath(t *testing.T) {
+	t.Parallel()
 	configDir := t.TempDir()
 	cueFile := filepath.Join(configDir, "resources.cue")
 	cueContent := `package tomei

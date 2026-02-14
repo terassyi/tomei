@@ -10,6 +10,7 @@ import (
 )
 
 func TestVersionClient_GetLatestRef(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		statusCode int
@@ -39,6 +40,7 @@ func TestVersionClient_GetLatestRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mockClient := &http.Client{
 				Transport: &mockRoundTripper{
 					handler: func(req *http.Request) (*http.Response, error) {
@@ -64,6 +66,7 @@ func TestVersionClient_GetLatestRef(t *testing.T) {
 }
 
 func TestVersionClient_GetLatestToolVersion(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		repoOwner  string
@@ -113,6 +116,7 @@ func TestVersionClient_GetLatestToolVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			mockClient := &http.Client{
 				Transport: &mockRoundTripper{
 					handler: func(req *http.Request) (*http.Response, error) {

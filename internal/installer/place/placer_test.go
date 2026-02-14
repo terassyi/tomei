@@ -12,11 +12,13 @@ import (
 )
 
 func TestNewPlacer(t *testing.T) {
+	t.Parallel()
 	p := NewPlacer("/tools", "/bin")
 	assert.NotNil(t, p)
 }
 
 func TestValidateAction_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		action ValidateAction
 		want   string
@@ -29,12 +31,14 @@ func TestValidateAction_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
 			assert.Equal(t, tt.want, tt.action.String())
 		})
 	}
 }
 
 func TestPlacer_Validate(t *testing.T) {
+	t.Parallel()
 	content := []byte("binary content")
 	contentHash := sha256Hash(content)
 
@@ -86,6 +90,7 @@ func TestPlacer_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			toolsDir := filepath.Join(tmpDir, "tools")
 			binDir := filepath.Join(tmpDir, "bin")
@@ -107,6 +112,7 @@ func TestPlacer_Validate(t *testing.T) {
 }
 
 func TestPlacer_Place(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, srcDir string)
@@ -163,6 +169,7 @@ func TestPlacer_Place(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			srcDir := filepath.Join(tmpDir, "src")
 			toolsDir := filepath.Join(tmpDir, "tools")
@@ -198,6 +205,7 @@ func TestPlacer_Place(t *testing.T) {
 }
 
 func TestPlacer_Symlink(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, toolsDir string, target Target)
@@ -254,6 +262,7 @@ func TestPlacer_Symlink(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			toolsDir := filepath.Join(tmpDir, "tools")
 			binDir := filepath.Join(tmpDir, "bin")
@@ -298,6 +307,7 @@ func TestPlacer_Symlink(t *testing.T) {
 }
 
 func TestPlacer_Cleanup(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		setup   func(t *testing.T, tmpDir string) string
@@ -336,6 +346,7 @@ func TestPlacer_Cleanup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			tmpDir := t.TempDir()
 			path := tt.setup(t, tmpDir)
 

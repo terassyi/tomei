@@ -23,6 +23,7 @@ import (
 )
 
 func TestNewInstaller(t *testing.T) {
+	t.Parallel()
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer("/tools", "/bin")
 
@@ -31,6 +32,7 @@ func TestNewInstaller(t *testing.T) {
 }
 
 func TestToolInstaller_Install(t *testing.T) {
+	t.Parallel()
 	// Create test server
 	binaryContent := []byte("#!/bin/sh\necho hello")
 	tarGzContent := createTarGzContent(t, "ripgrep", binaryContent)
@@ -132,6 +134,7 @@ func TestToolInstaller_Install(t *testing.T) {
 }
 
 func TestToolInstaller_Install_Skip(t *testing.T) {
+	t.Parallel()
 	binaryContent := []byte("#!/bin/sh\necho hello")
 
 	tmpDir := t.TempDir()
@@ -204,6 +207,7 @@ func sha256Hash(data []byte) string {
 }
 
 func TestToolInstaller_InstallFromRegistry(t *testing.T) {
+	t.Parallel()
 	// Create test binary content
 	binaryContent := []byte("#!/bin/sh\necho hello from registry")
 	tarGzContent := createTarGzContent(t, "mytool", binaryContent)
@@ -284,6 +288,7 @@ func TestToolInstaller_InstallFromRegistry(t *testing.T) {
 }
 
 func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	toolsDir := filepath.Join(tmpDir, "tools")
 	binDir := filepath.Join(tmpDir, "bin")
@@ -314,6 +319,7 @@ func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
 }
 
 func TestToolInstaller_InstallFromRegistry_NoRegistryRef(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	toolsDir := filepath.Join(tmpDir, "tools")
 	binDir := filepath.Join(tmpDir, "bin")
@@ -411,6 +417,7 @@ func (m *mockPlacer) Cleanup(_ string) error {
 }
 
 func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
+	t.Parallel()
 	archiveData := createTarGzContent(t, "mytool", []byte("#!/bin/sh\necho hello"))
 
 	makeTool := func() *resource.Tool {
@@ -462,6 +469,7 @@ func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			dl := &mockDownloader{archiveData: archiveData}
 			installer := NewInstaller(dl, &mockPlacer{})
 
