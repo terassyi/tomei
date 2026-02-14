@@ -17,5 +17,6 @@ WORKDIR /home/lipnoise
 ENV PATH="/home/lipnoise/.local/bin:${PATH}"
 
 COPY --chown=lipnoise:lipnoise minimal/ /home/lipnoise/examples/minimal/
+COPY --chown=lipnoise:lipnoise real-world/ /home/lipnoise/examples/real-world/
 
 CMD ["bash"]
