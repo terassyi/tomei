@@ -1,7 +1,9 @@
 package cue
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -55,8 +57,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	// Resolve latest module version from OCI registry
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	moduleVersion, err := cuemod.ResolveLatestVersion(ctx)
+	if err != nil {
+		slog.Warn("failed to resolve latest module version, using default", "error", err, "default", cuemod.DefaultModuleVer)
+		moduleVersion = cuemod.DefaultModuleVer
+	}
+
 	// Generate cue.mod/module.cue
-	moduleCue, err := cuemod.GenerateModuleCUE(initModuleName)
+	moduleCue, err := cuemod.GenerateModuleCUE(initModuleName, moduleVersion)
 	if err != nil {
 		return err
 	}

@@ -93,6 +93,25 @@ func cueEcosystemTests() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(content).To(ContainSubstring(`module: "myproject@v0"`))
 		})
+
+		It("resolves module version from OCI registry", func() {
+			dir := "~/cue-ecosystem-test/init-registry-version"
+			_, err := testExec.ExecBash("mkdir -p " + dir)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running tomei cue init (should query ghcr.io for latest version)")
+			output, err := testExec.ExecBash("tomei cue init " + dir)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("module.cue"))
+
+			By("Verifying module.cue contains a version resolved from the registry")
+			content, err := testExec.ExecBash("cat " + dir + "/cue.mod/module.cue")
+			Expect(err).NotTo(HaveOccurred())
+			// The version should be a real semver from the registry, not the hardcoded default.
+			// At minimum v0.0.1 is published, but the registry may have newer versions.
+			Expect(content).To(MatchRegexp(`v: "v0\.\d+\.\d+"`))
+			Expect(content).To(ContainSubstring(`"tomei.terassyi.net@v0"`))
+		})
 	})
 
 	Context("tomei env with cue.mod", func() {

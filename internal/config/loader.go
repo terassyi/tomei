@@ -28,6 +28,9 @@ const (
 	// CUELanguageVersion is the CUE language version used by the tomei module.
 	CUELanguageVersion = "v0.9.0"
 
+	// EnvCUERegistry is the environment variable name for the CUE registry.
+	EnvCUERegistry = "CUE_REGISTRY"
+
 	// DefaultCUERegistry is the built-in CUE_REGISTRY mapping for tomei modules.
 	// When CUE_REGISTRY is not set, this default is used to resolve
 	// tomei.terassyi.net imports from the OCI registry on ghcr.io.
@@ -63,7 +66,7 @@ func NewLoader(env *Env) *Loader {
 // It uses the CUE_REGISTRY environment variable if set, otherwise falls back
 // to the built-in default (tomei.terassyi.net=ghcr.io/terassyi).
 func buildRegistry() (modconfig.Registry, error) {
-	cueRegistry := os.Getenv("CUE_REGISTRY")
+	cueRegistry := os.Getenv(EnvCUERegistry)
 	if cueRegistry == "" {
 		cueRegistry = DefaultCUERegistry
 	}

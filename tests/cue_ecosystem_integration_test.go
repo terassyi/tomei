@@ -3,7 +3,9 @@
 package tests
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +29,7 @@ func TestCueEcosystem_CueInitOutput_LoadableByLoader(t *testing.T) {
 	dir := t.TempDir()
 
 	// Simulate "tomei cue init" output
-	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0", cuemod.DefaultModuleVer)
 	require.NoError(t, err)
 	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
@@ -69,7 +71,7 @@ func TestCueEcosystem_CueInitOutput_HeadlessTag(t *testing.T) {
 	dir := t.TempDir()
 
 	// Simulate "tomei cue init" output
-	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0", cuemod.DefaultModuleVer)
 	require.NoError(t, err)
 	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
@@ -129,14 +131,13 @@ myTool: {
 
 // --- Mock OCI Registry Tests (modregistrytest) ---
 
-// buildModuleFS creates an fstest.MapFS containing the tomei module
-// (schema + presets) for use with modregistrytest.New().
-func buildModuleFS(t *testing.T) fstest.MapFS {
+// buildVersionedModuleFS creates an fstest.MapFS containing the tomei module
+// at the given version (schema + presets) for use with modregistrytest.New().
+func buildVersionedModuleFS(t *testing.T, version string) fstest.MapFS {
 	t.Helper()
 
 	// modregistrytest directory convention: {module_base}_{version}/
-	// For "tomei.terassyi.net@v0" version "v0.0.1":
-	const prefix = "tomei.terassyi.net_v0.0.1/"
+	prefix := "tomei.terassyi.net_" + version + "/"
 
 	fs := fstest.MapFS{
 		prefix + "cue.mod/module.cue": &fstest.MapFile{
@@ -170,12 +171,23 @@ func buildModuleFS(t *testing.T) fstest.MapFS {
 	return fs
 }
 
+// mergeModuleFS merges multiple versioned module FSes into a single MapFS
+// for use with modregistrytest.New().
+func mergeModuleFS(t *testing.T, versions ...string) fstest.MapFS {
+	t.Helper()
+	merged := fstest.MapFS{}
+	for _, v := range versions {
+		maps.Copy(merged, buildVersionedModuleFS(t, v))
+	}
+	return merged
+}
+
 // startMockRegistry starts an in-memory OCI registry containing the tomei module
 // (presets + schema) using modregistrytest. Returns the registry for use with Host().
 func startMockRegistry(t *testing.T) *modregistrytest.Registry {
 	t.Helper()
 
-	reg, err := modregistrytest.New(buildModuleFS(t), "")
+	reg, err := modregistrytest.New(buildVersionedModuleFS(t, cuemod.DefaultModuleVer), "")
 	require.NoError(t, err)
 	t.Cleanup(func() { reg.Close() })
 
@@ -188,7 +200,7 @@ func setupMockRegistryDir(t *testing.T, reg *modregistrytest.Registry) string {
 	t.Helper()
 
 	dir := t.TempDir()
-	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0")
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0", cuemod.DefaultModuleVer)
 	require.NoError(t, err)
 	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
@@ -531,7 +543,7 @@ func TestCueEcosystem_MockRegistry_CueInitThenLoad(t *testing.T) {
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
 
 	// Simulate cue init output
-	moduleCue, err := cuemod.GenerateModuleCUE(cuemod.DefaultModuleName)
+	moduleCue, err := cuemod.GenerateModuleCUE(cuemod.DefaultModuleName, cuemod.DefaultModuleVer)
 	require.NoError(t, err)
 	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
@@ -588,4 +600,98 @@ goRuntime: gopreset.#GoRuntime & {
 	require.NotNil(t, runtime)
 	assert.Equal(t, "go", runtime.Name())
 	assert.Equal(t, "https://go.dev/dl/go1.25.6.linux-arm64.tar.gz", runtime.RuntimeSpec.Source.URL)
+}
+
+// TestCueEcosystem_MockRegistry_ResolveLatestVersion verifies that
+// ResolveLatestVersion returns the highest semver from a multi-version
+// mock registry, regardless of insertion order.
+func TestCueEcosystem_MockRegistry_ResolveLatestVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		versions []string
+		want     string
+	}{
+		{
+			name:     "picks latest from three versions",
+			versions: []string{"v0.0.1", "v0.0.2", "v0.0.3"},
+			want:     "v0.0.3",
+		},
+		{
+			name:     "handles non-sequential order",
+			versions: []string{"v0.0.3", "v0.0.1", "v0.1.0", "v0.0.2"},
+			want:     "v0.1.0",
+		},
+		{
+			name:     "single version",
+			versions: []string{"v0.0.1"},
+			want:     "v0.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, err := modregistrytest.New(mergeModuleFS(t, tt.versions...), "")
+			require.NoError(t, err)
+			defer reg.Close()
+
+			t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
+
+			got, err := cuemod.ResolveLatestVersion(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestCueEcosystem_MockRegistry_ResolveLatestVersion_UsedInGenerateModuleCUE
+// verifies the end-to-end flow: resolve latest version from registry, generate
+// module.cue with it, and confirm the loader can load the result.
+func TestCueEcosystem_MockRegistry_ResolveLatestVersion_UsedInGenerateModuleCUE(t *testing.T) {
+	reg, err := modregistrytest.New(mergeModuleFS(t, "v0.0.1", "v0.0.2"), "")
+	require.NoError(t, err)
+	defer reg.Close()
+
+	t.Setenv(config.EnvCUERegistry, fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
+
+	// Resolve latest version
+	version, err := cuemod.ResolveLatestVersion(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "v0.0.2", version)
+
+	// Generate module.cue with resolved version
+	dir := t.TempDir()
+	moduleCue, err := cuemod.GenerateModuleCUE("example.com@v0", version)
+	require.NoError(t, err)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
+
+	// Verify the generated module.cue contains the resolved version
+	content, err := os.ReadFile(moduleCuePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "v0.0.2")
+
+	// Verify loader can load with this module.cue + mock registry
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+	manifest := `package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+goRuntime: gopreset.#GoRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "1.25.6"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(&config.Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	runtime, ok := resources[0].(*resource.Runtime)
+	require.True(t, ok)
+	assert.Equal(t, "go", runtime.Name())
 }

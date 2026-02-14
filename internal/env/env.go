@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -65,7 +66,7 @@ func GenerateCUERegistry(cueModExists bool, cueRegistry string, f Formatter) str
 	if !cueModExists || cueRegistry == "" {
 		return ""
 	}
-	return f.ExportVar("CUE_REGISTRY", cueRegistry)
+	return f.ExportVar(config.EnvCUERegistry, cueRegistry)
 }
 
 // toShellPath converts an absolute path under $HOME to $HOME/... form for shell portability.
