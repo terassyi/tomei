@@ -6,6 +6,8 @@ var (
 	doneMarkStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))   // green
 	failMarkStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))   // red
 	layerHeaderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("14"))  // light cyan
+	taintHeaderStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))   // cyan
+	removeHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))   // yellow
 	delegationLogStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // gray
 	warnLogStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))   // yellow
 	errorLogStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))   // red

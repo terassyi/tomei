@@ -51,6 +51,18 @@ type InstallerRepositoryInstaller interface {
 // This allows resolver setup to happen after the lock is acquired and state is read.
 type ResolverConfigurer func(st *state.UserState) error
 
+// Phase represents the execution phase of the engine.
+type Phase int
+
+const (
+	// PhaseDAG is the normal dependency-layer execution phase.
+	PhaseDAG Phase = iota
+	// PhaseTaint is the taint reinstall phase after runtime upgrades.
+	PhaseTaint
+	// PhaseRemove is the removal phase for dropped resources.
+	PhaseRemove
+)
+
 // EventType represents the type of engine event.
 type EventType int
 
@@ -72,6 +84,7 @@ const (
 // Event represents an engine event for progress reporting.
 type Event struct {
 	Type       EventType
+	Phase      Phase // execution phase (default PhaseDAG)
 	Kind       resource.Kind
 	Name       string
 	Version    string
@@ -863,13 +876,71 @@ func (e *Engine) handleTaintedTools(
 	tools := extractTools(resources)
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 
+	// Collect non-None actions and build layer node names for UI
+	var activeActions []reconciler.Action[*resource.Tool, *resource.ToolState]
+	var layerNodes []string
 	for _, action := range toolActions {
 		if action.Type == resource.ActionNone {
 			continue
 		}
+		activeActions = append(activeActions, action)
+		layerNodes = append(layerNodes, fmt.Sprintf("%s/%s", resource.KindTool, action.Name))
+	}
+
+	if len(activeActions) == 0 {
+		return nil
+	}
+
+	// Emit layer start for taint phase
+	e.emitEvent(Event{
+		Type:       EventLayerStart,
+		Phase:      PhaseTaint,
+		LayerNodes: layerNodes,
+	})
+
+	for _, action := range activeActions {
+		t := action.Resource
+		method := e.determineInstallMethod(t)
+
+		e.emitEvent(Event{
+			Type:    EventStart,
+			Phase:   PhaseTaint,
+			Kind:    resource.KindTool,
+			Name:    action.Name,
+			Version: t.ToolSpec.Version,
+			Action:  action.Type,
+			Method:  method,
+		})
+
 		if err := e.toolExecutor.Execute(ctx, action); err != nil {
+			e.emitEvent(Event{
+				Type:   EventError,
+				Phase:  PhaseTaint,
+				Kind:   resource.KindTool,
+				Name:   action.Name,
+				Action: action.Type,
+				Error:  err,
+				Method: method,
+			})
 			return fmt.Errorf("failed to execute action %s for tool %s: %w", action.Type, action.Name, err)
 		}
+
+		// Load updated state to get install path
+		var toolInstallPath string
+		if updatedTS, exists, loadErr := e.toolStore.Load(t.Name()); loadErr == nil && exists {
+			toolInstallPath = updatedTS.BinPath
+		}
+
+		e.emitEvent(Event{
+			Type:        EventComplete,
+			Phase:       PhaseTaint,
+			Kind:        resource.KindTool,
+			Name:        action.Name,
+			Action:      action.Type,
+			Method:      method,
+			InstallPath: toolInstallPath,
+		})
+
 		*totalActions++
 	}
 
@@ -914,42 +985,92 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		}
 	}
 
-	// Execute remove actions for tools (first, since they depend on repos)
-	for _, action := range toolActions {
-		if action.Type != resource.ActionRemove {
-			continue
-		}
-		if err := e.toolExecutor.Execute(ctx, action); err != nil {
-			return fmt.Errorf("failed to remove tool %s: %w", action.Name, err)
-		}
-		*totalActions++
+	// Collect all removal node names for the layer header
+	var layerNodes []string
+	layerNodes = collectRemovalNodes(layerNodes, resource.KindTool, toolActions)
+	layerNodes = collectRemovalNodes(layerNodes, resource.KindInstallerRepository, repoActions)
+	layerNodes = collectRemovalNodes(layerNodes, resource.KindRuntime, runtimeActions)
+
+	if len(layerNodes) == 0 {
+		return nil
+	}
+
+	// Emit layer start for removal phase
+	e.emitEvent(Event{
+		Type:       EventLayerStart,
+		Phase:      PhaseRemove,
+		LayerNodes: layerNodes,
+	})
+
+	// Execute remove actions: tools first, then repos, then runtimes
+	if err := executeRemovals(ctx, e, resource.KindTool, toolActions, e.toolExecutor, totalActions); err != nil {
+		return err
 	}
 
 	// Update tool bin paths for InstallerRepository remove commands (e.g., helm repo remove)
 	e.updateToolBinPaths(buildResourceMap(resources), st)
 
-	// Execute remove actions for installer repositories (after tools, before runtimes)
-	for _, action := range repoActions {
+	if err := executeRemovals(ctx, e, resource.KindInstallerRepository, repoActions, e.installerRepoExecutor, totalActions); err != nil {
+		return err
+	}
+
+	return executeRemovals(ctx, e, resource.KindRuntime, runtimeActions, e.runtimeExecutor, totalActions)
+}
+
+// collectRemovalNodes appends node names for removal actions to the slice.
+func collectRemovalNodes[R resource.Resource, S resource.State](
+	nodes []string,
+	kind resource.Kind,
+	actions []reconciler.Action[R, S],
+) []string {
+	for _, action := range actions {
+		if action.Type == resource.ActionRemove {
+			nodes = append(nodes, fmt.Sprintf("%s/%s", kind, action.Name))
+		}
+	}
+	return nodes
+}
+
+// executeRemovals iterates over actions, executing removals with PhaseRemove events.
+func executeRemovals[R resource.Resource, S resource.State](
+	ctx context.Context,
+	e *Engine,
+	kind resource.Kind,
+	actions []reconciler.Action[R, S],
+	exec *executor.Executor[R, S],
+	totalActions *int,
+) error {
+	for _, action := range actions {
 		if action.Type != resource.ActionRemove {
 			continue
 		}
-		if err := e.installerRepoExecutor.Execute(ctx, action); err != nil {
-			return fmt.Errorf("failed to remove installer repository %s: %w", action.Name, err)
+		e.emitEvent(Event{
+			Type:   EventStart,
+			Phase:  PhaseRemove,
+			Kind:   kind,
+			Name:   action.Name,
+			Action: action.Type,
+		})
+		if err := exec.Execute(ctx, action); err != nil {
+			e.emitEvent(Event{
+				Type:   EventError,
+				Phase:  PhaseRemove,
+				Kind:   kind,
+				Name:   action.Name,
+				Action: action.Type,
+				Error:  err,
+			})
+			return fmt.Errorf("failed to remove %s %s: %w", kind, action.Name, err)
 		}
+		e.emitEvent(Event{
+			Type:   EventComplete,
+			Phase:  PhaseRemove,
+			Kind:   kind,
+			Name:   action.Name,
+			Action: action.Type,
+		})
 		*totalActions++
 	}
-
-	// Execute remove actions for runtimes (last)
-	for _, action := range runtimeActions {
-		if action.Type != resource.ActionRemove {
-			continue
-		}
-		if err := e.runtimeExecutor.Execute(ctx, action); err != nil {
-			return fmt.Errorf("failed to remove runtime %s: %w", action.Name, err)
-		}
-		*totalActions++
-	}
-
 	return nil
 }
 

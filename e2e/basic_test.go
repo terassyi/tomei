@@ -359,18 +359,27 @@ func basicTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei plan to see changes")
-			output, err := testExec.Exec("tomei", "plan", "~/manifests/")
+			output, err := testExec.Exec("tomei", "plan", "--no-color", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan shows runtime in execution order")
 			Expect(output).To(ContainSubstring("Runtime/go"))
 			Expect(output).To(ContainSubstring("Execution Order"))
+
+			By("Checking plan predicts taint reinstall for dependent tools")
+			Expect(output).To(ContainSubstring("reinstall"))
+
+			By("Checking plan summary includes reinstall count")
+			Expect(output).To(ContainSubstring("to reinstall"))
 		})
 
 		It("upgrades runtime to newer version", func() {
 			By("Running tomei apply with upgraded config")
-			_, err := ExecApply(testExec, "~/manifests/")
+			applyOutput, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking apply summary shows reinstalled tools")
+			Expect(applyOutput).To(ContainSubstring("Reinstalled:"))
 
 			By("Verifying new runtime version is installed")
 			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
@@ -447,9 +456,20 @@ func basicTests() {
 			_, err := testExec.ExecBash("mv ~/manifests/tools.cue ~/manifests/tools.cue.hidden")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Running tomei apply")
-			_, err = ExecApply(testExec, "~/manifests/")
+			By("Running tomei plan to see removal prediction")
+			planOutput, err := testExec.Exec("tomei", "plan", "--no-color", "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking plan predicts tool removal")
+			Expect(planOutput).To(ContainSubstring("remove"))
+			Expect(planOutput).To(ContainSubstring("to remove"))
+
+			By("Running tomei apply")
+			applyOutput, err := ExecApply(testExec, "~/manifests/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking apply summary shows removed resources")
+			Expect(applyOutput).To(ContainSubstring("Removed:"))
 
 			By("Verifying tool symlink is removed")
 			_, err = testExec.ExecBash("test -L ~/.local/bin/gh")

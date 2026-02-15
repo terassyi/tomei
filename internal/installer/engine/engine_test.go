@@ -501,6 +501,239 @@ tool: {
 	assert.False(t, st.Tools["gopls"].IsTainted(), "tool should not be tainted after reinstall")
 }
 
+func TestEngine_TaintDependentTools_EmitsEvents(t *testing.T) {
+	t.Parallel()
+
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.26.0"
+		source: {
+			url: "https://example.com/go-1.26.0.tar.gz"
+			checksum: {
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			}
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: {
+			install: "go install {{.Package}}@{{.Version}}"
+		}
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		version: "0.16.0"
+		package: "golang.org/x/tools/gopls"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state: runtime at older version, tool depends on it
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Runtimes["go"] = &resource.RuntimeState{
+		Type:        resource.InstallTypeDownload,
+		Version:     "1.25.0",
+		InstallPath: "/runtimes/go/1.25.0",
+		Binaries:    []string{"go", "gofmt"},
+	}
+	initialState.Tools["gopls"] = &resource.ToolState{
+		RuntimeRef:  "go",
+		Version:     "0.16.0",
+		InstallPath: "/tools/gopls/0.16.0",
+		BinPath:     "/bin/gopls",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	runtimeMock := &mockRuntimeInstaller{
+		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			return &resource.RuntimeState{
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:    res.RuntimeSpec.Binaries,
+			}, nil
+		},
+	}
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				RuntimeRef:   res.ToolSpec.RuntimeRef,
+				InstallPath:  "/tools/" + name + "/" + res.ToolSpec.Version,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	// Collect events
+	var mu sync.Mutex
+	var events []Event
+	collectEvents := func(event Event) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetEventHandler(collectEvents)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Find taint phase events
+	var taintLayerStarts []Event
+	var taintStarts []Event
+	var taintCompletes []Event
+	for _, e := range events {
+		if e.Phase == PhaseTaint {
+			switch e.Type {
+			case EventLayerStart:
+				taintLayerStarts = append(taintLayerStarts, e)
+			case EventStart:
+				taintStarts = append(taintStarts, e)
+			case EventComplete:
+				taintCompletes = append(taintCompletes, e)
+			}
+		}
+	}
+
+	// Should have 1 taint layer start with gopls in layer nodes
+	require.Len(t, taintLayerStarts, 1, "expected 1 PhaseTaint EventLayerStart")
+	assert.Contains(t, taintLayerStarts[0].LayerNodes, "Tool/gopls")
+
+	// Should have 1 taint start and 1 complete for gopls
+	require.Len(t, taintStarts, 1, "expected 1 PhaseTaint EventStart")
+	assert.Equal(t, "gopls", taintStarts[0].Name)
+	assert.Equal(t, resource.KindTool, taintStarts[0].Kind)
+
+	require.Len(t, taintCompletes, 1, "expected 1 PhaseTaint EventComplete")
+	assert.Equal(t, "gopls", taintCompletes[0].Name)
+}
+
+func TestEngine_Removal_EmitsEvents(t *testing.T) {
+	t.Parallel()
+
+	// Config with only "bat" — "fzf" is in state and should be removed
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+bat: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "bat"
+	spec: {
+		installerRef: "download"
+		version: "0.25.0"
+		source: {
+			url: "https://example.com/bat-0.25.0.tar.gz"
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state with bat and fzf
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Tools["bat"] = &resource.ToolState{
+		InstallerRef: "download",
+		Version:      "0.25.0",
+		BinPath:      "/bin/bat",
+	}
+	initialState.Tools["fzf"] = &resource.ToolState{
+		InstallerRef: "download",
+		Version:      "0.44.0",
+		BinPath:      "/bin/fzf",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	// Collect events
+	var mu sync.Mutex
+	var events []Event
+	collectEvents := func(event Event) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetEventHandler(collectEvents)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Verify PhaseRemove events
+	var removeLayerStarts, removeStarts, removeCompletes []Event
+	for _, e := range events {
+		if e.Phase == PhaseRemove {
+			switch e.Type {
+			case EventLayerStart:
+				removeLayerStarts = append(removeLayerStarts, e)
+			case EventStart:
+				removeStarts = append(removeStarts, e)
+			case EventComplete:
+				removeCompletes = append(removeCompletes, e)
+			}
+		}
+	}
+
+	require.Len(t, removeLayerStarts, 1, "expected 1 PhaseRemove EventLayerStart")
+	assert.Contains(t, removeLayerStarts[0].LayerNodes, "Tool/fzf")
+
+	require.Len(t, removeStarts, 1, "expected 1 PhaseRemove EventStart for fzf")
+	assert.Equal(t, "fzf", removeStarts[0].Name)
+	assert.Equal(t, resource.ActionRemove, removeStarts[0].Action)
+
+	require.Len(t, removeCompletes, 1, "expected 1 PhaseRemove EventComplete for fzf")
+	assert.Equal(t, "fzf", removeCompletes[0].Name)
+}
+
 func TestEngine_Apply_DependencyOrder(t *testing.T) {
 	t.Parallel()
 	// Test that DAG-based execution respects dependency order:

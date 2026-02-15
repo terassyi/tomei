@@ -69,13 +69,23 @@ func (m *ApplyModel) handleLayerStart(event engine.Event) (tea.Model, tea.Cmd) {
 		m.totalLayers = event.TotalLayers
 	}
 
-	// Snapshot previous layer (if not the first layer)
-	if event.Layer > 0 {
+	// For phase layers (taint/remove), append node names dynamically
+	if event.Phase != engine.PhaseDAG {
+		// Snapshot the previous layer before starting the new phase layer
 		m.snapshotCurrentLayer()
+
+		m.allLayerNodes = append(m.allLayerNodes, event.LayerNodes)
+		m.currentLayer = len(m.allLayerNodes) - 1
+	} else {
+		// Snapshot previous layer (if not the first DAG layer)
+		if event.Layer > 0 {
+			m.snapshotCurrentLayer()
+		}
+		m.currentLayer = event.Layer
 	}
 
 	// Reset for new layer
-	m.currentLayer = event.Layer
+	m.currentPhase = event.Phase
 	m.layerStart = now
 	m.layerElapsed = 0
 	m.tasks = make(map[string]*taskState)
@@ -149,7 +159,7 @@ func (m *ApplyModel) handleComplete(event engine.Event) (tea.Model, tea.Cmd) {
 	task.status = taskDone
 	task.elapsed = time.Since(task.startTime)
 	task.installPath = event.InstallPath
-	updateResults(event.Action, m.results)
+	updateResults(event.Action, event.Phase, m.results)
 	m.completedOrder = append(m.completedOrder, key)
 
 	return m, nil
@@ -220,6 +230,7 @@ func (m *ApplyModel) snapshotCurrentLayer() {
 	copy(copiedCompletedOrder, m.completedOrder)
 
 	snapshot := &layerState{
+		phase:          m.currentPhase,
 		elapsed:        m.layerElapsed,
 		tasks:          copiedTasks,
 		taskOrder:      copiedOrder,

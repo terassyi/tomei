@@ -202,6 +202,29 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 				}
 			}
 		}
+
+		// Predict taint reinstalls: if a runtime is being upgraded,
+		// tools that depend on it (via RuntimeRef) will be reinstalled.
+		upgradedRuntimes := map[string]bool{}
+		for _, res := range resources {
+			if res.Kind() == resource.KindRuntime {
+				nodeID := graph.NewNodeID(res.Kind(), res.Name())
+				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionUpgrade {
+					upgradedRuntimes[res.Name()] = true
+				}
+			}
+		}
+		if len(upgradedRuntimes) > 0 {
+			for name, toolState := range userState.Tools {
+				if toolState.RuntimeRef != "" && upgradedRuntimes[toolState.RuntimeRef] {
+					nodeID := graph.NewNodeID(resource.KindTool, name)
+					if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionNone {
+						ri.Action = graph.ActionReinstall
+						info[nodeID] = ri
+					}
+				}
+			}
+		}
 	}
 
 	return info

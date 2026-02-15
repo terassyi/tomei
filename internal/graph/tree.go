@@ -217,9 +217,10 @@ func (p *TreePrinter) PrintSummary(resourceInfo map[NodeID]ResourceInfo) {
 		}
 	}
 
-	fmt.Fprintf(p.writer, "\nSummary: %s to install, %s to upgrade, %s to remove\n",
+	fmt.Fprintf(p.writer, "\nSummary: %s to install, %s to upgrade, %s to reinstall, %s to remove\n",
 		p.installColor.Sprintf("%d", counts[ActionInstall]),
 		p.upgradeColor.Sprintf("%d", counts[ActionUpgrade]),
+		p.reinstallColor.Sprintf("%d", counts[ActionReinstall]),
 		p.removeColor.Sprintf("%d", counts[ActionRemove]),
 	)
 }
