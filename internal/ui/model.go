@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/terassyi/tomei/internal/installer/engine"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -50,6 +51,7 @@ type taskState struct {
 
 // layerState holds the snapshot of a completed layer.
 type layerState struct {
+	phase          engine.Phase
 	elapsed        time.Duration
 	tasks          map[string]*taskState
 	taskOrder      []string
@@ -62,8 +64,9 @@ type ApplyModel struct {
 	allLayerNodes [][]string
 	totalLayers   int
 
-	// Current layer index
+	// Current layer index and phase
 	currentLayer int
+	currentPhase engine.Phase
 	layerStart   time.Time
 	layerElapsed time.Duration // cached for View()
 

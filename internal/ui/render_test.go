@@ -141,7 +141,7 @@ func TestRenderProgressBar(t *testing.T) {
 
 func TestRenderLayerHeader(t *testing.T) {
 	t.Parallel()
-	header := renderLayerHeader(0, 2, []string{"Runtime/go"}, "4.4s", 80)
+	header := renderLayerHeader(engine.PhaseDAG, 0, 2, []string{"Runtime/go"}, "4.4s", 80)
 	assert.Contains(t, header, "Layer 1/2: Runtime/go")
 	assert.Contains(t, header, "4.4s")
 }
@@ -150,10 +150,28 @@ func TestRenderLayerHeader_Styled(t *testing.T) {
 	t.Parallel()
 	enableColorForTest(t)
 
-	header := renderLayerHeader(0, 2, []string{"Runtime/go"}, "4.4s", 80)
+	header := renderLayerHeader(engine.PhaseDAG, 0, 2, []string{"Runtime/go"}, "4.4s", 80)
 	assert.Contains(t, header, "Layer 1/2: Runtime/go")
 	assert.Contains(t, header, "4.4s")
 	assert.True(t, containsANSI(header), "layer header should contain ANSI escape sequences for cyan styling")
+}
+
+func TestRenderLayerHeader_PhaseTaint(t *testing.T) {
+	t.Parallel()
+	header := renderLayerHeader(engine.PhaseTaint, 0, 0, []string{"Tool/gopls", "Tool/dlv"}, "5.2s", 80)
+	assert.Contains(t, header, "Reinstall:")
+	assert.Contains(t, header, "Tool/gopls")
+	assert.Contains(t, header, "5.2s")
+	assert.NotContains(t, header, "Layer")
+}
+
+func TestRenderLayerHeader_PhaseRemove(t *testing.T) {
+	t.Parallel()
+	header := renderLayerHeader(engine.PhaseRemove, 0, 0, []string{"Tool/old-tool"}, "0.1s", 80)
+	assert.Contains(t, header, "Remove:")
+	assert.Contains(t, header, "Tool/old-tool")
+	assert.Contains(t, header, "0.1s")
+	assert.NotContains(t, header, "Layer")
 }
 
 func TestRenderCompletedLine(t *testing.T) {

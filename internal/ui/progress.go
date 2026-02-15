@@ -21,10 +21,11 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 // ApplyResults tracks apply operation results.
 type ApplyResults struct {
-	Installed int
-	Upgraded  int
-	Removed   int
-	Failed    int
+	Installed   int
+	Upgraded    int
+	Reinstalled int
+	Removed     int
+	Failed      int
 }
 
 // ProgressManager manages progress display for downloads and commands.
@@ -222,7 +223,7 @@ func (pm *ProgressManager) handleComplete(event engine.Event, results *ApplyResu
 	}
 
 	pm.mu.Lock()
-	updateResults(event.Action, results)
+	updateResults(event.Action, event.Phase, results)
 	pm.mu.Unlock()
 }
 
@@ -260,11 +261,19 @@ func (pm *ProgressManager) handleError(event engine.Event, results *ApplyResults
 	pm.mu.Unlock()
 }
 
-// updateResults updates the results based on action type.
-func updateResults(action resource.ActionType, results *ApplyResults) {
+// updateResults updates the results based on action type and execution phase.
+// When the phase is PhaseTaint, actions are counted as reinstalls regardless
+// of the reconciler-reported action type (which is typically ActionUpgrade).
+func updateResults(action resource.ActionType, phase engine.Phase, results *ApplyResults) {
+	if phase == engine.PhaseTaint {
+		results.Reinstalled++
+		return
+	}
 	switch action {
-	case resource.ActionInstall, resource.ActionReinstall:
+	case resource.ActionInstall:
 		results.Installed++
+	case resource.ActionReinstall:
+		results.Reinstalled++
 	case resource.ActionUpgrade:
 		results.Upgraded++
 	case resource.ActionRemove:
@@ -276,7 +285,7 @@ func updateResults(action resource.ActionType, results *ApplyResults) {
 func PrintApplySummary(w io.Writer, results *ApplyResults) {
 	style := NewStyle()
 
-	total := results.Installed + results.Upgraded + results.Removed
+	total := results.Installed + results.Upgraded + results.Reinstalled + results.Removed
 	if total == 0 && results.Failed == 0 {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "%s No changes to apply\n", style.SuccessMark)
@@ -287,16 +296,19 @@ func PrintApplySummary(w io.Writer, results *ApplyResults) {
 	style.Header.Fprintln(w, "Summary:")
 
 	if results.Installed > 0 {
-		fmt.Fprintf(w, "  %s Installed: %d\n", style.SuccessMark, results.Installed)
+		fmt.Fprintf(w, "  %s Installed:   %d\n", style.SuccessMark, results.Installed)
 	}
 	if results.Upgraded > 0 {
-		fmt.Fprintf(w, "  %s Upgraded:  %d\n", style.UpgradeMark, results.Upgraded)
+		fmt.Fprintf(w, "  %s Upgraded:    %d\n", style.UpgradeMark, results.Upgraded)
+	}
+	if results.Reinstalled > 0 {
+		fmt.Fprintf(w, "  %s Reinstalled: %d\n", style.ReinstallMark, results.Reinstalled)
 	}
 	if results.Removed > 0 {
-		fmt.Fprintf(w, "  %s Removed:   %d\n", style.RemoveMark, results.Removed)
+		fmt.Fprintf(w, "  %s Removed:     %d\n", style.RemoveMark, results.Removed)
 	}
 	if results.Failed > 0 {
-		fmt.Fprintf(w, "  %s Failed:    %d\n", style.FailMark, results.Failed)
+		fmt.Fprintf(w, "  %s Failed:      %d\n", style.FailMark, results.Failed)
 	}
 
 	fmt.Fprintln(w)

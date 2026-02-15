@@ -403,3 +403,82 @@ func TestUpdate_SlogMsg_TruncatesAtMaxSlogLines(t *testing.T) {
 	assert.Equal(t, "msg 3", m.slogLines[0].message, "oldest visible should be msg 3")
 	assert.Equal(t, fmt.Sprintf("msg %d", maxSlogLines+2), m.slogLines[maxSlogLines-1].message)
 }
+
+func TestUpdate_PhaseTaint_LayerStart(t *testing.T) {
+	t.Parallel()
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	// First, send a DAG layer start
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:        engine.EventLayerStart,
+		Layer:       0,
+		TotalLayers: 1,
+		LayerNodes:  []string{"Runtime/go"},
+		AllLayerNodes: [][]string{
+			{"Runtime/go"},
+		},
+	}})
+
+	assert.Equal(t, engine.PhaseDAG, m.currentPhase)
+	assert.Equal(t, 1, m.totalLayers)
+
+	// Complete a task in the DAG layer
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:   engine.EventStart,
+		Kind:   resource.KindRuntime,
+		Name:   "go",
+		Action: resource.ActionUpgrade,
+	}})
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:   engine.EventComplete,
+		Kind:   resource.KindRuntime,
+		Name:   "go",
+		Action: resource.ActionUpgrade,
+	}})
+
+	// Now send a PhaseTaint layer start
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:       engine.EventLayerStart,
+		Phase:      engine.PhaseTaint,
+		LayerNodes: []string{"Tool/gopls"},
+	}})
+
+	assert.Equal(t, engine.PhaseTaint, m.currentPhase)
+	// allLayerNodes should have grown by 1
+	assert.Len(t, m.allLayerNodes, 2)
+	assert.Equal(t, []string{"Tool/gopls"}, m.allLayerNodes[1])
+	// Previous DAG layer should be snapshotted
+	require.Len(t, m.completedLayers, 1)
+	assert.Equal(t, engine.PhaseDAG, m.completedLayers[0].phase)
+}
+
+func TestUpdate_PhaseRemove_LayerStart(t *testing.T) {
+	t.Parallel()
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	// Send a DAG layer start
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:        engine.EventLayerStart,
+		Layer:       0,
+		TotalLayers: 1,
+		LayerNodes:  []string{"Tool/bat"},
+		AllLayerNodes: [][]string{
+			{"Tool/bat"},
+		},
+	}})
+
+	// Now send a PhaseRemove layer start (without any DAG layer completion)
+	m.Update(engineEventMsg{event: engine.Event{
+		Type:       engine.EventLayerStart,
+		Phase:      engine.PhaseRemove,
+		LayerNodes: []string{"Tool/old"},
+	}})
+
+	assert.Equal(t, engine.PhaseRemove, m.currentPhase)
+	assert.Len(t, m.allLayerNodes, 2)
+	assert.Equal(t, []string{"Tool/old"}, m.allLayerNodes[1])
+	require.Len(t, m.completedLayers, 1)
+	assert.Equal(t, engine.PhaseDAG, m.completedLayers[0].phase)
+}

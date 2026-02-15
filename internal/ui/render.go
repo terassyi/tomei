@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/terassyi/tomei/internal/installer/engine"
 )
 
 const (
@@ -18,7 +21,7 @@ const (
 // Renders ALL layers: completed layers (snapshots) + current layer + pending layer headers.
 // The last frame rendered before tea.Quit persists in the terminal scrollback.
 func (m *ApplyModel) View() string {
-	if m.totalLayers == 0 {
+	if m.totalLayers == 0 && len(m.allLayerNodes) == 0 {
 		return ""
 	}
 
@@ -34,7 +37,7 @@ func (m *ApplyModel) View() string {
 	// 1. Completed layers (from snapshots)
 	for i, snapshot := range m.completedLayers {
 		nodes := m.allLayerNodes[i]
-		b.WriteString(renderLayerHeader(i, m.totalLayers, nodes, formatElapsed(snapshot.elapsed), m.width))
+		b.WriteString(renderLayerHeader(snapshot.phase, i, m.totalLayers, nodes, formatElapsed(snapshot.elapsed), m.width))
 		b.WriteByte('\n')
 		renderTaskList(&b, snapshot.tasks, snapshot.taskOrder, snapshot.completedOrder, m.width)
 	}
@@ -43,17 +46,18 @@ func (m *ApplyModel) View() string {
 	if !currentLayerSnapshotted {
 		elapsed := m.layerElapsed
 		nodes := m.allLayerNodes[m.currentLayer]
-		b.WriteString(renderLayerHeader(m.currentLayer, m.totalLayers, nodes, formatElapsed(elapsed), m.width))
+		b.WriteString(renderLayerHeader(m.currentPhase, m.currentLayer, m.totalLayers, nodes, formatElapsed(elapsed), m.width))
 		b.WriteByte('\n')
 		renderTaskList(&b, m.tasks, m.taskOrder, m.completedOrder, m.width)
 	}
 
-	// 3. Pending layer headers (layers not yet started)
+	// 3. Pending DAG layer headers (layers not yet started)
+	// Only render pending headers for DAG layers (phase layers are dynamic).
 	// Start from whichever is higher: the layer after the live one,
 	// or after all snapshots (to avoid duplicating a snapshotted layer).
 	pendingStart := max(m.currentLayer+1, snapshotCount)
 	for i := pendingStart; i < m.totalLayers; i++ {
-		b.WriteString(renderLayerHeader(i, m.totalLayers, m.allLayerNodes[i], "-", m.width))
+		b.WriteString(renderLayerHeader(engine.PhaseDAG, i, m.totalLayers, m.allLayerNodes[i], "-", m.width))
 		b.WriteByte('\n')
 	}
 
@@ -126,9 +130,23 @@ func renderTask(b *strings.Builder, task *taskState, width int) {
 
 // renderLayerHeader renders a layer header line.
 // e.g. "Layer 1/2: Runtime/go                                                    4.4s"
-func renderLayerHeader(layer, total int, nodes []string, elapsed string, width int) string {
-	prefix := fmt.Sprintf("Layer %d/%d: %s", layer+1, total, fitNodeNames(nodes, width-30))
-	return layerHeaderStyle.Render(rightAlign(prefix, elapsed, width))
+func renderLayerHeader(phase engine.Phase, layer, total int, nodes []string, elapsed string, width int) string {
+	var prefix string
+	var style lipgloss.Style
+
+	switch phase {
+	case engine.PhaseTaint:
+		prefix = fmt.Sprintf("Reinstall: %s", fitNodeNames(nodes, width-20))
+		style = taintHeaderStyle
+	case engine.PhaseRemove:
+		prefix = fmt.Sprintf("Remove: %s", fitNodeNames(nodes, width-20))
+		style = removeHeaderStyle
+	default:
+		prefix = fmt.Sprintf("Layer %d/%d: %s", layer+1, total, fitNodeNames(nodes, width-30))
+		style = layerHeaderStyle
+	}
+
+	return style.Render(rightAlign(prefix, elapsed, width))
 }
 
 // renderCompletedLine renders a completed task line.

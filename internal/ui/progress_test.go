@@ -167,22 +167,26 @@ func TestProgressManager_UpdateResults(t *testing.T) {
 	tests := []struct {
 		name      string
 		action    resource.ActionType
+		phase     engine.Phase
 		wantField string
 	}{
-		{"install", resource.ActionInstall, "Installed"},
-		{"reinstall", resource.ActionReinstall, "Installed"},
-		{"upgrade", resource.ActionUpgrade, "Upgraded"},
-		{"remove", resource.ActionRemove, "Removed"},
+		{"install", resource.ActionInstall, engine.PhaseDAG, "Installed"},
+		{"reinstall", resource.ActionReinstall, engine.PhaseDAG, "Reinstalled"},
+		{"upgrade", resource.ActionUpgrade, engine.PhaseDAG, "Upgraded"},
+		{"remove", resource.ActionRemove, engine.PhaseDAG, "Removed"},
+		{"taint upgrade counts as reinstall", resource.ActionUpgrade, engine.PhaseTaint, "Reinstalled"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			results := &ApplyResults{}
-			updateResults(tt.action, results)
+			updateResults(tt.action, tt.phase, results)
 			switch tt.wantField {
 			case "Installed":
 				assert.Equal(t, 1, results.Installed)
+			case "Reinstalled":
+				assert.Equal(t, 1, results.Reinstalled)
 			case "Upgraded":
 				assert.Equal(t, 1, results.Upgraded)
 			case "Removed":
@@ -285,9 +289,9 @@ func TestPrintApplySummary_WithResults(t *testing.T) {
 		Failed:    1,
 	})
 	output := buf.String()
-	assert.Contains(t, output, "Installed: 3")
-	assert.Contains(t, output, "Upgraded:  1")
-	assert.Contains(t, output, "Failed:    1")
+	assert.Contains(t, output, "Installed:   3")
+	assert.Contains(t, output, "Upgraded:    1")
+	assert.Contains(t, output, "Failed:      1")
 	assert.Contains(t, output, "completed with errors")
 }
 
