@@ -67,7 +67,7 @@ pnpmRuntime: {
 		type:    "delegation"
 		version: "10.29.3"
 		bootstrap: {
-			install:        "curl -fsSL https://get.pnpm.io/install.sh | SHELL=/bin/bash PNPM_VERSION={{.Version}} sh -"
+			install:        "curl -fsSL https://get.pnpm.io/install.sh | SHELL=/bin/bash PNPM_VERSION={{.Version}} sh - && export PNPM_HOME=$HOME/.local/share/pnpm && export PATH=$PNPM_HOME:$PATH && $PNPM_HOME/pnpm env use --global lts"
 			check:          "~/.local/share/pnpm/pnpm --version"
 			remove:         "rm -rf ~/.local/share/pnpm"
 			resolveVersion: "~/.local/share/pnpm/pnpm --version 2>/dev/null || echo ''"
@@ -75,6 +75,9 @@ pnpmRuntime: {
 		binaries: ["pnpm", "pnpx"]
 		binDir:      "~/.local/share/pnpm"
 		toolBinPath: "~/.local/share/pnpm"
+		env: {
+			PNPM_HOME: "~/.local/share/pnpm"
+		}
 		commands: {
 			install: "~/.local/share/pnpm/pnpm add -g {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
 			remove:  "~/.local/share/pnpm/pnpm remove -g {{.Package}}"
