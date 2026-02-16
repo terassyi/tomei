@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/terassyi/tomei/internal/checksum"
@@ -433,6 +434,7 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		Version: spec.Version,
 		Name:    name,
 		BinPath: filepath.Join(info.ToolBinPath, name),
+		Args:    strings.Join(spec.Args, " "),
 	}
 
 	// Build environment with PATH including runtime's bin directory
@@ -496,6 +498,7 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		Version: spec.Version,
 		Name:    name,
 		BinPath: "", // installer manages the path
+		Args:    strings.Join(spec.Args, " "),
 	}
 
 	// Build environment with PATH including the installer's toolRef binary directory

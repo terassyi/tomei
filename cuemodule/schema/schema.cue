@@ -139,6 +139,7 @@ package schema
 		enabled?:       bool
 		source?:        #DownloadSource
 		package?:       #Package
+		args?: [...string]
 	}
 }
 
@@ -155,6 +156,7 @@ package schema
 			enabled?: bool
 			source?:  #DownloadSource
 			package?: #Package
+			args?: [...string]
 		}}
 	}
 }

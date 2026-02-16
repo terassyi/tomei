@@ -239,6 +239,11 @@ type ToolSpec struct {
 	// The tool will be tainted (marked for reinstallation) when the runtime is upgraded.
 	// Either InstallerRef or RuntimeRef must be specified.
 	RuntimeRef string `json:"runtimeRef,omitempty"`
+
+	// Args provides additional arguments appended to the install command.
+	// These are joined with spaces and available as {{.Args}} in command templates.
+	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
+	Args []string `json:"args,omitempty"`
 }
 
 // Validate validates the ToolSpec.
@@ -398,6 +403,7 @@ func (ts *ToolSet) Expand() ([]Resource, error) {
 				Version:       item.Version,
 				Source:        item.Source,
 				Package:       item.Package,
+				Args:          item.Args,
 			},
 		}
 		tools = append(tools, tool)
@@ -425,6 +431,10 @@ type ToolItem struct {
 	// For delegation-based: { name: "golang.org/x/tools/gopls" }
 	// Mutually exclusive with Source.
 	Package *Package `json:"package,omitempty"`
+
+	// Args provides additional arguments appended to the install command.
+	// These are joined with spaces and available as {{.Args}} in command templates.
+	Args []string `json:"args,omitempty"`
 }
 
 // IsEnabled returns whether the tool item is enabled.
