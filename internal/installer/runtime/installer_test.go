@@ -202,13 +202,13 @@ func TestInstaller_Install(t *testing.T) {
 				ToolBinPath: binDir,
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "install-cmd {{.Version}}",
-						Check:   "check-cmd",
-						Remove:  "remove-cmd",
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+						Remove:  []string{"remove-cmd"},
 					},
 				},
 				Commands: &resource.CommandsSpec{
-					Install: "tool-install {{.Name}}",
+					Install: []string{"tool-install {{.Name}}"},
 				},
 			},
 		}
@@ -221,17 +221,17 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, resource.VersionExact, state.VersionKind)
 		assert.Equal(t, "1.0.0", state.SpecVersion)
 		assert.Equal(t, binDir, state.ToolBinPath)
-		assert.Equal(t, "remove-cmd", state.RemoveCommand)
+		assert.Equal(t, []string{"remove-cmd"}, state.RemoveCommand)
 		assert.NotNil(t, state.Commands)
 
 		// Verify install command was called
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "install-cmd {{.Version}}", runner.executeWithEnvCalls[0].cmdStr)
+		assert.Equal(t, []string{"install-cmd {{.Version}}"}, runner.executeWithEnvCalls[0].cmds)
 		assert.Equal(t, "1.0.0", runner.executeWithEnvCalls[0].vars.Version)
 
 		// Verify check command was called
 		require.Len(t, runner.checkCalls, 1)
-		assert.Equal(t, "check-cmd", runner.checkCalls[0].cmdStr)
+		assert.Equal(t, []string{"check-cmd"}, runner.checkCalls[0].cmds)
 	})
 
 	t.Run("delegation with ResolveVersion", func(t *testing.T) {
@@ -252,10 +252,10 @@ func TestInstaller_Install(t *testing.T) {
 				ToolBinPath: binDir,
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "install-cmd {{.Version}}",
-						Check:   "check-cmd",
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
 					},
-					ResolveVersion: "resolve-cmd",
+					ResolveVersion: []string{"resolve-cmd"},
 				},
 			},
 		}
@@ -269,7 +269,7 @@ func TestInstaller_Install(t *testing.T) {
 
 		// Verify resolve was called
 		require.Len(t, runner.captureCalls, 1)
-		assert.Equal(t, "resolve-cmd", runner.captureCalls[0].cmdStr)
+		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 
 		// Verify install was called with resolved version
 		require.Len(t, runner.executeWithEnvCalls, 1)
@@ -292,8 +292,8 @@ func TestInstaller_Install(t *testing.T) {
 				ToolBinPath: filepath.Join(tmpDir, "bin"),
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "install-cmd",
-						Check:   "check-cmd",
+						Install: []string{"install-cmd"},
+						Check:   []string{"check-cmd"},
 					},
 				},
 			},
@@ -320,10 +320,10 @@ func TestInstaller_Install(t *testing.T) {
 				ToolBinPath: filepath.Join(tmpDir, "bin"),
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "install-cmd",
-						Check:   "check-cmd",
+						Install: []string{"install-cmd"},
+						Check:   []string{"check-cmd"},
 					},
-					ResolveVersion: "resolve-cmd",
+					ResolveVersion: []string{"resolve-cmd"},
 				},
 			},
 		}
@@ -349,8 +349,8 @@ func TestInstaller_Install(t *testing.T) {
 				ToolBinPath: filepath.Join(tmpDir, "bin"),
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "install-cmd",
-						Check:   "check-cmd",
+						Install: []string{"install-cmd"},
+						Check:   []string{"check-cmd"},
 					},
 				},
 			},
@@ -443,7 +443,7 @@ func TestInstaller_Remove(t *testing.T) {
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
 			Version:       "1.0.0",
-			RemoveCommand: "remove-cmd",
+			RemoveCommand: []string{"remove-cmd"},
 			Env:           map[string]string{"KEY": "val"},
 		}
 
@@ -451,7 +451,7 @@ func TestInstaller_Remove(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "remove-cmd", runner.executeWithEnvCalls[0].cmdStr)
+		assert.Equal(t, []string{"remove-cmd"}, runner.executeWithEnvCalls[0].cmds)
 		assert.Equal(t, map[string]string{"KEY": "val"}, runner.executeWithEnvCalls[0].env)
 	})
 
@@ -484,7 +484,7 @@ func TestInstaller_Remove(t *testing.T) {
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
 			Version:       "1.0.0",
-			RemoveCommand: "remove-cmd",
+			RemoveCommand: []string{"remove-cmd"},
 		}
 
 		err := installer.Remove(context.Background(), st, "mock")
@@ -590,9 +590,9 @@ func TestFindBinary(t *testing.T) {
 // --- mockCommandRunner ---
 
 type cmdCall struct {
-	cmdStr string
-	vars   command.Vars
-	env    map[string]string
+	cmds []string
+	vars command.Vars
+	env  map[string]string
 }
 
 type mockCommandRunner struct {
@@ -607,13 +607,13 @@ type mockCommandRunner struct {
 	checkCalls             []cmdCall
 }
 
-func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) error {
-	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, env map[string]string) error {
+	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmdStr string, vars command.Vars, env map[string]string, callback command.OutputCallback) error {
-	m.executeWithOutputCalls = append(m.executeWithOutputCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error {
+	m.executeWithOutputCalls = append(m.executeWithOutputCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	if callback != nil {
 		callback("mock output line")
 	}
@@ -623,13 +623,13 @@ func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmdStr string, 
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) (string, error) {
-	m.captureCalls = append(m.captureCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error) {
+	m.captureCalls = append(m.captureCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	return m.captureResult, m.captureErr
 }
 
-func (m *mockCommandRunner) Check(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) bool {
-	m.checkCalls = append(m.checkCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, env map[string]string) bool {
+	m.checkCalls = append(m.checkCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	return m.checkResult
 }
 

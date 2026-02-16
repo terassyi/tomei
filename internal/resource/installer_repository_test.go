@@ -21,9 +21,9 @@ func TestInstallerRepositorySpec_Validate(t *testing.T) {
 				Source: InstallerRepositorySourceSpec{
 					Type: InstallerRepositorySourceDelegation,
 					Commands: &CommandSet{
-						Install: "helm repo add bitnami https://charts.bitnami.com/bitnami",
-						Check:   "helm repo list | grep bitnami",
-						Remove:  "helm repo remove bitnami",
+						Install: []string{"helm repo add bitnami https://charts.bitnami.com/bitnami"},
+						Check:   []string{"helm repo list | grep bitnami"},
+						Remove:  []string{"helm repo remove bitnami"},
 					},
 				},
 			},
@@ -44,7 +44,7 @@ func TestInstallerRepositorySpec_Validate(t *testing.T) {
 				Source: InstallerRepositorySourceSpec{
 					Type: InstallerRepositorySourceDelegation,
 					Commands: &CommandSet{
-						Install: "helm repo add bitnami https://charts.bitnami.com/bitnami",
+						Install: []string{"helm repo add bitnami https://charts.bitnami.com/bitnami"},
 					},
 				},
 			},
@@ -106,7 +106,7 @@ func TestInstallerRepositorySpec_Validate(t *testing.T) {
 				Source: InstallerRepositorySourceSpec{
 					Type: InstallerRepositorySourceDelegation,
 					Commands: &CommandSet{
-						Install: "kubectl krew index add my-index https://github.com/my-org/krew-index.git",
+						Install: []string{"kubectl krew index add my-index https://github.com/my-org/krew-index.git"},
 					},
 				},
 			},
@@ -172,7 +172,7 @@ func TestInstallerRepository_Spec(t *testing.T) {
 		Source: InstallerRepositorySourceSpec{
 			Type: InstallerRepositorySourceDelegation,
 			Commands: &CommandSet{
-				Install: "helm repo add bitnami https://charts.bitnami.com/bitnami",
+				Install: []string{"helm repo add bitnami https://charts.bitnami.com/bitnami"},
 			},
 		},
 	}

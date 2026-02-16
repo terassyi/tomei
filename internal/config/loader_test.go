@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/terassyi/tomei/internal/resource"
@@ -572,9 +573,9 @@ spec: {
     source: {
         type: "delegation"
         commands: {
-            install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-            check:   "helm repo list | grep bitnami"
-            remove:  "helm repo remove bitnami"
+            install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+            check:   ["helm repo list | grep bitnami"]
+            remove:  ["helm repo remove bitnami"]
         }
     }
 }
@@ -611,9 +612,8 @@ spec: {
 	if repo.InstallerRepositorySpec.Source.Type != resource.InstallerRepositorySourceDelegation {
 		t.Errorf("expected source type delegation, got %s", repo.InstallerRepositorySpec.Source.Type)
 	}
-	if repo.InstallerRepositorySpec.Source.Commands.Install != "helm repo add bitnami https://charts.bitnami.com/bitnami" {
-		t.Errorf("unexpected install command: %s", repo.InstallerRepositorySpec.Source.Commands.Install)
-	}
+	wantInstall := []string{"helm repo add bitnami https://charts.bitnami.com/bitnami"}
+	assert.Equal(t, wantInstall, repo.InstallerRepositorySpec.Source.Commands.Install)
 }
 
 func TestLoader_LoadFile_InstallerRepository_Git(t *testing.T) {

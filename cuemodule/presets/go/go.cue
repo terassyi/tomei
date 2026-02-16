@@ -34,8 +34,8 @@ package go
 			GOBIN:  "~/go/bin"
 		}
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove:  "rm -f {{.BinPath}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }

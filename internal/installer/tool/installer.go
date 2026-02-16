@@ -417,7 +417,7 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Check if runtime has commands defined
-	if info.Commands == nil || info.Commands.Install == "" {
+	if info.Commands == nil || len(info.Commands.Install) == 0 {
 		return nil, fmt.Errorf("runtime %q does not have install command defined", spec.RuntimeRef)
 	}
 
@@ -483,7 +483,7 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 	spec := res.ToolSpec
 
 	// Check if installer has commands defined
-	if info.Commands == nil || info.Commands.Install == "" {
+	if info.Commands == nil || len(info.Commands.Install) == 0 {
 		return nil, fmt.Errorf("installer %q does not have install command defined", spec.InstallerRef)
 	}
 

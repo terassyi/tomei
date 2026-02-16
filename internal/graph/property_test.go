@@ -617,8 +617,8 @@ func createRuntimeWithPattern(name string, pattern resource.InstallType) *resour
 	if pattern == resource.InstallTypeDelegation {
 		spec.Bootstrap = &resource.RuntimeBootstrapSpec{
 			CommandSet: resource.CommandSet{
-				Install: "install-" + name,
-				Check:   "check-" + name,
+				Install: []string{"install-" + name},
+				Check:   []string{"check-" + name},
 			},
 		}
 	}

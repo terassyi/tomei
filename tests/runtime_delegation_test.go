@@ -37,14 +37,14 @@ func TestRuntimeDelegation_Install(t *testing.T) {
 				ToolBinPath: binDir,
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "echo installing version {{.Version}}",
-						Check:   "true",
-						Remove:  "echo removing",
+						Install: []string{"echo installing version {{.Version}}"},
+						Check:   []string{"true"},
+						Remove:  []string{"echo removing"},
 					},
 				},
 				Commands: &resource.CommandsSpec{
-					Install: "echo installing tool {{.Package}}@{{.Version}}",
-					Remove:  "echo removing tool {{.Name}}",
+					Install: []string{"echo installing tool {{.Package}}@{{.Version}}"},
+					Remove:  []string{"echo removing tool {{.Name}}"},
 				},
 				Env: map[string]string{
 					"MOCK_HOME": filepath.Join(tmpDir, "mock-home"),
@@ -63,9 +63,9 @@ func TestRuntimeDelegation_Install(t *testing.T) {
 		assert.Equal(t, "1.0.0", state.SpecVersion)
 		assert.Equal(t, binDir, state.ToolBinPath)
 		assert.Equal(t, binDir, state.BinDir) // defaults to ToolBinPath
-		assert.Equal(t, "echo removing", state.RemoveCommand)
+		assert.Equal(t, []string{"echo removing"}, state.RemoveCommand)
 		assert.NotNil(t, state.Commands)
-		assert.Equal(t, "echo installing tool {{.Package}}@{{.Version}}", state.Commands.Install)
+		assert.Equal(t, []string{"echo installing tool {{.Package}}@{{.Version}}"}, state.Commands.Install)
 		assert.Equal(t, filepath.Join(tmpDir, "mock-home"), state.Env["MOCK_HOME"])
 		assert.Empty(t, state.InstallPath) // delegation doesn't set installPath
 		assert.Empty(t, state.Digest)      // no download digest
@@ -85,10 +85,10 @@ func TestRuntimeDelegation_Install(t *testing.T) {
 				ToolBinPath: binDir,
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "echo installing version {{.Version}}",
-						Check:   "true",
+						Install: []string{"echo installing version {{.Version}}"},
+						Check:   []string{"true"},
 					},
-					ResolveVersion: "echo 1.83.0",
+					ResolveVersion: []string{"echo 1.83.0"},
 				},
 			},
 		}
@@ -114,8 +114,8 @@ func TestRuntimeDelegation_Install(t *testing.T) {
 				ToolBinPath: filepath.Join(tmpDir, "bin"),
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "echo installing",
-						Check:   "false", // always fails
+						Install: []string{"echo installing"},
+						Check:   []string{"false"}, // always fails
 					},
 				},
 			},
@@ -138,8 +138,8 @@ func TestRuntimeDelegation_Install(t *testing.T) {
 				ToolBinPath: filepath.Join(tmpDir, "bin"),
 				Bootstrap: &resource.RuntimeBootstrapSpec{
 					CommandSet: resource.CommandSet{
-						Install: "exit 1",
-						Check:   "true",
+						Install: []string{"exit 1"},
+						Check:   []string{"true"},
 					},
 				},
 			},
@@ -162,7 +162,7 @@ func TestRuntimeDelegation_Remove(t *testing.T) {
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
 			Version:       "1.0.0",
-			RemoveCommand: "touch " + markerFile,
+			RemoveCommand: []string{"touch " + markerFile},
 		}
 
 		err := installer.Remove(context.Background(), st, "mock")
@@ -194,7 +194,7 @@ func TestRuntimeDelegation_Remove(t *testing.T) {
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
 			Version:       "1.0.0",
-			RemoveCommand: "exit 1",
+			RemoveCommand: []string{"exit 1"},
 		}
 
 		err := installer.Remove(context.Background(), st, "mock")
@@ -218,9 +218,9 @@ func TestRuntimeDelegation_InstallThenRemove(t *testing.T) {
 			ToolBinPath: binDir,
 			Bootstrap: &resource.RuntimeBootstrapSpec{
 				CommandSet: resource.CommandSet{
-					Install: "mkdir -p " + mockHome,
-					Check:   "test -d " + mockHome,
-					Remove:  "rm -rf " + mockHome,
+					Install: []string{"mkdir -p " + mockHome},
+					Check:   []string{"test -d " + mockHome},
+					Remove:  []string{"rm -rf " + mockHome},
 				},
 			},
 		},

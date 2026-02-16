@@ -222,8 +222,8 @@ spec: {
 	type: "delegation"
 	runtimeRef: "go"
 	commands: {
-		install: "go install {{.Package}}@{{.Version}}"
-		check: "go version -m {{.BinPath}}"
+		install: ["go install {{.Package}}@{{.Version}}"]
+		check: ["go version -m {{.BinPath}}"]
 	}
 }
 `
@@ -532,7 +532,7 @@ spec: {
 		GOROOT: "/opt/go/1.25.5"
 	}
 	commands: {
-		install: "go install {{.Package}}@{{.Version}}"
+		install: ["go install {{.Package}}@{{.Version}}"]
 	}
 }
 `,
@@ -550,8 +550,8 @@ spec: {
 	version: "stable"
 	toolBinPath: "~/.cargo/bin"
 	bootstrap: {
-		install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-		check: "rustup --version"
+		install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"]
+		check: ["rustup --version"]
 	}
 	binaries: ["rustc", "cargo"]
 }
@@ -581,8 +581,8 @@ metadata: name: "brew"
 spec: {
 	type: "delegation"
 	commands: {
-		install: "brew install {{.Package}}"
-		remove: "brew uninstall {{.Package}}"
+		install: ["brew install {{.Package}}"]
+		remove: ["brew uninstall {{.Package}}"]
 	}
 }
 `,

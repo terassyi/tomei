@@ -31,8 +31,8 @@ goRuntime: {
 		}
 		// Commands for tool installation via go install
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove:  "rm -f {{.BinPath}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }

@@ -469,7 +469,7 @@ func TestInstallerRepositoryStore_SaveAndLoad(t *testing.T) {
 	repoState := &resource.InstallerRepositoryState{
 		InstallerRef:  "helm",
 		SourceType:    resource.InstallerRepositorySourceDelegation,
-		RemoveCommand: "helm repo remove bitnami",
+		RemoveCommand: []string{"helm repo remove bitnami"},
 	}
 
 	require.NoError(t, irs.Save("bitnami", repoState))

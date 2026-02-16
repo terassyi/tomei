@@ -54,7 +54,7 @@ func (s *InstallerRepositorySpec) Validate() error {
 	}
 	switch s.Source.Type {
 	case InstallerRepositorySourceDelegation:
-		if s.Source.Commands == nil || s.Source.Commands.Install == "" {
+		if s.Source.Commands == nil || len(s.Source.Commands.Install) == 0 {
 			return fmt.Errorf("source.commands.install is required for delegation type")
 		}
 	case InstallerRepositorySourceGit:
@@ -101,9 +101,9 @@ type InstallerRepositoryState struct {
 	// Empty for delegation type.
 	LocalPath string `json:"localPath,omitempty"`
 
-	// RemoveCommand stores the remove command for delegation type.
+	// RemoveCommand stores the remove command(s) for delegation type.
 	// Stored in state because Remove() only receives state (no spec).
-	RemoveCommand string `json:"removeCommand,omitempty"`
+	RemoveCommand []string `json:"removeCommand,omitempty"`
 
 	// UpdatedAt is the timestamp when this repository was last configured.
 	UpdatedAt time.Time `json:"updatedAt"`

@@ -16,9 +16,9 @@ import (
 // commandRunner is the interface for executing shell commands.
 // This enables testing with mocks instead of real command execution.
 type commandRunner interface {
-	Execute(ctx context.Context, cmdStr string, vars command.Vars) error
-	ExecuteWithEnv(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) error
-	Check(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) bool
+	Execute(ctx context.Context, cmds []string, vars command.Vars) error
+	ExecuteWithEnv(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) error
+	Check(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) bool
 }
 
 // gitRunner is the interface for git operations.
@@ -126,7 +126,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Instal
 	env := i.buildEnvWithToolPath(spec.InstallerRef)
 
 	// Check if already installed
-	if commands.Check != "" {
+	if len(commands.Check) > 0 {
 		vars := command.Vars{Name: name}
 		if i.cmdRunner.Check(ctx, commands.Check, vars, env) {
 			slog.Debug("installer repository already configured", "name", name)
@@ -169,7 +169,7 @@ func (i *Installer) installGit(ctx context.Context, spec *resource.InstallerRepo
 }
 
 func (i *Installer) removeDelegation(ctx context.Context, st *resource.InstallerRepositoryState, name string) error {
-	if st.RemoveCommand == "" {
+	if len(st.RemoveCommand) == 0 {
 		slog.Warn("no remove command for repository, skipping", "name", name)
 		return nil
 	}
@@ -196,7 +196,7 @@ func (i *Installer) removeGit(st *resource.InstallerRepositoryState, name string
 }
 
 func (i *Installer) buildDelegationState(spec *resource.InstallerRepositorySpec) *resource.InstallerRepositoryState {
-	var removeCmd string
+	var removeCmd []string
 	if spec.Source.Commands != nil {
 		removeCmd = spec.Source.Commands.Remove
 	}

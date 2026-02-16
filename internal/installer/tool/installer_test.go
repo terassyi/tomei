@@ -432,7 +432,7 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 					BinDir:      "/usr/local/bin",
 					ToolBinPath: filepath.Dir(captureFile),
 					Commands: &resource.CommandsSpec{
-						Install: "echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile,
+						Install: []string{"echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile},
 					},
 				})
 			},
@@ -457,7 +457,7 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 				inst.RegisterInstaller("uv", &InstallerInfo{
 					Type: resource.InstallTypeDelegation,
 					Commands: &resource.CommandsSpec{
-						Install: "echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile,
+						Install: []string{"echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile},
 					},
 				})
 			},

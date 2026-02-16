@@ -66,7 +66,7 @@ func TestResolver_AddResource_InstallerWithToolRef(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "pnpm",
 			Commands: &resource.CommandsSpec{
-				Install: "pnpm add -g {{.Package}}@{{.Version}}",
+				Install: []string{"pnpm add -g {{.Package}}@{{.Version}}"},
 			},
 		},
 	}
@@ -141,7 +141,7 @@ func TestResolver_Resolve_ToolChain(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "cargo-binstall", // Installer depends on Tool
 			Commands: &resource.CommandsSpec{
-				Install: "cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}",
+				Install: []string{"cargo binstall -y {{.Package}}{{if .Version}}@{{.Version}}{{end}}"},
 			},
 		},
 	}
@@ -210,7 +210,7 @@ func TestResolver_Validate_CircularDependency(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "tool-a",
 			Commands: &resource.CommandsSpec{
-				Install: "some-command",
+				Install: []string{"some-command"},
 			},
 		},
 	}

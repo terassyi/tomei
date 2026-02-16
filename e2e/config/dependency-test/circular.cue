@@ -9,7 +9,7 @@ installerA: {
 		type:    "delegation"
 		toolRef: "tool-b"
 		commands: {
-			install: "installer-a install {{.Package}}"
+			install: ["installer-a install {{.Package}}"]
 		}
 	}
 }

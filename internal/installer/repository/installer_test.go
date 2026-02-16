@@ -16,9 +16,9 @@ import (
 // --- mock implementations ---
 
 type cmdCall struct {
-	cmdStr string
-	vars   command.Vars
-	env    map[string]string
+	cmds []string
+	vars command.Vars
+	env  map[string]string
 }
 
 type mockCommandRunner struct {
@@ -28,18 +28,18 @@ type mockCommandRunner struct {
 	checkCalls   []cmdCall
 }
 
-func (m *mockCommandRunner) Execute(_ context.Context, cmdStr string, vars command.Vars) error {
-	m.executeCalls = append(m.executeCalls, cmdCall{cmdStr: cmdStr, vars: vars})
+func (m *mockCommandRunner) Execute(_ context.Context, cmds []string, vars command.Vars) error {
+	m.executeCalls = append(m.executeCalls, cmdCall{cmds: cmds, vars: vars})
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) error {
-	m.executeCalls = append(m.executeCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, env map[string]string) error {
+	m.executeCalls = append(m.executeCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) Check(_ context.Context, cmdStr string, vars command.Vars, env map[string]string) bool {
-	m.checkCalls = append(m.checkCalls, cmdCall{cmdStr: cmdStr, vars: vars, env: env})
+func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, env map[string]string) bool {
+	m.checkCalls = append(m.checkCalls, cmdCall{cmds: cmds, vars: vars, env: env})
 	return m.checkResult
 }
 
@@ -129,11 +129,11 @@ func TestInstaller_Install_Delegation(t *testing.T) {
 			inst := newInstallerWithRunners(t.TempDir(), cmd, git)
 
 			commands := &resource.CommandSet{
-				Install: "helm repo add {{.Name}} https://example.com",
-				Remove:  "helm repo remove {{.Name}}",
+				Install: []string{"helm repo add {{.Name}} https://example.com"},
+				Remove:  []string{"helm repo remove {{.Name}}"},
 			}
 			if tt.hasCheck {
-				commands.Check = "helm repo list | grep {{.Name}}"
+				commands.Check = []string{"helm repo list | grep {{.Name}}"}
 			}
 
 			repo := &resource.InstallerRepository{
@@ -162,7 +162,7 @@ func TestInstaller_Install_Delegation(t *testing.T) {
 			assert.Equal(t, "helm", state.InstallerRef)
 			assert.Equal(t, resource.InstallerRepositorySourceDelegation, state.SourceType)
 			assert.Equal(t, "https://charts.bitnami.com/bitnami", state.URL)
-			assert.Equal(t, "helm repo remove {{.Name}}", state.RemoveCommand)
+			assert.Equal(t, []string{"helm repo remove {{.Name}}"}, state.RemoveCommand)
 			assert.False(t, state.UpdatedAt.IsZero())
 
 			if tt.wantCheck {
@@ -174,7 +174,7 @@ func TestInstaller_Install_Delegation(t *testing.T) {
 
 			if tt.wantInstall {
 				require.Len(t, cmd.executeCalls, 1)
-				assert.Equal(t, "helm repo add {{.Name}} https://example.com", cmd.executeCalls[0].cmdStr)
+				assert.Equal(t, []string{"helm repo add {{.Name}} https://example.com"}, cmd.executeCalls[0].cmds)
 				assert.Equal(t, "bitnami", cmd.executeCalls[0].vars.Name)
 			} else {
 				assert.Empty(t, cmd.executeCalls)
@@ -191,24 +191,24 @@ func TestInstaller_Remove_Delegation(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name        string
-		removeCmd   string
+		removeCmd   []string
 		executeErr  error
 		wantErr     bool
 		wantExecute bool
 	}{
 		{
 			name:        "successful remove",
-			removeCmd:   "helm repo remove {{.Name}}",
+			removeCmd:   []string{"helm repo remove {{.Name}}"},
 			wantExecute: true,
 		},
 		{
 			name:        "no remove command - skips silently",
-			removeCmd:   "",
+			removeCmd:   nil,
 			wantExecute: false,
 		},
 		{
 			name:        "remove command fails",
-			removeCmd:   "helm repo remove {{.Name}}",
+			removeCmd:   []string{"helm repo remove {{.Name}}"},
 			executeErr:  fmt.Errorf("command failed"),
 			wantErr:     true,
 			wantExecute: true,
@@ -238,7 +238,7 @@ func TestInstaller_Remove_Delegation(t *testing.T) {
 
 			if tt.wantExecute {
 				require.Len(t, cmd.executeCalls, 1)
-				assert.Equal(t, tt.removeCmd, cmd.executeCalls[0].cmdStr)
+				assert.Equal(t, tt.removeCmd, cmd.executeCalls[0].cmds)
 				assert.Equal(t, "bitnami", cmd.executeCalls[0].vars.Name)
 			} else {
 				assert.Empty(t, cmd.executeCalls)
