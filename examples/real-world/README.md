@@ -14,7 +14,7 @@ real-world/
 ├── utility.cue             # bat, rg, fd, jq, yq, fzf
 ├── go.cue                  # gopls, staticcheck, goimports, cue (via go install)
 ├── rust.cue                # cargo-binstall + binstall installer
-├── uv.cue                  # ruff, mypy, httpie, ansible (via uv)
+├── uv.cue                  # ruff, mypy, httpie, black (via uv)
 ├── node.cue                # prettier, ts-node, typescript, npm-check-updates (via pnpm)
 └── krew.cue                # ctx, ns, neat, node-shell (via krew)
 ```
@@ -37,7 +37,7 @@ real-world/
 | `utility.cue` | aqua | bat, rg, fd, jq, yq, fzf |
 | `go.cue` | go install | gopls, staticcheck, goimports, cue |
 | `rust.cue` | rust (preset) | cargo-binstall + binstall installer |
-| `uv.cue` | uv (delegation) | ruff, mypy, httpie, ansible |
+| `uv.cue` | uv (delegation) | ruff, mypy, httpie, black |
 | `node.cue` | pnpm (delegation) | prettier, ts-node, typescript, npm-check-updates |
 | `krew.cue` | krew (delegation) | ctx, ns, neat, node-shell |
 

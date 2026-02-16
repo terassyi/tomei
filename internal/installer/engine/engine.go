@@ -344,6 +344,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		for name, runtimeState := range st.Runtimes {
 			e.toolInstaller.RegisterRuntime(name, &tool.RuntimeInfo{
 				InstallPath: runtimeState.InstallPath,
+				BinDir:      runtimeState.BinDir,
 				ToolBinPath: runtimeState.ToolBinPath,
 				Env:         runtimeState.Env,
 				Commands:    runtimeState.Commands,

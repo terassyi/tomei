@@ -22,6 +22,7 @@ import (
 // RuntimeInfo contains the information needed to install tools via runtime delegation.
 type RuntimeInfo struct {
 	InstallPath string            // Path where runtime is installed (e.g., ~/.local/share/tomei/runtimes/go/1.25.5)
+	BinDir      string            // Path where runtime binaries are located (e.g., ~/.local/share/pnpm)
 	ToolBinPath string            // Path where tools should be installed (e.g., ~/go/bin)
 	Env         map[string]string // Environment variables (e.g., GOROOT, GOBIN)
 	Commands    *resource.CommandsSpec
@@ -437,12 +438,21 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	// Build environment with PATH including runtime's bin directory
 	env := make(map[string]string)
 	maps.Copy(env, info.Env)
-	// Add runtime's bin directory to PATH so commands like "go" can be found
-	runtimeBinDir := filepath.Join(info.InstallPath, "bin")
-	if currentPath := os.Getenv("PATH"); currentPath != "" {
-		env["PATH"] = runtimeBinDir + string(os.PathListSeparator) + currentPath
+	// Add runtime's bin directory to PATH so commands like "go" or "pnpm" can be found.
+	// Download pattern: use InstallPath/bin (e.g., /runtimes/go/1.25.5/bin)
+	// Delegation pattern: use BinDir (e.g., ~/.local/share/pnpm)
+	var runtimeBinDir string
+	if info.InstallPath != "" {
+		runtimeBinDir = filepath.Join(info.InstallPath, "bin")
 	} else {
-		env["PATH"] = runtimeBinDir
+		runtimeBinDir = info.BinDir
+	}
+	if runtimeBinDir != "" {
+		if currentPath := os.Getenv("PATH"); currentPath != "" {
+			env["PATH"] = runtimeBinDir + string(os.PathListSeparator) + currentPath
+		} else {
+			env["PATH"] = runtimeBinDir
+		}
 	}
 
 	// Execute install command with runtime's environment and output streaming
