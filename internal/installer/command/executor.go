@@ -38,32 +38,41 @@ func NewExecutor(workDir string) *Executor {
 	}
 }
 
-// Execute runs a command string with variable substitution.
-// Variables: {{.Package}}, {{.Version}}, {{.Name}}, {{.BinPath}}
-func (e *Executor) Execute(ctx context.Context, cmdStr string, vars Vars) error {
-	return e.ExecuteWithEnv(ctx, cmdStr, vars, nil)
+// expandCommands joins multiple commands with " && " and applies template variable substitution.
+func (e *Executor) expandCommands(cmds []string, vars Vars) (string, error) {
+	return e.expand(strings.Join(cmds, " && "), vars)
 }
 
-// ExecuteWithOutput runs a command and streams output line by line via callback.
+// buildCommand creates an exec.Cmd with the expanded command string, working directory, and environment.
+func (e *Executor) buildCommand(ctx context.Context, expanded string, env map[string]string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
+	if e.workDir != "" {
+		cmd.Dir = e.workDir
+	}
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+	return cmd
+}
+
+// Execute runs command(s) with variable substitution.
+// Multiple commands are joined with " && ".
+func (e *Executor) Execute(ctx context.Context, cmds []string, vars Vars) error {
+	return e.ExecuteWithEnv(ctx, cmds, vars, nil)
+}
+
+// ExecuteWithOutput runs command(s) and streams output line by line via callback.
 // This is useful for displaying real-time command output (e.g., go install progress).
-func (e *Executor) ExecuteWithOutput(ctx context.Context, cmdStr string, vars Vars, env map[string]string, callback OutputCallback) error {
-	expanded, err := e.expand(cmdStr, vars)
+func (e *Executor) ExecuteWithOutput(ctx context.Context, cmds []string, vars Vars, env map[string]string, callback OutputCallback) error {
+	expanded, err := e.expandCommands(cmds, vars)
 	if err != nil {
 		return err
 	}
 
 	slog.Debug("executing command with output", "command", expanded)
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
-
-	if e.workDir != "" {
-		cmd.Dir = e.workDir
-	}
-
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
+	cmd := e.buildCommand(ctx, expanded, env)
 
 	// Create pipes for stdout and stderr
 	stdout, err := cmd.StdoutPipe()
@@ -120,25 +129,16 @@ func (e *Executor) streamOutput(r io.Reader, callback OutputCallback) {
 	}
 }
 
-// ExecuteWithEnv runs a command with additional environment variables.
-func (e *Executor) ExecuteWithEnv(ctx context.Context, cmdStr string, vars Vars, env map[string]string) error {
-	expanded, err := e.expand(cmdStr, vars)
+// ExecuteWithEnv runs command(s) with additional environment variables.
+func (e *Executor) ExecuteWithEnv(ctx context.Context, cmds []string, vars Vars, env map[string]string) error {
+	expanded, err := e.expandCommands(cmds, vars)
 	if err != nil {
 		return err
 	}
 
 	slog.Debug("executing command", "command", expanded)
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
-
-	if e.workDir != "" {
-		cmd.Dir = e.workDir
-	}
-
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
+	cmd := e.buildCommand(ctx, expanded, env)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -151,8 +151,8 @@ func (e *Executor) ExecuteWithEnv(ctx context.Context, cmdStr string, vars Vars,
 }
 
 // Check runs a check command and returns true if it succeeds (exit code 0).
-func (e *Executor) Check(ctx context.Context, cmdStr string, vars Vars, env map[string]string) bool {
-	expanded, err := e.expand(cmdStr, vars)
+func (e *Executor) Check(ctx context.Context, cmds []string, vars Vars, env map[string]string) bool {
+	expanded, err := e.expandCommands(cmds, vars)
 	if err != nil {
 		slog.Error("failed to expand command template", "error", err)
 		return false
@@ -160,40 +160,22 @@ func (e *Executor) Check(ctx context.Context, cmdStr string, vars Vars, env map[
 
 	slog.Debug("checking command", "command", expanded)
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
-
-	if e.workDir != "" {
-		cmd.Dir = e.workDir
-	}
-
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
+	cmd := e.buildCommand(ctx, expanded, env)
 
 	return cmd.Run() == nil
 }
 
-// ExecuteCapture runs a command and returns its stdout as a trimmed string.
+// ExecuteCapture runs command(s) and returns stdout as a trimmed string.
 // Useful for commands that output a single value (e.g., version resolution).
-func (e *Executor) ExecuteCapture(ctx context.Context, cmdStr string, vars Vars, env map[string]string) (string, error) {
-	expanded, err := e.expand(cmdStr, vars)
+func (e *Executor) ExecuteCapture(ctx context.Context, cmds []string, vars Vars, env map[string]string) (string, error) {
+	expanded, err := e.expandCommands(cmds, vars)
 	if err != nil {
 		return "", err
 	}
 
 	slog.Debug("executing command (capture)", "command", expanded)
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
-
-	if e.workDir != "" {
-		cmd.Dir = e.workDir
-	}
-
-	cmd.Env = os.Environ()
-	for k, v := range env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
+	cmd := e.buildCommand(ctx, expanded, env)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

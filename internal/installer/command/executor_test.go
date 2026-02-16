@@ -100,7 +100,7 @@ func TestExecutor_Execute(t *testing.T) {
 	t.Run("successful command", func(t *testing.T) {
 		t.Parallel()
 		e := NewExecutor("")
-		err := e.Execute(ctx, "echo hello", Vars{})
+		err := e.Execute(ctx, []string{"echo hello"}, Vars{})
 		require.NoError(t, err)
 	})
 
@@ -110,7 +110,7 @@ func TestExecutor_Execute(t *testing.T) {
 		testFile := filepath.Join(tmpDir, "test.txt")
 
 		e := NewExecutor("")
-		err := e.Execute(ctx, "echo {{.Name}} > "+testFile, Vars{Name: "gopls"})
+		err := e.Execute(ctx, []string{"echo {{.Name}} > " + testFile}, Vars{Name: "gopls"})
 		require.NoError(t, err)
 
 		content, err := os.ReadFile(testFile)
@@ -121,7 +121,7 @@ func TestExecutor_Execute(t *testing.T) {
 	t.Run("failing command", func(t *testing.T) {
 		t.Parallel()
 		e := NewExecutor("")
-		err := e.Execute(ctx, "exit 1", Vars{})
+		err := e.Execute(ctx, []string{"exit 1"}, Vars{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "command failed")
 	})
@@ -130,7 +130,7 @@ func TestExecutor_Execute(t *testing.T) {
 		t.Parallel()
 		tmpDir := t.TempDir()
 		e := NewExecutor(tmpDir)
-		err := e.Execute(ctx, "pwd > output.txt", Vars{})
+		err := e.Execute(ctx, []string{"pwd > output.txt"}, Vars{})
 		require.NoError(t, err)
 
 		content, err := os.ReadFile(filepath.Join(tmpDir, "output.txt"))
@@ -153,7 +153,7 @@ func TestExecutor_ExecuteWithEnv(t *testing.T) {
 			"MY_VAR": "test_value",
 		}
 
-		err := e.ExecuteWithEnv(ctx, "echo $MY_VAR > "+testFile, Vars{}, env)
+		err := e.ExecuteWithEnv(ctx, []string{"echo $MY_VAR > " + testFile}, Vars{}, env)
 		require.NoError(t, err)
 
 		content, err := os.ReadFile(testFile)
@@ -169,33 +169,33 @@ func TestExecutor_Check(t *testing.T) {
 
 	t.Run("successful check", func(t *testing.T) {
 		t.Parallel()
-		result := e.Check(ctx, "true", Vars{}, nil)
+		result := e.Check(ctx, []string{"true"}, Vars{}, nil)
 		assert.True(t, result)
 	})
 
 	t.Run("failing check", func(t *testing.T) {
 		t.Parallel()
-		result := e.Check(ctx, "false", Vars{}, nil)
+		result := e.Check(ctx, []string{"false"}, Vars{}, nil)
 		assert.False(t, result)
 	})
 
 	t.Run("check with command -v", func(t *testing.T) {
 		t.Parallel()
 		// sh should exist on all systems
-		result := e.Check(ctx, "command -v sh", Vars{}, nil)
+		result := e.Check(ctx, []string{"command -v sh"}, Vars{}, nil)
 		assert.True(t, result)
 
 		// nonexistent command
-		result = e.Check(ctx, "command -v nonexistent_command_12345", Vars{}, nil)
+		result = e.Check(ctx, []string{"command -v nonexistent_command_12345"}, Vars{}, nil)
 		assert.False(t, result)
 	})
 
 	t.Run("check with variables", func(t *testing.T) {
 		t.Parallel()
-		result := e.Check(ctx, "test {{.Name}} = gopls", Vars{Name: "gopls"}, nil)
+		result := e.Check(ctx, []string{"test {{.Name}} = gopls"}, Vars{Name: "gopls"}, nil)
 		assert.True(t, result)
 
-		result = e.Check(ctx, "test {{.Name}} = other", Vars{Name: "gopls"}, nil)
+		result = e.Check(ctx, []string{"test {{.Name}} = other"}, Vars{Name: "gopls"}, nil)
 		assert.False(t, result)
 	})
 }
@@ -206,7 +206,7 @@ func TestExecutor_ContextCancellation(t *testing.T) {
 	cancel() // Cancel immediately
 
 	e := NewExecutor("")
-	err := e.Execute(ctx, "sleep 10", Vars{})
+	err := e.Execute(ctx, []string{"sleep 10"}, Vars{})
 	require.Error(t, err)
 }
 
@@ -222,7 +222,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 			lines = append(lines, line)
 		}
 
-		err := e.ExecuteWithOutput(ctx, "echo line1; echo line2; echo line3", Vars{}, nil, callback)
+		err := e.ExecuteWithOutput(ctx, []string{"echo line1; echo line2; echo line3"}, Vars{}, nil, callback)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"line1", "line2", "line3"}, lines)
 	})
@@ -237,7 +237,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 			mu.Unlock()
 		}
 
-		err := e.ExecuteWithOutput(ctx, "echo stdout; echo stderr >&2", Vars{}, nil, callback)
+		err := e.ExecuteWithOutput(ctx, []string{"echo stdout; echo stderr >&2"}, Vars{}, nil, callback)
 		require.NoError(t, err)
 		assert.Contains(t, lines, "stdout")
 		assert.Contains(t, lines, "stderr")
@@ -250,7 +250,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 			lines = append(lines, line)
 		}
 
-		err := e.ExecuteWithOutput(ctx, "echo {{.Name}} {{.Version}}", Vars{Name: "gopls", Version: "v0.16.0"}, nil, callback)
+		err := e.ExecuteWithOutput(ctx, []string{"echo {{.Name}} {{.Version}}"}, Vars{Name: "gopls", Version: "v0.16.0"}, nil, callback)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"gopls v0.16.0"}, lines)
 	})
@@ -263,14 +263,14 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 		}
 
 		env := map[string]string{"MY_VAR": "test_value"}
-		err := e.ExecuteWithOutput(ctx, "echo $MY_VAR", Vars{}, env, callback)
+		err := e.ExecuteWithOutput(ctx, []string{"echo $MY_VAR"}, Vars{}, env, callback)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"test_value"}, lines)
 	})
 
 	t.Run("nil callback drains output", func(t *testing.T) {
 		t.Parallel()
-		err := e.ExecuteWithOutput(ctx, "echo hello", Vars{}, nil, nil)
+		err := e.ExecuteWithOutput(ctx, []string{"echo hello"}, Vars{}, nil, nil)
 		require.NoError(t, err)
 	})
 
@@ -284,7 +284,7 @@ func TestExecutor_ExecuteWithOutput(t *testing.T) {
 			mu.Unlock()
 		}
 
-		err := e.ExecuteWithOutput(ctx, "echo before_fail; exit 1", Vars{}, nil, callback)
+		err := e.ExecuteWithOutput(ctx, []string{"echo before_fail; exit 1"}, Vars{}, nil, callback)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "command failed")
 		assert.Contains(t, lines, "before_fail")
@@ -298,21 +298,21 @@ func TestExecutor_ExecuteCapture(t *testing.T) {
 
 	t.Run("captures stdout", func(t *testing.T) {
 		t.Parallel()
-		result, err := e.ExecuteCapture(ctx, "echo hello", Vars{}, nil)
+		result, err := e.ExecuteCapture(ctx, []string{"echo hello"}, Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "hello", result)
 	})
 
 	t.Run("trims whitespace", func(t *testing.T) {
 		t.Parallel()
-		result, err := e.ExecuteCapture(ctx, "echo '  1.83.0  '", Vars{}, nil)
+		result, err := e.ExecuteCapture(ctx, []string{"echo '  1.83.0  '"}, Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "1.83.0", result)
 	})
 
 	t.Run("with variables", func(t *testing.T) {
 		t.Parallel()
-		result, err := e.ExecuteCapture(ctx, "echo {{.Version}}", Vars{Version: "stable"}, nil)
+		result, err := e.ExecuteCapture(ctx, []string{"echo {{.Version}}"}, Vars{Version: "stable"}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "stable", result)
 	})
@@ -320,21 +320,21 @@ func TestExecutor_ExecuteCapture(t *testing.T) {
 	t.Run("with environment", func(t *testing.T) {
 		t.Parallel()
 		env := map[string]string{"MY_VER": "2.0.0"}
-		result, err := e.ExecuteCapture(ctx, "echo $MY_VER", Vars{}, env)
+		result, err := e.ExecuteCapture(ctx, []string{"echo $MY_VER"}, Vars{}, env)
 		require.NoError(t, err)
 		assert.Equal(t, "2.0.0", result)
 	})
 
 	t.Run("failing command", func(t *testing.T) {
 		t.Parallel()
-		_, err := e.ExecuteCapture(ctx, "exit 1", Vars{}, nil)
+		_, err := e.ExecuteCapture(ctx, []string{"exit 1"}, Vars{}, nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "command failed")
 	})
 
 	t.Run("stderr not captured in result", func(t *testing.T) {
 		t.Parallel()
-		result, err := e.ExecuteCapture(ctx, "echo stdout; echo stderr >&2", Vars{}, nil)
+		result, err := e.ExecuteCapture(ctx, []string{"echo stdout; echo stderr >&2"}, Vars{}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "stdout", result)
 	})

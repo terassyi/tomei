@@ -24,7 +24,7 @@ helmInstaller: {
 		type:    "delegation"
 		toolRef: "helm"
 		commands: {
-			install: "helm repo add {{.Name}} {{.URL}}"
+			install: ["helm repo add {{.Name}} {{.URL}}"]
 		}
 	}
 }
@@ -40,9 +40,9 @@ bitnamiRepo: {
 			type: "delegation"
 			url:  "https://charts.bitnami.com/bitnami"
 			commands: {
-				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-				check:   "helm repo list 2>/dev/null | grep -q ^bitnami"
-				remove:  "helm repo remove bitnami"
+				install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+				check: ["helm repo list 2>/dev/null | grep -q ^bitnami"]
+				remove: ["helm repo remove bitnami"]
 			}
 		}
 	}

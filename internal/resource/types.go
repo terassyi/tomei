@@ -207,17 +207,18 @@ func ClassifyVersion(specVersion string) VersionKind {
 
 // CommandSet defines a set of shell commands for install/check/remove operations.
 // This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
+// Each command is a string slice; multiple entries are joined with " && " at execution time.
 // Commands may support Go template variables depending on the context.
 type CommandSet struct {
-	// Install is the shell command to install/setup.
-	Install string `json:"install"`
+	// Install is the shell command(s) to install/setup.
+	Install []string `json:"install"`
 
-	// Check is the shell command to verify installation.
+	// Check is the shell command(s) to verify installation.
 	// Should exit 0 if installed, non-zero otherwise.
-	Check string `json:"check,omitempty"`
+	Check []string `json:"check,omitempty"`
 
-	// Remove is the shell command to uninstall/cleanup.
-	Remove string `json:"remove,omitempty"`
+	// Remove is the shell command(s) to uninstall/cleanup.
+	Remove []string `json:"remove,omitempty"`
 }
 
 // BaseResource provides common fields for all resources.

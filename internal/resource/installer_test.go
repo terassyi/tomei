@@ -42,7 +42,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			spec: InstallerSpec{
 				Type: InstallTypeDelegation,
 				Commands: &CommandsSpec{
-					Install: "go install {{.Package}}@{{.Version}}",
+					Install: []string{"go install {{.Package}}@{{.Version}}"},
 				},
 			},
 			wantErr: "",
@@ -54,7 +54,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 				RuntimeRef: "go",
 				ToolRef:    "pnpm",
 				Commands: &CommandsSpec{
-					Install: "some command",
+					Install: []string{"some command"},
 				},
 			},
 			wantErr: "cannot specify both runtimeRef and toolRef",
@@ -65,7 +65,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 				Type:       InstallTypeDelegation,
 				RuntimeRef: "go",
 				Commands: &CommandsSpec{
-					Install: "go install {{.Package}}@{{.Version}}",
+					Install: []string{"go install {{.Package}}@{{.Version}}"},
 				},
 			},
 			wantErr: "",
@@ -76,7 +76,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 				Type:    InstallTypeDelegation,
 				ToolRef: "pnpm",
 				Commands: &CommandsSpec{
-					Install: "pnpm add -g {{.Package}}@{{.Version}}",
+					Install: []string{"pnpm add -g {{.Package}}@{{.Version}}"},
 				},
 			},
 			wantErr: "",

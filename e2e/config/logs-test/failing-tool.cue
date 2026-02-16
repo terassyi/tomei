@@ -7,8 +7,13 @@ failInstaller: {
 	spec: {
 		type: "delegation"
 		commands: {
-			install: "echo 'step 1: preparing...' && echo 'step 2: downloading...' && echo 'step 3: ERROR: build failed' && exit 1"
-			remove:  "echo removing"
+			install: [
+				"echo 'step 1: preparing...'",
+				"echo 'step 2: downloading...'",
+				"echo 'step 3: ERROR: build failed'",
+				"exit 1",
+			]
+			remove: ["echo removing"]
 		}
 	}
 }

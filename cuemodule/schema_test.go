@@ -123,8 +123,8 @@ func TestSchema_ValidResources(t *testing.T) {
 					binaries:    ["go", "gofmt"]
 					toolBinPath: "~/go/bin"
 					commands: {
-						install: "go install {{.Package}}@{{.Version}}"
-						remove:  "rm -f {{.BinPath}}"
+						install: ["go install {{.Package}}@{{.Version}}"]
+						remove:  ["rm -f {{.BinPath}}"]
 					}
 					env: {
 						GOROOT: "~/.local/share/tomei/runtimes/go/1.25.6"
@@ -142,10 +142,10 @@ func TestSchema_ValidResources(t *testing.T) {
 					type:    "delegation"
 					version: "stable"
 					bootstrap: {
-						install: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-						check:   "rustc --version"
-						remove:  "rustup self uninstall -y"
-						resolveVersion: "rustc --version | grep -oP '[0-9]+\\.[0-9]+\\.[0-9]+'"
+						install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"]
+						check:   ["rustc --version"]
+						remove:  ["rustup self uninstall -y"]
+						resolveVersion: ["rustc --version | grep -oP '[0-9]+\\.[0-9]+\\.[0-9]+'"]
 					}
 					binaries:    ["rustc", "cargo", "rustup"]
 					toolBinPath: "~/.cargo/bin"
@@ -173,9 +173,9 @@ func TestSchema_ValidResources(t *testing.T) {
 					type:       "delegation"
 					runtimeRef: "go"
 					commands: {
-						install: "go install {{.Package}}@{{.Version}}"
-						check:   "go version -m {{.BinPath}}"
-						remove:  "rm {{.BinPath}}"
+						install: ["go install {{.Package}}@{{.Version}}"]
+						check:   ["go version -m {{.BinPath}}"]
+						remove:  ["rm {{.BinPath}}"]
 					}
 				}
 			}`,
@@ -191,9 +191,9 @@ func TestSchema_ValidResources(t *testing.T) {
 					source: {
 						type: "delegation"
 						commands: {
-							install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-							check:   "helm repo list | grep bitnami"
-							remove:  "helm repo remove bitnami"
+							install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+							check:   ["helm repo list | grep bitnami"]
+							remove:  ["helm repo remove bitnami"]
 						}
 					}
 				}

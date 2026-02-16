@@ -19,10 +19,10 @@ import (
 // CommandRunner is the interface for executing shell commands.
 // This enables testing with mocks instead of real command execution.
 type CommandRunner interface {
-	ExecuteWithEnv(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) error
-	ExecuteWithOutput(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
-	ExecuteCapture(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) (string, error)
-	Check(ctx context.Context, cmdStr string, vars command.Vars, env map[string]string) bool
+	ExecuteWithEnv(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) error
+	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
+	ExecuteCapture(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error)
+	Check(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) bool
 }
 
 // Installer installs runtimes using the download or delegation pattern.
@@ -212,7 +212,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 
 // removeDelegation removes a delegation-pattern runtime by executing its remove command.
 func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeState, name string) error {
-	if st.RemoveCommand == "" {
+	if len(st.RemoveCommand) == 0 {
 		slog.Warn("no remove command for delegation runtime, skipping", "name", name)
 		return nil
 	}
@@ -270,7 +270,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	if spec.Bootstrap == nil {
 		return nil, fmt.Errorf("bootstrap is required for delegation pattern")
 	}
-	if spec.Bootstrap.Install == "" {
+	if len(spec.Bootstrap.Install) == 0 {
 		return nil, fmt.Errorf("bootstrap.install is required for delegation pattern")
 	}
 
@@ -278,7 +278,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	versionKind := resource.ClassifyVersion(spec.Version)
 
 	// Resolve version alias if configured
-	if spec.Bootstrap.ResolveVersion != "" {
+	if len(spec.Bootstrap.ResolveVersion) > 0 {
 		slog.Debug("resolving version alias", "name", name, "alias", spec.Version)
 		resolved, err := i.cmdExecutor.ExecuteCapture(ctx, spec.Bootstrap.ResolveVersion, command.Vars{Version: spec.Version}, nil)
 		if err != nil {
@@ -315,7 +315,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	}
 
 	// Verify installation with check command
-	if spec.Bootstrap.Check != "" {
+	if len(spec.Bootstrap.Check) > 0 {
 		if !i.cmdExecutor.Check(ctx, spec.Bootstrap.Check, command.Vars{}, env) {
 			return nil, fmt.Errorf("bootstrap check failed after install")
 		}

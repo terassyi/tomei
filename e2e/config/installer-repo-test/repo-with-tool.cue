@@ -28,7 +28,7 @@ helmInstaller: {
 		type:    "delegation"
 		toolRef: "helm"
 		commands: {
-			install: "mkdir -p /tmp/tomei-e2e-charts && helm pull bitnami/{{.Package}} --destination /tmp/tomei-e2e-charts"
+			install: ["mkdir -p /tmp/tomei-e2e-charts", "helm pull bitnami/{{.Package}} --destination /tmp/tomei-e2e-charts"]
 		}
 	}
 }
@@ -44,9 +44,9 @@ bitnamiRepo: {
 			type: "delegation"
 			url:  "https://charts.bitnami.com/bitnami"
 			commands: {
-				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-				check:   "helm repo list 2>/dev/null | grep -q ^bitnami"
-				remove:  "helm repo remove bitnami"
+				install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+				check: ["helm repo list 2>/dev/null | grep -q ^bitnami"]
+				remove: ["helm repo remove bitnami"]
 			}
 		}
 	}

@@ -9,6 +9,6 @@ invalidInstaller: {
 		type:       "delegation"
 		runtimeRef: "go"
 		toolRef:    "some-tool"
-		commands: {install: "echo install"}
+		commands: {install: ["echo install"]}
 	}
 }

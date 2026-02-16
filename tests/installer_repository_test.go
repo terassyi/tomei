@@ -34,9 +34,9 @@ func TestInstallerRepository_Delegation(t *testing.T) {
 					Type: resource.InstallerRepositorySourceDelegation,
 					URL:  "https://example.com/charts",
 					Commands: &resource.CommandSet{
-						Install: "touch " + markerFile,
-						Check:   "test -f " + markerFile,
-						Remove:  "rm " + markerFile,
+						Install: []string{"touch " + markerFile},
+						Check:   []string{"test -f " + markerFile},
+						Remove:  []string{"rm " + markerFile},
 					},
 				},
 			},
@@ -49,7 +49,7 @@ func TestInstallerRepository_Delegation(t *testing.T) {
 		assert.Equal(t, "helm", state.InstallerRef)
 		assert.Equal(t, resource.InstallerRepositorySourceDelegation, state.SourceType)
 		assert.Equal(t, "https://example.com/charts", state.URL)
-		assert.Equal(t, "rm "+markerFile, state.RemoveCommand)
+		assert.Equal(t, []string{"rm " + markerFile}, state.RemoveCommand)
 		assert.False(t, state.UpdatedAt.IsZero())
 		assert.FileExists(t, markerFile)
 	})
@@ -74,8 +74,8 @@ func TestInstallerRepository_Delegation(t *testing.T) {
 					Type: resource.InstallerRepositorySourceDelegation,
 					Commands: &resource.CommandSet{
 						// Install appends to counter file - if called, file will exist
-						Install: "echo x >> " + counterFile,
-						Check:   "test -f " + markerFile,
+						Install: []string{"echo x >> " + counterFile},
+						Check:   []string{"test -f " + markerFile},
 					},
 				},
 			},
@@ -105,9 +105,9 @@ func TestInstallerRepository_Delegation(t *testing.T) {
 				Source: resource.InstallerRepositorySourceSpec{
 					Type: resource.InstallerRepositorySourceDelegation,
 					Commands: &resource.CommandSet{
-						Install: "touch " + markerFile,
-						Check:   "test -f " + markerFile,
-						Remove:  "rm " + markerFile,
+						Install: []string{"touch " + markerFile},
+						Check:   []string{"test -f " + markerFile},
+						Remove:  []string{"rm " + markerFile},
 					},
 				},
 			},
@@ -141,7 +141,7 @@ func TestInstallerRepository_Delegation(t *testing.T) {
 				Source: resource.InstallerRepositorySourceSpec{
 					Type: resource.InstallerRepositorySourceDelegation,
 					Commands: &resource.CommandSet{
-						Install: "exit 1",
+						Install: []string{"exit 1"},
 					},
 				},
 			},

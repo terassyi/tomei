@@ -23,7 +23,7 @@ func TestInstallerRepositoryReconciler_Install(t *testing.T) {
 				Source: resource.InstallerRepositorySourceSpec{
 					Type: resource.InstallerRepositorySourceDelegation,
 					Commands: &resource.CommandSet{
-						Install: "helm repo add bitnami https://charts.bitnami.com/bitnami",
+						Install: []string{"helm repo add bitnami https://charts.bitnami.com/bitnami"},
 					},
 				},
 			},
@@ -153,7 +153,7 @@ func TestInstallerRepositoryReconciler_Remove(t *testing.T) {
 		"bitnami": {
 			InstallerRef:  "helm",
 			SourceType:    resource.InstallerRepositorySourceDelegation,
-			RemoveCommand: "helm repo remove bitnami",
+			RemoveCommand: []string{"helm repo remove bitnami"},
 			UpdatedAt:     time.Now(),
 		},
 	}

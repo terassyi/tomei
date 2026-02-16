@@ -75,8 +75,8 @@ type RuntimeBootstrapSpec struct {
 
 	// ResolveVersion is an optional command to resolve version aliases like "stable" or "latest".
 	// Should output the actual version number to stdout.
-	// Example: "rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"
-	ResolveVersion string `json:"resolveVersion,omitempty"`
+	// Example: ["rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"]
+	ResolveVersion []string `json:"resolveVersion,omitempty"`
 }
 
 // Validate validates the RuntimeSpec.
@@ -98,10 +98,10 @@ func (s *RuntimeSpec) Validate() error {
 		if s.Bootstrap == nil {
 			return fmt.Errorf("bootstrap is required for delegation type")
 		}
-		if s.Bootstrap.Install == "" {
+		if len(s.Bootstrap.Install) == 0 {
 			return fmt.Errorf("bootstrap.install is required for delegation type")
 		}
-		if s.Bootstrap.Check == "" {
+		if len(s.Bootstrap.Check) == 0 {
 			return fmt.Errorf("bootstrap.check is required for delegation type")
 		}
 	}
@@ -176,9 +176,9 @@ type RuntimeState struct {
 	// Used when executing tools that depend on this runtime.
 	Env map[string]string `json:"env,omitempty"`
 
-	// RemoveCommand is the shell command to uninstall a delegation-pattern runtime.
+	// RemoveCommand is the shell command(s) to uninstall a delegation-pattern runtime.
 	// Stored in state because Remove() only receives state (no spec).
-	RemoveCommand string `json:"removeCommand,omitempty"`
+	RemoveCommand []string `json:"removeCommand,omitempty"`
 
 	// UpdatedAt is the timestamp when this runtime was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`

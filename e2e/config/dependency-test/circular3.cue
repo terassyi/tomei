@@ -18,7 +18,7 @@ installerB: {
 	spec: {
 		type:    "delegation"
 		toolRef: "tool-a"
-		commands: {install: "echo install"}
+		commands: {install: ["echo install"]}
 	}
 }
 
@@ -39,6 +39,6 @@ installerC: {
 	spec: {
 		type:    "delegation"
 		toolRef: "tool-c"
-		commands: {install: "echo install"}
+		commands: {install: ["echo install"]}
 	}
 }

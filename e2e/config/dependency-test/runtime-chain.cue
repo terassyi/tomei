@@ -29,8 +29,8 @@ goRuntime: {
 			GOBIN:  "~/go/bin"
 		}
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove:  "rm -f {{.BinPath}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }
@@ -44,7 +44,7 @@ goInstaller: {
 		type:       "delegation"
 		runtimeRef: "go"
 		commands: {
-			install: "go install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
+			install: ["go install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"]
 		}
 	}
 }

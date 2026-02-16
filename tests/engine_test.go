@@ -774,8 +774,8 @@ goRuntime: {
 			GOBIN: "~/go/bin"
 		}
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove: "rm -f {{.BinPath}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }
@@ -836,7 +836,7 @@ gopls: {
 
 	// Verify runtime has commands
 	assert.NotNil(t, st.Runtimes["go"].Commands)
-	assert.Equal(t, "go install {{.Package}}@{{.Version}}", st.Runtimes["go"].Commands.Install)
+	assert.Equal(t, []string{"go install {{.Package}}@{{.Version}}"}, st.Runtimes["go"].Commands.Install)
 }
 
 // TestEngine_Apply_InstallerDelegation tests installing a tool via installer delegation (e.g., brew install).
@@ -856,8 +856,8 @@ brewInstaller: {
 	spec: {
 		type: "delegation"
 		commands: {
-			install: "brew install {{.Package}}"
-			remove: "brew uninstall {{.Package}}"
+			install: ["brew install {{.Package}}"]
+			remove: ["brew uninstall {{.Package}}"]
 		}
 	}
 }
@@ -938,7 +938,7 @@ goRuntime: {
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
 		}
 	}
 }
@@ -1107,7 +1107,7 @@ runtime: {
 		}
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
-		commands: { install: "go install {{.Package}}@{{.Version}}" }
+		commands: { install: ["go install {{.Package}}@{{.Version}}"] }
 	}
 }
 
@@ -1315,7 +1315,7 @@ runtime: {
 		}
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
-		commands: { install: "go install {{.Package}}@{{.Version}}" }
+		commands: { install: ["go install {{.Package}}@{{.Version}}"] }
 	}
 }
 
@@ -2060,8 +2060,8 @@ goRuntime: {
 			GOBIN: "~/go/bin"
 		}
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove: "rm -f {{.BinPath}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }
@@ -2074,7 +2074,7 @@ goInstaller: {
 		type: "delegation"
 		runtimeRef: "go"
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
 		}
 	}
 }

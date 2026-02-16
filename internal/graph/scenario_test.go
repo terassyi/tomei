@@ -179,7 +179,7 @@ func TestResolver_ComplexManifest_DiamondDependency(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "tool-a", // Can only have one ToolRef, but we simulate diamond via multiple tools
 			Commands: &resource.CommandsSpec{
-				Install: "combined-install",
+				Install: []string{"combined-install"},
 			},
 		},
 	}
@@ -257,7 +257,7 @@ func TestResolver_CycleDetection_TwoNodeCycle(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "tool-a",
 			Commands: &resource.CommandsSpec{
-				Install: "install-b",
+				Install: []string{"install-b"},
 			},
 		},
 	}
@@ -301,7 +301,7 @@ func TestResolver_CycleDetection_ThreeNodeCycle(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "tool-c",
 			Commands: &resource.CommandsSpec{
-				Install: "install-b",
+				Install: []string{"install-b"},
 			},
 		},
 	}
@@ -328,7 +328,7 @@ func TestResolver_CycleDetection_ThreeNodeCycle(t *testing.T) {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: "tool-a",
 			Commands: &resource.CommandsSpec{
-				Install: "install-a",
+				Install: []string{"install-a"},
 			},
 		},
 	}
@@ -677,7 +677,7 @@ func createInstallerWithRuntime(name, runtimeRef string) *resource.Installer {
 			Type:       resource.InstallTypeDelegation,
 			RuntimeRef: runtimeRef,
 			Commands: &resource.CommandsSpec{
-				Install: fmt.Sprintf("%s install", name),
+				Install: []string{fmt.Sprintf("%s install", name)},
 			},
 		},
 	}
@@ -694,7 +694,7 @@ func createInstallerWithTool(name, toolRef string) *resource.Installer {
 			Type:    resource.InstallTypeDelegation,
 			ToolRef: toolRef,
 			Commands: &resource.CommandsSpec{
-				Install: fmt.Sprintf("%s install", name),
+				Install: []string{fmt.Sprintf("%s install", name)},
 			},
 		},
 	}

@@ -51,8 +51,8 @@ failInstaller: {
 	spec: {
 		type: "delegation"
 		commands: {
-			install: "echo 'simulated failure' && exit 1"
-			remove:  "echo removing"
+			install: ["echo 'simulated failure'", "exit 1"]
+			remove: ["echo removing"]
 		}
 	}
 }

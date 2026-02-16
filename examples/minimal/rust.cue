@@ -22,10 +22,10 @@ rustRuntime: {
 		type:    "delegation"
 		version: _rustVersion
 		bootstrap: {
-			install:        "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"
-			check:          "~/.cargo/bin/rustc --version"
-			remove:         "~/.cargo/bin/rustup self uninstall -y"
-			resolveVersion: "~/.cargo/bin/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"
+			install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"]
+			check: ["~/.cargo/bin/rustc --version"]
+			remove: ["~/.cargo/bin/rustup self uninstall -y"]
+			resolveVersion: ["~/.cargo/bin/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]
 		}
 		binaries: ["rustc", "cargo", "rustup"]
 		binDir:      "~/.cargo/bin"
@@ -35,8 +35,8 @@ rustRuntime: {
 			RUSTUP_HOME: "~/.rustup"
 		}
 		commands: {
-			install: "~/.cargo/bin/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"
-			remove:  "rm -f {{.BinPath}}"
+			install: ["~/.cargo/bin/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }
@@ -67,8 +67,8 @@ binstallInstaller: {
 		type:    "delegation"
 		toolRef: "cargo-binstall"
 		commands: {
-			install: "~/.cargo/bin/cargo-binstall {{.Package}}{{if .Version}}@{{.Version}}{{end}} --no-confirm"
-			remove:  "rm -f {{.BinPath}}"
+			install: ["~/.cargo/bin/cargo-binstall {{.Package}}{{if .Version}}@{{.Version}}{{end}} --no-confirm"]
+			remove: ["rm -f {{.BinPath}}"]
 		}
 	}
 }

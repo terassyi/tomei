@@ -31,17 +31,17 @@ package schema
 }
 
 #CommandSet: {
-	install: string & !=""
-	check?:  string
-	remove?: string
+	install: [...string] & [_, ...]
+	check?: [...string]
+	remove?: [...string]
 }
 
 // RuntimeBootstrap extends CommandSet with version resolution support.
 #RuntimeBootstrap: {
-	install:         string & !=""
-	check?:          string
-	remove?:         string
-	resolveVersion?: string
+	install: [...string] & [_, ...]
+	check?: [...string]
+	remove?: [...string]
+	resolveVersion?: [...string]
 }
 
 // Package accepts both string ("owner/repo" or module path) and object form.
@@ -80,8 +80,8 @@ package schema
 		}
 		if type == "delegation" {
 			bootstrap: #RuntimeBootstrap & {
-				install: string & !=""
-				check:   string & !=""
+				install: [...string] & [_, ...]
+				check: [...string] & [_, ...]
 			}
 		}
 	}

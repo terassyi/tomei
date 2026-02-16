@@ -61,7 +61,7 @@ jqInstaller: {
 		type:    "delegation"
 		toolRef: "jq"
 		commands: {
-			install: "jq --version && echo 'Installing {{.Package}} via jq-installer'"
+			install: ["jq --version", "echo 'Installing {{.Package}} via jq-installer'"]
 		}
 	}
 }

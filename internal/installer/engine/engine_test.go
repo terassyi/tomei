@@ -400,7 +400,7 @@ runtime: {
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
 		}
 	}
 }
@@ -524,7 +524,7 @@ runtime: {
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
 		}
 	}
 }
@@ -761,7 +761,7 @@ goRuntime: {
 			GOBIN: "~/go/bin"
 		}
 		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
+			install: ["go install {{.Package}}@{{.Version}}"]
 		}
 	}
 }
@@ -785,7 +785,7 @@ pnpmInstaller: {
 		type: "delegation"
 		toolRef: "pnpm"
 		commands: {
-			install: "pnpm add -g {{.Package}}@{{.Version}}"
+			install: ["pnpm add -g {{.Package}}@{{.Version}}"]
 		}
 	}
 }
@@ -896,7 +896,7 @@ installerA: {
 		type: "delegation"
 		toolRef: "tool-b"
 		commands: {
-			install: "install-a {{.Package}}"
+			install: ["install-a {{.Package}}"]
 		}
 	}
 }
@@ -2970,9 +2970,9 @@ repo: {
 			type: "delegation"
 			url:  "https://charts.bitnami.com/bitnami"
 			commands: {
-				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-				check:   "helm repo list | grep bitnami"
-				remove:  "helm repo remove bitnami"
+				install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+				check:   ["helm repo list | grep bitnami"]
+				remove:  ["helm repo remove bitnami"]
 			}
 		}
 	}
@@ -3028,9 +3028,9 @@ repo: {
 			type: "delegation"
 			url:  "https://charts.bitnami.com/bitnami"
 			commands: {
-				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-				check:   "helm repo list | grep bitnami"
-				remove:  "helm repo remove bitnami"
+				install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+				check:   ["helm repo list | grep bitnami"]
+				remove:  ["helm repo remove bitnami"]
 			}
 		}
 	}
@@ -3152,9 +3152,9 @@ repo: {
 			type: "delegation"
 			url:  "https://charts.bitnami.com/bitnami"
 			commands: {
-				install: "helm repo add bitnami https://charts.bitnami.com/bitnami"
-				check:   "helm repo list | grep bitnami"
-				remove:  "helm repo remove bitnami"
+				install: ["helm repo add bitnami https://charts.bitnami.com/bitnami"]
+				check:   ["helm repo list | grep bitnami"]
+				remove:  ["helm repo remove bitnami"]
 			}
 		}
 	}
