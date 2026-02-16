@@ -29,6 +29,7 @@ goRuntime: {
 			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
 			GOBIN:  "~/go/bin"
 		}
+		taintOnUpgrade: true
 		// Commands for tool installation via go install
 		commands: {
 			install: ["go install {{.Package}}@{{.Version}}"]

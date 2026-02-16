@@ -1135,12 +1135,18 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[string]bool) {
 	taintedCount := 0
 	for name, toolState := range st.Tools {
-		if toolState.RuntimeRef != "" && updatedRuntimes[toolState.RuntimeRef] {
-			toolState.Taint("runtime_upgraded")
-			_ = e.toolStore.Save(name, toolState)
-			taintedCount++
-			slog.Debug("tainted tool due to runtime upgrade", "tool", name, "runtime", toolState.RuntimeRef)
+		if toolState.RuntimeRef == "" || !updatedRuntimes[toolState.RuntimeRef] {
+			continue
 		}
+		// Only taint if the runtime has TaintOnUpgrade enabled
+		rs, ok := st.Runtimes[toolState.RuntimeRef]
+		if !ok || !rs.TaintOnUpgrade {
+			continue
+		}
+		toolState.Taint("runtime_upgraded")
+		_ = e.toolStore.Save(name, toolState)
+		taintedCount++
+		slog.Debug("tainted tool due to runtime upgrade", "tool", name, "runtime", toolState.RuntimeRef)
 	}
 
 	if taintedCount > 0 {

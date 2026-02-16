@@ -73,6 +73,7 @@ package schema
 		binDir?:   string
 		commands?: #CommandSet
 		env?: {[string]: string}
+		taintOnUpgrade?: bool
 
 		// Conditional required fields
 		if type == "download" {

@@ -99,14 +99,15 @@ func (m *mockRuntimeInstaller) Install(ctx context.Context, res *resource.Runtim
 	}
 
 	st := &resource.RuntimeState{
-		Type:        res.RuntimeSpec.Type,
-		Version:     res.RuntimeSpec.Version,
-		InstallPath: filepath.Join("/mock/runtimes", name, res.RuntimeSpec.Version),
-		Binaries:    res.RuntimeSpec.Binaries,
-		BinDir:      binDir,
-		ToolBinPath: res.RuntimeSpec.ToolBinPath,
-		Env:         res.RuntimeSpec.Env,
-		Commands:    res.RuntimeSpec.Commands,
+		Type:           res.RuntimeSpec.Type,
+		Version:        res.RuntimeSpec.Version,
+		InstallPath:    filepath.Join("/mock/runtimes", name, res.RuntimeSpec.Version),
+		Binaries:       res.RuntimeSpec.Binaries,
+		BinDir:         binDir,
+		ToolBinPath:    res.RuntimeSpec.ToolBinPath,
+		Env:            res.RuntimeSpec.Env,
+		Commands:       res.RuntimeSpec.Commands,
+		TaintOnUpgrade: res.RuntimeSpec.TaintOnUpgrade,
 	}
 	m.mu.Lock()
 	m.installed[name] = st
@@ -1108,6 +1109,7 @@ runtime: {
 		binaries: ["go", "gofmt"]
 		toolBinPath: "~/go/bin"
 		commands: { install: ["go install {{.Package}}@{{.Version}}"] }
+		taintOnUpgrade: true
 	}
 }
 
@@ -1132,10 +1134,11 @@ tool: {
 	require.NoError(t, store.Lock())
 	initialState := state.NewUserState()
 	initialState.Runtimes["go"] = &resource.RuntimeState{
-		Type:        resource.InstallTypeDownload,
-		Version:     "1.25.0",
-		InstallPath: "/mock/runtimes/go/1.25.0",
-		Binaries:    []string{"go", "gofmt"},
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.0",
+		InstallPath:    "/mock/runtimes/go/1.25.0",
+		Binaries:       []string{"go", "gofmt"},
+		TaintOnUpgrade: true,
 	}
 	initialState.Tools["gopls"] = &resource.ToolState{
 		RuntimeRef: "go",

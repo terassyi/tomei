@@ -67,12 +67,13 @@ func (m *mockRuntimeInstaller) Install(ctx context.Context, res *resource.Runtim
 		return m.installFunc(ctx, res, name)
 	}
 	return &resource.RuntimeState{
-		Type:        res.RuntimeSpec.Type,
-		Version:     res.RuntimeSpec.Version,
-		InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-		Binaries:    res.RuntimeSpec.Binaries,
-		ToolBinPath: res.RuntimeSpec.ToolBinPath,
-		Env:         res.RuntimeSpec.Env,
+		Type:           res.RuntimeSpec.Type,
+		Version:        res.RuntimeSpec.Version,
+		InstallPath:    "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+		Binaries:       res.RuntimeSpec.Binaries,
+		ToolBinPath:    res.RuntimeSpec.ToolBinPath,
+		Env:            res.RuntimeSpec.Env,
+		TaintOnUpgrade: res.RuntimeSpec.TaintOnUpgrade,
 	}, nil
 }
 
@@ -402,6 +403,7 @@ runtime: {
 		commands: {
 			install: ["go install {{.Package}}@{{.Version}}"]
 		}
+		taintOnUpgrade: true
 	}
 }
 
@@ -433,10 +435,11 @@ tool: {
 	require.NoError(t, store.Lock())
 	initialState := state.NewUserState()
 	initialState.Runtimes["go"] = &resource.RuntimeState{
-		Type:        resource.InstallTypeDownload,
-		Version:     "1.25.0",
-		InstallPath: "/runtimes/go/1.25.0",
-		Binaries:    []string{"go", "gofmt"},
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.0",
+		InstallPath:    "/runtimes/go/1.25.0",
+		Binaries:       []string{"go", "gofmt"},
+		TaintOnUpgrade: true,
 	}
 	initialState.Tools["gopls"] = &resource.ToolState{
 		RuntimeRef:  "go", // depends on go runtime
@@ -453,10 +456,11 @@ tool: {
 		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
 			runtimeInstallCalled = true
 			return &resource.RuntimeState{
-				Type:        res.RuntimeSpec.Type,
-				Version:     res.RuntimeSpec.Version,
-				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-				Binaries:    res.RuntimeSpec.Binaries,
+				Type:           res.RuntimeSpec.Type,
+				Version:        res.RuntimeSpec.Version,
+				InstallPath:    "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:       res.RuntimeSpec.Binaries,
+				TaintOnUpgrade: res.RuntimeSpec.TaintOnUpgrade,
 			}, nil
 		},
 	}
@@ -526,6 +530,7 @@ runtime: {
 		commands: {
 			install: ["go install {{.Package}}@{{.Version}}"]
 		}
+		taintOnUpgrade: true
 	}
 }
 
@@ -554,10 +559,11 @@ tool: {
 	require.NoError(t, store.Lock())
 	initialState := state.NewUserState()
 	initialState.Runtimes["go"] = &resource.RuntimeState{
-		Type:        resource.InstallTypeDownload,
-		Version:     "1.25.0",
-		InstallPath: "/runtimes/go/1.25.0",
-		Binaries:    []string{"go", "gofmt"},
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.0",
+		InstallPath:    "/runtimes/go/1.25.0",
+		Binaries:       []string{"go", "gofmt"},
+		TaintOnUpgrade: true,
 	}
 	initialState.Tools["gopls"] = &resource.ToolState{
 		RuntimeRef:  "go",
@@ -568,27 +574,8 @@ tool: {
 	require.NoError(t, store.Save(initialState))
 	require.NoError(t, store.Unlock())
 
-	runtimeMock := &mockRuntimeInstaller{
-		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
-			return &resource.RuntimeState{
-				Type:        res.RuntimeSpec.Type,
-				Version:     res.RuntimeSpec.Version,
-				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
-				Binaries:    res.RuntimeSpec.Binaries,
-			}, nil
-		},
-	}
-	toolMock := &mockToolInstaller{
-		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
-			return &resource.ToolState{
-				InstallerRef: res.ToolSpec.InstallerRef,
-				Version:      res.ToolSpec.Version,
-				RuntimeRef:   res.ToolSpec.RuntimeRef,
-				InstallPath:  "/tools/" + name + "/" + res.ToolSpec.Version,
-				BinPath:      "/bin/" + name,
-			}, nil
-		},
-	}
+	runtimeMock := &mockRuntimeInstaller{}
+	toolMock := &mockToolInstaller{}
 
 	// Collect events
 	var mu sync.Mutex
@@ -633,6 +620,115 @@ tool: {
 
 	require.Len(t, taintCompletes, 1, "expected 1 PhaseTaint EventComplete")
 	assert.Equal(t, "gopls", taintCompletes[0].Name)
+}
+
+// TestEngine_TaintDependentTools_Disabled verifies that when TaintOnUpgrade is false,
+// runtime upgrade does NOT taint dependent tools.
+func TestEngine_TaintDependentTools_Disabled(t *testing.T) {
+	t.Parallel()
+
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.26.0"
+		source: {
+			url: "https://example.com/go-1.26.0.tar.gz"
+			checksum: {
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			}
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: {
+			install: ["go install {{.Package}}@{{.Version}}"]
+		}
+		// taintOnUpgrade defaults to false — no taint on upgrade
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		version: "0.16.0"
+		package: "golang.org/x/tools/gopls"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state: runtime at older version, tool depends on it
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Runtimes["go"] = &resource.RuntimeState{
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.0",
+		InstallPath:    "/runtimes/go/1.25.0",
+		Binaries:       []string{"go", "gofmt"},
+		TaintOnUpgrade: false, // explicitly disabled
+	}
+	initialState.Tools["gopls"] = &resource.ToolState{
+		RuntimeRef:  "go",
+		Version:     "0.16.0",
+		InstallPath: "/tools/gopls/0.16.0",
+		BinPath:     "/bin/gopls",
+	}
+	require.NoError(t, store.Save(initialState))
+	require.NoError(t, store.Unlock())
+
+	runtimeMock := &mockRuntimeInstaller{}
+
+	toolInstallCalled := false
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			toolInstallCalled = true
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				RuntimeRef:   res.ToolSpec.RuntimeRef,
+				InstallPath:  "/tools/" + name + "/" + res.ToolSpec.Version,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Tool should NOT be reinstalled because TaintOnUpgrade is false
+	assert.False(t, toolInstallCalled, "tool should not be reinstalled when TaintOnUpgrade is false")
+
+	// Verify tool is not tainted in state
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err := store.Load()
+	require.NoError(t, err)
+
+	assert.NotNil(t, st.Tools["gopls"])
+	assert.False(t, st.Tools["gopls"].IsTainted(), "tool should not be tainted")
+	assert.Equal(t, "0.16.0", st.Tools["gopls"].Version)
+
+	// Runtime should be upgraded
+	assert.Equal(t, "1.26.0", st.Runtimes["go"].Version)
 }
 
 func TestEngine_Removal_EmitsEvents(t *testing.T) {

@@ -249,18 +249,19 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 	}
 
 	return &resource.RuntimeState{
-		Type:        spec.Type,
-		Version:     spec.Version,
-		VersionKind: resource.ClassifyVersion(spec.Version),
-		SpecVersion: spec.Version,
-		Digest:      digest,
-		InstallPath: installPath,
-		Binaries:    spec.Binaries,
-		BinDir:      binDir,
-		ToolBinPath: toolBinPath,
-		Commands:    spec.Commands,
-		Env:         env,
-		UpdatedAt:   time.Now(),
+		Type:           spec.Type,
+		Version:        spec.Version,
+		VersionKind:    resource.ClassifyVersion(spec.Version),
+		SpecVersion:    spec.Version,
+		Digest:         digest,
+		InstallPath:    installPath,
+		Binaries:       spec.Binaries,
+		BinDir:         binDir,
+		ToolBinPath:    toolBinPath,
+		Commands:       spec.Commands,
+		Env:            env,
+		TaintOnUpgrade: spec.TaintOnUpgrade,
+		UpdatedAt:      time.Now(),
 	}
 }
 
@@ -339,17 +340,18 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	slog.Debug("runtime installed via delegation", "name", name, "version", resolvedVersion)
 
 	return &resource.RuntimeState{
-		Type:          spec.Type,
-		Version:       resolvedVersion,
-		VersionKind:   versionKind,
-		SpecVersion:   spec.Version,
-		Binaries:      spec.Binaries,
-		BinDir:        binDir,
-		ToolBinPath:   toolBinPath,
-		Commands:      spec.Commands,
-		Env:           env,
-		RemoveCommand: spec.Bootstrap.Remove,
-		UpdatedAt:     time.Now(),
+		Type:           spec.Type,
+		Version:        resolvedVersion,
+		VersionKind:    versionKind,
+		SpecVersion:    spec.Version,
+		Binaries:       spec.Binaries,
+		BinDir:         binDir,
+		ToolBinPath:    toolBinPath,
+		Commands:       spec.Commands,
+		Env:            env,
+		RemoveCommand:  spec.Bootstrap.Remove,
+		TaintOnUpgrade: spec.TaintOnUpgrade,
+		UpdatedAt:      time.Now(),
 	}, nil
 }
 

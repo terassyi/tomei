@@ -203,11 +203,16 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 			}
 		}
 
-		// Predict taint reinstalls: if a runtime is being upgraded,
+		// Predict taint reinstalls: if a runtime with TaintOnUpgrade is being upgraded,
 		// tools that depend on it (via RuntimeRef) will be reinstalled.
+		// Build a map of runtime specs to check TaintOnUpgrade from the manifest.
+		runtimeSpecs := map[string]*resource.RuntimeSpec{}
 		upgradedRuntimes := map[string]bool{}
 		for _, res := range resources {
 			if res.Kind() == resource.KindRuntime {
+				if rt, ok := res.(*resource.Runtime); ok && rt.RuntimeSpec != nil {
+					runtimeSpecs[res.Name()] = rt.RuntimeSpec
+				}
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
 				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionUpgrade {
 					upgradedRuntimes[res.Name()] = true
@@ -216,12 +221,18 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 		}
 		if len(upgradedRuntimes) > 0 {
 			for name, toolState := range userState.Tools {
-				if toolState.RuntimeRef != "" && upgradedRuntimes[toolState.RuntimeRef] {
-					nodeID := graph.NewNodeID(resource.KindTool, name)
-					if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionNone {
-						ri.Action = graph.ActionReinstall
-						info[nodeID] = ri
-					}
+				if toolState.RuntimeRef == "" || !upgradedRuntimes[toolState.RuntimeRef] {
+					continue
+				}
+				// Check TaintOnUpgrade from the runtime spec in the manifest
+				spec, ok := runtimeSpecs[toolState.RuntimeRef]
+				if !ok || !spec.TaintOnUpgrade {
+					continue
+				}
+				nodeID := graph.NewNodeID(resource.KindTool, name)
+				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionNone {
+					ri.Action = graph.ActionReinstall
+					info[nodeID] = ri
 				}
 			}
 		}

@@ -134,14 +134,14 @@ func TestToolFormatter_Headers(t *testing.T) {
 		t.Parallel()
 
 		h := f.Headers(false)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "TAINTED"}, h)
 	})
 
 	t.Run("wide", func(t *testing.T) {
 		t.Parallel()
 
 		h := f.Headers(true)
-		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "PACKAGE", "BIN_PATH"}, h)
+		assert.Equal(t, []string{"NAME", "VERSION", "VERSION_KIND", "INSTALLER/RUNTIME", "TAINTED", "PACKAGE", "BIN_PATH"}, h)
 	})
 }
 
@@ -164,7 +164,8 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 		assert.Equal(t, "14.1.1", row[1])
 		assert.Equal(t, "exact", row[2])
 		assert.Equal(t, "aqua", row[3])
-		assert.Len(t, row, 4)
+		assert.Empty(t, row[4]) // TAINTED
+		assert.Len(t, row, 5)
 	})
 
 	t.Run("with runtimeRef", func(t *testing.T) {
@@ -177,7 +178,22 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 		}
 		row := f.FormatRow("gopls", ts, false)
 		assert.Equal(t, "go", row[3])
-		assert.Len(t, row, 4)
+		assert.Empty(t, row[4]) // TAINTED
+		assert.Len(t, row, 5)
+	})
+
+	t.Run("with taint reason", func(t *testing.T) {
+		t.Parallel()
+
+		ts := &resource.ToolState{
+			Version:     "v0.17.0",
+			RuntimeRef:  "go",
+			VersionKind: resource.VersionLatest,
+			TaintReason: "runtime_upgraded",
+		}
+		row := f.FormatRow("gopls", ts, false)
+		assert.Equal(t, "runtime_upgraded", row[4])
+		assert.Len(t, row, 5)
 	})
 
 	t.Run("wide adds package and binpath", func(t *testing.T) {
@@ -191,9 +207,10 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 			Package:      &resource.Package{Owner: "BurntSushi", Repo: "ripgrep"},
 		}
 		row := f.FormatRow("ripgrep", ts, true)
-		assert.Len(t, row, 6)
-		assert.Equal(t, "BurntSushi/ripgrep", row[4])
-		assert.Equal(t, "/home/user/.local/bin/rg", row[5])
+		assert.Len(t, row, 7)
+		assert.Empty(t, row[4])                             // TAINTED
+		assert.Equal(t, "BurntSushi/ripgrep", row[5])       // PACKAGE
+		assert.Equal(t, "/home/user/.local/bin/rg", row[6]) // BIN_PATH
 	})
 }
 
@@ -329,7 +346,10 @@ func TestPrintTable_Tools(t *testing.T) {
 	assert.Contains(t, output, "NAME")
 	assert.Contains(t, output, "VERSION")
 	assert.Contains(t, output, "INSTALLER/RUNTIME")
-	assert.NotContains(t, output, "STATUS")
+	assert.Contains(t, output, "TAINTED")
+
+	// Taint reason visible for gopls
+	assert.Contains(t, output, "runtime_upgraded")
 
 	// Rows sorted alphabetically (gopls before ripgrep)
 	assert.Contains(t, output, "gopls")
