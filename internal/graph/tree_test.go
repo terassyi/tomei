@@ -4,15 +4,9 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/fatih/color"
 	"github.com/stretchr/testify/assert"
 	"github.com/terassyi/tomei/internal/resource"
 )
-
-func init() {
-	// Disable color output for deterministic test assertions.
-	color.NoColor = true
-}
 
 func TestPrintSummary(t *testing.T) {
 	t.Parallel()

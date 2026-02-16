@@ -44,25 +44,30 @@ type TreePrinter struct {
 	kindColors     map[resource.Kind]*color.Color
 }
 
+// newColor creates a *color.Color and disables it when noColor is true.
+func newColor(noColor bool, attrs ...color.Attribute) *color.Color {
+	c := color.New(attrs...)
+	if noColor {
+		c.DisableColor()
+	}
+	return c
+}
+
 // NewTreePrinter creates a new TreePrinter.
 func NewTreePrinter(w io.Writer, noColor bool) *TreePrinter {
-	if noColor {
-		color.NoColor = true
-	}
-
 	return &TreePrinter{
 		noColor:        noColor,
 		writer:         w,
-		installColor:   color.New(color.FgGreen),
-		upgradeColor:   color.New(color.FgYellow),
-		reinstallColor: color.New(color.FgCyan),
-		removeColor:    color.New(color.FgRed),
-		noChangeColor:  color.New(color.FgWhite),
+		installColor:   newColor(noColor, color.FgGreen),
+		upgradeColor:   newColor(noColor, color.FgYellow),
+		reinstallColor: newColor(noColor, color.FgCyan),
+		removeColor:    newColor(noColor, color.FgRed),
+		noChangeColor:  newColor(noColor, color.FgWhite),
 		kindColors: map[resource.Kind]*color.Color{
-			resource.KindRuntime:             color.New(color.FgBlue),
-			resource.KindInstaller:           color.New(color.FgYellow),
-			resource.KindInstallerRepository: color.New(color.FgCyan),
-			resource.KindTool:                color.New(color.FgGreen),
+			resource.KindRuntime:             newColor(noColor, color.FgBlue),
+			resource.KindInstaller:           newColor(noColor, color.FgYellow),
+			resource.KindInstallerRepository: newColor(noColor, color.FgCyan),
+			resource.KindTool:                newColor(noColor, color.FgGreen),
 		},
 	}
 }
