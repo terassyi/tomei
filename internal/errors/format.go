@@ -28,24 +28,29 @@ type Formatter struct {
 	arrowColor    *color.Color
 }
 
+// newColor creates a *color.Color and disables it when noColor is true.
+func newColor(noColor bool, attrs ...color.Attribute) *color.Color {
+	c := color.New(attrs...)
+	if noColor {
+		c.DisableColor()
+	}
+	return c
+}
+
 // NewFormatter creates a new Formatter.
 func NewFormatter(w io.Writer, noColor bool) *Formatter {
-	if noColor {
-		color.NoColor = true
-	}
-
 	return &Formatter{
 		NoColor:       noColor,
 		Writer:        w,
-		errorColor:    color.New(color.FgRed, color.Bold),
-		codeColor:     color.New(color.FgRed),
-		resourceColor: color.New(color.FgCyan),
-		hintColor:     color.New(color.FgGreen),
-		exampleColor:  color.New(color.FgBlue),
-		expectedColor: color.New(color.FgYellow),
-		gotColor:      color.New(color.FgRed),
-		dimColor:      color.New(color.FgHiBlack),
-		arrowColor:    color.New(color.FgYellow),
+		errorColor:    newColor(noColor, color.FgRed, color.Bold),
+		codeColor:     newColor(noColor, color.FgRed),
+		resourceColor: newColor(noColor, color.FgCyan),
+		hintColor:     newColor(noColor, color.FgGreen),
+		exampleColor:  newColor(noColor, color.FgBlue),
+		expectedColor: newColor(noColor, color.FgYellow),
+		gotColor:      newColor(noColor, color.FgRed),
+		dimColor:      newColor(noColor, color.FgHiBlack),
+		arrowColor:    newColor(noColor, color.FgYellow),
 	}
 }
 
