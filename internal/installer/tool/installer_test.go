@@ -416,6 +416,89 @@ func (m *mockPlacer) Cleanup(_ string) error {
 	return nil
 }
 
+func TestToolInstaller_Install_Args(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		setup    func(inst *Installer, captureFile string)
+		tool     func(captureFile string) *resource.Tool
+		wantArgs string
+	}{
+		{
+			name: "runtime delegation passes args",
+			setup: func(inst *Installer, captureFile string) {
+				inst.RegisterRuntime("uv", &RuntimeInfo{
+					BinDir:      "/usr/local/bin",
+					ToolBinPath: filepath.Dir(captureFile),
+					Commands: &resource.CommandsSpec{
+						Install: "echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile,
+					},
+				})
+			},
+			tool: func(_ string) *resource.Tool {
+				return &resource.Tool{
+					BaseResource: resource.BaseResource{
+						Metadata: resource.Metadata{Name: "ansible"},
+					},
+					ToolSpec: &resource.ToolSpec{
+						RuntimeRef: "uv",
+						Version:    "13.3.0",
+						Package:    &resource.Package{Name: "ansible"},
+						Args:       []string{"--with-executables-from", "ansible-core"},
+					},
+				}
+			},
+			wantArgs: "ansible==13.3.0 --with-executables-from ansible-core",
+		},
+		{
+			name: "installer delegation passes args",
+			setup: func(inst *Installer, captureFile string) {
+				inst.RegisterInstaller("uv", &InstallerInfo{
+					Type: resource.InstallTypeDelegation,
+					Commands: &resource.CommandsSpec{
+						Install: "echo {{.Package}}=={{.Version}} {{.Args}} > " + captureFile,
+					},
+				})
+			},
+			tool: func(_ string) *resource.Tool {
+				return &resource.Tool{
+					BaseResource: resource.BaseResource{
+						Metadata: resource.Metadata{Name: "ansible"},
+					},
+					ToolSpec: &resource.ToolSpec{
+						InstallerRef: "uv",
+						Version:      "13.3.0",
+						Package:      &resource.Package{Name: "ansible"},
+						Args:         []string{"--with-executables-from", "ansible-core"},
+					},
+				}
+			},
+			wantArgs: "ansible==13.3.0 --with-executables-from ansible-core",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			captureFile := filepath.Join(tmpDir, "captured_cmd.txt")
+
+			inst := NewInstaller(download.NewDownloader(), place.NewPlacer(filepath.Join(tmpDir, "tools"), filepath.Join(tmpDir, "bin")))
+			tt.setup(inst, captureFile)
+
+			tool := tt.tool(captureFile)
+			state, err := inst.Install(context.Background(), tool, tool.Name())
+			require.NoError(t, err)
+			require.NotNil(t, state)
+
+			content, err := os.ReadFile(captureFile)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantArgs, strings.TrimSpace(string(content)))
+		})
+	}
+}
+
 func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 	t.Parallel()
 	archiveData := createTarGzContent(t, "mytool", []byte("#!/bin/sh\necho hello"))

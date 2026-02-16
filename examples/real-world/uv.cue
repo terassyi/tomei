@@ -14,7 +14,7 @@ uvTools: {
 			ruff: {package: "ruff", version: "0.15.1"}
 			mypy: {package: "mypy", version: "1.19.1"}
 			httpie: {package: "httpie", version: "3.2.4"}
-			black: {package: "black", version: "25.1.0"}
+			ansible: {package: "ansible", version: "13.3.0", args: ["--with-executables-from", "ansible-core"]}
 		}
 	}
 }

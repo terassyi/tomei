@@ -53,6 +53,26 @@ func TestExecutor_expand(t *testing.T) {
 			expected: "echo hello",
 		},
 		{
+			name:   "expand args",
+			cmdStr: "uv tool install {{.Package}}=={{.Version}} {{.Args}}",
+			vars: Vars{
+				Package: "ansible",
+				Version: "13.3.0",
+				Args:    "--with-executables-from ansible-core",
+			},
+			expected: "uv tool install ansible==13.3.0 --with-executables-from ansible-core",
+		},
+		{
+			name:   "args with conditional template",
+			cmdStr: "go install {{.Package}}@{{.Version}}{{if .Args}} {{.Args}}{{end}}",
+			vars: Vars{
+				Package: "golang.org/x/tools/gopls",
+				Version: "v0.16.0",
+				Args:    "",
+			},
+			expected: "go install golang.org/x/tools/gopls@v0.16.0",
+		},
+		{
 			name:   "empty variable values",
 			cmdStr: "cmd {{.Package}} {{.Version}}",
 			vars: Vars{

@@ -46,7 +46,7 @@ uvRuntime: {
 		binDir:      "~/.local/bin"
 		toolBinPath: "~/.local/bin"
 		commands: {
-			install: "~/.local/bin/uv tool install {{.Package}}{{if .Version}}=={{.Version}}{{end}}"
+			install: "~/.local/bin/uv tool install {{.Package}}{{if .Version}}=={{.Version}}{{end}}{{if .Args}} {{.Args}}{{end}}"
 			remove:  "~/.local/bin/uv tool uninstall {{.Package}}"
 		}
 	}

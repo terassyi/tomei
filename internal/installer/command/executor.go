@@ -23,6 +23,7 @@ type Vars struct {
 	Version string // Version string (e.g., v0.16.0)
 	Name    string // Tool name (e.g., gopls)
 	BinPath string // Binary path (e.g., ~/go/bin/gopls)
+	Args    string // Additional arguments (space-joined, e.g., "--with-executables-from ansible-core")
 }
 
 // Executor executes shell commands with variable substitution.

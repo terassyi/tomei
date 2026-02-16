@@ -589,6 +589,47 @@ func TestToolSetSpec_Dependencies(t *testing.T) {
 	}
 }
 
+func TestToolSet_Expand_CopiesArgs(t *testing.T) {
+	t.Parallel()
+	ts := &ToolSet{
+		BaseResource: BaseResource{
+			APIVersion:   GroupVersion,
+			ResourceKind: KindToolSet,
+			Metadata:     Metadata{Name: "uv-tools"},
+		},
+		ToolSetSpec: &ToolSetSpec{
+			RuntimeRef: "uv",
+			Tools: map[string]ToolItem{
+				"ansible": {
+					Package: &Package{Name: "ansible"},
+					Version: "13.3.0",
+					Args:    []string{"--with-executables-from", "ansible-core"},
+				},
+				"black": {
+					Package: &Package{Name: "black"},
+					Version: "24.10.0",
+				},
+			},
+		},
+	}
+
+	resources, err := ts.Expand()
+	require.NoError(t, err)
+	require.Len(t, resources, 2)
+
+	for _, r := range resources {
+		tool := r.(*Tool)
+		switch tool.Name() {
+		case "ansible":
+			assert.Equal(t, []string{"--with-executables-from", "ansible-core"}, tool.ToolSpec.Args)
+		case "black":
+			assert.Nil(t, tool.ToolSpec.Args)
+		default:
+			t.Errorf("unexpected tool: %s", tool.Name())
+		}
+	}
+}
+
 func TestToolSet_Expand_WithRepositoryRef(t *testing.T) {
 	t.Parallel()
 	ts := &ToolSet{
