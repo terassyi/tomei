@@ -1,0 +1,38 @@
+{{- if not .Bare -}}
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myRuntime: schema.#Runtime & {
+{{- else -}}
+package tomei
+
+myRuntime: {
+{{- end }}
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Runtime"
+	metadata: name: "my-runtime"
+	platform: {
+		os:   _os
+		arch: _arch
+	}
+	spec: {
+		type:        "download"
+		version:     "1.0.0"
+		toolBinPath: "~/my-runtime/bin"
+		source: {
+			url: "https://example.com/runtime.tar.gz"
+			// checksum: url: "https://example.com/checksums.txt"
+		}
+		// binaries: ["my-runtime"]
+		// binDir: "~/my-runtime/bin"
+		// env: {
+		//     MY_ROOT: "~/.local/share/tomei/runtimes/my-runtime/1.0.0"
+		// }
+		// commands: {
+		//     install: ["my-runtime install {{`{{.Package}}`}}@{{`{{.Version}}`}}"]
+		//     remove:  ["rm -f {{`{{.BinPath}}`}}"]
+		// }
+		// taintOnUpgrade: true
+	}
+}

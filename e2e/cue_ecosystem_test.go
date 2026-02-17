@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"encoding/json"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -213,6 +215,157 @@ EOF`)
 			output, err := testExec.Exec("tomei", "validate", dir)
 			Expect(err).To(HaveOccurred())
 			Expect(output).To(ContainSubstring("cue.mod"))
+		})
+	})
+
+	Context("tomei cue scaffold", func() {
+		It("outputs a tool scaffold with schema import", func() {
+			output, err := testExec.Exec("tomei", "cue", "scaffold", "tool")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`import "tomei.terassyi.net/schema"`))
+			Expect(output).To(ContainSubstring("schema.#Tool"))
+			Expect(output).To(ContainSubstring(`kind:       "Tool"`))
+		})
+
+		It("outputs a bare tool scaffold without import", func() {
+			output, err := testExec.Exec("tomei", "cue", "scaffold", "tool", "--bare")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).NotTo(ContainSubstring("import"))
+			Expect(output).To(ContainSubstring(`kind:       "Tool"`))
+		})
+
+		It("supports all resource kinds", func() {
+			kinds := []string{"tool", "runtime", "installer", "installer-repository", "toolset"}
+			for _, kind := range kinds {
+				output, err := testExec.Exec("tomei", "cue", "scaffold", kind)
+				Expect(err).NotTo(HaveOccurred(), "scaffold %s failed", kind)
+				Expect(output).To(ContainSubstring("package tomei"), "scaffold %s missing package", kind)
+			}
+		})
+
+		It("rejects unknown kind", func() {
+			_, err := testExec.Exec("tomei", "cue", "scaffold", "unknown")
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Context("tomei cue eval", func() {
+		var evalDir string
+
+		BeforeAll(func() {
+			evalDir = "~/cue-ecosystem-test/eval-test"
+			_, err := testExec.ExecBash("mkdir -p " + evalDir)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("tomei cue init " + evalDir)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = testExec.ExecBash(`cat > ` + evalDir + `/tools.cue << 'EOF'
+package tomei
+
+myTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.7.1"
+        package:      "jqlang/jq"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		AfterAll(func() {
+			_, _ = testExec.ExecBash("rm -rf " + evalDir)
+		})
+
+		It("outputs CUE text with resolved values", func() {
+			output, err := testExec.ExecBash("tomei cue eval " + evalDir + "/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`"tomei.terassyi.net/v1beta1"`))
+			Expect(output).To(ContainSubstring(`"jq"`))
+			Expect(output).To(ContainSubstring(`"aqua"`))
+		})
+
+		It("resolves @tag() values", func() {
+			_, err := testExec.ExecBash(`cat > ` + evalDir + `/runtime.cue << 'EOF'
+package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+testRuntime: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Runtime"
+    metadata: name: "test-rt"
+    spec: {
+        type:    "download"
+        version: "1.0.0"
+        toolBinPath: "~/test/bin"
+        source: url: "https://example.com/rt_\(_os)_\(_arch).tar.gz"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+
+			output, err := testExec.ExecBash("tomei cue eval " + evalDir + "/")
+			Expect(err).NotTo(HaveOccurred())
+			// @tag(os) and @tag(arch) should be resolved to actual values
+			Expect(output).To(MatchRegexp(`https://example\.com/rt_(linux|darwin)_(amd64|arm64)\.tar\.gz`))
+
+			// cleanup runtime.cue to not affect other tests
+			_, _ = testExec.ExecBash("rm -f " + evalDir + "/runtime.cue")
+		})
+	})
+
+	Context("tomei cue export", func() {
+		var exportDir string
+
+		BeforeAll(func() {
+			exportDir = "~/cue-ecosystem-test/export-test"
+			_, err := testExec.ExecBash("mkdir -p " + exportDir)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testExec.ExecBash("tomei cue init " + exportDir)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, err = testExec.ExecBash(`cat > ` + exportDir + `/tools.cue << 'EOF'
+package tomei
+
+myTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "jq"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.7.1"
+        package:      "jqlang/jq"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		AfterAll(func() {
+			_, _ = testExec.ExecBash("rm -rf " + exportDir)
+		})
+
+		It("outputs valid JSON", func() {
+			output, err := testExec.ExecBash("tomei cue export " + exportDir + "/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`"apiVersion"`))
+			Expect(output).To(ContainSubstring(`"tomei.terassyi.net/v1beta1"`))
+			Expect(output).To(ContainSubstring(`"jq"`))
+
+			// JSON should be parseable into a typed struct
+			var parsed struct {
+				MyTool struct {
+					APIVersion string `json:"apiVersion"`
+					Kind       string `json:"kind"`
+				} `json:"myTool"`
+			}
+			Expect(json.Unmarshal([]byte(output), &parsed)).To(Succeed())
+			Expect(parsed.MyTool.APIVersion).To(Equal("tomei.terassyi.net/v1beta1"))
 		})
 	})
 }

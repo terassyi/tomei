@@ -144,19 +144,40 @@ func (l *Loader) buildLoadConfig(absDir string, tags []string) (*load.Config, er
 // Load loads CUE configuration from the given directory.
 // config.cue files are excluded from loading as they contain tomei configuration, not manifests.
 func (l *Loader) Load(dir string) ([]resource.Resource, error) {
+	value, err := l.evalDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	// evalDir returns zero value when no CUE files found
+	if !value.Exists() {
+		return nil, nil
+	}
+	return l.parseResources(value)
+}
+
+// EvalDir evaluates CUE files in a directory and returns the unified cue.Value
+// without parsing into resource types. Used by tomei cue eval/export.
+func (l *Loader) EvalDir(dir string) (cue.Value, error) {
+	return l.evalDir(dir)
+}
+
+// evalDir is the internal implementation that builds a cue.Value from a directory.
+func (l *Loader) evalDir(dir string) (cue.Value, error) {
+	var zero cue.Value
+
 	// Check if directory exists
 	info, err := os.Stat(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to access config directory: %w", err)
+		return zero, fmt.Errorf("failed to access config directory: %w", err)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("%s is not a directory", dir)
+		return zero, fmt.Errorf("%s is not a directory", dir)
 	}
 
 	// Collect all .cue files except config.cue
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		return zero, fmt.Errorf("failed to read directory: %w", err)
 	}
 
 	var cueFiles []string
@@ -171,13 +192,13 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	}
 
 	if len(cueFiles) == 0 {
-		return nil, nil
+		return zero, nil
 	}
 
 	// Convert dir to absolute path for overlay (CUE requires absolute paths)
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+		return zero, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
 	// Read file sources to detect @tag() declarations
@@ -185,7 +206,7 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	for _, f := range cueFiles {
 		data, err := os.ReadFile(filepath.Join(absDir, f))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read file %s: %w", f, err)
+			return zero, fmt.Errorf("failed to read file %s: %w", f, err)
 		}
 		sources = append(sources, string(data))
 	}
@@ -193,28 +214,59 @@ func (l *Loader) Load(dir string) ([]resource.Resource, error) {
 	// Build load configuration with CUE module registry.
 	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(sources...))
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	// Load CUE files with configured loader
 	instances := load.Instances(cueFiles, loadCfg)
 
 	if len(instances) == 0 {
-		return nil, fmt.Errorf("no CUE files found in %s", dir)
+		return zero, fmt.Errorf("no CUE files found in %s", dir)
 	}
 
 	inst := instances[0]
 	if inst.Err != nil {
-		return nil, fmt.Errorf("failed to load CUE files: %w", inst.Err)
+		return zero, fmt.Errorf("failed to load CUE files: %w", inst.Err)
 	}
 
 	// Build the value
 	value := l.ctx.BuildInstance(inst)
 	if value.Err() != nil {
-		return nil, fmt.Errorf("failed to build CUE value: %w", value.Err())
+		return zero, fmt.Errorf("failed to build CUE value: %w", value.Err())
 	}
 
-	return l.parseResources(value)
+	return value, nil
+}
+
+// expandHome expands a leading ~ to the user's home directory.
+func expandHome(p string) (string, error) {
+	switch {
+	case strings.HasPrefix(p, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to expand path %s: %w", p, err)
+		}
+		return filepath.Join(home, p[2:]), nil
+	case p == "~":
+		return os.UserHomeDir()
+	default:
+		return p, nil
+	}
+}
+
+// expandAndStat expands ~ in a path and returns the expanded path with its FileInfo.
+func expandAndStat(p string) (string, os.FileInfo, error) {
+	expanded, err := expandHome(p)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+	}
+
+	info, err := os.Stat(expanded)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+	}
+
+	return expanded, info, nil
 }
 
 // LoadPaths loads resources from multiple files or directories.
@@ -222,28 +274,9 @@ func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
 	var allResources []resource.Resource
 
 	for _, p := range paths {
-		// Expand ~ to home directory
-		var expanded string
-		switch {
-		case strings.HasPrefix(p, "~/"):
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = filepath.Join(home, p[2:])
-		case p == "~":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = home
-		default:
-			expanded = p
-		}
-
-		info, err := os.Stat(expanded)
+		expanded, info, err := expandAndStat(p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+			return nil, err
 		}
 
 		var resources []resource.Resource
@@ -266,14 +299,35 @@ func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
 // Files with a package declaration use load.Instances() so that import statements are resolved.
 // Files without a package declaration use CompileString() (import is not available without a package).
 func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
+	value, err := l.evalFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// evalFile returns zero value for config.cue
+	if !value.Exists() {
+		return nil, nil
+	}
+	return l.parseResources(value)
+}
+
+// EvalFile evaluates a single CUE file and returns the cue.Value
+// without parsing into resource types. Used by tomei cue eval/export.
+func (l *Loader) EvalFile(path string) (cue.Value, error) {
+	return l.evalFile(path)
+}
+
+// evalFile is the internal implementation that builds a cue.Value from a single file.
+func (l *Loader) evalFile(path string) (cue.Value, error) {
+	var zero cue.Value
+
 	// Skip config.cue file
 	if filepath.Base(path) == ConfigFileName {
-		return nil, nil
+		return zero, nil
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return zero, fmt.Errorf("failed to read file: %w", err)
 	}
 
 	source := string(data)
@@ -281,24 +335,26 @@ func (l *Loader) LoadFile(path string) ([]resource.Resource, error) {
 
 	// Files with a package declaration: use load.Instances() for import and @tag() resolution
 	if pkgName != "" {
-		return l.loadFileWithInstancesFromSource(path, source)
+		return l.evalFileWithInstances(path, source)
 	}
 
 	// No package declaration: use CompileString() (imports and @tag() not available)
 	value := l.ctx.CompileString(source, cue.Filename(path))
 	if value.Err() != nil {
-		return nil, fmt.Errorf("failed to compile CUE: %w", value.Err())
+		return zero, fmt.Errorf("failed to compile CUE: %w", value.Err())
 	}
 
-	return l.parseResources(value)
+	return value, nil
 }
 
-// loadFileWithInstancesFromSource loads a single CUE file using load.Instances() to support imports.
+// evalFileWithInstances loads a single CUE file using load.Instances() to support imports.
 // The source parameter contains the already-read file content.
-func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resource.Resource, error) {
+func (l *Loader) evalFileWithInstances(path, source string) (cue.Value, error) {
+	var zero cue.Value
+
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+		return zero, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 	absDir := filepath.Dir(absPath)
 	fileName := filepath.Base(absPath)
@@ -307,26 +363,54 @@ func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resourc
 
 	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(source))
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	instances := load.Instances(files, loadCfg)
 
 	if len(instances) == 0 {
-		return nil, fmt.Errorf("no CUE instances loaded for %s", path)
+		return zero, fmt.Errorf("no CUE instances loaded for %s", path)
 	}
 
 	inst := instances[0]
 	if inst.Err != nil {
-		return nil, fmt.Errorf("failed to load CUE file: %w", inst.Err)
+		return zero, fmt.Errorf("failed to load CUE file: %w", inst.Err)
 	}
 
 	value := l.ctx.BuildInstance(inst)
 	if value.Err() != nil {
-		return nil, fmt.Errorf("failed to build CUE value: %w", value.Err())
+		return zero, fmt.Errorf("failed to build CUE value: %w", value.Err())
 	}
 
-	return l.parseResources(value)
+	return value, nil
+}
+
+// EvalPaths evaluates multiple files or directories and returns a slice of cue.Values.
+// Each path produces one cue.Value. Used by tomei cue eval/export.
+func (l *Loader) EvalPaths(paths []string) ([]cue.Value, error) {
+	var values []cue.Value
+
+	for _, p := range paths {
+		expanded, info, err := expandAndStat(p)
+		if err != nil {
+			return nil, err
+		}
+
+		var value cue.Value
+		if info.IsDir() {
+			value, err = l.evalDir(expanded)
+		} else {
+			value, err = l.evalFile(expanded)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if value.Exists() {
+			values = append(values, value)
+		}
+	}
+
+	return values, nil
 }
 
 func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {

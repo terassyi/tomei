@@ -1,0 +1,25 @@
+{{- if not .Bare -}}
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myInstaller: schema.#Installer & {
+{{- else -}}
+package tomei
+
+myInstaller: {
+{{- end }}
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Installer"
+	metadata: name: "my-installer"
+	spec: {
+		type: "delegation"
+		// runtimeRef: "go"
+		// toolRef:    "my-tool"
+		commands: {
+			install: ["my-tool install {{`{{.Package}}`}}@{{`{{.Version}}`}}"]
+			check:   ["my-tool list {{`{{.Package}}`}}"]
+			remove:  ["rm -f {{`{{.BinPath}}`}}"]
+		}
+	}
+}
