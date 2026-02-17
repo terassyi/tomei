@@ -97,7 +97,7 @@ When a Runtime is upgraded, all Tools that depend on it (via `runtimeRef`) are m
 
 CUE was chosen over YAML/JSON/TOML for several reasons:
 
-CUE has built-in schema validation and type constraints, so configuration errors are caught at `tomei validate` time rather than at apply time. Hidden fields (`_env`) provide environment overlays without resorting to templating. Multiple `.cue` files in the same package are automatically merged, and regex constraints in the schema enforce HTTPS-only URLs.
+CUE has built-in schema validation and type constraints, so configuration errors are caught at `tomei validate` time rather than at apply time. CUE `@tag()` attributes (`@tag(os)`, `@tag(arch)`, `@tag(headless)`) enable platform-aware manifests without templating. Multiple `.cue` files in the same package are automatically merged, and regex constraints in the schema enforce HTTPS-only URLs.
 
 ### Aqua registry integration
 
@@ -147,7 +147,9 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 
 The CUE schema is published as part of the `tomei.terassyi.net@v0` module on the OCI registry (`ghcr.io/terassyi`). User manifests can `import "tomei.terassyi.net/schema"` for explicit type validation and editor completion via CUE LSP.
 
-The schema is versioned via `#APIVersion` (currently `"tomei.terassyi.net/v1beta1"`). `tomei apply` validates all resources against the schema embedded in the binary, regardless of whether the manifest uses schema imports.
+Presets (`tomei.terassyi.net/presets/{go,rust,aqua}`) import the schema module, so type constraints are enforced automatically when using presets. For manifests without preset imports, users can add `import "tomei.terassyi.net/schema"` and use `schema.#Tool &`, `schema.#Runtime &`, etc. to opt in to schema validation.
+
+The schema is versioned via `#APIVersion` (currently `"tomei.terassyi.net/v1beta1"`).
 
 **Versioning policy:**
 
@@ -169,12 +171,12 @@ Completed:
 - E2E test infrastructure (container-based, Ginkgo v2)
 - Shell environment: `tomei env` for runtime PATH/env setup
 - Runtime delegation: rustup/nvm bootstrap, version alias resolution
-- InstallerRepository, CUE presets/overlay, schema validation (go:embed)
-- GitHub token authentication for API rate limit mitigation
+- InstallerRepository, CUE presets/overlay, GitHub token authentication
 - Diagnostics: `tomei get`, `tomei logs`, `tomei state diff`, `tomei completion`, `tomei doctor`
 - Performance: batch state writes per execution layer (StateCache)
-- Schema management: schema validation via embedded CUE, init guard, apply confirmation prompt (`--yes`)
+- Schema management: init guard, apply confirmation prompt (`--yes`)
 - CUE module ecosystem: `tomei cue init`, OCI registry resolution, `CUE_REGISTRY` in `tomei env`
+- Schema import: presets import schema for single source of truth, `@tag()` for platform injection
 
 ## 10. Roadmap
 
@@ -233,7 +235,7 @@ Trade-offs: Option A is simpler. Option B is more flexible when multiple install
 
 ### CUE evaluation vs Go template
 
-Command strings in manifests currently use Go `text/template` variables (`{{.Version}}`, `{{.Package}}`, etc.) for values that are resolved at execution time. Meanwhile, CUE's own features (`_env` overlay, field references) handle values known at configuration load time.
+Command strings in manifests currently use Go `text/template` variables (`{{.Version}}`, `{{.Package}}`, etc.) for values that are resolved at execution time. Meanwhile, CUE's own features (`@tag()` injection, field references) handle values known at configuration load time.
 
 This creates two variable substitution mechanisms in the same manifest. The boundary needs to be clarified:
 

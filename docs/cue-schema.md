@@ -437,7 +437,7 @@ myTool: schema.#Tool & {
 
 Available definitions: `schema.#Tool`, `schema.#ToolSet`, `schema.#Runtime`, `schema.#Installer`, `schema.#InstallerRepository`, `schema.#Resource`, etc.
 
-Schema import is optional — `tomei` validates all resources against the embedded schema internally regardless of whether the manifest uses `import "tomei.terassyi.net/schema"`.
+Schema import is optional. When using presets (`tomei.terassyi.net/presets/*`), schema constraints are applied automatically because presets import the schema module. For manifests without presets, adding `schema.#Tool &` or `schema.#Runtime &` to resource definitions enables explicit validation.
 
 ## OCI Registry (Module Resolution)
 
@@ -492,14 +492,14 @@ Presets that need platform information (e.g., Go) accept explicit `platform` par
 
 ## Validation
 
-`tomei` validates manifests against the embedded CUE schema at load time. Run `tomei validate <path>` to check manifests without applying.
+`tomei validate <path>` checks manifests without applying. When manifests use presets or explicitly import the schema, CUE-native type constraints are enforced at load time.
 
 Validation checks:
 
-- CUE syntax errors
-- Schema conformance (field types, required fields, enum values)
-- `metadata.name` regex pattern
-- HTTPS-only URLs
+- CUE syntax and evaluation errors
+- Schema conformance via imports (field types, required fields, enum values)
+- `metadata.name` regex pattern (enforced by schema)
+- HTTPS-only URLs (enforced by schema)
 - Circular dependency detection in the resource graph
 
 ### Common errors
