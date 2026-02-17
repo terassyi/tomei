@@ -246,6 +246,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy three-segment-test: %w", err)
 	}
 
+	// Copy taint-on-upgrade-test configs
+	if err := copyDir(filepath.Join(configDir, "taint-on-upgrade-test"), filepath.Join(e.testHome, "taint-on-upgrade-test")); err != nil {
+		return fmt.Errorf("failed to copy taint-on-upgrade-test: %w", err)
+	}
+
 	return nil
 }
 

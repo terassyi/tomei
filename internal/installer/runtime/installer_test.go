@@ -161,9 +161,12 @@ func TestInstaller_Install(t *testing.T) {
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 
-		// Pre-create the install directory
+		// Pre-create the install directory with a fake binary
 		installPath := filepath.Join(runtimesDir, "myruntime", "1.0.0")
-		require.NoError(t, os.MkdirAll(installPath, 0755))
+		require.NoError(t, os.MkdirAll(filepath.Join(installPath, "bin"), 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(installPath, "bin", "mybin"), []byte("v1.0.0"), 0755))
+
+		binDir := filepath.Join(tmpDir, "bin")
 
 		downloader := download.NewDownloader()
 		installer := NewInstaller(downloader, runtimesDir)
@@ -175,14 +178,66 @@ func TestInstaller_Install(t *testing.T) {
 				Source: &resource.DownloadSource{
 					URL: server.URL + "/myruntime-1.0.0.tar.gz",
 				},
-				Binaries:    []string{"mybin"},
-				ToolBinPath: "~/bin",
+				Binaries: []string{"mybin"},
+				BinDir:   binDir,
 			},
 		}
 
 		state, err := installer.Install(context.Background(), runtime, "myruntime")
 		require.NoError(t, err)
 		assert.Equal(t, installPath, state.InstallPath)
+
+		// Verify symlink was created even though download was skipped
+		linkPath := filepath.Join(binDir, "mybin")
+		target, err := os.Readlink(linkPath)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(installPath, "bin", "mybin"), target)
+	})
+
+	t.Run("already installed rebuilds symlinks on version switch", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		runtimesDir := filepath.Join(tmpDir, "runtimes")
+		binDir := filepath.Join(tmpDir, "bin")
+
+		// Pre-create two version directories with fake binaries
+		for _, ver := range []string{"1.0.0", "2.0.0"} {
+			installPath := filepath.Join(runtimesDir, "myruntime", ver)
+			require.NoError(t, os.MkdirAll(filepath.Join(installPath, "bin"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(installPath, "bin", "mybin"), []byte("v"+ver), 0755))
+		}
+
+		// Create initial symlink pointing to 2.0.0
+		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.Symlink(
+			filepath.Join(runtimesDir, "myruntime", "2.0.0", "bin", "mybin"),
+			filepath.Join(binDir, "mybin"),
+		))
+
+		downloader := download.NewDownloader()
+		installer := NewInstaller(downloader, runtimesDir)
+
+		// Install (downgrade) to 1.0.0 — directory already exists
+		runtime := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:    resource.InstallTypeDownload,
+				Version: "1.0.0",
+				Source: &resource.DownloadSource{
+					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+				},
+				Binaries: []string{"mybin"},
+				BinDir:   binDir,
+			},
+		}
+
+		state, err := installer.Install(context.Background(), runtime, "myruntime")
+		require.NoError(t, err)
+		assert.Equal(t, "1.0.0", state.Version)
+
+		// Verify symlink now points to 1.0.0
+		linkPath := filepath.Join(binDir, "mybin")
+		target, err := os.Readlink(linkPath)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(runtimesDir, "myruntime", "1.0.0", "bin", "mybin"), target)
 	})
 
 	t.Run("delegation basic", func(t *testing.T) {

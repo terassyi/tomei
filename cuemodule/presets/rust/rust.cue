@@ -33,6 +33,7 @@ package rust
 			install: ["~/.cargo/bin/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"]
 			remove: ["rm -f {{.BinPath}}"]
 		}
+		taintOnUpgrade: true
 	}
 }
 

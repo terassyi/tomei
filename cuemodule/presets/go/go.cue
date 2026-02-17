@@ -37,6 +37,7 @@ package go
 			install: ["go install {{.Package}}@{{.Version}}"]
 			remove: ["rm -f {{.BinPath}}"]
 		}
+		taintOnUpgrade: true
 	}
 }
 

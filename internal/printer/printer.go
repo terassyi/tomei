@@ -101,7 +101,7 @@ const (
 type toolFormatter struct{}
 
 func (toolFormatter) Headers(wide bool) []string {
-	h := []string{colName, colVersion, colVersionKind, "INSTALLER/RUNTIME"}
+	h := []string{colName, colVersion, colVersionKind, "INSTALLER/RUNTIME", "TAINTED"}
 	if wide {
 		h = append(h, "PACKAGE", "BIN_PATH")
 	}
@@ -113,7 +113,7 @@ func (toolFormatter) FormatRow(name string, t *resource.ToolState, wide bool) []
 	if t.RuntimeRef != "" {
 		ref = t.RuntimeRef
 	}
-	row := []string{name, t.Version, formatVersionKind(t.VersionKind, t.SpecVersion), ref}
+	row := []string{name, t.Version, formatVersionKind(t.VersionKind, t.SpecVersion), ref, t.TaintReason}
 	if wide {
 		pkg := ""
 		if t.Package != nil {

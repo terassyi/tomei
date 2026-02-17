@@ -153,6 +153,23 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "Runtime with taintOnUpgrade",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "go"
+				spec: {
+					type:    "download"
+					version: "1.25.6"
+					source: {
+						url: "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz"
+					}
+					toolBinPath: "~/go/bin"
+					taintOnUpgrade: true
+				}
+			}`,
+		},
+		{
 			name: "Installer download type",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"

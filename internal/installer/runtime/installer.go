@@ -85,10 +85,15 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
-		slog.Debug("runtime already installed, skipping", "name", name, "version", spec.Version)
+		slog.Debug("runtime already installed, rebuilding symlinks", "name", name, "version", spec.Version)
 		binDir, err := i.resolveBinDir(spec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
+		}
+		if binDir != "" && len(spec.Binaries) > 0 {
+			if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
+				return nil, fmt.Errorf("failed to rebuild symlinks: %w", err)
+			}
 		}
 		return i.buildState(spec, installPath, binDir), nil
 	}
@@ -249,18 +254,19 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 	}
 
 	return &resource.RuntimeState{
-		Type:        spec.Type,
-		Version:     spec.Version,
-		VersionKind: resource.ClassifyVersion(spec.Version),
-		SpecVersion: spec.Version,
-		Digest:      digest,
-		InstallPath: installPath,
-		Binaries:    spec.Binaries,
-		BinDir:      binDir,
-		ToolBinPath: toolBinPath,
-		Commands:    spec.Commands,
-		Env:         env,
-		UpdatedAt:   time.Now(),
+		Type:           spec.Type,
+		Version:        spec.Version,
+		VersionKind:    resource.ClassifyVersion(spec.Version),
+		SpecVersion:    spec.Version,
+		Digest:         digest,
+		InstallPath:    installPath,
+		Binaries:       spec.Binaries,
+		BinDir:         binDir,
+		ToolBinPath:    toolBinPath,
+		Commands:       spec.Commands,
+		Env:            env,
+		TaintOnUpgrade: spec.TaintOnUpgrade,
+		UpdatedAt:      time.Now(),
 	}
 }
 
@@ -339,17 +345,18 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	slog.Debug("runtime installed via delegation", "name", name, "version", resolvedVersion)
 
 	return &resource.RuntimeState{
-		Type:          spec.Type,
-		Version:       resolvedVersion,
-		VersionKind:   versionKind,
-		SpecVersion:   spec.Version,
-		Binaries:      spec.Binaries,
-		BinDir:        binDir,
-		ToolBinPath:   toolBinPath,
-		Commands:      spec.Commands,
-		Env:           env,
-		RemoveCommand: spec.Bootstrap.Remove,
-		UpdatedAt:     time.Now(),
+		Type:           spec.Type,
+		Version:        resolvedVersion,
+		VersionKind:    versionKind,
+		SpecVersion:    spec.Version,
+		Binaries:       spec.Binaries,
+		BinDir:         binDir,
+		ToolBinPath:    toolBinPath,
+		Commands:       spec.Commands,
+		Env:            env,
+		RemoveCommand:  spec.Bootstrap.Remove,
+		TaintOnUpgrade: spec.TaintOnUpgrade,
+		UpdatedAt:      time.Now(),
 	}, nil
 }
 

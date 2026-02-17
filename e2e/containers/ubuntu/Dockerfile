@@ -48,5 +48,8 @@ COPY --chown=testuser:testuser config/logs-test/ /home/testuser/logs-test/
 # Copy three-segment package test manifests
 COPY --chown=testuser:testuser config/three-segment-test/ /home/testuser/three-segment-test/
 
+# Copy taint-on-upgrade test manifests
+COPY --chown=testuser:testuser config/taint-on-upgrade-test/ /home/testuser/taint-on-upgrade-test/
+
 # Default command
 CMD ["tomei", "version"]

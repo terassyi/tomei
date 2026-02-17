@@ -61,6 +61,12 @@ type RuntimeSpec struct {
 	// Supports template variable {{.InstallPath}} for the runtime installation directory.
 	// Example for Go: {"GOROOT": "{{.InstallPath}}", "GOBIN": "~/go/bin"}
 	Env map[string]string `json:"env,omitempty"`
+
+	// TaintOnUpgrade controls whether dependent tools are tainted (marked for reinstall)
+	// when this runtime is upgraded. When true, all tools with RuntimeRef pointing to
+	// this runtime will be reinstalled after a runtime version change.
+	// Default is false (opt-in). Presets for Go and Rust set this to true.
+	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
 }
 
 // RuntimeBootstrapSpec defines how to install the runtime itself (delegation pattern).
@@ -179,6 +185,10 @@ type RuntimeState struct {
 	// RemoveCommand is the shell command(s) to uninstall a delegation-pattern runtime.
 	// Stored in state because Remove() only receives state (no spec).
 	RemoveCommand []string `json:"removeCommand,omitempty"`
+
+	// TaintOnUpgrade records whether dependent tools should be tainted on runtime upgrade.
+	// Propagated from RuntimeSpec during installation.
+	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
 
 	// UpdatedAt is the timestamp when this runtime was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`
