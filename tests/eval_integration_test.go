@@ -167,20 +167,24 @@ myTool: {
 	jsonBytes, err := value.MarshalJSON()
 	require.NoError(t, err)
 
-	// Parse and verify structure
-	var parsed map[string]interface{}
+	// Parse and verify structure with typed struct
+	var parsed struct {
+		MyTool struct {
+			APIVersion string `json:"apiVersion"`
+			Kind       string `json:"kind"`
+			Spec       struct {
+				InstallerRef string `json:"installerRef"`
+				Version      string `json:"version"`
+				Package      string `json:"package"`
+			} `json:"spec"`
+		} `json:"myTool"`
+	}
 	require.NoError(t, json.Unmarshal(jsonBytes, &parsed))
-
-	myTool, ok := parsed["myTool"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "tomei.terassyi.net/v1beta1", myTool["apiVersion"])
-	assert.Equal(t, "Tool", myTool["kind"])
-
-	spec, ok := myTool["spec"].(map[string]interface{})
-	require.True(t, ok)
-	assert.Equal(t, "aqua", spec["installerRef"])
-	assert.Equal(t, "1.7.1", spec["version"])
-	assert.Equal(t, "jqlang/jq", spec["package"])
+	assert.Equal(t, "tomei.terassyi.net/v1beta1", parsed.MyTool.APIVersion)
+	assert.Equal(t, "Tool", parsed.MyTool.Kind)
+	assert.Equal(t, "aqua", parsed.MyTool.Spec.InstallerRef)
+	assert.Equal(t, "1.7.1", parsed.MyTool.Spec.Version)
+	assert.Equal(t, "jqlang/jq", parsed.MyTool.Spec.Package)
 }
 
 func TestEvalPaths_MultipleDirectories(t *testing.T) {

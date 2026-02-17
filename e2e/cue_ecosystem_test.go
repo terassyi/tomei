@@ -357,9 +357,15 @@ EOF`)
 			Expect(output).To(ContainSubstring(`"tomei.terassyi.net/v1beta1"`))
 			Expect(output).To(ContainSubstring(`"jq"`))
 
-			// JSON should be parseable
-			var parsed map[string]interface{}
+			// JSON should be parseable into a typed struct
+			var parsed struct {
+				MyTool struct {
+					APIVersion string `json:"apiVersion"`
+					Kind       string `json:"kind"`
+				} `json:"myTool"`
+			}
 			Expect(json.Unmarshal([]byte(output), &parsed)).To(Succeed())
+			Expect(parsed.MyTool.APIVersion).To(Equal("tomei.terassyi.net/v1beta1"))
 		})
 	})
 }

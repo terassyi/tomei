@@ -1153,11 +1153,13 @@ myTool: {
 	jsonBytes, err := value.MarshalJSON()
 	require.NoError(t, err)
 
-	var parsed map[string]any
+	var parsed struct {
+		MyTool struct {
+			APIVersion string `json:"apiVersion"`
+			Kind       string `json:"kind"`
+		} `json:"myTool"`
+	}
 	require.NoError(t, json.Unmarshal(jsonBytes, &parsed))
-
-	myTool, ok := parsed["myTool"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "tomei.terassyi.net/v1beta1", myTool["apiVersion"])
-	assert.Equal(t, "Tool", myTool["kind"])
+	assert.Equal(t, "tomei.terassyi.net/v1beta1", parsed.MyTool.APIVersion)
+	assert.Equal(t, "Tool", parsed.MyTool.Kind)
 }

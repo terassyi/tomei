@@ -1,11 +1,7 @@
 package cue
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
-
-	"github.com/terassyi/tomei/internal/config"
 )
 
 var evalCmd = &cobra.Command{
@@ -24,23 +20,5 @@ Output is CUE text format (same as "cue eval").`,
 }
 
 func runEval(cmd *cobra.Command, args []string) error {
-	loader := config.NewLoader(nil)
-	values, err := loader.EvalPaths(args)
-	if err != nil {
-		return fmt.Errorf("failed to evaluate: %w", err)
-	}
-
-	if len(values) == 0 {
-		return fmt.Errorf("no CUE files found in the specified paths")
-	}
-
-	out := cmd.OutOrStdout()
-	for i, value := range values {
-		if i > 0 {
-			fmt.Fprintln(out, "---")
-		}
-		fmt.Fprintln(out, value)
-	}
-
-	return nil
+	return runCUEOutput(cmd, args, cueTextFormatter{})
 }

@@ -238,33 +238,45 @@ func (l *Loader) evalDir(dir string) (cue.Value, error) {
 	return value, nil
 }
 
+// expandHome expands a leading ~ to the user's home directory.
+func expandHome(p string) (string, error) {
+	switch {
+	case strings.HasPrefix(p, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to expand path %s: %w", p, err)
+		}
+		return filepath.Join(home, p[2:]), nil
+	case p == "~":
+		return os.UserHomeDir()
+	default:
+		return p, nil
+	}
+}
+
+// expandAndStat expands ~ in a path and returns the expanded path with its FileInfo.
+func expandAndStat(p string) (string, os.FileInfo, error) {
+	expanded, err := expandHome(p)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to expand path %s: %w", p, err)
+	}
+
+	info, err := os.Stat(expanded)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+	}
+
+	return expanded, info, nil
+}
+
 // LoadPaths loads resources from multiple files or directories.
 func (l *Loader) LoadPaths(paths []string) ([]resource.Resource, error) {
 	var allResources []resource.Resource
 
 	for _, p := range paths {
-		// Expand ~ to home directory
-		var expanded string
-		switch {
-		case strings.HasPrefix(p, "~/"):
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = filepath.Join(home, p[2:])
-		case p == "~":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = home
-		default:
-			expanded = p
-		}
-
-		info, err := os.Stat(expanded)
+		expanded, info, err := expandAndStat(p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+			return nil, err
 		}
 
 		var resources []resource.Resource
@@ -379,28 +391,9 @@ func (l *Loader) EvalPaths(paths []string) ([]cue.Value, error) {
 	var values []cue.Value
 
 	for _, p := range paths {
-		// Expand ~ to home directory
-		var expanded string
-		switch {
-		case strings.HasPrefix(p, "~/"):
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = filepath.Join(home, p[2:])
-		case p == "~":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, fmt.Errorf("failed to expand path %s: %w", p, err)
-			}
-			expanded = home
-		default:
-			expanded = p
-		}
-
-		info, err := os.Stat(expanded)
+		expanded, info, err := expandAndStat(p)
 		if err != nil {
-			return nil, fmt.Errorf("failed to access %s: %w", expanded, err)
+			return nil, err
 		}
 
 		var value cue.Value
