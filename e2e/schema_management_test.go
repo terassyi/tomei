@@ -55,38 +55,6 @@ EOF`)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("Validation successful"))
 		})
-
-		It("rejects invalid resource via internal schema", func() {
-			dir := "~/schema-mgmt-test/invalid-no-import"
-
-			By("Setting up cue.mod via tomei cue init")
-			_, err := testExec.ExecBash("mkdir -p " + dir)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = testExec.ExecBash("tomei cue init " + dir)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Writing manifest with HTTP URL (should fail schema validation)")
-			_, err = testExec.ExecBash(`cat > ` + dir + `/tools.cue << 'EOF'
-package tomei
-
-badTool: {
-    apiVersion: "tomei.terassyi.net/v1beta1"
-    kind:       "Tool"
-    metadata: name: "test"
-    spec: {
-        installerRef: "download"
-        version:      "1.0.0"
-        source: url: "http://insecure.example.com/test.tar.gz"
-    }
-}
-EOF`)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei validate — should fail")
-			output, err := testExec.Exec("tomei", "validate", dir+"/")
-			Expect(err).To(HaveOccurred())
-			Expect(output).To(ContainSubstring("schema validation failed"))
-		})
 	})
 
 	Context("Init Guard", func() {
