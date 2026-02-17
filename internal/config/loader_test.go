@@ -1,10 +1,12 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"cuelang.org/go/cue"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -964,4 +966,198 @@ func TestBuildRegistry(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEvalDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	content := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "1.7.1"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"})
+	value, err := loader.EvalDir(dir)
+	require.NoError(t, err)
+	require.True(t, value.Exists())
+
+	// cue.Value should expose apiVersion
+	av := value.LookupPath(cue.ParsePath("myTool.apiVersion"))
+	s, err := av.String()
+	require.NoError(t, err)
+	assert.Equal(t, "tomei.terassyi.net/v1beta1", s)
+
+	// JSON export should work
+	jsonBytes, err := value.MarshalJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonBytes), `"tomei.terassyi.net/v1beta1"`)
+}
+
+func TestEvalFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "tool.cue")
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version:      "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0644))
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"})
+	value, err := loader.EvalFile(path)
+	require.NoError(t, err)
+	require.True(t, value.Exists())
+	require.NoError(t, value.Err())
+
+	name := value.LookupPath(cue.ParsePath("metadata.name"))
+	s, err := name.String()
+	require.NoError(t, err)
+	assert.Equal(t, "jq", s)
+}
+
+func TestEvalFile_ConfigCueSkipped(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.cue")
+
+	require.NoError(t, os.WriteFile(path, []byte(`package tomei`), 0644))
+
+	loader := NewLoader(nil)
+	value, err := loader.EvalFile(path)
+	require.NoError(t, err)
+	assert.False(t, value.Exists(), "config.cue should be skipped")
+}
+
+func TestEvalDir_ResolvesTagValues(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	content := `package tomei
+
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+myRuntime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Runtime"
+	metadata: name: "go"
+	spec: {
+		type:        "download"
+		version:     "1.25.6"
+		toolBinPath: "~/go/bin"
+		source: url: "https://go.dev/dl/go1.25.6.\(_os)-\(_arch).tar.gz"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "runtime.cue"), []byte(content), 0644))
+
+	loader := NewLoader(&Env{OS: "darwin", Arch: "arm64"})
+	value, err := loader.EvalDir(dir)
+	require.NoError(t, err)
+
+	url := value.LookupPath(cue.ParsePath("myRuntime.spec.source.url"))
+	s, err := url.String()
+	require.NoError(t, err)
+	assert.Contains(t, s, "darwin-arm64")
+}
+
+func TestEvalPaths(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	content := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "rg"
+	spec: {
+		installerRef: "aqua"
+		version:      "15.1.0"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"})
+	values, err := loader.EvalPaths([]string{dir})
+	require.NoError(t, err)
+	require.Len(t, values, 1)
+
+	name := values[0].LookupPath(cue.ParsePath("myTool.metadata.name"))
+	s, err := name.String()
+	require.NoError(t, err)
+	assert.Equal(t, "rg", s)
+}
+
+func TestEvalDir_EmptyDir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	loader := NewLoader(nil)
+	value, err := loader.EvalDir(dir)
+	require.NoError(t, err)
+	assert.False(t, value.Exists(), "empty dir should return zero value")
+}
+
+func TestEvalDir_JSONExport(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	content := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version:      "1.7.1"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"})
+	value, err := loader.EvalDir(dir)
+	require.NoError(t, err)
+
+	jsonBytes, err := value.MarshalJSON()
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(jsonBytes, &parsed))
+
+	myTool, ok := parsed["myTool"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "tomei.terassyi.net/v1beta1", myTool["apiVersion"])
+	assert.Equal(t, "Tool", myTool["kind"])
 }
