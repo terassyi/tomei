@@ -1,8 +1,12 @@
 package resource
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToolSpec_IsEnabled(t *testing.T) {
@@ -300,6 +304,133 @@ func TestParseRefArgs(t *testing.T) {
 			if got != tt.want {
 				t.Errorf("ParseRefArgs(%v) = %v, want %v", tt.args, got, tt.want)
 			}
+		})
+	}
+}
+
+func Test_unmarshalStringOrSlice(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   json.RawMessage
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "null",
+			input: json.RawMessage(`null`),
+			want:  nil,
+		},
+		{
+			name:  "empty input",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "bare string",
+			input: json.RawMessage(`"hello"`),
+			want:  []string{"hello"},
+		},
+		{
+			name:  "single-element array",
+			input: json.RawMessage(`["hello"]`),
+			want:  []string{"hello"},
+		},
+		{
+			name:  "multi-element array",
+			input: json.RawMessage(`["a","b","c"]`),
+			want:  []string{"a", "b", "c"},
+		},
+		{
+			name:  "empty array",
+			input: json.RawMessage(`[]`),
+			want:  []string{},
+		},
+		{
+			name:    "invalid JSON",
+			input:   json.RawMessage(`{bad`),
+			wantErr: true,
+		},
+		{
+			name:    "number",
+			input:   json.RawMessage(`42`),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := unmarshalStringOrSlice(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCommandSet_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		json    string
+		want    CommandSet
+		wantErr bool
+	}{
+		{
+			name: "all fields as arrays",
+			json: `{"install":["cmd1","cmd2"],"check":["check1"],"remove":["rm1"]}`,
+			want: CommandSet{
+				Install: []string{"cmd1", "cmd2"},
+				Check:   []string{"check1"},
+				Remove:  []string{"rm1"},
+			},
+		},
+		{
+			name: "all fields as bare strings",
+			json: `{"install":"cmd1","check":"check1","remove":"rm1"}`,
+			want: CommandSet{
+				Install: []string{"cmd1"},
+				Check:   []string{"check1"},
+				Remove:  []string{"rm1"},
+			},
+		},
+		{
+			name: "install only",
+			json: `{"install":"cmd1"}`,
+			want: CommandSet{
+				Install: []string{"cmd1"},
+			},
+		},
+		{
+			name: "mixed bare string and array",
+			json: `{"install":"cmd1","check":["a","b"]}`,
+			want: CommandSet{
+				Install: []string{"cmd1"},
+				Check:   []string{"a", "b"},
+			},
+		},
+		{
+			name:    "invalid JSON",
+			json:    `{bad}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got CommandSet
+			err := got.UnmarshalJSON([]byte(tt.json))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

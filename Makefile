@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run module-publish
+.PHONY: build test test-integration test-e2e test-all test-cover lint fmt clean help docker-build docker-run module-publish vendor-cue unvendor-cue
 
 BINARY_NAME := tomei
 BUILD_DIR := bin
@@ -49,6 +49,28 @@ MODULE_VERSION ?= $(VERSION)
 
 module-publish: ## Publish CUE module to OCI registry via cue mod publish
 	cd cuemodule && cue mod publish $(MODULE_VERSION)
+
+EXAMPLE_DIRS := examples/minimal examples/real-world
+
+vendor-cue: ## Vendor CUE schema and presets into examples/*/cue.mod/pkg/
+	@for dir in $(EXAMPLE_DIRS); do \
+		rm -rf $$dir/cue.mod/pkg/tomei.terassyi.net; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/schema; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/go; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/rust; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/aqua; \
+		cp cuemodule/schema/schema.cue $$dir/cue.mod/pkg/tomei.terassyi.net/schema/; \
+		cp cuemodule/presets/go/go.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/go/; \
+		cp cuemodule/presets/rust/rust.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/rust/; \
+		cp cuemodule/presets/aqua/aqua.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/aqua/; \
+		sed -i.bak '/^deps:/,/^}/d' $$dir/cue.mod/module.cue && rm -f $$dir/cue.mod/module.cue.bak; \
+	done
+
+unvendor-cue: ## Remove vendored CUE files and restore module.cue
+	@for dir in $(EXAMPLE_DIRS); do \
+		rm -rf $$dir/cue.mod/pkg; \
+	done
+	git checkout -- $(addsuffix /cue.mod/module.cue,$(EXAMPLE_DIRS))
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'

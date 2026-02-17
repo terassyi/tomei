@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -69,6 +70,23 @@ type RuntimeSpec struct {
 	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
 }
 
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings for the Binaries field.
+func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
+	type Alias RuntimeSpec
+	var r struct {
+		Alias
+		Binaries json.RawMessage `json:"binaries,omitempty"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	*s = RuntimeSpec(r.Alias)
+	return unmarshalStringFields([]stringField{
+		{"binaries", r.Binaries, &s.Binaries},
+	})
+}
+
 // RuntimeBootstrapSpec defines how to install the runtime itself (delegation pattern).
 // It embeds CommandSet for install/check/remove and adds runtime-specific fields.
 //
@@ -83,6 +101,26 @@ type RuntimeBootstrapSpec struct {
 	// Should output the actual version number to stdout.
 	// Example: ["rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"]
 	ResolveVersion []string `json:"resolveVersion,omitempty"`
+}
+
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings. Delegates Install/Check/Remove to CommandSet
+// and handles ResolveVersion separately.
+func (r *RuntimeBootstrapSpec) UnmarshalJSON(data []byte) error {
+	// Decode the embedded CommandSet fields (Install, Check, Remove).
+	if err := r.CommandSet.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	// Decode the additional ResolveVersion field.
+	var extra struct {
+		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
+	}
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	return unmarshalStringFields([]stringField{
+		{"resolveVersion", extra.ResolveVersion, &r.ResolveVersion},
+	})
 }
 
 // Validate validates the RuntimeSpec.

@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -219,6 +220,67 @@ type CommandSet struct {
 
 	// Remove is the shell command(s) to uninstall/cleanup.
 	Remove []string `json:"remove,omitempty"`
+}
+
+// stringField describes a single []string field to be unmarshaled with
+// unmarshalStringOrSlice.
+type stringField struct {
+	name   string
+	raw    json.RawMessage
+	target *[]string
+}
+
+// unmarshalStringOrSlice decodes a JSON value that may be either a string
+// or an array of strings. CUE's MarshalJSON serializes single-element
+// [...string] lists as bare strings.
+func unmarshalStringOrSlice(data json.RawMessage) ([]string, error) {
+	if len(data) == 0 || string(data) == "null" {
+		return nil, nil
+	}
+	var slice []string
+	if err := json.Unmarshal(data, &slice); err == nil {
+		return slice, nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return []string{s}, nil
+}
+
+// unmarshalStringFields applies unmarshalStringOrSlice to each field.
+// Callers extract []string fields as json.RawMessage via the Alias pattern,
+// then pass them here to handle CUE's single-element list serialization.
+func unmarshalStringFields(fields []stringField) error {
+	for _, f := range fields {
+		if len(f.raw) == 0 {
+			continue
+		}
+		val, err := unmarshalStringOrSlice(f.raw)
+		if err != nil {
+			return fmt.Errorf("%s: %w", f.name, err)
+		}
+		*f.target = val
+	}
+	return nil
+}
+
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings (e.g., ["cmd"] becomes "cmd").
+func (c *CommandSet) UnmarshalJSON(data []byte) error {
+	var r struct {
+		Install json.RawMessage `json:"install"`
+		Check   json.RawMessage `json:"check,omitempty"`
+		Remove  json.RawMessage `json:"remove,omitempty"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	return unmarshalStringFields([]stringField{
+		{"install", r.Install, &c.Install},
+		{"check", r.Check, &c.Check},
+		{"remove", r.Remove, &c.Remove},
+	})
 }
 
 // BaseResource provides common fields for all resources.

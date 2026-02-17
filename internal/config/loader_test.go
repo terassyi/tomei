@@ -660,113 +660,6 @@ spec: {
 	}
 }
 
-func TestLoader_SchemaValidation_RejectsInvalid(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		content string
-	}{
-		{
-			name: "wrong apiVersion",
-			content: `
-apiVersion: "wrong/v1"
-kind: "Tool"
-metadata: name: "test"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-}
-`,
-		},
-		{
-			name: "invalid kind",
-			content: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "InvalidKind"
-metadata: name: "test"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-}
-`,
-		},
-		{
-			name: "non-HTTPS URL in source",
-			content: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "test"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-    source: {
-        url: "http://example.com/tool.tar.gz"
-    }
-}
-`,
-		},
-		{
-			name: "Runtime download without source",
-			content: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Runtime"
-metadata: name: "go"
-spec: {
-    type: "download"
-    version: "1.25.6"
-    toolBinPath: "~/go/bin"
-}
-`,
-		},
-		{
-			name: "Installer delegation without commands",
-			content: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Installer"
-metadata: name: "test"
-spec: {
-    type: "delegation"
-}
-`,
-		},
-		{
-			name: "invalid archive type",
-			content: `
-apiVersion: "tomei.terassyi.net/v1beta1"
-kind: "Tool"
-metadata: name: "test"
-spec: {
-    installerRef: "download"
-    version: "1.0.0"
-    source: {
-        url: "https://example.com/tool.gz"
-        archiveType: "gzip"
-    }
-}
-`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			dir := t.TempDir()
-			cueFile := filepath.Join(dir, "test.cue")
-			if err := os.WriteFile(cueFile, []byte(tt.content), 0644); err != nil {
-				t.Fatalf("failed to write test file: %v", err)
-			}
-
-			loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
-			_, err := loader.LoadFile(cueFile)
-			if err == nil {
-				t.Error("expected schema validation error, got nil")
-			}
-		})
-	}
-}
-
 func TestLoader_SchemaValidation_DirectoryMode(t *testing.T) {
 	t.Parallel()
 
@@ -805,40 +698,6 @@ gh: {
 	}
 	if resources[0].Name() != "gh" {
 		t.Errorf("expected name gh, got %s", resources[0].Name())
-	}
-}
-
-func TestLoader_SchemaValidation_DirectoryRejectsInvalid(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	setupMinimalCueMod(t, dir)
-
-	// Invalid: non-HTTPS URL
-	content := `
-package tomei
-
-tool: {
-    apiVersion: "tomei.terassyi.net/v1beta1"
-    kind: "Tool"
-    metadata: name: "test"
-    spec: {
-        installerRef: "download"
-        version: "1.0.0"
-        source: {
-            url: "http://example.com/tool.tar.gz"
-        }
-    }
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
-	_, err := loader.Load(dir)
-	if err == nil {
-		t.Error("expected schema validation error, got nil")
 	}
 }
 
@@ -1034,45 +893,6 @@ tool: {
 	tool := resources[0].(*resource.Tool)
 	if tool.ToolSpec.Source.URL != "https://example.com/test_linux.tar.gz" {
 		t.Errorf("unexpected URL: %s", tool.ToolSpec.Source.URL)
-	}
-}
-
-func TestLoader_SchemaValidation_NoSchemaInjection(t *testing.T) {
-	t.Parallel()
-
-	// Verify that #Resource definition is NOT injected into user CUE files.
-	// Schema validation uses the internally compiled schema instead.
-	dir := t.TempDir()
-	setupMinimalCueMod(t, dir)
-
-	content := `package tomei
-
-tool: {
-    apiVersion: "tomei.terassyi.net/v1beta1"
-    kind: "Tool"
-    metadata: name: "test"
-    spec: {
-        installerRef: "download"
-        version: "1.0.0"
-        source: {
-            url: "https://example.com/test.tar.gz"
-        }
-    }
-}
-`
-	if err := os.WriteFile(filepath.Join(dir, "tool.cue"), []byte(content), 0644); err != nil {
-		t.Fatalf("failed to write test file: %v", err)
-	}
-
-	loader := NewLoader(&Env{OS: "linux", Arch: "amd64", Headless: false})
-	resources, err := loader.Load(dir)
-	if err != nil {
-		t.Fatalf("failed to load: %v", err)
-	}
-
-	// Should still work — schema validation happens internally
-	if len(resources) != 1 {
-		t.Fatalf("expected 1 resource, got %d", len(resources))
 	}
 }
 

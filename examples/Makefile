@@ -7,6 +7,7 @@ GOARCH ?= $(shell go env GOARCH)
 .PHONY: build run clean help
 
 build: ## Build tomei binary and example container
+	$(MAKE) -C .. vendor-cue
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o tomei ../cmd/tomei
 	docker build -t $(IMAGE_NAME) .
 

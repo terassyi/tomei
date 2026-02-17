@@ -242,6 +242,12 @@ goRuntime: gopreset.#GoRuntime & {
 	assert.Equal(t, "go", runtime.Name())
 	assert.Equal(t, "1.25.6", runtime.RuntimeSpec.Version)
 	assert.Equal(t, "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz", runtime.RuntimeSpec.Source.URL)
+
+	// Verify []string fields are correctly deserialized via cue.Value.Decode()
+	require.NotNil(t, runtime.RuntimeSpec.Commands)
+	assert.Equal(t, []string{"go install {{.Package}}@{{.Version}}"}, runtime.RuntimeSpec.Commands.Install)
+	assert.Equal(t, []string{"rm -f {{.BinPath}}"}, runtime.RuntimeSpec.Commands.Remove)
+	assert.Equal(t, []string{"go", "gofmt"}, runtime.RuntimeSpec.Binaries)
 }
 
 // TestCueEcosystem_MockRegistry_SchemaImportResolution verifies that
@@ -462,6 +468,18 @@ binstallInstaller: rust.#BinstallInstaller
 	assert.Contains(t, kinds[resource.KindRuntime], "rust")
 	assert.Contains(t, kinds[resource.KindTool], "cargo-binstall")
 	assert.Contains(t, kinds[resource.KindInstaller], "binstall")
+
+	// Verify Rust runtime Bootstrap []string fields are correctly deserialized
+	for _, r := range resources {
+		if r.Kind() == resource.KindRuntime && r.Name() == "rust" {
+			rt := r.(*resource.Runtime)
+			require.NotNil(t, rt.RuntimeSpec.Bootstrap)
+			assert.Len(t, rt.RuntimeSpec.Bootstrap.Install, 1, "bootstrap.install should be a single-element slice")
+			assert.Len(t, rt.RuntimeSpec.Bootstrap.Check, 1, "bootstrap.check should be a single-element slice")
+			assert.Len(t, rt.RuntimeSpec.Bootstrap.Remove, 1, "bootstrap.remove should be a single-element slice")
+			assert.Len(t, rt.RuntimeSpec.Bootstrap.ResolveVersion, 1, "bootstrap.resolveVersion should be a single-element slice")
+		}
+	}
 }
 
 // TestCueEcosystem_MockRegistry_MultiplePresetImports verifies that go + aqua
@@ -694,4 +712,87 @@ goRuntime: gopreset.#GoRuntime & {
 	runtime, ok := resources[0].(*resource.Runtime)
 	require.True(t, ok)
 	assert.Equal(t, "go", runtime.Name())
+}
+
+// TestCueEcosystem_MockRegistry_PresetSchemaConstraint verifies that schema constraints
+// imported by presets are enforced. Using a Go preset with an invalid apiVersion should
+// fail at CUE evaluation time.
+func TestCueEcosystem_MockRegistry_PresetSchemaConstraint(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+	// Manifest with invalid apiVersion — should be rejected by schema.#Runtime constraint
+	manifest := `package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+goRuntime: gopreset.#GoRuntime & {
+	platform: { os: _os, arch: _arch }
+	apiVersion: "wrong/v1"
+	spec: version: "1.25.6"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(&config.Env{OS: "linux", Arch: "amd64", Headless: false})
+	_, err = loader.Load(dir)
+	assert.Error(t, err, "preset with schema import should reject invalid apiVersion")
+}
+
+// TestCueEcosystem_VendoredPkg_PresetResolution verifies that presets can be resolved
+// from cue.mod/pkg/ (vendored) without an OCI registry (CUE_REGISTRY=none).
+func TestCueEcosystem_VendoredPkg_PresetResolution(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create cue.mod/module.cue WITHOUT deps (vendored mode)
+	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
+	require.NoError(t, os.MkdirAll(filepath.Dir(moduleCuePath), 0755))
+	moduleCue := "module: \"manifests.local@v0\"\nlanguage: version: \"v0.9.0\"\n"
+	require.NoError(t, os.WriteFile(moduleCuePath, []byte(moduleCue), 0644))
+
+	// Vendor schema and presets into cue.mod/pkg/
+	pkgBase := filepath.Join(dir, "cue.mod", "pkg", "tomei.terassyi.net")
+	schemaDir := filepath.Join(pkgBase, "schema")
+	goPresetDir := filepath.Join(pkgBase, "presets", "go")
+	require.NoError(t, os.MkdirAll(schemaDir, 0755))
+	require.NoError(t, os.MkdirAll(goPresetDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(schemaDir, "schema.cue"), []byte(cuemodule.SchemaCUE), 0644))
+
+	goPresetData, err := cuemodule.PresetsFS.ReadFile("presets/go/go.cue")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(goPresetDir, "go.cue"), goPresetData, 0644))
+
+	// Platform tags
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+	// User manifest with Go preset import
+	manifest := `package tomei
+
+import gopreset "tomei.terassyi.net/presets/go"
+
+goRuntime: gopreset.#GoRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "1.25.6"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	// Use CUE_REGISTRY=none — vendored files only
+	t.Setenv("CUE_REGISTRY", "none")
+
+	loader := config.NewLoader(&config.Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	runtime, ok := resources[0].(*resource.Runtime)
+	require.True(t, ok)
+	assert.Equal(t, "go", runtime.Name())
+	assert.Equal(t, "1.25.6", runtime.RuntimeSpec.Version)
 }
