@@ -8,6 +8,8 @@
 
 A declarative, idempotent development environment setup tool powered by [CUE](https://cuelang.org/).
 
+The name "tomei" comes from the Japanese word "透明" — transparent. What you write is what you get, with nothing hidden in between.
+
 ## Design
 
 Write the desired state in CUE manifests, run `tomei apply`, and the result is always the same no matter how many times you run it.
@@ -267,6 +269,69 @@ Dependencies:
 
 ✗ Validation failed
 ```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `tomei init` | Initialize directories, state file, and aqua registry |
+| `tomei apply` | Reconcile environment to match manifests |
+| `tomei plan` | Show dependency graph and execution order |
+| `tomei validate` | Validate manifests without applying |
+| `tomei get` | Display installed resources (table/wide/JSON) |
+| `tomei env` | Output runtime environment variables for shell |
+| `tomei logs` | Show installation logs from the last apply |
+| `tomei doctor` | Diagnose the environment |
+| `tomei state diff` | Compare state backups |
+| `tomei completion` | Generate shell completion scripts |
+| `tomei uninit` | Remove tomei directories and state |
+| `tomei version` | Print the version |
+| `tomei cue init` | Initialize a CUE module for tomei manifests |
+| `tomei cue scaffold` | Generate a manifest scaffold for a resource kind |
+| `tomei cue eval` | Evaluate CUE manifests with `@tag()` injection |
+| `tomei cue export` | Export CUE manifests as JSON |
+
+## CUE Subcommands
+
+### Scaffold
+
+`tomei cue scaffold` generates a manifest template for a given resource kind:
+
+```console
+$ tomei cue scaffold tool
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "my-tool"
+    spec: {
+        installerRef: "aqua"
+        version:      "1.0.0"
+        // package:      "owner/repo"
+        // runtimeRef:   "go"
+        // source: {
+        //     url: "https://example.com/tool.tar.gz"
+        // }
+        // args: ["--flag"]
+    }
+}
+```
+
+Supported kinds: `tool`, `toolset`, `runtime`.
+
+### Eval / Export
+
+`tomei cue eval` evaluates manifests with `@tag()` injection and prints the CUE output. `tomei cue export` does the same but outputs JSON:
+
+```console
+$ tomei cue eval .
+$ tomei cue export .
+```
+
+These commands inject `@tag(os)`, `@tag(arch)`, and `@tag(headless)` automatically, just like `tomei apply`.
 
 ## Shell Integration
 
