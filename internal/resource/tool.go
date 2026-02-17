@@ -246,6 +246,23 @@ type ToolSpec struct {
 	Args []string `json:"args,omitempty"`
 }
 
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings for the Args field.
+func (s *ToolSpec) UnmarshalJSON(data []byte) error {
+	type Alias ToolSpec
+	var r struct {
+		Alias
+		Args json.RawMessage `json:"args,omitempty"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	*s = ToolSpec(r.Alias)
+	return unmarshalStringFields([]stringField{
+		{"args", r.Args, &s.Args},
+	})
+}
+
 // Validate validates the ToolSpec.
 func (s *ToolSpec) Validate() error {
 	// Either installerRef or runtimeRef must be specified
@@ -435,6 +452,23 @@ type ToolItem struct {
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	Args []string `json:"args,omitempty"`
+}
+
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings for the Args field.
+func (t *ToolItem) UnmarshalJSON(data []byte) error {
+	type Alias ToolItem
+	var r struct {
+		Alias
+		Args json.RawMessage `json:"args,omitempty"`
+	}
+	if err := json.Unmarshal(data, &r); err != nil {
+		return err
+	}
+	*t = ToolItem(r.Alias)
+	return unmarshalStringFields([]stringField{
+		{"args", r.Args, &t.Args},
+	})
 }
 
 // IsEnabled returns whether the tool item is enabled.

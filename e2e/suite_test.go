@@ -36,7 +36,6 @@ var _ = AfterSuite(func() {
 // Single top-level Describe with Ordered to guarantee execution order across all contexts.
 var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Basic", basicTests)
-	Context("Schema Validation", schemaValidationTests)
 	Context("Schema Management", schemaManagementTests)
 	Context("State Backup and Diff", stateBackupDiffTests)
 	Context("ToolSet", toolsetTests)

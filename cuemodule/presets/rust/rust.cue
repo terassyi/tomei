@@ -1,12 +1,14 @@
 package rust
 
+import "tomei.terassyi.net/schema"
+
 // #RustRuntime declares a Rust runtime installed via rustup delegation.
 // Defaults to "stable" toolchain.
 //
 // Usage:
 //   rustRuntime: #RustRuntime
 //   rustRuntime: #RustRuntime & {spec: version: "nightly"}
-#RustRuntime: {
+#RustRuntime: schema.#Runtime & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: {
@@ -42,7 +44,7 @@ package rust
 //
 // Usage:
 //   cargoBinstall: #CargoBinstall
-#CargoBinstall: {
+#CargoBinstall: schema.#Tool & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: {
@@ -60,7 +62,7 @@ package rust
 //
 // Usage:
 //   binstallInstaller: #BinstallInstaller
-#BinstallInstaller: {
+#BinstallInstaller: schema.#Installer & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: {
@@ -88,7 +90,7 @@ package rust
 //           hyperfine: {package: "hyperfine"}
 //       }
 //   }
-#BinstallToolSet: {
+#BinstallToolSet: schema.#ToolSet & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "ToolSet"
 	metadata: {

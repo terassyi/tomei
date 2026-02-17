@@ -706,3 +706,122 @@ func TestIsRegistryFormat(t *testing.T) {
 		})
 	}
 }
+
+func TestToolSpec_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		json    string
+		want    ToolSpec
+		wantErr bool
+	}{
+		{
+			name: "args as array",
+			json: `{"installerRef":"uv","version":"2.0.0","package":{"name":"ansible"},"args":["--with-executables-from","ansible-core"]}`,
+			want: ToolSpec{
+				InstallerRef: "uv",
+				Version:      "2.0.0",
+				Package:      &Package{Name: "ansible"},
+				Args:         []string{"--with-executables-from", "ansible-core"},
+			},
+		},
+		{
+			name: "args as bare string",
+			json: `{"runtimeRef":"go","package":{"name":"golang.org/x/tools/gopls"},"args":"--tags=integration"}`,
+			want: ToolSpec{
+				RuntimeRef: "go",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Args:       []string{"--tags=integration"},
+			},
+		},
+		{
+			name: "no args",
+			json: `{"installerRef":"aqua","version":"1.0.0"}`,
+			want: ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+			},
+		},
+		{
+			name:    "invalid JSON",
+			json:    `{bad}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got ToolSpec
+			err := got.UnmarshalJSON([]byte(tt.json))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestToolItem_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		json    string
+		want    ToolItem
+		wantErr bool
+	}{
+		{
+			name: "args as array",
+			json: `{"version":"1.0.0","args":["--flag1","--flag2"]}`,
+			want: ToolItem{
+				Version: "1.0.0",
+				Args:    []string{"--flag1", "--flag2"},
+			},
+		},
+		{
+			name: "args as bare string",
+			json: `{"version":"2.0.0","args":"--flag"}`,
+			want: ToolItem{
+				Version: "2.0.0",
+				Args:    []string{"--flag"},
+			},
+		},
+		{
+			name: "no args",
+			json: `{"version":"3.0.0"}`,
+			want: ToolItem{
+				Version: "3.0.0",
+			},
+		},
+		{
+			name: "with package",
+			json: `{"version":"1.0.0","package":"BurntSushi/ripgrep","args":"--features=pcre2"}`,
+			want: ToolItem{
+				Version: "1.0.0",
+				Package: &Package{Owner: "BurntSushi", Repo: "ripgrep"},
+				Args:    []string{"--features=pcre2"},
+			},
+		},
+		{
+			name:    "invalid JSON",
+			json:    `{bad}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got ToolItem
+			err := got.UnmarshalJSON([]byte(tt.json))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

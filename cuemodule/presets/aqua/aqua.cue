@@ -1,5 +1,7 @@
 package aqua
 
+import "tomei.terassyi.net/schema"
+
 // #AquaTool declares a single tool installed via aqua registry.
 //
 // Usage:
@@ -10,7 +12,7 @@ package aqua
 //           version: "15.1.0"
 //       }
 //   }
-#AquaTool: {
+#AquaTool: schema.#Tool & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: {
@@ -34,7 +36,7 @@ package aqua
 //           fd:  {package: "sharkdp/fd", version: "v10.3.0"}
 //       }
 //   }
-#AquaToolSet: {
+#AquaToolSet: schema.#ToolSet & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "ToolSet"
 	metadata: {

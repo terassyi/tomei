@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +13,6 @@ import (
 	"cuelang.org/go/cue/parser"
 	"cuelang.org/go/mod/modconfig"
 
-	"github.com/terassyi/tomei/cuemodule"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -39,26 +37,18 @@ const (
 
 // Loader loads and parses CUE configuration files.
 type Loader struct {
-	ctx         *cue.Context
-	env         *Env
-	schemaValue cue.Value
+	ctx *cue.Context
+	env *Env
 }
 
 // NewLoader creates a new Loader with the given environment.
-// Panics if the embedded CUE schema fails to compile (programming error).
 func NewLoader(env *Env) *Loader {
 	if env == nil {
 		env = DetectEnv()
 	}
-	ctx := cuecontext.New()
-	schemaValue := ctx.CompileString(cuemodule.SchemaCUE)
-	if schemaValue.Err() != nil {
-		panic(fmt.Sprintf("failed to compile embedded CUE schema: %v", schemaValue.Err()))
-	}
 	return &Loader{
-		ctx:         ctx,
-		env:         env,
-		schemaValue: schemaValue,
+		ctx: cuecontext.New(),
+		env: env,
 	}
 }
 
@@ -339,31 +329,13 @@ func (l *Loader) loadFileWithInstancesFromSource(path, source string) ([]resourc
 	return l.parseResources(value)
 }
 
-// validateResource validates a resource value against the #Resource schema definition
-// using the internally compiled schema.
-func (l *Loader) validateResource(field cue.Value, name string) (cue.Value, error) {
-	resourceDef := l.schemaValue.LookupPath(cue.ParsePath("#Resource"))
-	if !resourceDef.Exists() {
-		return field, nil
-	}
-	unified := field.Unify(resourceDef)
-	if err := unified.Validate(cue.Concrete(true)); err != nil {
-		return field, fmt.Errorf("schema validation failed for %q: %w", name, err)
-	}
-	return unified, nil
-}
-
 func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 	var resources []resource.Resource
 
 	// Check if value is a list (multiple resources)
 	if iter, err := value.List(); err == nil {
 		for iter.Next() {
-			validated, err := l.validateResource(iter.Value(), "")
-			if err != nil {
-				return nil, err
-			}
-			res, err := l.parseResource(validated)
+			res, err := l.parseResource(iter.Value())
 			if err != nil {
 				return nil, err
 			}
@@ -374,11 +346,7 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 
 	// Check if it has apiVersion (single resource at top level)
 	if value.LookupPath(cue.ParsePath("apiVersion")).Exists() {
-		validated, err := l.validateResource(value, "")
-		if err != nil {
-			return nil, err
-		}
-		res, err := l.parseResource(validated)
+		res, err := l.parseResource(value)
 		if err != nil {
 			return nil, err
 		}
@@ -397,11 +365,7 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 		if !fieldValue.LookupPath(cue.ParsePath("apiVersion")).Exists() {
 			continue
 		}
-		validated, err := l.validateResource(fieldValue, iter.Selector().String())
-		if err != nil {
-			return nil, err
-		}
-		res, err := l.parseResource(validated)
+		res, err := l.parseResource(fieldValue)
 		if err != nil {
 			return nil, err
 		}
@@ -416,43 +380,40 @@ func (l *Loader) parseResources(value cue.Value) ([]resource.Resource, error) {
 }
 
 func (l *Loader) parseResource(value cue.Value) (resource.Resource, error) {
-	jsonBytes, err := value.MarshalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal resource to JSON: %w", err)
-	}
-
 	// Extract kind to determine the concrete type
 	var base resource.BaseResource
-	if err := json.Unmarshal(jsonBytes, &base); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal BaseResource: %w", err)
+	if err := value.Decode(&base); err != nil {
+		return nil, fmt.Errorf("failed to decode BaseResource: %w", err)
 	}
 
 	switch base.ResourceKind {
 	case resource.KindTool:
-		return unmarshalResource[*resource.Tool](jsonBytes)
+		return decodeResource[*resource.Tool](value)
 	case resource.KindToolSet:
-		return unmarshalResource[*resource.ToolSet](jsonBytes)
+		return decodeResource[*resource.ToolSet](value)
 	case resource.KindRuntime:
-		return unmarshalResource[*resource.Runtime](jsonBytes)
+		return decodeResource[*resource.Runtime](value)
 	case resource.KindInstaller:
-		return unmarshalResource[*resource.Installer](jsonBytes)
+		return decodeResource[*resource.Installer](value)
 	case resource.KindInstallerRepository:
-		return unmarshalResource[*resource.InstallerRepository](jsonBytes)
+		return decodeResource[*resource.InstallerRepository](value)
 	case resource.KindSystemInstaller:
-		return unmarshalResource[*resource.SystemInstaller](jsonBytes)
+		return decodeResource[*resource.SystemInstaller](value)
 	case resource.KindSystemPackageRepository:
-		return unmarshalResource[*resource.SystemPackageRepository](jsonBytes)
+		return decodeResource[*resource.SystemPackageRepository](value)
 	case resource.KindSystemPackageSet:
-		return unmarshalResource[*resource.SystemPackageSet](jsonBytes)
+		return decodeResource[*resource.SystemPackageSet](value)
 	default:
 		return nil, fmt.Errorf("unknown kind: %s", base.ResourceKind)
 	}
 }
 
-// unmarshalResource unmarshals JSON bytes into a concrete resource type.
-func unmarshalResource[R resource.Resource](jsonBytes []byte) (R, error) {
+// decodeResource decodes a CUE value directly into a concrete resource type.
+// Custom UnmarshalJSON methods on resource types handle CUE's quirk of
+// serializing single-element [...string] lists as bare strings.
+func decodeResource[R resource.Resource](value cue.Value) (R, error) {
 	var res R
-	if err := json.Unmarshal(jsonBytes, &res); err != nil {
+	if err := value.Decode(&res); err != nil {
 		return res, err
 	}
 	return res, nil

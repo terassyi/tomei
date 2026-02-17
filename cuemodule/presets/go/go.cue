@@ -1,5 +1,7 @@
 package go
 
+import "tomei.terassyi.net/schema"
+
 // #GoRuntime declares a Go runtime installed from go.dev.
 // User provides spec.version and platform.
 //
@@ -8,7 +10,7 @@ package go
 //       platform: { os: _os, arch: _arch }
 //       spec: version: "1.25.6"
 //   }
-#GoRuntime: {
+#GoRuntime: schema.#Runtime & {
 	platform: {
 		os:   string
 		arch: string
@@ -51,7 +53,7 @@ package go
 //           version: "v1.0.0"
 //       }
 //   }
-#GoTool: {
+#GoTool: schema.#Tool & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: {
@@ -74,7 +76,7 @@ package go
 //           gopls: {package: "golang.org/x/tools/gopls", version: "v0.21.0"}
 //       }
 //   }
-#GoToolSet: {
+#GoToolSet: schema.#ToolSet & {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "ToolSet"
 	metadata: {
