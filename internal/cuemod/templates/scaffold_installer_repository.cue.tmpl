@@ -1,0 +1,26 @@
+{{- if not .Bare -}}
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myRepo: schema.#InstallerRepository & {
+{{- else -}}
+package tomei
+
+myRepo: {
+{{- end }}
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "InstallerRepository"
+	metadata: name: "my-repo"
+	spec: {
+		installerRef: "my-installer"
+		source: {
+			type: "delegation"
+			commands: {
+				install: ["my-tool repo add my-repo https://example.com/repo"]
+				check:   ["my-tool repo list | grep my-repo"]
+				remove:  ["my-tool repo remove my-repo"]
+			}
+		}
+	}
+}

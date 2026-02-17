@@ -215,4 +215,35 @@ EOF`)
 			Expect(output).To(ContainSubstring("cue.mod"))
 		})
 	})
+
+	Context("tomei cue scaffold", func() {
+		It("outputs a tool scaffold with schema import", func() {
+			output, err := testExec.Exec("tomei", "cue", "scaffold", "tool")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`import "tomei.terassyi.net/schema"`))
+			Expect(output).To(ContainSubstring("schema.#Tool"))
+			Expect(output).To(ContainSubstring(`kind:       "Tool"`))
+		})
+
+		It("outputs a bare tool scaffold without import", func() {
+			output, err := testExec.Exec("tomei", "cue", "scaffold", "tool", "--bare")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).NotTo(ContainSubstring("import"))
+			Expect(output).To(ContainSubstring(`kind:       "Tool"`))
+		})
+
+		It("supports all resource kinds", func() {
+			kinds := []string{"tool", "runtime", "installer", "installer-repository", "toolset"}
+			for _, kind := range kinds {
+				output, err := testExec.Exec("tomei", "cue", "scaffold", kind)
+				Expect(err).NotTo(HaveOccurred(), "scaffold %s failed", kind)
+				Expect(output).To(ContainSubstring("package tomei"), "scaffold %s missing package", kind)
+			}
+		})
+
+		It("rejects unknown kind", func() {
+			_, err := testExec.Exec("tomei", "cue", "scaffold", "unknown")
+			Expect(err).To(HaveOccurred())
+		})
+	})
 }

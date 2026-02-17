@@ -1,0 +1,29 @@
+{{- if not .Bare -}}
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTools: schema.#ToolSet & {
+{{- else -}}
+package tomei
+
+myTools: {
+{{- end }}
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "ToolSet"
+	metadata: name: "my-tools"
+	spec: {
+		installerRef: "aqua"
+		// runtimeRef: "go"
+		tools: {
+			"tool-a": {
+				version: "1.0.0"
+				// package: "owner/repo-a"
+			}
+			"tool-b": {
+				version: "2.0.0"
+				// package: "owner/repo-b"
+			}
+		}
+	}
+}

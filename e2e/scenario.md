@@ -22,7 +22,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Delegation Runtime | 9 | Rust runtime installation via delegation, cargo install tool, idempotency |
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
-| CUE Ecosystem | 8 | tomei cue init, env CUE_REGISTRY, validate with cue.mod |
+| CUE Ecosystem | 12 | tomei cue init, env CUE_REGISTRY, validate with cue.mod, scaffold |
 
 ## Scenario Flow
 
@@ -938,6 +938,26 @@ Reduced manifest for removal test:
 2. Write manifest with `@tag(os)` and `@tag(arch)` (no imports)
 3. Run `tomei validate <dir>`
 4. Validation succeeds, resource recognized
+
+### 6.4 `tomei cue scaffold`
+
+#### Schema Import Output
+1. Run `tomei cue scaffold tool`
+2. Output contains `import "tomei.terassyi.net/schema"` and `schema.#Tool`
+3. Output contains `kind:       "Tool"`
+
+#### Bare Output
+1. Run `tomei cue scaffold tool --bare`
+2. Output does NOT contain `import`
+3. Output contains `kind:       "Tool"`
+
+#### All Resource Kinds
+1. Run `tomei cue scaffold <kind>` for each of: tool, runtime, installer, installer-repository, toolset
+2. Each output contains `package tomei`
+
+#### Unknown Kind
+1. Run `tomei cue scaffold unknown`
+2. Command fails with error
 
 ---
 
