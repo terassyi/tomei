@@ -263,6 +263,12 @@ type ToolSpec struct {
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
+
+	// Privileged indicates this tool requires elevated privileges for installation.
+	// When true, the tool will be installed to a system-wide location (e.g., /usr/local/bin)
+	// and installation commands will be executed with sudo.
+	// Default is false.
+	Privileged bool `json:"privileged,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -471,6 +477,7 @@ func buildToolFromSetItem(ts *ToolSet, name string, item ToolItem) *Tool {
 			Package:       item.Package,
 			BinaryName:    item.BinaryName,
 			Args:          item.Args,
+			Privileged:    item.Privileged,
 		},
 	}
 }
@@ -502,6 +509,10 @@ type ToolItem struct {
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	Args []string `json:"args,omitempty"`
+
+	// Privileged indicates this tool requires elevated privileges for installation.
+	// Default is false.
+	Privileged bool `json:"privileged,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
