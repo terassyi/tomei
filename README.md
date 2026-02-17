@@ -84,7 +84,7 @@ goRuntime: {
 	metadata: name: "go"
 	spec: {
 		type:    "download"
-		version: "1.25.6"
+		version: "1.26.0"
 		source: {
 			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
@@ -203,7 +203,7 @@ Installer/aqua
 ├── Tool/fd (v10.3.0) [+ install]
 ├── Tool/jq (jq-1.8.1) [+ install]
 └── Tool/rg (15.1.0) [+ install]
-Runtime/go (1.25.6) [+ install]
+Runtime/go (1.26.0) [+ install]
 ├── Tool/goimports (v0.31.0) [+ install]
 ├── Tool/gopls (v0.21.0) [+ install]
 └── Tool/staticcheck (v0.6.0) [+ install]
@@ -226,7 +226,7 @@ $ tomei apply .
 Applying user-level resources from [.]
 
 Downloads:
-  ✓ Runtime/go 1.25.6
+  ✓ Runtime/go 1.26.0
 
 Commands:
  => Tool/jq jq-1.8.1 (aqua install)

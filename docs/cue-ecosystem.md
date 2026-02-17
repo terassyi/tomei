@@ -55,7 +55,7 @@ package tomei
 import gopreset "tomei.terassyi.net/presets/go"
 goRuntime: gopreset.#GoRuntime & {
     platform: { os: _os, arch: _arch }
-    spec: version: "1.25.6"
+    spec: version: "1.26.0"
 }
 
 # 3. Distribute via git
@@ -69,7 +69,7 @@ $ git clone <repo> && cd <repo>
 $ tomei apply
 # → tomei resolves tomei.terassyi.net via built-in ghcr.io/terassyi mapping
 # → CUE Go library pulls + caches the module
-✓ go 1.25.6 installed
+✓ go 1.26.0 installed
 ```
 
 ### Platform specification
@@ -78,13 +78,13 @@ $ tomei apply
 // Default: tomei apply resolves automatically via @tag()
 goRuntime: gopreset.#GoRuntime & {
     platform: { os: _os, arch: _arch }
-    spec: version: "1.25.6"
+    spec: version: "1.26.0"
 }
 
 // Explicit (cross-compile etc.)
 goRuntime: gopreset.#GoRuntime & {
     platform: { os: "darwin", arch: "arm64" }
-    spec: version: "1.25.6"
+    spec: version: "1.26.0"
 }
 ```
 

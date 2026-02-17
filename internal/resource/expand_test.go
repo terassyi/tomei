@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func TestExpandSets(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -62,7 +60,7 @@ func TestExpandSets(t *testing.T) {
 						InstallerRef: "aqua",
 						Tools: map[string]ToolItem{
 							"fd":  {Version: "9.0.0"},
-							"bat": {Version: "0.24.0", Enabled: boolPtr(false)},
+							"bat": {Version: "0.24.0", Enabled: new(false)},
 						},
 					},
 				},
@@ -77,8 +75,8 @@ func TestExpandSets(t *testing.T) {
 					ToolSetSpec: &ToolSetSpec{
 						InstallerRef: "aqua",
 						Tools: map[string]ToolItem{
-							"fd":  {Version: "9.0.0", Enabled: boolPtr(false)},
-							"bat": {Version: "0.24.0", Enabled: boolPtr(false)},
+							"fd":  {Version: "9.0.0", Enabled: new(false)},
+							"bat": {Version: "0.24.0", Enabled: new(false)},
 						},
 					},
 				},

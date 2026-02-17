@@ -42,7 +42,7 @@ kind:       "Runtime"
 metadata: name: "go"
 spec: {
     type:    "download"
-    version: "1.25.6"
+    version: "1.26.0"
     source: {
         url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
         checksum: url: "https://go.dev/dl/?mode=json&include=all"
@@ -349,7 +349,7 @@ goRuntime: {
     metadata: name: "go"
     spec: {
         type:    "download"
-        version: "1.25.6"
+        version: "1.26.0"
         source: {
             url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
         }
@@ -404,7 +404,7 @@ _arch: string @tag(arch)
 
 goRuntime: gopreset.#GoRuntime & {
     platform: { os: _os, arch: _arch }
-    spec: version: "1.25.6"
+    spec: version: "1.26.0"
 }
 ```
 
@@ -473,7 +473,7 @@ _arch: string @tag(arch)
 
 goRuntime: gopreset.#GoRuntime & {
     platform: { os: _os, arch: _arch }
-    spec: version: "1.25.6"
+    spec: version: "1.26.0"
 }
 ```
 
