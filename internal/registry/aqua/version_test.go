@@ -318,7 +318,7 @@ func TestApplyVersionOverrides(t *testing.T) {
 				VersionOverrides: []VersionOverride{
 					{
 						VersionConstraint: `semver("< 4.0.0")`,
-						VersionPrefix:     strPtr(""),
+						VersionPrefix:     new(""),
 					},
 				},
 			},
@@ -341,7 +341,7 @@ func TestApplyVersionOverrides(t *testing.T) {
 					{
 						VersionConstraint: `semver("< 2.0.0")`,
 						URL:               "https://cdn.example.com/{{.Version}}/tool.zip",
-						VersionPrefix:     strPtr("legacy/"),
+						VersionPrefix:     new("legacy/"),
 						Format:            "zip",
 						Asset:             "tool_legacy.zip",
 					},
@@ -387,8 +387,4 @@ func TestApplyVersionOverrides(t *testing.T) {
 			tt.check(t, result)
 		})
 	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }

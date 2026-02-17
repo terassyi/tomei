@@ -11,7 +11,7 @@ import (
 
 goRuntime: gopreset.#GoRuntime & {
 	platform: {os: _os, arch: _arch}
-	spec: version: "1.25.7"
+	spec: version: "1.26.0"
 }
 
 // ---------------------------------------------------------------------------

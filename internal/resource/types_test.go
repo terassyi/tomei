@@ -17,8 +17,8 @@ func TestToolSpec_IsEnabled(t *testing.T) {
 		want    bool
 	}{
 		{"nil (default true)", nil, true},
-		{"explicit true", ptr(true), true},
-		{"explicit false", ptr(false), false},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
 	}
 
 	for _, tt := range tests {
@@ -40,8 +40,8 @@ func TestToolItem_IsEnabled(t *testing.T) {
 		want    bool
 	}{
 		{"nil (default true)", nil, true},
-		{"explicit true", ptr(true), true},
-		{"explicit false", ptr(false), false},
+		{"explicit true", new(true), true},
+		{"explicit false", new(false), false},
 	}
 
 	for _, tt := range tests {
@@ -433,8 +433,4 @@ func TestCommandSet_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

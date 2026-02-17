@@ -65,7 +65,7 @@ func (m *ApplyModel) View() string {
 	renderLogPanel(&b, m.slogLines, m.width)
 
 	// 5. Elapsed footer
-	b.WriteString(fmt.Sprintf("\nElapsed: %s", formatElapsed(m.totalElapsed)))
+	fmt.Fprintf(&b, "\nElapsed: %s", formatElapsed(m.totalElapsed))
 
 	return b.String()
 }

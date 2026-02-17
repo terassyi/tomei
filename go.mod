@@ -1,6 +1,6 @@
 module github.com/terassyi/tomei
 
-go 1.25.6
+go 1.26.0
 
 require (
 	cuelang.org/go v0.15.4

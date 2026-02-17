@@ -6,7 +6,7 @@ goRuntime: {
 	metadata: name: "go"
 	spec: {
 		type:    "download"
-		version: "1.25.6"
+		version: "1.26.0"
 		source: {
 			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
 			checksum: {
