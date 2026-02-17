@@ -85,10 +85,15 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
-		slog.Debug("runtime already installed, skipping", "name", name, "version", spec.Version)
+		slog.Debug("runtime already installed, rebuilding symlinks", "name", name, "version", spec.Version)
 		binDir, err := i.resolveBinDir(spec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
+		}
+		if binDir != "" && len(spec.Binaries) > 0 {
+			if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
+				return nil, fmt.Errorf("failed to rebuild symlinks: %w", err)
+			}
 		}
 		return i.buildState(spec, installPath, binDir), nil
 	}

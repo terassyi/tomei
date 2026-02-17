@@ -52,7 +52,8 @@ func taintOnUpgradeTests() {
 			Expect(output).To(ContainSubstring("Runtime/go"))
 
 			By("Checking plan does NOT predict reinstall for dependent tools")
-			Expect(output).NotTo(ContainSubstring("reinstall"))
+			Expect(output).To(ContainSubstring("0 to reinstall"))
+			Expect(output).NotTo(ContainSubstring("reinstall]"))
 		})
 
 		It("upgrades runtime without tainting dependent tools", func() {
@@ -117,8 +118,8 @@ func taintOnUpgradeTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking plan predicts reinstall for dependent tools")
-			Expect(output).To(ContainSubstring("reinstall"))
-			Expect(output).To(ContainSubstring("to reinstall"))
+			Expect(output).To(ContainSubstring("reinstall]"))
+			Expect(output).To(ContainSubstring("1 to reinstall"))
 		})
 
 		It("upgrades runtime and taints dependent tools", func() {
