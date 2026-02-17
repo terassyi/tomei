@@ -129,6 +129,52 @@ _arch:     string @tag(arch)
 _headless: bool | *false @tag(headless,type=bool)
 ```
 
+## CUE Subcommands
+
+`tomei` provides CUE subcommands that integrate with the tomei registry and `@tag()` configuration.
+
+### tomei cue scaffold
+
+Generate manifest scaffolds for any resource kind:
+
+```bash
+$ tomei cue scaffold tool
+package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "my-tool"
+    spec: { ... }
+}
+
+# Without schema import (for environments without cue.mod/)
+$ tomei cue scaffold tool --bare
+```
+
+Supported kinds: `tool`, `runtime`, `installer`, `installer-repository`, `toolset`.
+
+### tomei cue eval / export
+
+Evaluate CUE manifests with tomei's registry and `@tag()` configuration automatically applied:
+
+```bash
+# CUE text output (like cue eval, but with tomei config)
+$ tomei cue eval ./manifests/
+
+# JSON output (like cue export, but with tomei config)
+$ tomei cue export ./manifests/
+```
+
+Unlike plain `cue eval` / `cue export`, these commands:
+- Configure the OCI registry automatically (no `CUE_REGISTRY` setup needed)
+- Inject `@tag()` values (`os`, `arch`, `headless`) from the current platform
+- Exclude `config.cue` from evaluation
+
+This is useful for debugging manifests and verifying that `@tag()` values resolve correctly before running `tomei apply`.
+
 ## Module Resolution
 
 `tomei` uses `modconfig.NewRegistry()` to create a CUE registry that resolves imports via OCI. The default registry mapping is `tomei.terassyi.net=ghcr.io/terassyi`. When `CUE_REGISTRY` is set by the user, it takes precedence.

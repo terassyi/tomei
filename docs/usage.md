@@ -58,6 +58,74 @@ eval $(tomei env)
 
 See [CUE Ecosystem Integration](cue-ecosystem.md) for details.
 
+## tomei cue scaffold
+
+Generate a CUE manifest scaffold for a resource kind.
+
+```
+tomei cue scaffold <kind> [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--bare` | Output without schema import (for use without `cue.mod/`) |
+
+Supported kinds: `tool`, `runtime`, `installer`, `installer-repository`, `toolset`
+
+By default, the output includes `import "tomei.terassyi.net/schema"` and type constraints (e.g., `schema.#Tool &`). Use `--bare` for plain CUE without schema imports.
+
+```bash
+# Generate a Tool scaffold with schema import
+tomei cue scaffold tool
+
+# Generate without schema import
+tomei cue scaffold runtime --bare
+
+# Redirect to file
+tomei cue scaffold tool > tools.cue
+```
+
+## tomei cue eval
+
+Evaluate CUE manifests with tomei configuration applied.
+
+```
+tomei cue eval <files or directories...>
+```
+
+Unlike plain `cue eval`, this command automatically:
+- Configures the OCI registry for tomei module resolution
+- Injects `@tag()` values (`os`, `arch`, `headless`) from the current platform
+- Excludes `config.cue` from evaluation
+
+Output is CUE text format.
+
+```bash
+# Evaluate a directory
+tomei cue eval ./manifests/
+
+# Evaluate a specific file
+tomei cue eval tools.cue
+```
+
+## tomei cue export
+
+Export CUE manifests as JSON with tomei configuration applied.
+
+```
+tomei cue export <files or directories...>
+```
+
+Same as `tomei cue eval` but outputs indented JSON instead of CUE text.
+
+```bash
+# Export as JSON
+tomei cue export ./manifests/
+
+# Pipe to jq
+tomei cue export tools.cue | jq '.myTool'
+```
+
 ## tomei validate
 
 Validate CUE manifests and detect circular dependencies.
