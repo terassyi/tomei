@@ -1,0 +1,96 @@
+name: Weekly Scenario Test
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Monday 9:00 UTC
+  workflow_dispatch:
+
+jobs:
+  scenario:
+    name: Scenario (${{ matrix.os }}/${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install tomei
+        run: |
+          gh release download --repo terassyi/tomei --pattern "tomei_*_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" --output tomei.tar.gz
+          sudo tar xzf tomei.tar.gz -C /usr/local/bin tomei
+          tomei version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize tomei
+        run: tomei init --yes
+
+      - name: Plan
+        run: tomei plan examples/real-world/
+
+      - name: Apply
+        run: tomei apply --yes examples/real-world/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Env
+        run: tomei env
+
+      - name: Verify installed tools
+        run: |
+          eval "$(tomei env)"
+          # Runtimes
+          go version
+          rustc --version
+          cargo --version
+          uv --version
+          pnpm --version
+          # Go tools
+          gopls version
+          staticcheck --version
+          goimports -h 2>&1 | head -1
+          cue version
+          # Aqua tools (utility + k8s)
+          bat --version
+          rg --version
+          fd --version
+          jq --version
+          yq --version
+          fzf --version
+          kubectl version --client
+          kustomize version
+          helm version
+          kind version
+          # Rust tools
+          cargo-binstall --version
+          # pnpm tools
+          prettier --version
+          ts-node --version
+          tsc --version
+          ncu --version
+          # uv tools
+          ruff version
+          mypy --version
+          http --version
+          ansible --version
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-logs-${{ matrix.os }}-${{ matrix.arch }}
+          path: ~/.local/share/tomei/
+          retention-days: 7
