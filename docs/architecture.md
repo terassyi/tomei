@@ -20,7 +20,7 @@ CUE's `@tag()` injection does not propagate to imported packages resolved via a 
 
 ### Schema validation
 
-Schema validation uses CUE's `Unify()` to check conformance and `Validate(cue.Concrete(true))` for final validation. The schema ([`cuemodule/schema/schema.cue`](../cuemodule/schema/schema.cue)) is embedded in the binary via [`cuemodule/embed.go`](../cuemodule/embed.go).
+Schema constraints are enforced via CUE-native imports. Presets import `tomei.terassyi.net/schema`, so type constraints (HTTPS-only URLs, name patterns, required fields) are applied automatically when using presets. User manifests can also import the schema directly for explicit validation. The loader uses `cue.Value.Decode()` to convert validated CUE values into Go structs.
 
 ## Resource System
 

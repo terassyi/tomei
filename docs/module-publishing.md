@@ -63,8 +63,8 @@ cuemodule/
 │   ├── aqua/aqua.cue           # Aqua toolset preset
 │   ├── go/go.cue               # Go runtime preset
 │   └── rust/rust.cue           # Rust runtime preset
-├── embed.go                    # go:embed for SchemaCUE (production)
-├── embed_presets.go            # go:embed for PresetsFS (integration tests only)
+├── embed.go                    # go:embed for SchemaCUE (schema unit tests)
+├── embed_presets.go            # go:embed for PresetsFS (integration test mock registry)
 └── schema_test.go              # Schema compilation tests
 ```
 
