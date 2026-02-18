@@ -2803,7 +2803,7 @@ placeholder: {
 	assert.True(t, removedRuntimes["go"], "go runtime should be removed")
 }
 
-func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
+func TestTaintLatestTools(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
@@ -2838,7 +2838,7 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 			wantNotTainted: []string{"rg"},
 		},
 		{
-			name: "alias version tool is not tainted",
+			name: "alias version tool is not tainted by sync",
 			tools: map[string]*resource.ToolState{
 				"rustc": {
 					Version:     "1.83.0",
@@ -2885,36 +2885,199 @@ func TestEngine_SyncMode_TaintLatestTools(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			stateDir := t.TempDir()
-			store, err := state.NewStore[state.UserState](stateDir)
-			require.NoError(t, err)
+			st := state.NewUserState()
+			st.Tools = tt.tools
 
-			// Pre-populate state
-			require.NoError(t, store.Lock())
-			initialState := state.NewUserState()
-			initialState.Tools = tt.tools
-			require.NoError(t, store.Save(initialState))
-			require.NoError(t, store.Unlock())
+			taintLatestTools(st)
 
-			eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
-			eng.SetSyncMode(true)
-
-			// Call taintLatestTools directly
-			require.NoError(t, store.Lock())
-			st, err := store.Load()
-			require.NoError(t, err)
-			eng.taintLatestTools(st)
-			require.NoError(t, store.Unlock())
-
-			// Verify tainted
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
 				assert.Equal(t, "sync_update", st.Tools[name].TaintReason)
 			}
-
-			// Verify not tainted
 			for _, name := range tt.wantNotTainted {
 				assert.False(t, st.Tools[name].IsTainted(), "tool %s should not be tainted", name)
+			}
+		})
+	}
+}
+
+func TestTaintNonExactTools(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		tools          map[string]*resource.ToolState
+		wantTainted    []string
+		wantNotTainted []string
+	}{
+		{
+			name: "latest tool is tainted",
+			tools: map[string]*resource.ToolState{
+				"fd": {
+					InstallerRef: "aqua",
+					Version:      "9.0.0",
+					VersionKind:  resource.VersionLatest,
+					InstallPath:  "/tools/fd",
+					BinPath:      "/bin/fd",
+				},
+			},
+			wantTainted: []string{"fd"},
+		},
+		{
+			name: "alias tool is tainted",
+			tools: map[string]*resource.ToolState{
+				"rustfmt": {
+					Version:     "1.83.0",
+					VersionKind: resource.VersionAlias,
+					SpecVersion: "stable",
+					RuntimeRef:  "rust",
+				},
+			},
+			wantTainted: []string{"rustfmt"},
+		},
+		{
+			name: "exact version tool is not tainted",
+			tools: map[string]*resource.ToolState{
+				"rg": {
+					InstallerRef: "aqua",
+					Version:      "14.0.0",
+					VersionKind:  resource.VersionExact,
+					InstallPath:  "/tools/rg",
+					BinPath:      "/bin/rg",
+				},
+			},
+			wantNotTainted: []string{"rg"},
+		},
+		{
+			name: "mixed: latest and alias tainted, exact not",
+			tools: map[string]*resource.ToolState{
+				"fd": {
+					InstallerRef: "aqua",
+					Version:      "9.0.0",
+					VersionKind:  resource.VersionLatest,
+					InstallPath:  "/tools/fd",
+					BinPath:      "/bin/fd",
+				},
+				"rg": {
+					InstallerRef: "aqua",
+					Version:      "14.0.0",
+					VersionKind:  resource.VersionExact,
+					InstallPath:  "/tools/rg",
+					BinPath:      "/bin/rg",
+				},
+				"rustfmt": {
+					Version:     "1.83.0",
+					VersionKind: resource.VersionAlias,
+					SpecVersion: "stable",
+					RuntimeRef:  "rust",
+				},
+			},
+			wantTainted:    []string{"fd", "rustfmt"},
+			wantNotTainted: []string{"rg"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := state.NewUserState()
+			st.Tools = tt.tools
+
+			taintNonExactTools(st)
+
+			for _, name := range tt.wantTainted {
+				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
+				assert.Equal(t, "update_requested", st.Tools[name].TaintReason)
+			}
+			for _, name := range tt.wantNotTainted {
+				assert.False(t, st.Tools[name].IsTainted(), "tool %s should not be tainted", name)
+			}
+		})
+	}
+}
+
+func TestTaintNonExactRuntimes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		runtimes       map[string]*resource.RuntimeState
+		wantTainted    []string
+		wantNotTainted []string
+	}{
+		{
+			name: "alias runtime is tainted",
+			runtimes: map[string]*resource.RuntimeState{
+				"rust": {
+					Type:        resource.InstallTypeDelegation,
+					Version:     "1.83.0",
+					VersionKind: resource.VersionAlias,
+					SpecVersion: "stable",
+					ToolBinPath: "~/.cargo/bin",
+				},
+			},
+			wantTainted: []string{"rust"},
+		},
+		{
+			name: "latest runtime is tainted",
+			runtimes: map[string]*resource.RuntimeState{
+				"node": {
+					Type:        resource.InstallTypeDownload,
+					Version:     "22.0.0",
+					VersionKind: resource.VersionLatest,
+					ToolBinPath: "~/.local/bin",
+				},
+			},
+			wantTainted: []string{"node"},
+		},
+		{
+			name: "exact version runtime is not tainted",
+			runtimes: map[string]*resource.RuntimeState{
+				"go": {
+					Type:        resource.InstallTypeDownload,
+					Version:     "1.25.6",
+					VersionKind: resource.VersionExact,
+					SpecVersion: "1.25.6",
+					ToolBinPath: "~/go/bin",
+				},
+			},
+			wantNotTainted: []string{"go"},
+		},
+		{
+			name: "mixed: alias and latest tainted, exact not",
+			runtimes: map[string]*resource.RuntimeState{
+				"rust": {
+					Type:        resource.InstallTypeDelegation,
+					Version:     "1.83.0",
+					VersionKind: resource.VersionAlias,
+					SpecVersion: "stable",
+					ToolBinPath: "~/.cargo/bin",
+				},
+				"go": {
+					Type:        resource.InstallTypeDownload,
+					Version:     "1.25.6",
+					VersionKind: resource.VersionExact,
+					SpecVersion: "1.25.6",
+					ToolBinPath: "~/go/bin",
+				},
+			},
+			wantTainted:    []string{"rust"},
+			wantNotTainted: []string{"go"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			st := state.NewUserState()
+			st.Runtimes = tt.runtimes
+
+			taintNonExactRuntimes(st)
+
+			for _, name := range tt.wantTainted {
+				assert.True(t, st.Runtimes[name].IsTainted(), "runtime %s should be tainted", name)
+				assert.Equal(t, "update_requested", st.Runtimes[name].TaintReason)
+			}
+			for _, name := range tt.wantNotTainted {
+				assert.False(t, st.Runtimes[name].IsTainted(), "runtime %s should not be tainted", name)
 			}
 		})
 	}

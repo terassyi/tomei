@@ -76,6 +76,70 @@ func TestRuntimeSpec_UnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestRuntimeState_Taint(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name         string
+		initial      *RuntimeState
+		taintReason  string
+		wantTainted  bool
+		wantReason   string
+		clearTaint   bool
+		wantAfterClr bool
+	}{
+		{
+			name:        "taint empty state",
+			initial:     &RuntimeState{},
+			taintReason: "update_requested",
+			wantTainted: true,
+			wantReason:  "update_requested",
+		},
+		{
+			name:        "taint with runtime_upgraded reason",
+			initial:     &RuntimeState{Version: "1.83.0"},
+			taintReason: "runtime_upgraded",
+			wantTainted: true,
+			wantReason:  "runtime_upgraded",
+		},
+		{
+			name:         "taint then clear",
+			initial:      &RuntimeState{},
+			taintReason:  "update_requested",
+			wantTainted:  true,
+			wantReason:   "update_requested",
+			clearTaint:   true,
+			wantAfterClr: false,
+		},
+		{
+			name:        "untainted state is not tainted",
+			initial:     &RuntimeState{Version: "1.25.6"},
+			wantTainted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := tt.initial
+
+			if tt.taintReason != "" {
+				s.Taint(tt.taintReason)
+			}
+
+			assert.Equal(t, tt.wantTainted, s.IsTainted())
+			if tt.wantReason != "" {
+				assert.Equal(t, tt.wantReason, s.TaintReason)
+			}
+
+			if tt.clearTaint {
+				s.ClearTaint()
+				assert.Equal(t, tt.wantAfterClr, s.IsTainted())
+				assert.Empty(t, s.TaintReason)
+			}
+		})
+	}
+}
+
 func TestRuntimeBootstrapSpec_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -486,6 +486,7 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 		stateVer    string
 		versionKind resource.VersionKind
 		specVer     string
+		tainted     bool
 		wantUpdate  bool
 		wantReason  string
 	}{
@@ -505,6 +506,16 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 			specVer:     "1.25.6",
 			wantUpdate:  true,
 			wantReason:  "version changed",
+		},
+		{
+			name:        "exact: tainted triggers update",
+			specVersion: "1.25.6",
+			stateVer:    "1.25.6",
+			versionKind: resource.VersionExact,
+			specVer:     "1.25.6",
+			tainted:     true,
+			wantUpdate:  true,
+			wantReason:  "tainted",
 		},
 		{
 			name:        "alias: same alias - no change",
@@ -532,6 +543,16 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 			wantUpdate:  true,
 			wantReason:  "version changed",
 		},
+		{
+			name:        "alias: tainted triggers update",
+			specVersion: "stable",
+			stateVer:    "1.83.0",
+			versionKind: resource.VersionAlias,
+			specVer:     "stable",
+			tainted:     true,
+			wantUpdate:  true,
+			wantReason:  "tainted",
+		},
 	}
 
 	for _, tt := range tests {
@@ -552,6 +573,9 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 				Version:     tt.stateVer,
 				VersionKind: tt.versionKind,
 				SpecVersion: tt.specVer,
+			}
+			if tt.tainted {
+				state.Taint("update_requested")
 			}
 
 			needsUpdate, reason := comparator(res, state)

@@ -23,6 +23,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 | CUE Ecosystem | 15 | tomei cue init, env CUE_REGISTRY, validate with cue.mod, scaffold, eval, export |
+| Update Flags | 9 | --update-runtimes, --update-all plan/apply with alias-versioned delegation runtime |
 
 ## Scenario Flow
 
@@ -98,7 +99,16 @@ flowchart TD
         S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
     end
 
-    S1 --> S1b --> S2 --> S3 --> S4 --> S5
+    subgraph S7["7. Update Flags"]
+        direction TB
+        S7_1["7.1 Setup<br/>Mock delegation runtime (alias) + tool"]
+        S7_2["7.2 --update-runtimes<br/>Plan shows reinstall, apply reinstalls alias runtime"]
+        S7_3["7.3 --update-all<br/>Plan/apply reinstalls both runtime and tool"]
+
+        S7_1 --> S7_2 --> S7_3
+    end
+
+    S1 --> S1b --> S2 --> S3 --> S4 --> S5 --> S7
 ```
 
 ### Dependency Graph Patterns
@@ -980,6 +990,73 @@ Reduced manifest for removal test:
 3. Run `tomei cue export <dir>/`
 4. Output contains `"apiVersion"`, `"tomei.terassyi.net/v1beta1"`, `"jq"` in JSON format
 5. Output is valid JSON (`json.Unmarshal` succeeds)
+
+---
+
+## 7. Update Flags (--update-runtimes / --update-all)
+
+### 7.1 Initial Setup
+
+#### Validation
+- `tomei validate ~/update-flags-test/` succeeds
+- Recognizes Runtime/mock-rt and Tool/mock-tool
+
+#### Installation
+- `tomei apply ~/update-flags-test/` installs the mock delegation runtime and tool
+- state.json records:
+  - Runtime/mock-rt with `versionKind: "alias"` and `specVersion: "stable"`
+  - Resolved version: "1.0.0" (from `resolveVersion: ["echo 1.0.0"]`)
+
+#### Idempotency
+- Second `tomei apply ~/update-flags-test/` outputs "total_actions=0"
+
+### 7.2 `--update-runtimes`
+
+#### Plan Preview
+1. Run `tomei plan --update-runtimes ~/update-flags-test/`
+2. Verify:
+   - Output contains "Runtime/mock-rt"
+   - Output contains "reinstall" (alias runtime is tainted)
+
+#### Apply
+1. Run `tomei apply --update-runtimes ~/update-flags-test/`
+2. Verify:
+   - Runtime is reinstalled (re-executes delegation bootstrap)
+   - Output contains "mock-rt"
+
+#### Idempotency After Update
+- `tomei apply ~/update-flags-test/` outputs "total_actions=0"
+
+### 7.3 `--update-all`
+
+#### Plan Preview
+1. Run `tomei plan --update-all ~/update-flags-test/`
+2. Verify:
+   - Output contains "Runtime/mock-rt"
+   - Output contains "reinstall"
+
+#### Apply
+1. Run `tomei apply --update-all ~/update-flags-test/`
+2. Verify:
+   - Both runtime and tool are processed
+   - Output contains "mock-rt"
+
+#### Idempotency After Update All
+- `tomei apply ~/update-flags-test/` outputs "total_actions=0"
+
+---
+
+### `e2e/config/update-flags-test/runtime.cue`
+Mock delegation runtime:
+- Version: "stable" (alias)
+- ResolveVersion: `echo 1.0.0`
+- Bootstrap: creates /tmp/mock-rt directory
+
+### `e2e/config/update-flags-test/tool.cue`
+Mock tool:
+- runtimeRef: "mock-rt"
+- package: "mock-package"
+- version: "0.1.0"
 
 ---
 

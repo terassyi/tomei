@@ -154,6 +154,9 @@ tomei plan <files or directories...> [flags]
 | Flag | Description |
 |------|-------------|
 | `--sync` | Sync aqua registry to latest version before planning |
+| `--update-tools` | Show plan as if updating tools with non-exact versions (latest + alias) |
+| `--update-runtimes` | Show plan as if updating runtimes with non-exact versions (alias) |
+| `--update-all` | Show plan as if updating all tools and runtimes with non-exact versions |
 | `--output`, `-o` | Output format: `text` (default), `json`, `yaml` |
 | `--no-color` | Disable colored output |
 
@@ -175,6 +178,9 @@ tomei apply <files or directories...> [flags]
 |------|-------------|
 | `--yes`, `-y` | Skip confirmation prompt |
 | `--sync` | Sync aqua registry to latest version before applying |
+| `--update-tools` | Update tools with non-exact versions (latest + alias) to latest |
+| `--update-runtimes` | Update runtimes with non-exact versions (alias) to latest |
+| `--update-all` | Update all tools and runtimes with non-exact versions |
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
@@ -192,6 +198,15 @@ tomei apply tools.cue runtime.cue
 
 # Sync aqua registry and apply
 tomei apply --sync .
+
+# Update all non-exact tools (latest + alias versions)
+tomei apply --update-tools .
+
+# Update runtimes with alias versions (e.g., Rust "stable")
+tomei apply --update-runtimes .
+
+# Update both tools and runtimes
+tomei apply --update-all .
 
 # Control parallelism
 tomei apply --parallel 4 .
