@@ -91,10 +91,13 @@ func basicTests() {
 	})
 
 	Context("Runtime and Tool Installation", func() {
-		It("downloads and installs Runtime and Tools", func() {
+		It("downloads and installs Runtime and Tools without taint reinstall", func() {
 			By("Running tomei apply command")
-			_, err := ExecApply(testExec, "~/manifests/")
+			output, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying no taint reinstall on first install")
+			Expect(output).NotTo(ContainSubstring("Reinstalled:"))
 		})
 	})
 
