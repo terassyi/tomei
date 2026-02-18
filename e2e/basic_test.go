@@ -64,6 +64,14 @@ func basicTests() {
 			Expect(output).To(ContainSubstring("Runtime/go"))
 		})
 
+		It("validates manifest with tar.xz source URL", func() {
+			By("Running tomei validate on tar-xz-test manifest")
+			output, err := testExec.Exec("tomei", "validate", "~/tar-xz-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("Validation successful"))
+			Expect(output).To(ContainSubstring("Tool/zig"))
+		})
+
 		It("shows planned changes", func() {
 			By("Running tomei plan command")
 			output, err := testExec.Exec("tomei", "plan", "~/manifests/")
@@ -72,6 +80,13 @@ func basicTests() {
 			By("Checking plan shows resources")
 			Expect(output).To(ContainSubstring("Found"))
 			Expect(output).To(ContainSubstring("resource"))
+		})
+
+		It("shows tar.xz tool in plan output", func() {
+			By("Running tomei plan on tar-xz-test manifest")
+			output, err := testExec.Exec("tomei", "plan", "~/tar-xz-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("Tool/zig"))
 		})
 	})
 

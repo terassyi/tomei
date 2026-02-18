@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/ulikunitz/xz"
 )
 
 // ArchiveType represents the type of archive format for downloads.
@@ -21,6 +23,9 @@ const (
 	// ArchiveTypeZip represents a ZIP archive (.zip).
 	ArchiveTypeZip ArchiveType = "zip"
 
+	// ArchiveTypeTarXz represents an xz-compressed tar archive (.tar.xz).
+	ArchiveTypeTarXz ArchiveType = "tar.xz"
+
 	// ArchiveTypeRaw represents a raw binary file (no compression).
 	// Use this for direct binary downloads (e.g., jq-linux-amd64).
 	ArchiveTypeRaw ArchiveType = "raw"
@@ -31,9 +36,12 @@ const (
 func DetectArchiveType(urlOrFilename string) ArchiveType {
 	lower := filepath.Base(urlOrFilename)
 
-	// Check for tar.gz first (before .gz alone)
+	// Check for compound extensions first
 	if hasSuffix(lower, ".tar.gz") || hasSuffix(lower, ".tgz") {
 		return ArchiveTypeTarGz
+	}
+	if hasSuffix(lower, ".tar.xz") || hasSuffix(lower, ".txz") {
+		return ArchiveTypeTarXz
 	}
 	if hasSuffix(lower, ".zip") {
 		return ArchiveTypeZip
@@ -62,6 +70,8 @@ func NewExtractor(archiveType ArchiveType) (Extractor, error) {
 	switch archiveType {
 	case ArchiveTypeTarGz:
 		return &tarGzExtractor{}, nil
+	case ArchiveTypeTarXz:
+		return &tarXzExtractor{}, nil
 	case ArchiveTypeZip:
 		return &zipExtractor{}, nil
 	case ArchiveTypeRaw:
@@ -84,7 +94,27 @@ func (e *tarGzExtractor) Extract(r io.Reader, destDir string) error {
 	}
 	defer gr.Close()
 
-	tr := tar.NewReader(gr)
+	return extractTar(gr, destDir)
+}
+
+// tarXzExtractor implements Extractor for tar.xz archives.
+type tarXzExtractor struct{}
+
+// Extract extracts a tar.xz archive from the reader to the destination directory.
+func (e *tarXzExtractor) Extract(r io.Reader, destDir string) error {
+	slog.Debug("extracting tar.xz archive", "dest", destDir)
+
+	xr, err := xz.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("failed to create xz reader: %w", err)
+	}
+
+	return extractTar(xr, destDir)
+}
+
+// extractTar extracts a tar archive from the decompressed reader to the destination directory.
+func extractTar(r io.Reader, destDir string) error {
+	tr := tar.NewReader(r)
 
 	for {
 		hdr, err := tr.Next()
@@ -123,7 +153,6 @@ func (e *tarGzExtractor) Extract(r io.Reader, destDir string) error {
 		}
 	}
 
-	slog.Debug("tar.gz archive extracted", "dest", destDir)
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/ulikunitz/xz"
 )
 
 func TestDetectArchiveType(t *testing.T) {
@@ -46,6 +47,21 @@ func TestDetectArchiveType(t *testing.T) {
 			name:     "simple filename zip",
 			input:    "archive.zip",
 			expected: ArchiveTypeZip,
+		},
+		{
+			name:     "tar.xz extension",
+			input:    "https://ziglang.org/download/0.14.0/zig-x86_64-linux-0.14.0.tar.xz",
+			expected: ArchiveTypeTarXz,
+		},
+		{
+			name:     "txz extension",
+			input:    "https://example.com/tool.txz",
+			expected: ArchiveTypeTarXz,
+		},
+		{
+			name:     "simple filename tar.xz",
+			input:    "archive.tar.xz",
+			expected: ArchiveTypeTarXz,
 		},
 		{
 			name:     "unknown extension",
@@ -84,6 +100,11 @@ func TestNewExtractor(t *testing.T) {
 		{
 			name:        "tar.gz extractor",
 			archiveType: ArchiveTypeTarGz,
+			wantErr:     false,
+		},
+		{
+			name:        "tar.xz extractor",
+			archiveType: ArchiveTypeTarXz,
 			wantErr:     false,
 		},
 		{
@@ -183,6 +204,82 @@ func TestExtractor_Extract_TarGz_Stream(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExtractor_Extract_TarXz_Stream(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		createData func(t *testing.T) io.Reader
+		wantFiles  map[string]string // path -> content
+		wantErr    bool
+	}{
+		{
+			name:       "extract from stream",
+			createData: createTarXzStream,
+			wantFiles: map[string]string{
+				"bin/tool":       "tool binary content",
+				"README.md":      "readme content",
+				"dir/nested.txt": "nested file content",
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid xz stream",
+			createData: func(t *testing.T) io.Reader {
+				return bytes.NewReader([]byte("not a valid xz"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			destDir := filepath.Join(tmpDir, "dest")
+
+			extractor, err := NewExtractor(ArchiveTypeTarXz)
+			require.NoError(t, err)
+
+			r := tt.createData(t)
+			err = extractor.Extract(r, destDir)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify extracted files
+			for path, wantContent := range tt.wantFiles {
+				fullPath := filepath.Join(destDir, path)
+				content, err := os.ReadFile(fullPath)
+				require.NoError(t, err, "failed to read %s", path)
+				assert.Equal(t, wantContent, string(content), "content mismatch for %s", path)
+			}
+		})
+	}
+}
+
+func TestExtractor_TarXz_PreservesExecutablePermission(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "dest")
+
+	r := createTarXzStreamWithExecutable(t)
+
+	extractor, err := NewExtractor(ArchiveTypeTarXz)
+	require.NoError(t, err)
+
+	err = extractor.Extract(r, destDir)
+	require.NoError(t, err)
+
+	// Check executable permission
+	info, err := os.Stat(filepath.Join(destDir, "bin/tool"))
+	require.NoError(t, err)
+	assert.NotEqual(t, fs.FileMode(0), info.Mode()&0111, "expected executable permission")
 }
 
 func TestExtractor_Extract_Zip_File(t *testing.T) {
@@ -431,6 +528,63 @@ func createTarGzStreamWithExecutable(t *testing.T) io.Reader {
 
 	require.NoError(t, tw.Close())
 	require.NoError(t, gw.Close())
+
+	return &buf
+}
+
+func createTarXzStream(t *testing.T) io.Reader {
+	t.Helper()
+
+	files := map[string]string{
+		"bin/tool":       "tool binary content",
+		"README.md":      "readme content",
+		"dir/nested.txt": "nested file content",
+	}
+
+	var buf bytes.Buffer
+	xw, err := xz.NewWriter(&buf)
+	require.NoError(t, err)
+	tw := tar.NewWriter(xw)
+
+	for name, content := range files {
+		hdr := &tar.Header{
+			Name: name,
+			Mode: 0644,
+			Size: int64(len(content)),
+		}
+		err := tw.WriteHeader(hdr)
+		require.NoError(t, err)
+		_, err = tw.Write([]byte(content))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, xw.Close())
+
+	return &buf
+}
+
+func createTarXzStreamWithExecutable(t *testing.T) io.Reader {
+	t.Helper()
+
+	var buf bytes.Buffer
+	xw, err := xz.NewWriter(&buf)
+	require.NoError(t, err)
+	tw := tar.NewWriter(xw)
+
+	content := "executable content"
+	hdr := &tar.Header{
+		Name: "bin/tool",
+		Mode: 0755,
+		Size: int64(len(content)),
+	}
+	err = tw.WriteHeader(hdr)
+	require.NoError(t, err)
+	_, err = tw.Write([]byte(content))
+	require.NoError(t, err)
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, xw.Close())
 
 	return &buf
 }
