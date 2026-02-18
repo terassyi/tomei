@@ -1199,6 +1199,88 @@ tool: {
 	assert.False(t, st.Tools["gopls"].IsTainted())
 }
 
+// TestEngine_TaintNotTriggeredOnFirstInstall verifies that first-time installation
+// of a runtime with taintOnUpgrade does NOT trigger taint reinstall on dependent tools.
+func TestEngine_TaintNotTriggeredOnFirstInstall(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "1.26.0"
+		source: {
+			url: "https://example.com/go-1.26.0.tar.gz"
+			checksum: { value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }
+		}
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: { install: ["go install {{.Package}}@{{.Version}}"] }
+		taintOnUpgrade: true
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		version: "0.16.0"
+		package: "golang.org/x/tools/gopls"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+	resources := loadResources(t, configDir)
+
+	// Empty state — first install, no pre-existing runtime or tool
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	// Collect events
+	var mu sync.Mutex
+	var events []engine.Event
+	eng.SetEventHandler(func(event engine.Event) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	})
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Verify NO PhaseTaint events were emitted
+	var taintEvents []engine.Event
+	for _, e := range events {
+		if e.Phase == engine.PhaseTaint {
+			taintEvents = append(taintEvents, e)
+		}
+	}
+	assert.Empty(t, taintEvents, "first install should not trigger taint reinstall")
+
+	// Verify tool was installed (not reinstalled)
+	var dagToolStarts []engine.Event
+	for _, e := range events {
+		if e.Phase == engine.PhaseDAG && e.Type == engine.EventStart && e.Name == "gopls" {
+			dagToolStarts = append(dagToolStarts, e)
+		}
+	}
+	require.Len(t, dagToolStarts, 1, "gopls should be installed exactly once in DAG phase")
+	assert.Equal(t, resource.ActionInstall, dagToolStarts[0].Action)
+}
+
 // TestEngine_RemovalEmitsEvents verifies that removing a resource from config
 // emits PhaseRemove events.
 func TestEngine_RemovalEmitsEvents(t *testing.T) {

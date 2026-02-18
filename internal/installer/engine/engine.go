@@ -663,8 +663,9 @@ func (e *Engine) executeRuntimeNode(
 
 	*totalActions++
 
-	// Track if runtime was updated
-	if action.Type == resource.ActionInstall || action.Type == resource.ActionUpgrade || action.Type == resource.ActionReinstall {
+	// Track if runtime was upgraded (not first install).
+	// Only upgrades should trigger taint on dependent tools.
+	if action.Type == resource.ActionUpgrade {
 		updatedRuntimes[action.Name] = true
 	}
 
