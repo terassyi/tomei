@@ -251,6 +251,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy taint-on-upgrade-test: %w", err)
 	}
 
+	// Copy tar-xz-test configs
+	if err := copyDir(filepath.Join(configDir, "tar-xz-test"), filepath.Join(e.testHome, "tar-xz-test")); err != nil {
+		return fmt.Errorf("failed to copy tar-xz-test: %w", err)
+	}
+
 	return nil
 }
 

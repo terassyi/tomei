@@ -315,6 +315,21 @@ spec: {
 			wantName: "ripgrep",
 		},
 		{
+			name: "Tool with tar.xz download source",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "zig"
+spec: {
+	installerRef: "download"
+	version: "0.14.0"
+	source: url: "https://ziglang.org/download/0.14.0/zig-x86_64-linux-0.14.0.tar.xz"
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "zig",
+		},
+		{
 			name: "Tool with runtime delegation",
 			content: `
 apiVersion: "tomei.terassyi.net/v1beta1"
