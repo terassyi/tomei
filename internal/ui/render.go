@@ -313,13 +313,14 @@ func shortenPath(p string) string {
 }
 
 // rightAlign places suffix at the right edge of a line of given width.
-// Uses width-1 to prevent terminals from wrapping at the exact column boundary.
+// Uses width-3 to leave a safe margin; some terminals and container PTYs
+// report a width slightly larger than the actual drawable columns.
 func rightAlign(prefix, suffix string, width int) string {
 	// Strip ANSI escape sequences for width calculation
 	prefixLen := lipglossWidth(prefix)
 	suffixLen := len(suffix)
 
-	gap := max(width-1-prefixLen-suffixLen, 1)
+	gap := max(width-3-prefixLen-suffixLen, 1)
 	return prefix + strings.Repeat(" ", gap) + suffix
 }
 
