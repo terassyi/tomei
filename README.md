@@ -24,15 +24,22 @@ Native [aqua registry](https://github.com/aquaproj/aqua-registry) integration le
 
 ## Install
 
-### GitHub Releases
+```bash
+curl -fsSL https://raw.githubusercontent.com/terassyi/tomei/main/install.sh | sh
+```
 
-Download a binary from the [Releases](https://github.com/terassyi/tomei/releases) page.
+The script detects your OS and architecture, downloads the binary, verifies the SHA-256 checksum, and installs it to `~/.local/bin`.
+
+To install a specific version:
 
 ```bash
-curl -Lo tomei.tar.gz https://github.com/terassyi/tomei/releases/latest/download/tomei_<version>_<os>_<arch>.tar.gz
-tar xzf tomei.tar.gz
-sudo mv tomei /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/terassyi/tomei/main/install.sh | sh
 ```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOMEI_VERSION` | latest | Install a specific version (e.g. `v0.1.0`) |
+| `TOMEI_INSTALL_DIR` | `~/.local/bin` | Custom install directory |
 
 ## Getting Started
 

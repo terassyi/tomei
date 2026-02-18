@@ -42,6 +42,16 @@ jobs:
       - name: Lint
         uses: ./.github/actions/lint
 
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run shellcheck
+        run: shellcheck install.sh
+
   cue-validate:
     name: CUE Validate
     needs: build
