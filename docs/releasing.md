@@ -54,7 +54,27 @@ To test the release locally without publishing:
 goreleaser release --snapshot --clean
 ```
 
+## CUE Module Release
+
+The CUE module (`tomei.terassyi.net@v0`) is released separately from the binary. See [Module Publishing](module-publishing.md) for details.
+
+### Coordinated release
+
+When releasing both the binary and the CUE module, tag the CUE module first so that `tomei cue init` resolves the correct version:
+
+```bash
+# 1. CUE module
+git tag tomei-cue-v0.1.0
+git push origin tomei-cue-v0.1.0
+# Then trigger workflow_dispatch on "Publish CUE Module" workflow
+
+# 2. Binary
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Configuration
 
 - goreleaser: [`.goreleaser.yaml`](../.goreleaser.yaml)
 - GitHub Actions: [`.github/workflows/release.yaml`](../.github/workflows/release.yaml)
+- CUE publish: [`.github/workflows/publish-module.yaml`](../.github/workflows/publish-module.yaml)
