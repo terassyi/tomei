@@ -58,6 +58,8 @@ jobs:
           cargo --version
           uv --version
           pnpm --version
+          deno --version
+          bun --version
           # Go tools
           gopls version
           staticcheck --version
@@ -86,6 +88,10 @@ jobs:
           mypy --version
           http --version
           ansible --version
+          # deno tools
+          deployctl --version
+          # bun tools
+          biome --version
 
       - name: Upload logs on failure
         if: failure()

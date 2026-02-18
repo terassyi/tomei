@@ -59,10 +59,18 @@ vendor-cue: ## Vendor CUE schema and presets into examples/*/cue.mod/pkg/
 		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/go; \
 		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/rust; \
 		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/aqua; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/node; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/python; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/deno; \
+		mkdir -p $$dir/cue.mod/pkg/tomei.terassyi.net/presets/bun; \
 		cp cuemodule/schema/schema.cue $$dir/cue.mod/pkg/tomei.terassyi.net/schema/; \
 		cp cuemodule/presets/go/go.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/go/; \
 		cp cuemodule/presets/rust/rust.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/rust/; \
 		cp cuemodule/presets/aqua/aqua.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/aqua/; \
+		cp cuemodule/presets/node/node.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/node/; \
+		cp cuemodule/presets/python/python.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/python/; \
+		cp cuemodule/presets/deno/deno.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/deno/; \
+		cp cuemodule/presets/bun/bun.cue $$dir/cue.mod/pkg/tomei.terassyi.net/presets/bun/; \
 		sed -i.bak '/^deps:/,/^}/d' $$dir/cue.mod/module.cue && rm -f $$dir/cue.mod/module.cue.bak; \
 	done
 
