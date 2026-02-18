@@ -196,6 +196,8 @@ func startMockRegistry(t *testing.T) *modregistrytest.Registry {
 
 // setupMockRegistryDir creates a temporary directory with cue.mod/module.cue declaring
 // a dependency on tomei.terassyi.net@v0 and sets CUE_REGISTRY to point to the mock registry.
+// It also sets CUE_CACHE_DIR to an isolated temp directory to prevent stale module cache
+// from interfering with tests (CUE caches downloaded module zips by version).
 func setupMockRegistryDir(t *testing.T, reg *modregistrytest.Registry) string {
 	t.Helper()
 
@@ -205,6 +207,20 @@ func setupMockRegistryDir(t *testing.T, reg *modregistrytest.Registry) string {
 	moduleCuePath := filepath.Join(dir, "cue.mod", "module.cue")
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
+
+	// Isolate CUE module cache per test to avoid stale cache from previous runs.
+	// CUE extracts module files as read-only, so we must chmod before cleanup.
+	cueCache := filepath.Join(dir, "cue-cache")
+	require.NoError(t, os.MkdirAll(cueCache, 0755))
+	t.Setenv("CUE_CACHE_DIR", cueCache)
+	t.Cleanup(func() {
+		_ = filepath.Walk(cueCache, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			return os.Chmod(path, 0755)
+		})
+	})
 
 	return dir
 }
@@ -795,4 +811,438 @@ goRuntime: gopreset.#GoRuntime & {
 	require.True(t, ok)
 	assert.Equal(t, "go", runtime.Name())
 	assert.Equal(t, "1.25.6", runtime.RuntimeSpec.Version)
+}
+
+// TestCueEcosystem_MockRegistry_NodePresetImport verifies that the node preset
+// can be imported via the mock OCI registry and #PnpmRuntime resolves correctly.
+func TestCueEcosystem_MockRegistry_NodePresetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/node"
+
+pnpmRuntime: node.#PnpmRuntime & {
+	spec: version: "10.29.3"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	rt, ok := resources[0].(*resource.Runtime)
+	require.True(t, ok)
+	assert.Equal(t, "pnpm", rt.Name())
+	assert.Equal(t, "10.29.3", rt.RuntimeSpec.Version)
+	assert.Equal(t, resource.InstallTypeDelegation, rt.RuntimeSpec.Type)
+
+	// Verify bootstrap []string fields
+	require.NotNil(t, rt.RuntimeSpec.Bootstrap)
+	assert.Len(t, rt.RuntimeSpec.Bootstrap.Install, 4, "bootstrap.install should have 4 steps")
+	assert.Len(t, rt.RuntimeSpec.Bootstrap.Check, 1)
+	assert.Len(t, rt.RuntimeSpec.Bootstrap.Remove, 1)
+	assert.Len(t, rt.RuntimeSpec.Bootstrap.ResolveVersion, 1)
+
+	// Verify binaries
+	assert.Equal(t, []string{"pnpm", "pnpx"}, rt.RuntimeSpec.Binaries)
+
+	// Verify env map
+	assert.Equal(t, "~/.local/share/pnpm", rt.RuntimeSpec.Env["PNPM_HOME"])
+
+	// Verify commands
+	require.NotNil(t, rt.RuntimeSpec.Commands)
+	assert.Len(t, rt.RuntimeSpec.Commands.Install, 1)
+	assert.Len(t, rt.RuntimeSpec.Commands.Remove, 1)
+}
+
+// TestCueEcosystem_MockRegistry_PythonPresetImport verifies that the python preset
+// can be imported via the mock OCI registry and #UvRuntime resolves correctly.
+func TestCueEcosystem_MockRegistry_PythonPresetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/python"
+
+uvRuntime: python.#UvRuntime & {
+	spec: version: "0.10.2"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	rt, ok := resources[0].(*resource.Runtime)
+	require.True(t, ok)
+	assert.Equal(t, "uv", rt.Name())
+	assert.Equal(t, "0.10.2", rt.RuntimeSpec.Version)
+	assert.Equal(t, resource.InstallTypeDelegation, rt.RuntimeSpec.Type)
+
+	// Verify bootstrap
+	require.NotNil(t, rt.RuntimeSpec.Bootstrap)
+	assert.Len(t, rt.RuntimeSpec.Bootstrap.Install, 1)
+	assert.Contains(t, rt.RuntimeSpec.Bootstrap.Install[0], "astral.sh/uv")
+
+	// Verify binaries
+	assert.Equal(t, []string{"uv", "uvx"}, rt.RuntimeSpec.Binaries)
+
+	// Verify commands include {{.Args}} template
+	require.NotNil(t, rt.RuntimeSpec.Commands)
+	assert.Len(t, rt.RuntimeSpec.Commands.Install, 1)
+	assert.Contains(t, rt.RuntimeSpec.Commands.Install[0], "{{.Args}}")
+}
+
+// TestCueEcosystem_MockRegistry_NodeToolSetImport verifies that #PnpmToolSet
+// resolves correctly via the mock OCI registry.
+func TestCueEcosystem_MockRegistry_NodeToolSetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/node"
+
+nodeTools: node.#PnpmToolSet & {
+	metadata: name: "node-tools"
+	spec: tools: {
+		prettier:   {package: "prettier", version: "3.5.3"}
+		typescript: {package: "typescript", version: "5.7.3"}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	toolset, ok := resources[0].(*resource.ToolSet)
+	require.True(t, ok)
+	assert.Equal(t, "node-tools", toolset.Name())
+	assert.Equal(t, "pnpm", toolset.ToolSetSpec.RuntimeRef)
+	assert.Len(t, toolset.ToolSetSpec.Tools, 2)
+}
+
+// TestCueEcosystem_MockRegistry_PythonToolSetWithArgs verifies that #UvToolSet
+// with the args field resolves correctly via the mock OCI registry.
+func TestCueEcosystem_MockRegistry_PythonToolSetWithArgs(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/python"
+
+pythonTools: python.#UvToolSet & {
+	metadata: name: "python-tools"
+	spec: tools: {
+		ruff:    {package: "ruff", version: "0.15.1"}
+		ansible: {package: "ansible", version: "13.3.0", args: ["--with-executables-from", "ansible-core"]}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	toolset, ok := resources[0].(*resource.ToolSet)
+	require.True(t, ok)
+	assert.Equal(t, "python-tools", toolset.Name())
+	assert.Equal(t, "uv", toolset.ToolSetSpec.RuntimeRef)
+	assert.Len(t, toolset.ToolSetSpec.Tools, 2)
+
+	// Verify args survived CUE → JSON → Go round-trip
+	ansible, ok := toolset.ToolSetSpec.Tools["ansible"]
+	require.True(t, ok)
+	assert.Equal(t, []string{"--with-executables-from", "ansible-core"}, ansible.Args)
+}
+
+// TestCueEcosystem_MockRegistry_AllPresetsImport verifies that all six presets
+// (go, rust, aqua, node, python, deno) can be imported simultaneously without conflicts.
+func TestCueEcosystem_MockRegistry_AllPresetsImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	platformCue, err := cuemod.GeneratePlatformCUE()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+	manifest := `package tomei
+
+import (
+	gopreset "tomei.terassyi.net/presets/go"
+	"tomei.terassyi.net/presets/rust"
+	"tomei.terassyi.net/presets/aqua"
+	"tomei.terassyi.net/presets/node"
+	"tomei.terassyi.net/presets/python"
+	"tomei.terassyi.net/presets/deno"
+	"tomei.terassyi.net/presets/bun"
+)
+
+goRuntime: gopreset.#GoRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "1.25.6"
+}
+
+rustRuntime: rust.#RustRuntime
+
+pnpmRuntime: node.#PnpmRuntime & {
+	spec: version: "10.29.3"
+}
+
+uvRuntime: python.#UvRuntime & {
+	spec: version: "0.10.2"
+}
+
+denoRuntime: deno.#DenoRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "2.6.10"
+}
+
+bunRuntime: bun.#BunRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "1.2.21"
+}
+
+cliTools: aqua.#AquaToolSet & {
+	metadata: name: "cli-tools"
+	spec: tools: {
+		rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(&config.Env{OS: "linux", Arch: "amd64", Headless: false})
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 7)
+
+	// Verify all resource kinds and names are present
+	names := make(map[string]resource.Kind)
+	for _, r := range resources {
+		names[r.Name()] = r.Kind()
+	}
+	assert.Equal(t, resource.KindRuntime, names["go"])
+	assert.Equal(t, resource.KindRuntime, names["rust"])
+	assert.Equal(t, resource.KindRuntime, names["pnpm"])
+	assert.Equal(t, resource.KindRuntime, names["uv"])
+	assert.Equal(t, resource.KindRuntime, names["deno"])
+	assert.Equal(t, resource.KindRuntime, names["bun"])
+	assert.Equal(t, resource.KindToolSet, names["cli-tools"])
+}
+
+// TestCueEcosystem_MockRegistry_DenoPresetImport verifies that the deno preset
+// can be imported via the mock OCI registry and #DenoRuntime resolves correctly
+// with platform-specific download URLs.
+func TestCueEcosystem_MockRegistry_DenoPresetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+
+	tests := []struct {
+		name        string
+		os          string
+		arch        string
+		expectedURL string
+	}{
+		{
+			name:        "linux/amd64",
+			os:          "linux",
+			arch:        "amd64",
+			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-x86_64-unknown-linux-gnu.zip",
+		},
+		{
+			name:        "linux/arm64",
+			os:          "linux",
+			arch:        "arm64",
+			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-aarch64-unknown-linux-gnu.zip",
+		},
+		{
+			name:        "darwin/arm64",
+			os:          "darwin",
+			arch:        "arm64",
+			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-aarch64-apple-darwin.zip",
+		},
+		{
+			name:        "darwin/amd64",
+			os:          "darwin",
+			arch:        "amd64",
+			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-x86_64-apple-darwin.zip",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupMockRegistryDir(t, reg)
+
+			platformCue, err := cuemod.GeneratePlatformCUE()
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+			manifest := `package tomei
+import "tomei.terassyi.net/presets/deno"
+denoRuntime: deno.#DenoRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "2.6.10"
+}
+`
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+			loader := config.NewLoader(&config.Env{OS: config.OS(tt.os), Arch: config.Arch(tt.arch), Headless: false})
+			resources, err := loader.Load(dir)
+			require.NoError(t, err)
+			require.Len(t, resources, 1)
+
+			rt, ok := resources[0].(*resource.Runtime)
+			require.True(t, ok)
+			assert.Equal(t, "deno", rt.Name())
+			assert.Equal(t, "2.6.10", rt.RuntimeSpec.Version)
+			assert.Equal(t, tt.expectedURL, rt.RuntimeSpec.Source.URL)
+			assert.Equal(t, "zip", string(rt.RuntimeSpec.Source.ArchiveType))
+		})
+	}
+}
+
+// TestCueEcosystem_MockRegistry_DenoToolSetImport verifies that #DenoToolSet
+// resolves correctly via the mock OCI registry.
+func TestCueEcosystem_MockRegistry_DenoToolSetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/deno"
+
+denoTools: deno.#DenoToolSet & {
+	metadata: name: "deno-tools"
+	spec: tools: {
+		deployctl: {package: "jsr:@deno/deployctl", version: "1.12.0"}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	toolset, ok := resources[0].(*resource.ToolSet)
+	require.True(t, ok)
+	assert.Equal(t, "deno-tools", toolset.Name())
+	assert.Equal(t, "deno", toolset.ToolSetSpec.RuntimeRef)
+	assert.Len(t, toolset.ToolSetSpec.Tools, 1)
+}
+
+// TestCueEcosystem_MockRegistry_BunPresetImport verifies that the bun preset
+// can be imported via the mock OCI registry and #BunRuntime resolves correctly
+// with platform-specific download URLs.
+func TestCueEcosystem_MockRegistry_BunPresetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+
+	tests := []struct {
+		name        string
+		os          string
+		arch        string
+		expectedURL string
+	}{
+		{
+			name:        "linux/amd64",
+			os:          "linux",
+			arch:        "amd64",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-linux-x64.zip",
+		},
+		{
+			name:        "linux/arm64",
+			os:          "linux",
+			arch:        "arm64",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-linux-aarch64.zip",
+		},
+		{
+			name:        "darwin/arm64",
+			os:          "darwin",
+			arch:        "arm64",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-darwin-aarch64.zip",
+		},
+		{
+			name:        "darwin/amd64",
+			os:          "darwin",
+			arch:        "amd64",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-darwin-x64.zip",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupMockRegistryDir(t, reg)
+
+			platformCue, err := cuemod.GeneratePlatformCUE()
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
+
+			manifest := `package tomei
+import "tomei.terassyi.net/presets/bun"
+bunRuntime: bun.#BunRuntime & {
+	platform: { os: _os, arch: _arch }
+	spec: version: "1.2.21"
+}
+`
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+			loader := config.NewLoader(&config.Env{OS: config.OS(tt.os), Arch: config.Arch(tt.arch), Headless: false})
+			resources, err := loader.Load(dir)
+			require.NoError(t, err)
+			require.Len(t, resources, 1)
+
+			rt, ok := resources[0].(*resource.Runtime)
+			require.True(t, ok)
+			assert.Equal(t, "bun", rt.Name())
+			assert.Equal(t, "1.2.21", rt.RuntimeSpec.Version)
+			assert.Equal(t, tt.expectedURL, rt.RuntimeSpec.Source.URL)
+			assert.Equal(t, "zip", string(rt.RuntimeSpec.Source.ArchiveType))
+			assert.Equal(t, []string{"bun"}, rt.RuntimeSpec.Binaries)
+		})
+	}
+}
+
+// TestCueEcosystem_MockRegistry_BunToolSetImport verifies that #BunToolSet
+// resolves correctly via the mock OCI registry.
+func TestCueEcosystem_MockRegistry_BunToolSetImport(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/bun"
+
+bunTools: bun.#BunToolSet & {
+	metadata: name: "bun-tools"
+	spec: tools: {
+		prettier: {package: "prettier", version: "3.5.0"}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	toolset, ok := resources[0].(*resource.ToolSet)
+	require.True(t, ok)
+	assert.Equal(t, "bun-tools", toolset.Name())
+	assert.Equal(t, "bun", toolset.ToolSetSpec.RuntimeRef)
+	assert.Len(t, toolset.ToolSetSpec.Tools, 1)
 }

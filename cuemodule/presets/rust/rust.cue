@@ -9,6 +9,9 @@ import "tomei.terassyi.net/schema"
 //   rustRuntime: #RustRuntime
 //   rustRuntime: #RustRuntime & {spec: version: "nightly"}
 #RustRuntime: schema.#Runtime & {
+	let _cargoHome = "~/.cargo"
+	let _cargoBin = _cargoHome + "/bin"
+
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
 	metadata: {
@@ -20,19 +23,19 @@ import "tomei.terassyi.net/schema"
 		version: string | *"stable"
 		bootstrap: {
 			install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"]
-			check: ["~/.cargo/bin/rustc --version"]
-			remove: ["~/.cargo/bin/rustup self uninstall -y"]
-			resolveVersion: ["~/.cargo/bin/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]
+			check: ["\(_cargoBin)/rustc --version"]
+			remove: ["\(_cargoBin)/rustup self uninstall -y"]
+			resolveVersion: ["\(_cargoBin)/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]
 		}
 		binaries: ["rustc", "cargo", "rustup"]
-		binDir:      "~/.cargo/bin"
-		toolBinPath: "~/.cargo/bin"
+		binDir:      _cargoBin
+		toolBinPath: _cargoBin
 		env: {
-			CARGO_HOME:  "~/.cargo"
+			CARGO_HOME:  _cargoHome
 			RUSTUP_HOME: "~/.rustup"
 		}
 		commands: {
-			install: ["~/.cargo/bin/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"]
+			install: ["\(_cargoBin)/cargo install {{.Package}}{{if .Version}}@{{.Version}}{{end}}"]
 			remove: ["rm -f {{.BinPath}}"]
 		}
 		taintOnUpgrade: true
@@ -63,6 +66,8 @@ import "tomei.terassyi.net/schema"
 // Usage:
 //   binstallInstaller: #BinstallInstaller
 #BinstallInstaller: schema.#Installer & {
+	let _cargoBin = "~/.cargo/bin"
+
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: {
@@ -73,7 +78,7 @@ import "tomei.terassyi.net/schema"
 		type:    "delegation"
 		toolRef: "cargo-binstall"
 		commands: {
-			install: ["~/.cargo/bin/cargo-binstall {{.Package}}{{if .Version}}@{{.Version}}{{end}} --no-confirm"]
+			install: ["\(_cargoBin)/cargo-binstall {{.Package}}{{if .Version}}@{{.Version}}{{end}} --no-confirm"]
 			remove: ["rm -f {{.BinPath}}"]
 		}
 	}

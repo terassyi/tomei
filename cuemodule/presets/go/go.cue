@@ -11,6 +11,8 @@ import "tomei.terassyi.net/schema"
 //       spec: version: "1.25.6"
 //   }
 #GoRuntime: schema.#Runtime & {
+	let _goBin = "~/go/bin"
+
 	platform: {
 		os:   string
 		arch: string
@@ -29,11 +31,11 @@ import "tomei.terassyi.net/schema"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
 		}
 		binaries: ["go", "gofmt"]
-		binDir:      "~/go/bin"
-		toolBinPath: "~/go/bin"
+		binDir:      _goBin
+		toolBinPath: _goBin
 		env: {
 			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
-			GOBIN:  "~/go/bin"
+			GOBIN:  _goBin
 		}
 		commands: {
 			install: ["go install {{.Package}}@{{.Version}}"]
