@@ -2,8 +2,9 @@ package github
 
 import (
 	"context"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,29 +67,26 @@ func TestGetLatestRelease(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "/repos/owner/repo/releases/latest", r.URL.Path)
-				assert.Equal(t, "application/vnd.github+json", r.Header.Get("Accept"))
-
-				if tt.statusCode != 0 {
-					w.WriteHeader(tt.statusCode)
-					return
-				}
-				body := tt.body
-				if body == "" {
-					body = `{"tag_name":"` + tt.tagName + `"}`
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(body))
-			}))
-			defer server.Close()
-
-			// Create a client that redirects GitHub API to the test server
 			client := &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					req.URL.Scheme = "http"
-					req.URL.Host = server.Listener.Addr().String()
-					return http.DefaultTransport.RoundTrip(req)
+					assert.Equal(t, "/repos/owner/repo/releases/latest", req.URL.Path)
+					assert.Equal(t, "application/vnd.github+json", req.Header.Get("Accept"))
+
+					if tt.statusCode != 0 {
+						return &http.Response{
+							StatusCode: tt.statusCode,
+							Body:       io.NopCloser(strings.NewReader("")),
+						}, nil
+					}
+					body := tt.body
+					if body == "" {
+						body = `{"tag_name":"` + tt.tagName + `"}`
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(body)),
+					}, nil
 				}),
 			}
 

@@ -66,6 +66,11 @@ func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
 	i.progressCallback = callback
 }
 
+// SetHTTPClient sets a custom HTTP client for API calls (e.g., GitHub release resolution).
+func (i *Installer) SetHTTPClient(client *http.Client) {
+	i.httpClient = client
+}
+
 // Install installs a runtime according to the resource and returns its state.
 // Supports both download and delegation types.
 func (i *Installer) Install(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {

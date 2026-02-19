@@ -8,12 +8,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -43,25 +42,13 @@ func TestInstaller_Install(t *testing.T) {
 	})
 	archiveHash := sha256sum(tarGzContent)
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, ".sha256"):
-			_, _ = w.Write([]byte(archiveHash + "  myruntime.tar.gz\n"))
-		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
-			_, _ = w.Write(tarGzContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer server.Close()
-
 	t.Run("successful install with BinDir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstaller(dl, runtimesDir)
 
 		runtime := &resource.Runtime{
 			BaseResource: resource.BaseResource{
@@ -73,7 +60,7 @@ func TestInstaller_Install(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "1.0.0",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -124,8 +111,8 @@ func TestInstaller_Install(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		toolBinDir := filepath.Join(tmpDir, "toolbin")
 
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstaller(dl, runtimesDir)
 
 		runtime := &resource.Runtime{
 			BaseResource: resource.BaseResource{
@@ -137,7 +124,7 @@ func TestInstaller_Install(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "1.0.0",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -170,15 +157,14 @@ func TestInstaller_Install(t *testing.T) {
 
 		binDir := filepath.Join(tmpDir, "bin")
 
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
+		installer := NewInstaller(download.NewDownloader(), runtimesDir)
 
 		runtime := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "1.0.0",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 				},
 				Binaries: []string{"mybin"},
 				BinDir:   binDir,
@@ -215,8 +201,7 @@ func TestInstaller_Install(t *testing.T) {
 			filepath.Join(binDir, "mybin"),
 		))
 
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
+		installer := NewInstaller(download.NewDownloader(), runtimesDir)
 
 		// Install (downgrade) to 1.0.0 — directory already exists
 		runtime := &resource.Runtime{
@@ -224,7 +209,7 @@ func TestInstaller_Install(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "1.0.0",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 				},
 				Binaries: []string{"mybin"},
 				BinDir:   binDir,
@@ -784,132 +769,6 @@ func TestFindBinary(t *testing.T) {
 	})
 }
 
-// --- mockCommandRunner ---
-
-type cmdCall struct {
-	cmds []string
-	vars command.Vars
-	env  map[string]string
-}
-
-type mockCommandRunner struct {
-	executeErr             error
-	executeWithOutputErr   error
-	captureResult          string
-	captureErr             error
-	checkResult            bool
-	executeWithEnvCalls    []cmdCall
-	executeWithOutputCalls []cmdCall
-	captureCalls           []cmdCall
-	checkCalls             []cmdCall
-}
-
-func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, env map[string]string) error {
-	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmds: cmds, vars: vars, env: env})
-	return m.executeErr
-}
-
-func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error {
-	m.executeWithOutputCalls = append(m.executeWithOutputCalls, cmdCall{cmds: cmds, vars: vars, env: env})
-	if callback != nil {
-		callback("mock output line")
-	}
-	if m.executeWithOutputErr != nil {
-		return m.executeWithOutputErr
-	}
-	return m.executeErr
-}
-
-func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error) {
-	m.captureCalls = append(m.captureCalls, cmdCall{cmds: cmds, vars: vars, env: env})
-	return m.captureResult, m.captureErr
-}
-
-func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, env map[string]string) bool {
-	m.checkCalls = append(m.checkCalls, cmdCall{cmds: cmds, vars: vars, env: env})
-	return m.checkResult
-}
-
-// Helper types and functions
-
-type mockBinary struct {
-	name    string
-	content []byte
-}
-
-// createRuntimeTarGz creates a tar.gz archive with a top-level directory containing binaries.
-func createRuntimeTarGz(t *testing.T, name string, binaries []mockBinary) []byte {
-	t.Helper()
-
-	var buf bytes.Buffer
-	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
-
-	// Create top-level directory
-	require.NoError(t, tw.WriteHeader(&tar.Header{
-		Name:     name + "/",
-		Mode:     0755,
-		Typeflag: tar.TypeDir,
-	}))
-
-	// Create bin directory
-	require.NoError(t, tw.WriteHeader(&tar.Header{
-		Name:     name + "/bin/",
-		Mode:     0755,
-		Typeflag: tar.TypeDir,
-	}))
-
-	// Create binaries
-	for _, bin := range binaries {
-		hdr := &tar.Header{
-			Name: name + "/bin/" + bin.name,
-			Mode: 0755,
-			Size: int64(len(bin.content)),
-		}
-		require.NoError(t, tw.WriteHeader(hdr))
-		_, err := tw.Write(bin.content)
-		require.NoError(t, err)
-	}
-
-	require.NoError(t, tw.Close())
-	require.NoError(t, gw.Close())
-
-	return buf.Bytes()
-}
-
-func sha256sum(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
-}
-
-// mockRuntimeDownloader records whether a progress callback was passed.
-type mockRuntimeDownloader struct {
-	archiveData          []byte
-	lastProgressCallback download.ProgressCallback
-}
-
-func (m *mockRuntimeDownloader) Download(_ context.Context, _, destPath string) (string, error) {
-	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
-		return "", err
-	}
-	return destPath, nil
-}
-
-func (m *mockRuntimeDownloader) DownloadWithProgress(_ context.Context, _, destPath string, callback download.ProgressCallback) (string, error) {
-	m.lastProgressCallback = callback
-	if callback != nil {
-		callback(100, 200)
-	}
-	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
-		return "", err
-	}
-	return destPath, nil
-}
-
-func (m *mockRuntimeDownloader) Verify(_ context.Context, _ string, _ *resource.Checksum) error {
-	return nil
-}
-
 func TestInstaller_Download_ResolveVersion(t *testing.T) {
 	t.Parallel()
 	binContent := []byte("#!/bin/sh\necho 'mock runtime'\n")
@@ -917,18 +776,6 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 		{name: "mybin", content: binContent},
 	})
 	archiveHash := sha256sum(tarGzContent)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, ".sha256"):
-			_, _ = w.Write([]byte(archiveHash + "  myruntime.tar.gz\n"))
-		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
-			_, _ = w.Write(tarGzContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	t.Cleanup(server.Close)
 
 	t.Run("download with resolveVersion success", func(t *testing.T) {
 		t.Parallel()
@@ -939,15 +786,15 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 		runner := &mockCommandRunner{
 			captureResult: "1.25.6",
 		}
-		downloader := download.NewDownloader()
-		installer := NewInstallerWithRunner(downloader, runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.25.6.tar.gz",
+					URL: "https://example.com/myruntime-1.25.6.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -986,7 +833,7 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 				},
 				ToolBinPath:    "~/bin",
 				ResolveVersion: []string{"bad-cmd"},
@@ -1012,7 +859,7 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 				},
 				ToolBinPath:    "~/bin",
 				ResolveVersion: []string{"echo ''"},
@@ -1045,7 +892,7 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.25.6.tar.gz",
+					URL: "https://example.com/myruntime-1.25.6.tar.gz",
 				},
 				Binaries:       []string{"mybin"},
 				BinDir:         binDir,
@@ -1078,15 +925,15 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 		runner := &mockCommandRunner{
 			captureResult: "1.25.6",
 		}
-		downloader := download.NewDownloader()
-		installer := NewInstallerWithRunner(downloader, runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.25.6.tar.gz",
+					URL: "https://example.com/myruntime-1.25.6.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1115,28 +962,25 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		// Mock GitHub API server
-		ghServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/repos/oven-sh/bun/releases/latest" {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"tag_name":"bun-v1.2.3"}`))
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer ghServer.Close()
-
-		// Create HTTP client that redirects GitHub API to mock server
+		// Mock GitHub API via pure roundTripFunc (no httptest server)
 		ghClient := &http.Client{
 			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				req.URL.Scheme = "http"
-				req.URL.Host = ghServer.Listener.Addr().String()
-				return http.DefaultTransport.RoundTrip(req)
+				if req.URL.Path == "/repos/oven-sh/bun/releases/latest" {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(`{"tag_name":"bun-v1.2.3"}`)),
+					}, nil
+				}
+				return &http.Response{
+					StatusCode: http.StatusNotFound,
+					Body:       io.NopCloser(strings.NewReader("")),
+				}, nil
 			}),
 		}
 
-		downloader := download.NewDownloader()
-		installer := NewInstallerWithRunner(downloader, runtimesDir, &mockCommandRunner{})
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, &mockCommandRunner{})
 		installer.httpClient = ghClient
 
 		rt := &resource.Runtime{
@@ -1144,7 +988,7 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 				Type:    resource.InstallTypeDownload,
 				Version: "latest",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.2.3.tar.gz",
+					URL: "https://example.com/myruntime-1.2.3.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1170,15 +1014,15 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstaller(dl, runtimesDir)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "1.0.0",
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.0.0.tar.gz",
+					URL: "https://example.com/myruntime-1.0.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1202,18 +1046,10 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 	t.Parallel()
 
-	// Helper: create a mock GitHub API server returning a given tag_name.
-	newGitHubServer := func(tagName string) *httptest.Server {
-		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"tag_name": %q}`, tagName)
-		}))
-	}
-
 	tests := []struct {
 		name    string
 		cmd     string
-		tag     string // tag_name returned by mock server
+		tag     string // tag_name returned by mock transport
 		want    string
 		wantErr string
 	}{
@@ -1259,23 +1095,21 @@ func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 			installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
 			if tt.wantErr != "" {
-				// Parse errors don't need a server
+				// Parse errors don't need a mock transport
 				_, err := installer.resolveGitHubRelease(context.Background(), tt.cmd)
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
 				return
 			}
 
-			// Set up mock server and inject httpClient pointing to it
-			server := newGitHubServer(tt.tag)
-			defer server.Close()
-
+			// Set up mock transport returning the tag
 			installer.httpClient = &http.Client{
 				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					// Redirect GitHub API calls to our mock server
-					req.URL.Scheme = "http"
-					req.URL.Host = server.Listener.Addr().String()
-					return http.DefaultTransport.RoundTrip(req)
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(fmt.Sprintf(`{"tag_name": %q}`, tt.tag))),
+					}, nil
 				}),
 			}
 
@@ -1288,122 +1122,6 @@ func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 
 func TestInstaller_ResolveHTTPText(t *testing.T) {
 	t.Parallel()
-
-	t.Run("success with capture group", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("go1.26.0\ngo1.25.6\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^go(.+)", server.URL)
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-	})
-
-	t.Run("success without capture group", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("v2.1.4\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:v[0-9.]+", server.URL)
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "v2.1.4", version)
-	})
-
-	t.Run("match on non-first line", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			// Header lines before the version
-			_, _ = w.Write([]byte("# Latest release\nDate: 2026-02-19\nversion=3.14.0\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^version=(.+)", server.URL)
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "3.14.0", version)
-	})
-
-	t.Run("URL with query parameters", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Verify the query parameter arrived
-			assert.Equal(t, "text", r.URL.Query().Get("m"))
-			_, _ = w.Write([]byte("go1.26.0\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		// Real-world pattern: go.dev/VERSION?m=text
-		cmd := fmt.Sprintf("http-text:%s/VERSION?m=text:^go(.+)", server.URL)
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-	})
-
-	t.Run("first match wins among multiple matches", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("release-1.0.0\nrelease-2.0.0\nrelease-3.0.0\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^release-(.+)", server.URL)
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "1.0.0", version, "should return first match, not last")
-	})
-
-	t.Run("empty body", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			// 200 OK with empty body
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^go(.+)", server.URL)
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no match")
-	})
-
-	t.Run("no match", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("no version here\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^go(.+)", server.URL)
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no match")
-	})
 
 	t.Run("invalid regex", func(t *testing.T) {
 		t.Parallel()
@@ -1437,65 +1155,6 @@ func TestInstaller_ResolveHTTPText(t *testing.T) {
 		_, err := installer.resolveHTTPText(context.Background(), cmd)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "expected http-text:<URL>:<regex>")
-	})
-
-	t.Run("server error", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^go(.+)", server.URL)
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "status 500")
-	})
-
-	t.Run("404 not found", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := fmt.Sprintf("http-text:%s:^v(.+)", server.URL)
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "status 404")
-	})
-
-	t.Run("uses custom httpClient when set", func(t *testing.T) {
-		t.Parallel()
-		var gotRequest atomic.Bool
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			gotRequest.Store(true)
-			_, _ = w.Write([]byte("v1.0.0\n"))
-		}))
-		defer server.Close()
-
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-		installer.httpClient = &http.Client{
-			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-				// Redirect to mock server
-				req.URL.Scheme = "http"
-				req.URL.Host = server.Listener.Addr().String()
-				return http.DefaultTransport.RoundTrip(req)
-			}),
-		}
-
-		cmd := "http-text:http://redirected.example.com/version:^v(.+)"
-		version, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.NoError(t, err)
-		assert.Equal(t, "1.0.0", version)
-		assert.True(t, gotRequest.Load())
 	})
 }
 
@@ -1616,25 +1275,6 @@ func TestResolveVersionValue(t *testing.T) {
 		assert.Equal(t, resource.VersionAlias, kind)
 	})
 
-	t.Run("http-text dispatch for alias version", func(t *testing.T) {
-		t.Parallel()
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("go1.26.0\n"))
-		}))
-		defer server.Close()
-
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
-
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{fmt.Sprintf("http-text:%s:^go(.+)", server.URL)},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-		assert.Equal(t, resource.VersionAlias, kind)
-	})
-
 	t.Run("shell resolver returns empty error", func(t *testing.T) {
 		t.Parallel()
 		runner := &mockCommandRunner{captureResult: ""}
@@ -1667,41 +1307,32 @@ func TestResolveVersionValue(t *testing.T) {
 func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
 	t.Parallel()
 
+	binContent := []byte("#!/bin/sh\necho 'mock'\n")
+
 	t.Run("exact version skips resolution even with resolveVersion configured", func(t *testing.T) {
 		t.Parallel()
 		tmpDir := t.TempDir()
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		binContent := []byte("#!/bin/sh\necho 'mock'\n")
 		tarGzContent := createRuntimeTarGz(t, "myruntime", []mockBinary{
 			{name: "mybin", content: binContent},
 		})
 		archiveHash := sha256sum(tarGzContent)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch {
-			case strings.HasSuffix(r.URL.Path, ".tar.gz"):
-				_, _ = w.Write(tarGzContent)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}))
-		defer server.Close()
-
 		// Runner should NOT be called for version resolution
 		runner := &mockCommandRunner{
 			captureResult: "should-not-be-called",
 		}
-		downloader := download.NewDownloader()
-		installer := NewInstallerWithRunner(downloader, runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "1.26.0", // exact version
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-{{.Version}}.tar.gz",
+					URL: "https://example.com/myruntime-{{.Version}}.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1730,30 +1361,21 @@ func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		binContent := []byte("#!/bin/sh\necho 'mock'\n")
 		tarGzContent := createRuntimeTarGz(t, "exact-vrt", []mockBinary{
 			{name: "mybin", content: binContent},
 		})
 		archiveHash := sha256sum(tarGzContent)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, ".tar.gz") {
-				_, _ = w.Write(tarGzContent)
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer server.Close()
-
 		runner := &mockCommandRunner{captureResult: "should-not-be-called"}
-		installer := NewInstallerWithRunner(download.NewDownloader(), runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "v2.1.4", // v-prefixed exact
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/rt-{{.Version}}.tar.gz",
+					URL: "https://example.com/rt-{{.Version}}.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1778,30 +1400,21 @@ func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		binContent := []byte("#!/bin/sh\necho 'mock'\n")
 		tarGzContent := createRuntimeTarGz(t, "envrt", []mockBinary{
 			{name: "mybin", content: binContent},
 		})
 		archiveHash := sha256sum(tarGzContent)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, ".tar.gz") {
-				_, _ = w.Write(tarGzContent)
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer server.Close()
-
 		runner := &mockCommandRunner{}
-		installer := NewInstallerWithRunner(download.NewDownloader(), runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "1.26.0", // exact
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/rt-{{.Version}}.tar.gz",
+					URL: "https://example.com/rt-{{.Version}}.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1831,34 +1444,23 @@ func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
 		runtimesDir := filepath.Join(tmpDir, "runtimes")
 		binDir := filepath.Join(tmpDir, "bin")
 
-		binContent := []byte("#!/bin/sh\necho 'mock'\n")
 		tarGzContent := createRuntimeTarGz(t, "myruntime", []mockBinary{
 			{name: "mybin", content: binContent},
 		})
 		archiveHash := sha256sum(tarGzContent)
 
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch {
-			case strings.HasSuffix(r.URL.Path, ".tar.gz"):
-				_, _ = w.Write(tarGzContent)
-			default:
-				w.WriteHeader(http.StatusNotFound)
-			}
-		}))
-		defer server.Close()
-
 		runner := &mockCommandRunner{
 			captureResult: "1.26.0",
 		}
-		downloader := download.NewDownloader()
-		installer := NewInstallerWithRunner(downloader, runtimesDir, runner)
+		dl := &mockRuntimeDownloader{archiveData: tarGzContent}
+		installer := NewInstallerWithRunner(dl, runtimesDir, runner)
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:    resource.InstallTypeDownload,
 				Version: "latest", // alias version
 				Source: &resource.DownloadSource{
-					URL: server.URL + "/myruntime-1.26.0.tar.gz",
+					URL: "https://example.com/myruntime-1.26.0.tar.gz",
 					Checksum: &resource.Checksum{
 						Value: "sha256:" + archiveHash,
 					},
@@ -1878,66 +1480,6 @@ func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
 		assert.Equal(t, "latest", state.SpecVersion)
 		// Resolve command SHOULD have been called
 		require.Len(t, runner.captureCalls, 1, "resolve command should be called for alias versions")
-	})
-}
-
-func TestInstaller_Download_HTTPTextResolver(t *testing.T) {
-	t.Parallel()
-
-	binContent := []byte("#!/bin/sh\necho 'mock runtime'\n")
-	tarGzContent := createRuntimeTarGz(t, "httptext-rt", []mockBinary{
-		{name: "mybin", content: binContent},
-	})
-	archiveHash := sha256sum(tarGzContent)
-
-	t.Run("http-text resolver integration", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		runtimesDir := filepath.Join(tmpDir, "runtimes")
-		binDir := filepath.Join(tmpDir, "bin")
-
-		// Version endpoint
-		versionServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("go1.26.0\ngo1.25.6\n"))
-		}))
-		defer versionServer.Close()
-
-		// Archive endpoint
-		archiveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, ".tar.gz") {
-				_, _ = w.Write(tarGzContent)
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer archiveServer.Close()
-
-		downloader := download.NewDownloader()
-		installer := NewInstaller(downloader, runtimesDir)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:    resource.InstallTypeDownload,
-				Version: "latest",
-				Source: &resource.DownloadSource{
-					URL: archiveServer.URL + "/myruntime-1.26.0.tar.gz",
-					Checksum: &resource.Checksum{
-						Value: "sha256:" + archiveHash,
-					},
-				},
-				Binaries:       []string{"mybin"},
-				BinDir:         binDir,
-				ToolBinPath:    "~/myruntime/bin",
-				ResolveVersion: []string{fmt.Sprintf("http-text:%s:^go(.+)", versionServer.URL)},
-			},
-		}
-
-		state, err := installer.Install(context.Background(), rt, "myruntime")
-		require.NoError(t, err)
-
-		assert.Equal(t, "1.26.0", state.Version)
-		assert.Equal(t, resource.VersionAlias, state.VersionKind)
-		assert.Equal(t, "latest", state.SpecVersion)
 	})
 }
 
@@ -2097,4 +1639,130 @@ func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- mockCommandRunner ---
+
+type cmdCall struct {
+	cmds []string
+	vars command.Vars
+	env  map[string]string
+}
+
+type mockCommandRunner struct {
+	executeErr             error
+	executeWithOutputErr   error
+	captureResult          string
+	captureErr             error
+	checkResult            bool
+	executeWithEnvCalls    []cmdCall
+	executeWithOutputCalls []cmdCall
+	captureCalls           []cmdCall
+	checkCalls             []cmdCall
+}
+
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, env map[string]string) error {
+	m.executeWithEnvCalls = append(m.executeWithEnvCalls, cmdCall{cmds: cmds, vars: vars, env: env})
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error {
+	m.executeWithOutputCalls = append(m.executeWithOutputCalls, cmdCall{cmds: cmds, vars: vars, env: env})
+	if callback != nil {
+		callback("mock output line")
+	}
+	if m.executeWithOutputErr != nil {
+		return m.executeWithOutputErr
+	}
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error) {
+	m.captureCalls = append(m.captureCalls, cmdCall{cmds: cmds, vars: vars, env: env})
+	return m.captureResult, m.captureErr
+}
+
+func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, env map[string]string) bool {
+	m.checkCalls = append(m.checkCalls, cmdCall{cmds: cmds, vars: vars, env: env})
+	return m.checkResult
+}
+
+// Helper types and functions
+
+type mockBinary struct {
+	name    string
+	content []byte
+}
+
+// createRuntimeTarGz creates a tar.gz archive with a top-level directory containing binaries.
+func createRuntimeTarGz(t *testing.T, name string, binaries []mockBinary) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	// Create top-level directory
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     name + "/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}))
+
+	// Create bin directory
+	require.NoError(t, tw.WriteHeader(&tar.Header{
+		Name:     name + "/bin/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	}))
+
+	// Create binaries
+	for _, bin := range binaries {
+		hdr := &tar.Header{
+			Name: name + "/bin/" + bin.name,
+			Mode: 0755,
+			Size: int64(len(bin.content)),
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write(bin.content)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	return buf.Bytes()
+}
+
+func sha256sum(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// mockRuntimeDownloader records whether a progress callback was passed.
+type mockRuntimeDownloader struct {
+	archiveData          []byte
+	lastProgressCallback download.ProgressCallback
+}
+
+func (m *mockRuntimeDownloader) Download(_ context.Context, _, destPath string) (string, error) {
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockRuntimeDownloader) DownloadWithProgress(_ context.Context, _, destPath string, callback download.ProgressCallback) (string, error) {
+	m.lastProgressCallback = callback
+	if callback != nil {
+		callback(100, 200)
+	}
+	if err := os.WriteFile(destPath, m.archiveData, 0644); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+func (m *mockRuntimeDownloader) Verify(_ context.Context, _ string, _ *resource.Checksum) error {
+	return nil
 }
