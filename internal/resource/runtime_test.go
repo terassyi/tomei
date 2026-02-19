@@ -204,6 +204,28 @@ func TestRuntimeBootstrapSpec_UnmarshalJSON(t *testing.T) {
 			},
 		},
 		{
+			name: "update as bare string",
+			json: `{"install":"cmd1","update":"update-cmd","check":"check1"}`,
+			want: RuntimeBootstrapSpec{
+				CommandSet: CommandSet{
+					Install: []string{"cmd1"},
+					Check:   []string{"check1"},
+				},
+				Update: []string{"update-cmd"},
+			},
+		},
+		{
+			name: "update as array",
+			json: `{"install":["cmd1"],"update":["upd1","upd2"],"check":["check1"]}`,
+			want: RuntimeBootstrapSpec{
+				CommandSet: CommandSet{
+					Install: []string{"cmd1"},
+					Check:   []string{"check1"},
+				},
+				Update: []string{"upd1", "upd2"},
+			},
+		},
+		{
 			name: "without resolveVersion",
 			json: `{"install":"cmd1","check":"check1"}`,
 			want: RuntimeBootstrapSpec{

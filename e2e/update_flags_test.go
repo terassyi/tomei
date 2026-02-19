@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -38,6 +40,11 @@ func updateFlagsTests() {
 			Expect(output).To(ContainSubstring("1.0.0"))
 			// VersionKind should be alias (original spec was "stable")
 			Expect(output).To(ContainSubstring("alias"))
+
+			By("Checking marker file indicates install was used")
+			marker, err := testExec.ExecBash("cat /tmp/mock-rt/marker")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(marker)).To(Equal("installed"))
 		})
 
 		It("is idempotent", func() {
@@ -59,13 +66,18 @@ func updateFlagsTests() {
 			Expect(output).To(ContainSubstring("reinstall"))
 		})
 
-		It("reinstalls alias runtime via --update-runtimes", func() {
+		It("reinstalls alias runtime via --update-runtimes using update command", func() {
 			By("Applying with --update-runtimes")
 			output, err := ExecApply(testExec, "--update-runtimes", "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtime was reinstalled")
 			Expect(output).To(ContainSubstring("mock-rt"))
+
+			By("Checking marker file indicates update command was used")
+			marker, err := testExec.ExecBash("cat /tmp/mock-rt/marker")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(marker)).To(Equal("updated"))
 		})
 
 		It("is idempotent after update", func() {
@@ -77,6 +89,11 @@ func updateFlagsTests() {
 	})
 
 	Context("--update-all", func() {
+		BeforeAll(func() {
+			By("Resetting marker file before update-all tests")
+			_, _ = testExec.ExecBash("echo installed > /tmp/mock-rt/marker")
+		})
+
 		It("shows plan with alias runtime reinstall", func() {
 			By("Running plan with --update-all")
 			output, err := testExec.Exec("tomei", "plan", "--update-all", "--no-color", "~/update-flags-test/")
@@ -87,13 +104,18 @@ func updateFlagsTests() {
 			Expect(output).To(ContainSubstring("reinstall"))
 		})
 
-		It("reinstalls alias runtime via --update-all", func() {
+		It("reinstalls alias runtime via --update-all using update command", func() {
 			By("Applying with --update-all")
 			output, err := ExecApply(testExec, "--update-all", "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking runtime was reinstalled")
 			Expect(output).To(ContainSubstring("mock-rt"))
+
+			By("Checking marker file indicates update command was used")
+			marker, err := testExec.ExecBash("cat /tmp/mock-rt/marker")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(marker)).To(Equal("updated"))
 		})
 
 		It("is idempotent after update-all", func() {

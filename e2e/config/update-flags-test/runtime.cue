@@ -14,7 +14,8 @@ mockRuntime: {
 		type:    "delegation"
 		version: _runtimeVersion
 		bootstrap: {
-			install: ["mkdir -p /tmp/mock-rt && echo 'mock-rt installed'"]
+			install: ["mkdir -p /tmp/mock-rt && echo installed > /tmp/mock-rt/marker"]
+			update: ["echo updated > /tmp/mock-rt/marker"]
 			check: ["test -d /tmp/mock-rt"]
 			remove: ["rm -rf /tmp/mock-rt"]
 			resolveVersion: ["echo 1.0.0"]

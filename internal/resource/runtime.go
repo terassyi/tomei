@@ -107,6 +107,11 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 type RuntimeBootstrapSpec struct {
 	CommandSet
 
+	// Update is an optional command to update the runtime in-place (e.g., "rustup update stable").
+	// When set and the action is upgrade or reinstall, this command is used instead of Install.
+	// This avoids re-running the full bootstrap installer for lightweight updates.
+	Update []string `json:"update,omitempty"`
+
 	// ResolveVersion is an optional command to resolve version aliases like "stable" or "latest".
 	// Should output the actual version number to stdout.
 	// Example: ["rustup check 2>/dev/null | grep -oP 'stable-.*?: \\K[0-9.]+' || echo ''"]
@@ -121,14 +126,16 @@ func (r *RuntimeBootstrapSpec) UnmarshalJSON(data []byte) error {
 	if err := r.CommandSet.UnmarshalJSON(data); err != nil {
 		return err
 	}
-	// Decode the additional ResolveVersion field.
+	// Decode the additional Update and ResolveVersion fields.
 	var extra struct {
+		Update         json.RawMessage `json:"update,omitempty"`
 		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
 	}
 	if err := json.Unmarshal(data, &extra); err != nil {
 		return err
 	}
 	return unmarshalStringFields([]stringField{
+		{"update", extra.Update, &r.Update},
 		{"resolveVersion", extra.ResolveVersion, &r.ResolveVersion},
 	})
 }

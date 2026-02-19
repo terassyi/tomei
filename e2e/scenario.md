@@ -24,7 +24,7 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 | CUE Ecosystem | 15 | tomei cue init, env CUE_REGISTRY, validate with cue.mod, scaffold, eval, export |
 | HTTP Text Resolver | 7 | http-text version resolution, exact version skip, idempotency |
-| Update Flags | 9 | --update-runtimes, --update-all plan/apply with alias-versioned delegation runtime |
+| Update Flags | 9 | --update-runtimes, --update-all plan/apply with alias-versioned delegation runtime, bootstrap.update command verification |
 
 ## Scenario Flow
 
@@ -1015,6 +1015,7 @@ Reduced manifest for removal test:
 - state.json records:
   - Runtime/mock-rt with `versionKind: "alias"` and `specVersion: "stable"`
   - Resolved version: "1.0.0" (from `resolveVersion: ["echo 1.0.0"]`)
+- Marker file `/tmp/mock-rt/marker` contains "installed" (bootstrap.install was used)
 
 #### Idempotency
 - Second `tomei apply ~/update-flags-test/` outputs "total_actions=0"
@@ -1030,8 +1031,9 @@ Reduced manifest for removal test:
 #### Apply
 1. Run `tomei apply --update-runtimes ~/update-flags-test/`
 2. Verify:
-   - Runtime is reinstalled (re-executes delegation bootstrap)
+   - Runtime is reinstalled using bootstrap.update command (not bootstrap.install)
    - Output contains "mock-rt"
+   - Marker file `/tmp/mock-rt/marker` contains "updated"
 
 #### Idempotency After Update
 - `tomei apply ~/update-flags-test/` outputs "total_actions=0"
@@ -1049,6 +1051,7 @@ Reduced manifest for removal test:
 2. Verify:
    - Both runtime and tool are processed
    - Output contains "mock-rt"
+   - Marker file `/tmp/mock-rt/marker` contains "updated" (bootstrap.update was used)
 
 #### Idempotency After Update All
 - `tomei apply ~/update-flags-test/` outputs "total_actions=0"
@@ -1059,7 +1062,8 @@ Reduced manifest for removal test:
 Mock delegation runtime:
 - Version: "stable" (alias)
 - ResolveVersion: `echo 1.0.0`
-- Bootstrap: creates /tmp/mock-rt directory
+- Bootstrap install: creates /tmp/mock-rt directory, writes "installed" to marker file
+- Bootstrap update: writes "updated" to marker file (lightweight update path)
 
 ### `e2e/config/update-flags-test/tool.cue`
 Mock tool:

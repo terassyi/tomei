@@ -23,6 +23,7 @@ import "tomei.terassyi.net/schema"
 		version: string | *"stable"
 		bootstrap: {
 			install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"]
+			update: ["\(_cargoBin)/rustup update {{.Version}}"]
 			check: ["\(_cargoBin)/rustc --version"]
 			remove: ["\(_cargoBin)/rustup self uninstall -y"]
 			resolveVersion: ["\(_cargoBin)/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]

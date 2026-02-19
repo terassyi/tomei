@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -453,6 +454,146 @@ func TestInstaller_Install(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "source.url is required")
 	})
+}
+
+func TestInstaller_DelegationUpdateCommand(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		update   []string
+		action   resource.ActionType
+		wantCmds []string
+	}{
+		{
+			name:     "ActionInstall uses install even with update configured",
+			update:   []string{"update-cmd {{.Version}}"},
+			action:   resource.ActionInstall,
+			wantCmds: []string{"install-cmd {{.Version}}"},
+		},
+		{
+			name:     "ActionUpgrade uses update when configured",
+			update:   []string{"update-cmd {{.Version}}"},
+			action:   resource.ActionUpgrade,
+			wantCmds: []string{"update-cmd {{.Version}}"},
+		},
+		{
+			name:     "ActionReinstall uses update when configured",
+			update:   []string{"update-cmd {{.Version}}"},
+			action:   resource.ActionReinstall,
+			wantCmds: []string{"update-cmd {{.Version}}"},
+		},
+		{
+			name:     "ActionUpgrade falls back to install without update",
+			update:   nil,
+			action:   resource.ActionUpgrade,
+			wantCmds: []string{"install-cmd {{.Version}}"},
+		},
+		{
+			name:     "zero-value action defaults to install",
+			update:   []string{"update-cmd {{.Version}}"},
+			action:   "",
+			wantCmds: []string{"install-cmd {{.Version}}"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			binDir := filepath.Join(tmpDir, "bin")
+
+			runner := &mockCommandRunner{
+				checkResult: true,
+			}
+			installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+			rt := &resource.Runtime{
+				RuntimeSpec: &resource.RuntimeSpec{
+					Type:        resource.InstallTypeDelegation,
+					Version:     "1.0.0",
+					ToolBinPath: binDir,
+					Bootstrap: &resource.RuntimeBootstrapSpec{
+						CommandSet: resource.CommandSet{
+							Install: []string{"install-cmd {{.Version}}"},
+							Check:   []string{"check-cmd"},
+						},
+						Update: tt.update,
+					},
+				},
+			}
+
+			ctx := context.Background()
+			if tt.action != "" {
+				ctx = executor.WithAction(ctx, tt.action)
+			}
+
+			state, err := installer.Install(ctx, rt, "mock")
+			require.NoError(t, err)
+
+			assert.Equal(t, resource.InstallTypeDelegation, state.Type)
+			assert.Equal(t, "1.0.0", state.Version)
+
+			// Verify the correct command was executed
+			require.Len(t, runner.executeWithEnvCalls, 1)
+			assert.Equal(t, tt.wantCmds, runner.executeWithEnvCalls[0].cmds)
+		})
+	}
+}
+
+func TestInstaller_DelegationUpdateCommand_ErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		update    []string
+		action    resource.ActionType
+		wantError string
+	}{
+		{
+			name:      "install error says bootstrap install",
+			action:    resource.ActionInstall,
+			wantError: "bootstrap install failed",
+		},
+		{
+			name:      "update error says bootstrap update",
+			update:    []string{"update-cmd"},
+			action:    resource.ActionUpgrade,
+			wantError: "bootstrap update failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+
+			runner := &mockCommandRunner{
+				executeErr: fmt.Errorf("command failed"),
+			}
+			installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+			rt := &resource.Runtime{
+				RuntimeSpec: &resource.RuntimeSpec{
+					Type:        resource.InstallTypeDelegation,
+					Version:     "1.0.0",
+					ToolBinPath: filepath.Join(tmpDir, "bin"),
+					Bootstrap: &resource.RuntimeBootstrapSpec{
+						CommandSet: resource.CommandSet{
+							Install: []string{"install-cmd"},
+							Check:   []string{"check-cmd"},
+						},
+						Update: tt.update,
+					},
+				},
+			}
+
+			ctx := executor.WithAction(context.Background(), tt.action)
+			_, err := installer.Install(ctx, rt, "mock")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantError)
+		})
+	}
 }
 
 func TestInstaller_Remove(t *testing.T) {

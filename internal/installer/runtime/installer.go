@@ -19,6 +19,7 @@ import (
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/extract"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
@@ -540,16 +541,25 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		}
 	}
 
-	// Execute bootstrap install command
+	// Select bootstrap command: use update if available and action is upgrade/reinstall
+	cmds := spec.Bootstrap.Install
+	errAction := "install"
+	action := executor.ActionFromContext(ctx)
+	if (action == resource.ActionUpgrade || action == resource.ActionReinstall) && len(spec.Bootstrap.Update) > 0 {
+		cmds = spec.Bootstrap.Update
+		errAction = "update"
+	}
+
+	// Execute bootstrap command
 	vars := command.Vars{Version: resolvedVersion}
 	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
 	if outputCb != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, spec.Bootstrap.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
-			return nil, fmt.Errorf("bootstrap install failed: %w", err)
+		if err := i.cmdExecutor.ExecuteWithOutput(ctx, cmds, vars, env, command.OutputCallback(outputCb)); err != nil {
+			return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
 		}
 	} else {
-		if err := i.cmdExecutor.ExecuteWithEnv(ctx, spec.Bootstrap.Install, vars, env); err != nil {
-			return nil, fmt.Errorf("bootstrap install failed: %w", err)
+		if err := i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env); err != nil {
+			return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
 		}
 	}
 

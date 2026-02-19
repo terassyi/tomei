@@ -28,6 +28,12 @@ import "tomei.terassyi.net/schema"
 				"export PATH=$PNPM_HOME:$PATH",
 				"$PNPM_HOME/pnpm env use --global lts",
 			]
+			update: [
+				"export PNPM_HOME=$HOME/.local/share/pnpm",
+				"export PATH=$PNPM_HOME:$PATH",
+				"$PNPM_HOME/pnpm self-update{{if ne .Version \"latest\"}} {{.Version}}{{end}}",
+				"$PNPM_HOME/pnpm env use --global lts",
+			]
 			check: ["\(_pnpm) --version"]
 			remove: ["rm -rf \(_pnpmHome)"]
 			resolveVersion: ["\(_pnpm) --version 2>/dev/null || echo ''"]

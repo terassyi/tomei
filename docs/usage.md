@@ -179,8 +179,8 @@ tomei apply <files or directories...> [flags]
 | `--yes`, `-y` | Skip confirmation prompt |
 | `--sync` | Sync aqua registry to latest version before applying |
 | `--update-tools` | Update tools with non-exact versions (latest + alias) to latest |
-| `--update-runtimes` | Update runtimes with non-exact versions (latest + alias) to latest |
-| `--update-all` | Update all tools and runtimes with non-exact versions |
+| `--update-runtimes` | Update runtimes with non-exact versions (latest + alias) to latest. Delegation runtimes with `bootstrap.update` use the lightweight update command instead of re-running the full bootstrap installer |
+| `--update-all` | Update all tools and runtimes with non-exact versions. Same lightweight update behavior as `--update-runtimes` for delegation runtimes |
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
