@@ -3,12 +3,20 @@ package bun
 import "tomei.terassyi.net/schema"
 
 // #BunRuntime declares a Bun runtime installed from GitHub releases.
-// User provides spec.version and platform.
+// When spec.version is set to an exact version string (e.g., "1.2.21"),
+// the resolveVersion step is skipped and the version is used as-is.
+// When spec.version is omitted (defaults to "latest"), the latest
+// version is automatically resolved from GitHub releases.
 //
-// Usage:
+// Usage (pinned):
 //   bunRuntime: #BunRuntime & {
 //       platform: { os: _os, arch: _arch }
 //       spec: version: "1.2.21"
+//   }
+//
+// Usage (latest):
+//   bunRuntime: #BunRuntime & {
+//       platform: { os: _os, arch: _arch }
 //   }
 #BunRuntime: schema.#Runtime & {
 	let _binDir = "~/.bun/bin"
@@ -33,9 +41,10 @@ import "tomei.terassyi.net/schema"
 	}
 	spec: {
 		type:    "download"
-		version: string & !=""
+		version: string | *"latest"
+		resolveVersion: ["github-release:oven-sh/bun:bun-v"]
 		source: {
-			url:         "https://github.com/oven-sh/bun/releases/download/bun-v\(spec.version)/\(_target).zip"
+			url:         "https://github.com/oven-sh/bun/releases/download/bun-v{{.Version}}/\(_target).zip"
 			archiveType: "zip"
 		}
 		binaries: ["bun"]

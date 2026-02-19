@@ -39,6 +39,7 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Schema Management", schemaManagementTests)
 	Context("State Backup and Diff", stateBackupDiffTests)
 	Context("ToolSet", toolsetTests)
+	Context("HTTP Text Resolver", httpTextTests)
 	Context("Aqua Registry", registryTests)
 	Context("Delegation Runtime", delegationTests)
 	Context("Installer Repository", installerRepositoryTests)

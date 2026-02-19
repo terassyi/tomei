@@ -476,6 +476,204 @@ exactTool: {
 	assert.False(t, names["exact-tool"], "exact-tool should not be tainted")
 }
 
+// TestEngine_DownloadRuntime_ResolveVersion tests that a download runtime with
+// resolveVersion produces VersionAlias state and responds to --update-runtimes.
+func TestEngine_DownloadRuntime_ResolveVersion(t *testing.T) {
+	env := setupUpdateFlagsTest(t)
+
+	// Manifest: download runtime with resolveVersion + dependent tool
+	cueContent := `package tomei
+
+goRuntime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "latest"
+		resolveVersion: ["echo 1.25.6"]
+		source: { url: "https://example.com/go.tar.gz" }
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: {
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
+		}
+		taintOnUpgrade: true
+	}
+}
+
+gopls: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.16.0"
+	}
+}
+`
+	env.writeManifest(t, "resources.cue", cueContent)
+	resources := env.loadResources(t)
+
+	// Pre-populate state: runtime with alias version kind, already resolved to 1.25.6
+	initialState := state.NewUserState()
+	initialState.Runtimes["go"] = &resource.RuntimeState{
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.6",
+		VersionKind:    resource.VersionAlias,
+		SpecVersion:    "latest",
+		InstallPath:    "/mock/runtimes/go/1.25.6",
+		Binaries:       []string{"go", "gofmt"},
+		ToolBinPath:    "~/go/bin",
+		TaintOnUpgrade: true,
+	}
+	initialState.Tools["gopls"] = &resource.ToolState{
+		RuntimeRef: "go",
+		Version:    "v0.16.0",
+		BinPath:    "/mock/bin/gopls",
+	}
+	env.populateState(t, initialState)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	// Runtime installer returns same version (simulating re-resolution returning same result)
+	mockRuntime.installFunc = func(_ context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+		return &resource.RuntimeState{
+			Type:           res.RuntimeSpec.Type,
+			Version:        "1.25.6", // same version
+			VersionKind:    resource.VersionAlias,
+			SpecVersion:    "latest",
+			InstallPath:    filepath.Join("/mock/runtimes", name, "1.25.6"),
+			Binaries:       res.RuntimeSpec.Binaries,
+			ToolBinPath:    res.RuntimeSpec.ToolBinPath,
+			Commands:       res.RuntimeSpec.Commands,
+			TaintOnUpgrade: res.RuntimeSpec.TaintOnUpgrade,
+		}, nil
+	}
+
+	ctx := context.Background()
+
+	// Without --update-runtimes: no actions (alias matches specVersion)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	assert.Empty(t, runtimeActions, "expected no runtime actions without --update-runtimes")
+	assert.Empty(t, toolActions, "expected no tool actions")
+
+	// With --update-runtimes: should taint download runtime with VersionAlias
+	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	engWithUpdate.SetUpdateRuntimes(true)
+
+	runtimeActions, _, _, err = engWithUpdate.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	require.Len(t, runtimeActions, 1, "expected 1 runtime action for go")
+	assert.Equal(t, "go", runtimeActions[0].Name)
+	assert.Equal(t, resource.ActionUpgrade, runtimeActions[0].Type)
+}
+
+// TestEngine_DownloadRuntime_ResolveVersion_NoCascadeOnSameVersion tests that
+// --update-runtimes on a download runtime with resolveVersion does NOT cascade
+// to tools when the resolved version is unchanged.
+func TestEngine_DownloadRuntime_ResolveVersion_NoCascadeOnSameVersion(t *testing.T) {
+	env := setupUpdateFlagsTest(t)
+
+	cueContent := `package tomei
+
+goRuntime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "download"
+		version: "latest"
+		resolveVersion: ["echo 1.25.6"]
+		source: { url: "https://example.com/go.tar.gz" }
+		binaries: ["go", "gofmt"]
+		toolBinPath: "~/go/bin"
+		commands: {
+			install: ["go install {{.Package}}@{{.Version}}"]
+			remove: ["rm -f {{.BinPath}}"]
+		}
+		taintOnUpgrade: true
+	}
+}
+
+gopls: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "gopls"
+	spec: {
+		runtimeRef: "go"
+		package: "golang.org/x/tools/gopls"
+		version: "v0.16.0"
+	}
+}
+`
+	env.writeManifest(t, "resources.cue", cueContent)
+	resources := env.loadResources(t)
+
+	initialState := state.NewUserState()
+	initialState.Runtimes["go"] = &resource.RuntimeState{
+		Type:           resource.InstallTypeDownload,
+		Version:        "1.25.6",
+		VersionKind:    resource.VersionAlias,
+		SpecVersion:    "latest",
+		InstallPath:    "/mock/runtimes/go/1.25.6",
+		Binaries:       []string{"go", "gofmt"},
+		ToolBinPath:    "~/go/bin",
+		TaintOnUpgrade: true,
+	}
+	initialState.Tools["gopls"] = &resource.ToolState{
+		RuntimeRef: "go",
+		Version:    "v0.16.0",
+		BinPath:    "/mock/bin/gopls",
+	}
+	env.populateState(t, initialState)
+
+	toolInstallCount := 0
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+		toolInstallCount++
+		return &resource.ToolState{
+			RuntimeRef: res.ToolSpec.RuntimeRef,
+			Package:    res.ToolSpec.Package,
+			Version:    res.ToolSpec.Version,
+			BinPath:    filepath.Join("/mock/bin", name),
+		}, nil
+	}
+
+	// Runtime installer returns same version (no actual upgrade)
+	mockRuntime := newMockRuntimeInstaller()
+	mockRuntime.installFunc = func(_ context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+		return &resource.RuntimeState{
+			Type:           res.RuntimeSpec.Type,
+			Version:        "1.25.6", // same version
+			VersionKind:    resource.VersionAlias,
+			SpecVersion:    "latest",
+			InstallPath:    filepath.Join("/mock/runtimes", name, "1.25.6"),
+			Binaries:       res.RuntimeSpec.Binaries,
+			ToolBinPath:    res.RuntimeSpec.ToolBinPath,
+			Commands:       res.RuntimeSpec.Commands,
+			TaintOnUpgrade: res.RuntimeSpec.TaintOnUpgrade,
+		}, nil
+	}
+
+	ctx := context.Background()
+
+	// Apply with --update-runtimes; runtime re-resolved to same version
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	eng.SetUpdateRuntimes(true)
+
+	err := eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Tool should NOT be reinstalled (version unchanged → no cascade)
+	assert.Equal(t, 0, toolInstallCount,
+		"expected no tool reinstallation when download runtime resolves to same version")
+}
+
 // TestEngine_UpdateAll_TaintsBothToolsAndRuntimes tests the --update-all
 // behavior: both non-exact tools and runtimes are tainted.
 func TestEngine_UpdateAll_TaintsBothToolsAndRuntimes(t *testing.T) {

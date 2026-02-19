@@ -55,6 +55,37 @@ func TestRuntimeSpec_UnmarshalJSON(t *testing.T) {
 			},
 		},
 		{
+			name: "resolveVersion as array",
+			json: `{"type":"download","version":"latest","toolBinPath":"~/bin","resolveVersion":["curl -sL https://go.dev/VERSION"]}`,
+			want: RuntimeSpec{
+				Type:           InstallTypeDownload,
+				Version:        "latest",
+				ToolBinPath:    "~/bin",
+				ResolveVersion: []string{"curl -sL https://go.dev/VERSION"},
+			},
+		},
+		{
+			name: "resolveVersion as bare string",
+			json: `{"type":"download","version":"latest","toolBinPath":"~/bin","resolveVersion":"github-release:oven-sh/bun:bun-v"}`,
+			want: RuntimeSpec{
+				Type:           InstallTypeDownload,
+				Version:        "latest",
+				ToolBinPath:    "~/bin",
+				ResolveVersion: []string{"github-release:oven-sh/bun:bun-v"},
+			},
+		},
+		{
+			name: "resolveVersion with binaries",
+			json: `{"type":"download","version":"latest","toolBinPath":"~/bin","binaries":["go","gofmt"],"resolveVersion":["echo 1.25.6"]}`,
+			want: RuntimeSpec{
+				Type:           InstallTypeDownload,
+				Version:        "latest",
+				ToolBinPath:    "~/bin",
+				Binaries:       []string{"go", "gofmt"},
+				ResolveVersion: []string{"echo 1.25.6"},
+			},
+		},
+		{
 			name:    "invalid JSON",
 			json:    `{bad}`,
 			wantErr: true,

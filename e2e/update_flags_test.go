@@ -44,7 +44,7 @@ func updateFlagsTests() {
 			By("Running apply again without update flags")
 			output, err := ExecApply(testExec, "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("total_actions=0"))
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 	})
 
@@ -72,7 +72,7 @@ func updateFlagsTests() {
 			By("Running apply without update flags")
 			output, err := ExecApply(testExec, "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("total_actions=0"))
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 	})
 
@@ -100,7 +100,7 @@ func updateFlagsTests() {
 			By("Running apply without update flags")
 			output, err := ExecApply(testExec, "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
-			Expect(output).To(ContainSubstring("total_actions=0"))
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 	})
 

@@ -1,14 +1,22 @@
 package runtime
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
+	"text/template"
 	"time"
 
 	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/extract"
@@ -29,6 +37,7 @@ type CommandRunner interface {
 type Installer struct {
 	downloader       download.Downloader
 	cmdExecutor      CommandRunner
+	httpClient       *http.Client
 	runtimesDir      string
 	progressCallback download.ProgressCallback
 }
@@ -80,12 +89,40 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 		return nil, fmt.Errorf("source.url is required for download pattern")
 	}
 
-	// Calculate install path
-	installPath := filepath.Join(i.runtimesDir, name, spec.Version)
+	// Resolve version if configured
+	resolvedVersion, versionKind, err := i.resolveVersionValue(ctx, spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve version: %w", err)
+	}
+
+	// Expand {{.Version}} templates in URL
+	sourceURL, err := expandVersionTemplate(spec.Source.URL, resolvedVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand source URL template: %w", err)
+	}
+
+	// Expand {{.Version}} in checksum URL if present
+	var checksumSpec *resource.Checksum
+	if spec.Source.Checksum != nil {
+		checksumSpec = &resource.Checksum{
+			Value:       spec.Source.Checksum.Value,
+			FilePattern: spec.Source.Checksum.FilePattern,
+		}
+		if spec.Source.Checksum.URL != "" {
+			checksumURL, err := expandVersionTemplate(spec.Source.Checksum.URL, resolvedVersion)
+			if err != nil {
+				return nil, fmt.Errorf("failed to expand checksum URL template: %w", err)
+			}
+			checksumSpec.URL = checksumURL
+		}
+	}
+
+	// Calculate install path using resolved version
+	installPath := filepath.Join(i.runtimesDir, name, resolvedVersion)
 
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
-		slog.Debug("runtime already installed, rebuilding symlinks", "name", name, "version", spec.Version)
+		slog.Debug("runtime already installed, rebuilding symlinks", "name", name, "version", resolvedVersion)
 		binDir, err := i.resolveBinDir(spec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
@@ -95,7 +132,7 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 				return nil, fmt.Errorf("failed to rebuild symlinks: %w", err)
 			}
 		}
-		return i.buildState(spec, installPath, binDir), nil
+		return i.buildStateResolved(spec, installPath, binDir, resolvedVersion, versionKind), nil
 	}
 
 	// Download
@@ -105,29 +142,29 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 	}
 	defer os.RemoveAll(tmpDir)
 
-	urlFilename := filepath.Base(spec.Source.URL)
+	urlFilename := filepath.Base(sourceURL)
 	archivePath := filepath.Join(tmpDir, urlFilename)
 	// Prefer context callback for parallel execution
 	progressCb := download.CallbackFromContext[download.ProgressCallback](ctx)
 	if progressCb == nil {
 		progressCb = i.progressCallback
 	}
-	_, err = i.downloader.DownloadWithProgress(ctx, spec.Source.URL, archivePath, progressCb)
+	_, err = i.downloader.DownloadWithProgress(ctx, sourceURL, archivePath, progressCb)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download: %w", err)
 	}
 
 	// Verify checksum
-	if err := i.downloader.Verify(ctx, archivePath, spec.Source.Checksum); err != nil {
+	if err := i.downloader.Verify(ctx, archivePath, checksumSpec); err != nil {
 		return nil, fmt.Errorf("failed to verify checksum: %w", err)
 	}
 
 	// Determine archive type
 	archiveType := spec.Source.ArchiveType
 	if archiveType == "" {
-		archiveType = extract.DetectArchiveType(spec.Source.URL)
+		archiveType = extract.DetectArchiveType(sourceURL)
 		if archiveType == "" {
-			return nil, fmt.Errorf("cannot determine archive type from URL: %s", spec.Source.URL)
+			return nil, fmt.Errorf("cannot determine archive type from URL: %s", sourceURL)
 		}
 		slog.Debug("auto-detected archive type", "type", archiveType)
 	}
@@ -179,9 +216,9 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 		}
 	}
 
-	slog.Debug("runtime installed successfully", "name", name, "version", spec.Version, "path", installPath)
+	slog.Debug("runtime installed successfully", "name", name, "version", resolvedVersion, "path", installPath)
 
-	return i.buildState(spec, installPath, binDir), nil
+	return i.buildStateResolved(spec, installPath, binDir, resolvedVersion, versionKind), nil
 }
 
 // Remove removes an installed runtime.
@@ -230,8 +267,8 @@ func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeSt
 	return nil
 }
 
-// buildState creates a RuntimeState from the installation.
-func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir string) *resource.RuntimeState {
+// buildStateResolved creates a RuntimeState with explicit resolved version and version kind.
+func (i *Installer) buildStateResolved(spec *resource.RuntimeSpec, installPath, binDir, resolvedVersion string, versionKind resource.VersionKind) *resource.RuntimeState {
 	digest := ""
 	if spec.Source != nil && spec.Source.Checksum != nil {
 		digest = checksum.ExtractHash(spec.Source.Checksum)
@@ -243,20 +280,24 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 		toolBinPath = expanded
 	}
 
-	// Expand ~ in env values
+	// Expand {{.Version}} templates in env values, then expand ~
 	env := make(map[string]string)
 	for k, v := range spec.Env {
-		if expanded, err := path.Expand(v); err == nil {
-			env[k] = expanded
+		expanded, err := expandVersionTemplate(v, resolvedVersion)
+		if err != nil {
+			expanded = v
+		}
+		if pathExpanded, err := path.Expand(expanded); err == nil {
+			env[k] = pathExpanded
 		} else {
-			env[k] = v
+			env[k] = expanded
 		}
 	}
 
 	return &resource.RuntimeState{
 		Type:           spec.Type,
-		Version:        spec.Version,
-		VersionKind:    resource.ClassifyVersion(spec.Version),
+		Version:        resolvedVersion,
+		VersionKind:    versionKind,
 		SpecVersion:    spec.Version,
 		Digest:         digest,
 		InstallPath:    installPath,
@@ -268,6 +309,196 @@ func (i *Installer) buildState(spec *resource.RuntimeSpec, installPath, binDir s
 		TaintOnUpgrade: spec.TaintOnUpgrade,
 		UpdatedAt:      time.Now(),
 	}
+}
+
+// resolveVersionValue resolves the runtime version using resolveVersion commands.
+// If resolveVersion is not configured or the version is an exact version number,
+// returns the spec version as-is.
+// Supports "github-release:owner/repo:tagPrefix" and "http-text:URL:regex"
+// built-in syntaxes, and shell commands as fallback.
+func (i *Installer) resolveVersionValue(ctx context.Context, spec *resource.RuntimeSpec) (string, resource.VersionKind, error) {
+	// No resolveVersion configured — use spec version directly
+	if len(spec.ResolveVersion) == 0 {
+		return spec.Version, resource.ClassifyVersion(spec.Version), nil
+	}
+
+	// Exact version specified — skip resolution even if resolveVersion is configured
+	if resource.IsExactVersion(spec.Version) {
+		return spec.Version, resource.VersionExact, nil
+	}
+
+	cmd := spec.ResolveVersion[0]
+
+	// Built-in GitHub release resolver
+	if strings.HasPrefix(cmd, "github-release:") {
+		version, err := i.resolveGitHubRelease(ctx, cmd)
+		if err != nil {
+			return "", "", err
+		}
+		return version, resource.VersionAlias, nil
+	}
+
+	// Built-in HTTP text resolver
+	if strings.HasPrefix(cmd, "http-text:") {
+		version, err := i.resolveHTTPText(ctx, cmd)
+		if err != nil {
+			return "", "", err
+		}
+		return version, resource.VersionAlias, nil
+	}
+
+	// Shell command fallback
+	slog.Debug("resolving version via command", "command", cmd)
+	version, err := i.cmdExecutor.ExecuteCapture(ctx, spec.ResolveVersion, command.Vars{Version: spec.Version}, nil)
+	if err != nil {
+		return "", "", err
+	}
+	if version == "" {
+		return "", "", fmt.Errorf("resolveVersion command returned empty result")
+	}
+
+	slog.Debug("version resolved via command", "resolved", version)
+	return version, resource.VersionAlias, nil
+}
+
+// resolveGitHubRelease parses "github-release:owner/repo:tagPrefix" and fetches the latest release.
+func (i *Installer) resolveGitHubRelease(ctx context.Context, cmd string) (string, error) {
+	// Parse "github-release:owner/repo:tagPrefix"
+	rest := strings.TrimPrefix(cmd, "github-release:")
+	parts := strings.SplitN(rest, ":", 2)
+
+	ownerRepo := parts[0]
+	tagPrefix := ""
+	if len(parts) == 2 {
+		tagPrefix = parts[1]
+	}
+
+	owner, repo, ok := strings.Cut(ownerRepo, "/")
+	if !ok || owner == "" || repo == "" {
+		return "", fmt.Errorf("invalid github-release format %q: expected github-release:owner/repo[:tagPrefix]", cmd)
+	}
+
+	client := i.httpClient
+	if client == nil {
+		client = github.NewHTTPClient(github.TokenFromEnv())
+	}
+
+	slog.Debug("resolving version via GitHub release", "owner", owner, "repo", repo, "tagPrefix", tagPrefix)
+	version, err := github.GetLatestRelease(ctx, client, owner, repo, tagPrefix)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve GitHub release: %w", err)
+	}
+	if version == "" {
+		return "", fmt.Errorf("GitHub release returned empty version for %s/%s", owner, repo)
+	}
+
+	slog.Debug("version resolved via GitHub release", "owner", owner, "repo", repo, "version", version)
+	return version, nil
+}
+
+// resolveHTTPText parses "http-text:<URL>:<regex>" and fetches the URL,
+// then applies the regex to extract a version from the response body.
+// The URL and regex are separated by the last ":" after the "://" scheme separator.
+func (i *Installer) resolveHTTPText(ctx context.Context, cmd string) (string, error) {
+	// Strip the "http-text:" prefix
+	rest := strings.TrimPrefix(cmd, "http-text:")
+
+	// Find the scheme separator "://" to avoid splitting on it
+	schemeIdx := strings.Index(rest, "://")
+	if schemeIdx < 0 {
+		return "", fmt.Errorf("invalid http-text format %q: missing ://", cmd)
+	}
+
+	// Find the last ":" after the scheme — this separates URL from regex
+	afterScheme := rest[schemeIdx+3:]
+	lastColon := strings.LastIndex(afterScheme, ":")
+	if lastColon < 0 {
+		return "", fmt.Errorf("invalid http-text format %q: expected http-text:<URL>:<regex>", cmd)
+	}
+
+	url := rest[:schemeIdx+3+lastColon]
+	pattern := afterScheme[lastColon+1:]
+
+	if url == "" || pattern == "" {
+		return "", fmt.Errorf("invalid http-text format %q: URL and regex must not be empty", cmd)
+	}
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid http-text regex %q: %w", pattern, err)
+	}
+
+	slog.Debug("resolving version via http-text", "url", url, "regex", pattern)
+
+	client := i.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("http-text: %s returned status %d", url, resp.StatusCode)
+	}
+
+	// Read body (limit to 1 MiB to prevent abuse)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Scan line by line for the first match
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	for scanner.Scan() {
+		line := scanner.Text()
+		m := re.FindStringSubmatch(line)
+		if m != nil {
+			if len(m) > 1 {
+				// Return first capture group
+				slog.Debug("version resolved via http-text", "version", m[1])
+				return m[1], nil
+			}
+			// No capture group — return full match
+			slog.Debug("version resolved via http-text", "version", m[0])
+			return m[0], nil
+		}
+	}
+
+	return "", fmt.Errorf("http-text: no match for regex %q in response from %s", pattern, url)
+}
+
+// versionVars holds template variables for version template expansion.
+type versionVars struct {
+	Version string
+}
+
+// expandVersionTemplate expands {{.Version}} in a template string.
+// If the string contains no template markers, it is returned as-is.
+func expandVersionTemplate(tmpl, version string) (string, error) {
+	if !strings.Contains(tmpl, "{{") {
+		return tmpl, nil
+	}
+
+	t, err := template.New("version").Parse(tmpl)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse version template %q: %w", tmpl, err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, versionVars{Version: version}); err != nil {
+		return "", fmt.Errorf("failed to execute version template: %w", err)
+	}
+
+	return buf.String(), nil
 }
 
 // installDelegation installs a runtime using the delegation pattern.

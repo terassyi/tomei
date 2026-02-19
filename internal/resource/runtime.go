@@ -68,6 +68,14 @@ type RuntimeSpec struct {
 	// this runtime will be reinstalled after a runtime version change.
 	// Default is false (opt-in). Presets for Go and Rust set this to true.
 	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
+
+	// ResolveVersion is an optional command to resolve version aliases for download-pattern runtimes.
+	// When set, the command is executed to resolve the actual version before downloading.
+	// Supports a built-in "github-release:owner/repo:tagPrefix" syntax for fetching
+	// the latest GitHub release tag, or arbitrary shell commands.
+	// Example: ["github-release:oven-sh/bun:bun-v"]
+	// Example: ["curl -sL https://go.dev/VERSION?m=text | head -1 | sed 's/^go//'"]
+	ResolveVersion []string `json:"resolveVersion,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -76,7 +84,8 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 	type Alias RuntimeSpec
 	var r struct {
 		Alias
-		Binaries json.RawMessage `json:"binaries,omitempty"`
+		Binaries       json.RawMessage `json:"binaries,omitempty"`
+		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
 	}
 	if err := json.Unmarshal(data, &r); err != nil {
 		return err
@@ -84,6 +93,7 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 	*s = RuntimeSpec(r.Alias)
 	return unmarshalStringFields([]stringField{
 		{"binaries", r.Binaries, &s.Binaries},
+		{"resolveVersion", r.ResolveVersion, &s.ResolveVersion},
 	})
 }
 

@@ -74,6 +74,7 @@ package schema
 		commands?: #CommandSet
 		env?: {[string]: string}
 		taintOnUpgrade?: bool
+		resolveVersion?: [...string]
 
 		// Conditional required fields
 		if type == "download" {

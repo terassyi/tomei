@@ -372,6 +372,46 @@ func Test_unmarshalStringOrSlice(t *testing.T) {
 	}
 }
 
+func TestIsExactVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		// Exact versions
+		{"exact semver", "1.26.0", true},
+		{"exact with v prefix", "v2.1.4", true},
+		{"exact minor", "0.10.2", true},
+		{"exact major only", "3", true},
+		{"exact zero version", "0.0.1", true},
+		{"exact with pre-release", "1.0.0-beta1", true},
+		{"exact with build metadata", "1.0.0+build.123", true},
+		{"exact v0", "v0", true},
+		{"exact two-part version", "1.25", true},
+		{"exact long version", "12.345.6789", true},
+
+		// Aliases / non-exact
+		{"alias latest", "latest", false},
+		{"alias stable", "stable", false},
+		{"alias lts", "lts", false},
+		{"alias nightly", "nightly", false},
+		{"alias beta", "beta", false},
+		{"empty string", "", false},
+		{"v prefix only", "v", false},
+		{"uppercase alias", "LATEST", false},
+		{"alias with hyphen", "release-candidate", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := IsExactVersion(tt.version)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestCommandSet_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
