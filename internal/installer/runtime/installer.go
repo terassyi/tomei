@@ -481,6 +481,10 @@ func (i *Installer) resolveHTTPText(ctx context.Context, cmd string) (string, er
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("failed to scan response body: %w", err)
+	}
+
 	return "", fmt.Errorf("http-text: no match for regex %q in response from %s", pattern, url)
 }
 

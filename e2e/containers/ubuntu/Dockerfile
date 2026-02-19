@@ -6,8 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     file \
     gcc \
-    libc6-dev \
-    python3
+    libc6-dev
 
 # Create test user
 RUN useradd -m -s /bin/bash testuser
@@ -57,9 +56,6 @@ COPY --chown=testuser:testuser config/tar-xz-test/ /home/testuser/tar-xz-test/
 
 # Copy update-flags-test manifests
 COPY --chown=testuser:testuser config/update-flags-test/ /home/testuser/update-flags-test/
-
-# Copy http-text-test manifests
-COPY --chown=testuser:testuser config/http-text-test/ /home/testuser/http-text-test/
 
 # Default command
 CMD ["tomei", "version"]

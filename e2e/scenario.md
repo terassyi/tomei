@@ -23,7 +23,6 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 | CUE Ecosystem | 15 | tomei cue init, env CUE_REGISTRY, validate with cue.mod, scaffold, eval, export |
-| HTTP Text Resolver | 7 | http-text version resolution, exact version skip, idempotency |
 | Update Flags | 9 | --update-runtimes, --update-all plan/apply with alias-versioned delegation runtime, bootstrap.update command verification |
 
 ## Scenario Flow
@@ -100,24 +99,16 @@ flowchart TD
         S5_1 --> S5_2 --> S5_2_1 --> S5_2_2 --> S5_3 --> S5_4 --> S5_5
     end
 
-    subgraph S6["6. HTTP Text Resolver"]
+    subgraph S6["6. Update Flags"]
         direction TB
-        S6_1["6.1 Alias Resolution<br/>http-text: version resolution from HTTP endpoint"]
-        S6_2["6.2 Exact Version Skip<br/>Exact version skips HTTP resolution"]
+        S6_1["6.1 Setup<br/>Mock delegation runtime (alias) + tool"]
+        S6_2["6.2 --update-runtimes<br/>Plan shows reinstall, apply reinstalls alias runtime"]
+        S6_3["6.3 --update-all<br/>Plan/apply reinstalls both runtime and tool"]
 
-        S6_1 --> S6_2
+        S6_1 --> S6_2 --> S6_3
     end
 
-    subgraph S7["7. Update Flags"]
-        direction TB
-        S7_1["7.1 Setup<br/>Mock delegation runtime (alias) + tool"]
-        S7_2["7.2 --update-runtimes<br/>Plan shows reinstall, apply reinstalls alias runtime"]
-        S7_3["7.3 --update-all<br/>Plan/apply reinstalls both runtime and tool"]
-
-        S7_1 --> S7_2 --> S7_3
-    end
-
-    S1 --> S1b --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
+    S1 --> S1b --> S2 --> S3 --> S4 --> S5 --> S6
 ```
 
 ### Dependency Graph Patterns
