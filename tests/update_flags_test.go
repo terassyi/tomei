@@ -117,7 +117,7 @@ exactTool: {
 
 	// With update flag: PlanAll should show update for latest-tool only
 	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engWithUpdate.SetUpdateTools(true)
+	engWithUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateTools: true})
 
 	runtimeActions, _, toolActions, err = engWithUpdate.PlanAll(ctx, resources)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ mockRuntime: {
 
 	// With --update-runtimes: should show update action
 	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engWithUpdate.SetUpdateRuntimes(true)
+	engWithUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateRuntimes: true})
 
 	runtimeActions, _, _, err = engWithUpdate.PlanAll(ctx, resources)
 	require.NoError(t, err)
@@ -275,9 +275,9 @@ gopls: {
 }
 
 // TestEngine_UpdateRuntimes_NoCascadeWhenVersionUnchanged tests that when
-// a runtime is upgraded but the resolved version stays the same,
-// dependent tools are NOT cascaded.
-func TestEngine_UpdateRuntimes_NoCascadeWhenVersionUnchanged(t *testing.T) {
+// an exact-versioned runtime is not tainted by --update-runtimes,
+// so no reinstall occurs and dependent tools are NOT cascaded.
+func TestEngine_UpdateRuntimes_ExactVersionNotTainted(t *testing.T) {
 	env := setupUpdateFlagsTest(t)
 
 	cueContent := `package tomei
@@ -371,7 +371,7 @@ gopls: {
 	// The runtime will be "reinstalled" (mock returns same version 1.25.5).
 	// Since version is unchanged, cascade should NOT happen.
 	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engWithUpdate.SetUpdateRuntimes(true)
+	engWithUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateRuntimes: true})
 
 	err = engWithUpdate.Apply(ctx, resources)
 	require.NoError(t, err)
@@ -453,7 +453,7 @@ exactTool: {
 
 	// --sync only: should taint latest-tool only (not alias-tool)
 	engSync := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engSync.SetSyncMode(true)
+	engSync.SetUpdateConfig(engine.UpdateConfig{SyncMode: true})
 
 	_, _, toolActions, err := engSync.PlanAll(ctx, resources)
 	require.NoError(t, err)
@@ -462,7 +462,7 @@ exactTool: {
 
 	// --update-tools: should taint latest-tool AND alias-tool
 	engUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engUpdate.SetUpdateTools(true)
+	engUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateTools: true})
 
 	_, _, toolActions, err = engUpdate.PlanAll(ctx, resources)
 	require.NoError(t, err)
@@ -564,7 +564,7 @@ gopls: {
 
 	// With --update-runtimes: should taint download runtime with VersionAlias
 	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engWithUpdate.SetUpdateRuntimes(true)
+	engWithUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateRuntimes: true})
 
 	runtimeActions, _, _, err = engWithUpdate.PlanAll(ctx, resources)
 	require.NoError(t, err)
@@ -664,7 +664,7 @@ gopls: {
 
 	// Apply with --update-runtimes; runtime re-resolved to same version
 	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	eng.SetUpdateRuntimes(true)
+	eng.SetUpdateConfig(engine.UpdateConfig{UpdateRuntimes: true})
 
 	err := eng.Apply(ctx, resources)
 	require.NoError(t, err)
@@ -749,8 +749,7 @@ exactTool: {
 
 	// --update-all: both flags on
 	engAll := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
-	engAll.SetUpdateTools(true)
-	engAll.SetUpdateRuntimes(true)
+	engAll.SetUpdateConfig(engine.UpdateConfig{UpdateTools: true, UpdateRuntimes: true})
 
 	runtimeActions, _, toolActions, err := engAll.PlanAll(ctx, resources)
 	require.NoError(t, err)

@@ -49,7 +49,7 @@ var (
 func init() {
 	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
 	planCmd.Flags().BoolVar(&updateToolsPlan, "update-tools", false, "Show plan as if updating tools with non-exact versions")
-	planCmd.Flags().BoolVar(&updateRuntimesPlan, "update-runtimes", false, "Show plan as if updating runtimes with non-exact versions")
+	planCmd.Flags().BoolVar(&updateRuntimesPlan, "update-runtimes", false, "Show plan as if updating runtimes with non-exact versions (latest + alias)")
 	planCmd.Flags().BoolVar(&updateAllPlan, "update-all", false, "Show plan as if updating all tools and runtimes with non-exact versions")
 	planCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json, yaml")
 	planCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
@@ -93,10 +93,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	updateCfg := updateConfig{
-		syncMode:       syncRegistryPlan,
-		updateTools:    updateToolsPlan || updateAllPlan,
-		updateRuntimes: updateRuntimesPlan || updateAllPlan,
+	updateCfg := engine.UpdateConfig{
+		SyncMode:       syncRegistryPlan,
+		UpdateTools:    updateToolsPlan || updateAllPlan,
+		UpdateRuntimes: updateRuntimesPlan || updateAllPlan,
 	}
 	result, err := resolvePlan(resources, updateCfg)
 	if err != nil {
@@ -118,7 +118,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, updCfg updateConfig) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Load config and state
@@ -143,7 +143,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg updateConfig) map[g
 
 	// Apply taint logic based on update flags (for plan preview)
 	if userState != nil {
-		engine.ApplyUpdateTaints(userState, updCfg.syncMode, updCfg.updateTools, updCfg.updateRuntimes)
+		engine.ApplyUpdateTaints(userState, updCfg)
 	}
 
 	for _, res := range resources {
@@ -234,7 +234,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg updateConfig) map[g
 					runtimeSpecs[res.Name()] = rt.RuntimeSpec
 				}
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
-				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionUpgrade {
+				if ri, ok := info[nodeID]; ok && (ri.Action == graph.ActionUpgrade || ri.Action == graph.ActionReinstall) {
 					upgradedRuntimes[res.Name()] = true
 				}
 			}
@@ -279,13 +279,6 @@ func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resou
 	return nil
 }
 
-// updateConfig holds update-related flags for plan/apply.
-type updateConfig struct {
-	syncMode       bool
-	updateTools    bool
-	updateRuntimes bool
-}
-
 // planResult holds the resolved plan state.
 type planResult struct {
 	resolver       graph.Resolver
@@ -296,7 +289,7 @@ type planResult struct {
 
 // resolvePlan builds the dependency graph, resolves execution layers, and
 // computes resource actions from the current state.
-func resolvePlan(resources []resource.Resource, updateCfg updateConfig) (*planResult, error) {
+func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (*planResult, error) {
 	definedResources := make(map[string]struct{})
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -342,7 +335,7 @@ func resolvePlan(resources []resource.Resource, updateCfg updateConfig) (*planRe
 // planForResources runs the plan logic on already-loaded resources and
 // writes the text plan to w. It returns true if there are any changes
 // (install, upgrade, reinstall, or remove).
-func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg updateConfig) (bool, error) {
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig) (bool, error) {
 	result, err := resolvePlan(resources, updateCfg)
 	if err != nil {
 		return false, err

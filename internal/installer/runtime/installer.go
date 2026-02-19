@@ -399,6 +399,8 @@ func (i *Installer) resolveGitHubRelease(ctx context.Context, cmd string) (strin
 // resolveHTTPText parses "http-text:<URL>:<regex>" and fetches the URL,
 // then applies the regex to extract a version from the response body.
 // The URL and regex are separated by the last ":" after the "://" scheme separator.
+// Note: the regex portion must not contain literal ":" characters, as LastIndex
+// is used to split the URL from the regex.
 func (i *Installer) resolveHTTPText(ctx context.Context, cmd string) (string, error) {
 	// Strip the "http-text:" prefix
 	rest := strings.TrimPrefix(cmd, "http-text:")
@@ -432,7 +434,7 @@ func (i *Installer) resolveHTTPText(ctx context.Context, cmd string) (string, er
 
 	client := i.httpClient
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

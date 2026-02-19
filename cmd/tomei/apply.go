@@ -64,7 +64,7 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
 func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
 	applyCmd.Flags().BoolVar(&applyCfg.updateTools, "update-tools", false, "Update tools with non-exact versions (latest + alias) to latest")
-	applyCmd.Flags().BoolVar(&applyCfg.updateRuntimes, "update-runtimes", false, "Update runtimes with non-exact versions (alias) to latest")
+	applyCmd.Flags().BoolVar(&applyCfg.updateRuntimes, "update-runtimes", false, "Update runtimes with non-exact versions (latest + alias) to latest")
 	applyCmd.Flags().BoolVar(&applyCfg.updateAll, "update-all", false, "Update all tools and runtimes with non-exact versions")
 	applyCmd.Flags().BoolVar(&applyCfg.noColor, "no-color", false, "Disable colored output")
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
@@ -147,12 +147,12 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	}
 
 	// Show plan and ask for confirmation when there are changes
-	planUpdateCfg := updateConfig{
-		syncMode:       cfg.syncRegistry,
-		updateTools:    cfg.updateTools || cfg.updateAll,
-		updateRuntimes: cfg.updateRuntimes || cfg.updateAll,
+	updCfg := engine.UpdateConfig{
+		SyncMode:       cfg.syncRegistry,
+		UpdateTools:    cfg.updateTools || cfg.updateAll,
+		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
 	}
-	hasChanges, err := planForResources(w, resources, cfg.noColor, planUpdateCfg)
+	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg)
 	if err != nil {
 		return fmt.Errorf("failed to plan: %w", err)
 	}
@@ -183,15 +183,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Create engine with event handler for progress display
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, repoInstaller, store)
 	eng.SetParallelism(cfg.parallel)
-	if cfg.syncRegistry {
-		eng.SetSyncMode(true)
-	}
-	if cfg.updateTools || cfg.updateAll {
-		eng.SetUpdateTools(true)
-	}
-	if cfg.updateRuntimes || cfg.updateAll {
-		eng.SetUpdateRuntimes(true)
-	}
+	eng.SetUpdateConfig(updCfg)
 
 	// Track results for summary
 	results := &ui.ApplyResults{}

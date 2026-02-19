@@ -155,7 +155,7 @@ tomei plan <files or directories...> [flags]
 |------|-------------|
 | `--sync` | Sync aqua registry to latest version before planning |
 | `--update-tools` | Show plan as if updating tools with non-exact versions (latest + alias) |
-| `--update-runtimes` | Show plan as if updating runtimes with non-exact versions (alias) |
+| `--update-runtimes` | Show plan as if updating runtimes with non-exact versions (latest + alias) |
 | `--update-all` | Show plan as if updating all tools and runtimes with non-exact versions |
 | `--output`, `-o` | Output format: `text` (default), `json`, `yaml` |
 | `--no-color` | Disable colored output |
@@ -179,7 +179,7 @@ tomei apply <files or directories...> [flags]
 | `--yes`, `-y` | Skip confirmation prompt |
 | `--sync` | Sync aqua registry to latest version before applying |
 | `--update-tools` | Update tools with non-exact versions (latest + alias) to latest |
-| `--update-runtimes` | Update runtimes with non-exact versions (alias) to latest |
+| `--update-runtimes` | Update runtimes with non-exact versions (latest + alias) to latest |
 | `--update-all` | Update all tools and runtimes with non-exact versions |
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
 | `--quiet` | Suppress progress output |
@@ -210,6 +210,63 @@ tomei apply --update-all .
 
 # Control parallelism
 tomei apply --parallel 4 .
+```
+
+### Version Resolvers
+
+Runtime presets can declare a `resolveVersion` field that automatically resolves the actual version at install time. Two built-in resolver syntaxes are available, plus a shell command fallback.
+
+#### `github-release:owner/repo[:tagPrefix]`
+
+Fetches the latest release tag from a GitHub repository via the Releases API.
+The optional `tagPrefix` is stripped from the tag name.
+
+```
+resolveVersion: ["github-release:oven-sh/bun:bun-v"]
+```
+
+This calls `GET /repos/oven-sh/bun/releases/latest`, gets `tag_name: "bun-v1.2.3"`, strips `"bun-v"`, and returns `"1.2.3"`.
+
+Uses `GITHUB_TOKEN` / `GH_TOKEN` if available for rate limit mitigation.
+
+#### `http-text:URL:regex`
+
+Fetches a plain-text URL via HTTP GET and applies a regex to extract the version.
+
+```
+resolveVersion: ["http-text:https://go.dev/VERSION?m=text:^go(.+)"]
+resolveVersion: ["http-text:https://dl.deno.land/release-latest.txt:^v(.+)"]
+```
+
+The URL and regex are separated by the **last** `:` after the `://` scheme separator.
+The first capture group of the regex is returned as the version string.
+If the regex has no capture group, the full match is returned.
+
+> **Limitation:** The regex portion must not contain literal `:` characters, as the last `:` is used as the delimiter.
+
+#### Shell command fallback
+
+If `resolveVersion` does not match a built-in syntax, it is executed as a shell command. The command should print the resolved version to stdout.
+
+```
+resolveVersion: ["curl -sL https://example.com/version | head -1"]
+```
+
+#### Exact version skip
+
+When `spec.version` is set to an exact version (e.g., `"1.26.0"`), the `resolveVersion` step is skipped entirely. This allows a single preset to handle both pinned and latest versions:
+
+```cue
+// Pinned — resolveVersion is skipped
+goRuntime: gopreset.#GoRuntime & {
+    platform: {os: _os, arch: _arch}
+    spec: version: "1.26.0"
+}
+
+// Latest — resolveVersion runs automatically
+goRuntime: gopreset.#GoRuntime & {
+    platform: {os: _os, arch: _arch}
+}
 ```
 
 ## tomei get

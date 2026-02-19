@@ -2803,7 +2803,7 @@ placeholder: {
 	assert.True(t, removedRuntimes["go"], "go runtime should be removed")
 }
 
-func TestTaintLatestTools(t *testing.T) {
+func TestApplyUpdateTaints_SyncMode(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
@@ -2888,7 +2888,7 @@ func TestTaintLatestTools(t *testing.T) {
 			st := state.NewUserState()
 			st.Tools = tt.tools
 
-			taintLatestTools(st)
+			ApplyUpdateTaints(st, UpdateConfig{SyncMode: true})
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
@@ -2901,7 +2901,7 @@ func TestTaintLatestTools(t *testing.T) {
 	}
 }
 
-func TestTaintNonExactTools(t *testing.T) {
+func TestApplyUpdateTaints_UpdateTools(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
@@ -2982,7 +2982,7 @@ func TestTaintNonExactTools(t *testing.T) {
 			st := state.NewUserState()
 			st.Tools = tt.tools
 
-			taintNonExactTools(st)
+			ApplyUpdateTaints(st, UpdateConfig{UpdateTools: true})
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
@@ -2995,7 +2995,7 @@ func TestTaintNonExactTools(t *testing.T) {
 	}
 }
 
-func TestTaintNonExactRuntimes(t *testing.T) {
+func TestApplyUpdateTaints_UpdateRuntimes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name           string
@@ -3070,7 +3070,7 @@ func TestTaintNonExactRuntimes(t *testing.T) {
 			st := state.NewUserState()
 			st.Runtimes = tt.runtimes
 
-			taintNonExactRuntimes(st)
+			ApplyUpdateTaints(st, UpdateConfig{UpdateRuntimes: true})
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Runtimes[name].IsTainted(), "runtime %s should be tainted", name)
@@ -3142,7 +3142,7 @@ fd: {
 	}
 
 	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
-	eng.SetSyncMode(true)
+	eng.SetUpdateConfig(UpdateConfig{SyncMode: true})
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -3205,7 +3205,7 @@ rg: {
 	}
 
 	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
-	eng.SetSyncMode(true)
+	eng.SetUpdateConfig(UpdateConfig{SyncMode: true})
 
 	err = eng.Apply(context.Background(), resources)
 	require.NoError(t, err)
@@ -3386,7 +3386,7 @@ func TestEngine_Apply_InstallerRepository_Remove(t *testing.T) {
 	}
 
 	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, repoMock, store)
-	eng.SetSyncMode(true)
+	eng.SetUpdateConfig(UpdateConfig{SyncMode: true})
 
 	// Apply with empty resources - should trigger removal
 	err = eng.Apply(context.Background(), []resource.Resource{})

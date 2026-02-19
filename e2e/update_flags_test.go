@@ -77,22 +77,22 @@ func updateFlagsTests() {
 	})
 
 	Context("--update-all", func() {
-		It("shows plan with both runtime and tool reinstall", func() {
+		It("shows plan with alias runtime reinstall", func() {
 			By("Running plan with --update-all")
 			output, err := testExec.Exec("tomei", "plan", "--update-all", "--no-color", "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking both runtime and tool are shown")
+			By("Checking alias runtime is marked for reinstall (exact-versioned tool is not)")
 			Expect(output).To(ContainSubstring("Runtime/mock-rt"))
 			Expect(output).To(ContainSubstring("reinstall"))
 		})
 
-		It("reinstalls both runtime and tool via --update-all", func() {
+		It("reinstalls alias runtime via --update-all", func() {
 			By("Applying with --update-all")
 			output, err := ExecApply(testExec, "--update-all", "~/update-flags-test/")
 			Expect(err).NotTo(HaveOccurred())
 
-			By("Checking resources were reinstalled")
+			By("Checking runtime was reinstalled")
 			Expect(output).To(ContainSubstring("mock-rt"))
 		})
 

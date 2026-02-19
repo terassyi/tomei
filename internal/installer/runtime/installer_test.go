@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1057,6 +1058,93 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 	})
 }
 
+func TestInstaller_ResolveGitHubRelease(t *testing.T) {
+	t.Parallel()
+
+	// Helper: create a mock GitHub API server returning a given tag_name.
+	newGitHubServer := func(tagName string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"tag_name": %q}`, tagName)
+		}))
+	}
+
+	tests := []struct {
+		name    string
+		cmd     string
+		tag     string // tag_name returned by mock server
+		want    string
+		wantErr string
+	}{
+		{
+			name: "valid owner/repo with tagPrefix",
+			cmd:  "github-release:oven-sh/bun:bun-v",
+			tag:  "bun-v1.2.3",
+			want: "1.2.3",
+		},
+		{
+			name: "valid owner/repo without tagPrefix",
+			cmd:  "github-release:golang/go",
+			tag:  "go1.26.0",
+			want: "go1.26.0",
+		},
+		{
+			name: "empty tagPrefix strips nothing",
+			cmd:  "github-release:owner/repo:",
+			tag:  "v2.0.0",
+			want: "v2.0.0",
+		},
+		{
+			name:    "missing slash in owner/repo",
+			cmd:     "github-release:no-slash",
+			wantErr: "invalid github-release format",
+		},
+		{
+			name:    "empty owner",
+			cmd:     "github-release:/repo:v",
+			wantErr: "invalid github-release format",
+		},
+		{
+			name:    "empty repo",
+			cmd:     "github-release:owner/:v",
+			wantErr: "invalid github-release format",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
+
+			if tt.wantErr != "" {
+				// Parse errors don't need a server
+				_, err := installer.resolveGitHubRelease(context.Background(), tt.cmd)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+
+			// Set up mock server and inject httpClient pointing to it
+			server := newGitHubServer(tt.tag)
+			defer server.Close()
+
+			installer.httpClient = &http.Client{
+				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					// Redirect GitHub API calls to our mock server
+					req.URL.Scheme = "http"
+					req.URL.Host = server.Listener.Addr().String()
+					return http.DefaultTransport.RoundTrip(req)
+				}),
+			}
+
+			version, err := installer.resolveGitHubRelease(context.Background(), tt.cmd)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, version)
+		})
+	}
+}
+
 func TestInstaller_ResolveHTTPText(t *testing.T) {
 	t.Parallel()
 
@@ -1244,9 +1332,9 @@ func TestInstaller_ResolveHTTPText(t *testing.T) {
 
 	t.Run("uses custom httpClient when set", func(t *testing.T) {
 		t.Parallel()
-		var gotRequest bool
+		var gotRequest atomic.Bool
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			gotRequest = true
+			gotRequest.Store(true)
 			_, _ = w.Write([]byte("v1.0.0\n"))
 		}))
 		defer server.Close()
@@ -1266,7 +1354,7 @@ func TestInstaller_ResolveHTTPText(t *testing.T) {
 		version, err := installer.resolveHTTPText(context.Background(), cmd)
 		require.NoError(t, err)
 		assert.Equal(t, "1.0.0", version)
-		assert.True(t, gotRequest)
+		assert.True(t, gotRequest.Load())
 	})
 }
 
