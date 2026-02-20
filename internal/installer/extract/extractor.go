@@ -81,6 +81,13 @@ func NewExtractor(archiveType ArchiveType) (Extractor, error) {
 	}
 }
 
+var (
+	_ Extractor = (*tarGzExtractor)(nil)
+	_ Extractor = (*tarXzExtractor)(nil)
+	_ Extractor = (*zipExtractor)(nil)
+	_ Extractor = (*rawExtractor)(nil)
+)
+
 // tarGzExtractor implements Extractor for tar.gz archives.
 type tarGzExtractor struct{}
 

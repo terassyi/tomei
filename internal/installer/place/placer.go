@@ -71,6 +71,8 @@ type Placer interface {
 	Cleanup(path string) error
 }
 
+var _ Placer = (*filePlacer)(nil)
+
 // filePlacer implements Placer.
 type filePlacer struct {
 	toolsDir string // e.g., ~/.local/share/tomei/tools

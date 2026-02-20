@@ -23,6 +23,8 @@ const (
 	expectedSANRegex = `^https://github\.com/terassyi/tomei/`
 )
 
+var _ Verifier = (*SigstoreVerifier)(nil)
+
 // SigstoreVerifier verifies cosign signatures on OCI artifacts using sigstore-go.
 // In production, it performs keyless verification via Fulcio + Rekor.
 type SigstoreVerifier struct {

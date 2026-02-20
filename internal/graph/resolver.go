@@ -37,6 +37,8 @@ type Resolver interface {
 	GetNodes() []*Node
 }
 
+var _ Resolver = (*resolver)(nil)
+
 // resolver is the concrete implementation of Resolver interface.
 type resolver struct {
 	dag *dag

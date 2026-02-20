@@ -6,6 +6,8 @@ import (
 	"cuelang.org/go/mod/module"
 )
 
+var _ Verifier = (*noopVerifier)(nil)
+
 // noopVerifier is a Verifier that skips all verification.
 // Used when verification is disabled (e.g. --ignore-cosign, vendor mode).
 type noopVerifier struct {
