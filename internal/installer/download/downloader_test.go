@@ -25,6 +25,35 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+func TestValidateDownloadURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "HTTPS URL", url: "https://example.com/file.tar.gz", wantErr: false},
+		{name: "HTTP URL rejected", url: "http://example.com/file.tar.gz", wantErr: true},
+		{name: "file scheme rejected", url: "file:///etc/passwd", wantErr: true},
+		{name: "HTTP localhost allowed", url: "http://localhost:8080/file", wantErr: false},
+		{name: "HTTP 127.0.0.1 allowed", url: "http://127.0.0.1:8080/file", wantErr: false},
+		{name: "empty scheme rejected", url: "example.com/file", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateDownloadURL(tt.url)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestNewDownloader(t *testing.T) {
 	t.Parallel()
 	d := NewDownloader()
@@ -146,6 +175,20 @@ func TestDownloader_Download(t *testing.T) {
 			assert.Equal(t, testContent, content)
 		})
 	}
+}
+
+func TestDownloader_Download_RejectsHTTPURL(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "downloaded")
+
+	d := NewDownloader()
+	path, err := d.Download(context.Background(), "http://example.com/file.tar.gz", destPath)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not allowed")
+	assert.Empty(t, path)
 }
 
 func TestDownloader_Download_ContextCanceled(t *testing.T) {
@@ -474,6 +517,24 @@ func TestDownloader_Verify_GoJSONChecksum(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestDownloader_Verify_RejectsHTTPChecksumURL(t *testing.T) {
+	t.Parallel()
+
+	testContent := []byte("hello world")
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "testfile.tar.gz")
+	err := os.WriteFile(filePath, testContent, 0644)
+	require.NoError(t, err)
+
+	d := NewDownloader()
+	err = d.Verify(context.Background(), filePath, &resource.Checksum{
+		URL: "http://example.com/checksums.txt",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not allowed")
 }
 
 func TestDownloader_Verify_EmptyChecksum(t *testing.T) {
