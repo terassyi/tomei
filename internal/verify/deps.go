@@ -5,15 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"cuelang.org/go/mod/modfile"
+	"cuelang.org/go/mod/module"
 )
 
 // ExtractFirstPartyDeps reads cue.mod/module.cue from the given cue.mod directory
 // and returns the list of first-party (tomei.terassyi.net) module dependencies.
 // Returns nil (no error) if the directory does not exist.
-func ExtractFirstPartyDeps(cueModDir string) ([]ModuleDependency, error) {
+func ExtractFirstPartyDeps(cueModDir string) ([]module.Version, error) {
 	moduleCuePath := filepath.Join(cueModDir, "module.cue")
 
 	data, err := os.ReadFile(moduleCuePath)
@@ -29,20 +29,19 @@ func ExtractFirstPartyDeps(cueModDir string) ([]ModuleDependency, error) {
 		return nil, fmt.Errorf("failed to parse module.cue: %w", err)
 	}
 
-	var deps []ModuleDependency
+	var deps []module.Version
 	for modPath, dep := range f.Deps {
 		if IsFirstParty(modPath) {
-			deps = append(deps, ModuleDependency{
-				ModulePath: modPath,
-				Version:    dep.Version,
-			})
+			v, err := module.NewVersion(modPath, dep.Version)
+			if err != nil {
+				return nil, fmt.Errorf("invalid module version %s@%s: %w", modPath, dep.Version, err)
+			}
+			deps = append(deps, v)
 		}
 	}
 
 	// Sort for deterministic output
-	slices.SortFunc(deps, func(a, b ModuleDependency) int {
-		return strings.Compare(a.ModulePath, b.ModulePath)
-	})
+	slices.SortFunc(deps, module.Version.Compare)
 
 	return deps, nil
 }

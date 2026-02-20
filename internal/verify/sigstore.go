@@ -3,15 +3,15 @@ package verify
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	protobundle "github.com/sigstore/protobuf-specs/gen/pb-go/bundle/v1"
+	"cuelang.org/go/mod/module"
+	ociv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 	sgverify "github.com/sigstore/sigstore-go/pkg/verify"
 )
 
@@ -47,7 +47,7 @@ func NewSigstoreVerifier(cueRegistry string) (*SigstoreVerifier, error) {
 // Verify checks cosign signatures for the given module dependencies.
 // For the initial release, unsigned modules produce a warning but do not fail (warn + continue).
 // This will be changed to hard-fail after all published modules have been signed.
-func (v *SigstoreVerifier) Verify(ctx context.Context, deps []ModuleDependency) ([]Result, error) {
+func (v *SigstoreVerifier) Verify(ctx context.Context, deps []module.Version) ([]Result, error) {
 	results := make([]Result, 0, len(deps))
 
 	for _, dep := range deps {
@@ -59,12 +59,12 @@ func (v *SigstoreVerifier) Verify(ctx context.Context, deps []ModuleDependency) 
 }
 
 // verifyOne verifies a single module dependency.
-func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) Result {
+func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep module.Version) Result {
 	ref, err := v.refResolver.Resolve(dep)
 	if err != nil {
 		slog.Warn("cosign verification skipped: cannot resolve OCI reference",
-			"module", dep.ModulePath,
-			"version", dep.Version,
+			"module", dep.Path(),
+			"version", dep.Version(),
 			"error", err,
 		)
 		return Result{
@@ -78,8 +78,8 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) 
 	result, err := fetchCosignSignatures(ctx, ref)
 	if err != nil {
 		slog.Warn("cosign verification skipped: failed to fetch signatures",
-			"module", dep.ModulePath,
-			"version", dep.Version,
+			"module", dep.Path(),
+			"version", dep.Version(),
 			"ref", ref,
 			"error", err,
 		)
@@ -90,11 +90,11 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) 
 		}
 	}
 
-	if result == nil || len(result.Signatures) == 0 {
+	if result == nil || len(result.Bundles) == 0 {
 		// No signatures found — warn and continue (initial release: soft-fail)
 		slog.Warn("cosign signature not found for module (unsigned)",
-			"module", dep.ModulePath,
-			"version", dep.Version,
+			"module", dep.Path(),
+			"version", dep.Version(),
 			"ref", ref,
 		)
 		return Result{
@@ -104,23 +104,19 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) 
 		}
 	}
 
-	// Try to verify each signature, binding to the artifact digest
-	for _, sig := range result.Signatures {
-		if len(sig.Bundle) == 0 {
-			continue
-		}
-
-		if err := v.verifySigstoreBundle(sig.Bundle, result.ArtifactDigest); err != nil {
+	// Try to verify each bundle, binding to the artifact digest
+	for _, b := range result.Bundles {
+		if err := v.verifySigstoreBundle(b, result.ArtifactDigest); err != nil {
 			slog.Debug("cosign signature verification attempt failed",
-				"module", dep.ModulePath,
+				"module", dep.Path(),
 				"error", err,
 			)
 			continue
 		}
 
 		slog.Info("cosign signature verified",
-			"module", dep.ModulePath,
-			"version", dep.Version,
+			"module", dep.Path(),
+			"version", dep.Version(),
 		)
 		return Result{
 			Module:   dep,
@@ -130,8 +126,8 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) 
 
 	// All signature verification attempts failed — warn and continue (soft-fail)
 	slog.Warn("cosign signature verification failed for all signatures",
-		"module", dep.ModulePath,
-		"version", dep.Version,
+		"module", dep.Path(),
+		"version", dep.Version(),
 	)
 	return Result{
 		Module:     dep,
@@ -144,27 +140,16 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep ModuleDependency) 
 // fetching it on the first call.
 func (v *SigstoreVerifier) getTrustedRoot() (*root.LiveTrustedRoot, error) {
 	v.trustedRootOnce.Do(func() {
-		v.trustedRoot, v.trustedRootErr = root.NewLiveTrustedRoot(nil)
+		v.trustedRoot, v.trustedRootErr = root.NewLiveTrustedRoot(tuf.DefaultOptions())
 	})
 	return v.trustedRoot, v.trustedRootErr
 }
 
-// verifySigstoreBundle verifies a Sigstore bundle using the public-good Sigstore
-// trusted root (Fulcio + Rekor). It checks certificate identity for the
-// terassyi/tomei GitHub Actions workflow and binds the signature to the
+// verifySigstoreBundle verifies a parsed Sigstore bundle using the public-good
+// Sigstore trusted root (Fulcio + Rekor). It checks certificate identity for
+// the terassyi/tomei GitHub Actions workflow and binds the signature to the
 // given artifact digest to prevent signature transplant attacks.
-func (v *SigstoreVerifier) verifySigstoreBundle(bundleJSON []byte, artifactDigest v1.Hash) error {
-	// Parse the protobuf bundle
-	var pbBundle protobundle.Bundle
-	if err := json.Unmarshal(bundleJSON, &pbBundle); err != nil {
-		return fmt.Errorf("failed to parse sigstore bundle: %w", err)
-	}
-
-	b, err := bundle.NewBundle(&pbBundle)
-	if err != nil {
-		return fmt.Errorf("failed to create bundle: %w", err)
-	}
-
+func (v *SigstoreVerifier) verifySigstoreBundle(b *bundle.Bundle, artifactDigest ociv1.Hash) error {
 	trustedRoot, err := v.getTrustedRoot()
 	if err != nil {
 		return fmt.Errorf("failed to fetch trusted root: %w", err)

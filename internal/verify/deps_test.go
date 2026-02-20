@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cuelang.org/go/mod/module"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,7 +16,7 @@ func TestExtractFirstPartyDeps(t *testing.T) {
 	tests := []struct {
 		name      string
 		moduleCUE string
-		want      []ModuleDependency
+		want      []module.Version
 		wantErr   bool
 	}{
 		{
@@ -26,8 +27,8 @@ deps: {
 	"tomei.terassyi.net@v0": v: "v0.0.3"
 }
 `,
-			want: []ModuleDependency{
-				{ModulePath: "tomei.terassyi.net@v0", Version: "v0.0.3"},
+			want: []module.Version{
+				module.MustNewVersion("tomei.terassyi.net@v0", "v0.0.3"),
 			},
 		},
 		{
@@ -39,9 +40,9 @@ deps: {
 	"tomei.terassyi.net/presets/go@v0": v: "v0.0.1"
 }
 `,
-			want: []ModuleDependency{
-				{ModulePath: "tomei.terassyi.net/presets/go@v0", Version: "v0.0.1"},
-				{ModulePath: "tomei.terassyi.net@v0", Version: "v0.0.3"},
+			want: []module.Version{
+				module.MustNewVersion("tomei.terassyi.net/presets/go@v0", "v0.0.1"),
+				module.MustNewVersion("tomei.terassyi.net@v0", "v0.0.3"),
 			},
 		},
 		{
@@ -70,8 +71,8 @@ deps: {
 	"example.com@v0": v: "v0.1.0"
 }
 `,
-			want: []ModuleDependency{
-				{ModulePath: "tomei.terassyi.net@v0", Version: "v0.0.3"},
+			want: []module.Version{
+				module.MustNewVersion("tomei.terassyi.net@v0", "v0.0.3"),
 			},
 		},
 	}

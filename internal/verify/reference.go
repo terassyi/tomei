@@ -2,9 +2,10 @@ package verify
 
 import (
 	"fmt"
-	"strings"
 
 	"cuelang.org/go/mod/modconfig"
+	"cuelang.org/go/mod/module"
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 // ReferenceResolver converts CUE module dependencies to OCI references.
@@ -23,22 +24,16 @@ func NewReferenceResolver(cueRegistry string) (*ReferenceResolver, error) {
 	return &ReferenceResolver{resolver: resolver}, nil
 }
 
-// Resolve converts a ModuleDependency to an OCI reference string (e.g. "ghcr.io/repo:tag").
-func (r *ReferenceResolver) Resolve(dep ModuleDependency) (string, error) {
-	basePath := splitModulePath(dep.ModulePath)
-
-	loc, ok := r.resolver.ResolveToLocation(basePath, dep.Version)
+// Resolve converts a module.Version to a validated OCI reference.
+func (r *ReferenceResolver) Resolve(dep module.Version) (name.Reference, error) {
+	loc, ok := r.resolver.ResolveToLocation(dep.BasePath(), dep.Version())
 	if !ok {
-		return "", fmt.Errorf("cannot resolve module %s to registry location", dep.ModulePath)
+		return nil, fmt.Errorf("cannot resolve module %s to registry location", dep)
 	}
 
-	return fmt.Sprintf("%s/%s:%s", loc.Host, loc.Repository, loc.Tag), nil
-}
-
-// splitModulePath strips the major version suffix (@vN) from a module path.
-func splitModulePath(modulePath string) string {
-	if i := strings.LastIndex(modulePath, "@"); i >= 0 {
-		return modulePath[:i]
+	ref, err := name.NewTag(fmt.Sprintf("%s/%s:%s", loc.Host, loc.Repository, loc.Tag))
+	if err != nil {
+		return nil, fmt.Errorf("invalid OCI reference for module %s: %w", dep, err)
 	}
-	return modulePath
+	return ref, nil
 }

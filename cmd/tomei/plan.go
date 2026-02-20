@@ -37,22 +37,17 @@ Use --output to change the output format (text, json, yaml).`,
 	RunE: runPlan,
 }
 
-var (
-	syncRegistryPlan   bool
-	updateToolsPlan    bool
-	updateRuntimesPlan bool
-	updateAllPlan      bool
-	outputFormat       string
-	noColor            bool
-)
+// planConfig holds configuration for the plan command.
+type planConfig struct {
+	loadConfig
+	outputFormat string
+}
+
+var planCfg planConfig
 
 func init() {
-	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
-	planCmd.Flags().BoolVar(&updateToolsPlan, "update-tools", false, "Show plan as if updating tools with non-exact versions")
-	planCmd.Flags().BoolVar(&updateRuntimesPlan, "update-runtimes", false, "Show plan as if updating runtimes with non-exact versions (latest + alias)")
-	planCmd.Flags().BoolVar(&updateAllPlan, "update-all", false, "Show plan as if updating all tools and runtimes with non-exact versions")
-	planCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json, yaml")
-	planCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	planCfg.registerFlags(planCmd)
+	planCmd.Flags().StringVarP(&planCfg.outputFormat, "output", "o", "text", "Output format: text, json, yaml")
 	_ = planCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"text", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
@@ -60,12 +55,12 @@ func init() {
 
 func runPlan(cmd *cobra.Command, args []string) error {
 	// Disable color if --no-color flag is set
-	if noColor {
+	if planCfg.noColor {
 		color.NoColor = true
 	}
 
 	// Sync registry if --sync or --update-tools/--update-all flag is set
-	if syncRegistryPlan || updateToolsPlan || updateAllPlan {
+	if planCfg.syncRegistry || planCfg.updateTools || planCfg.updateAll {
 		ctx := cmd.Context()
 		if ctx == nil {
 			ctx = context.Background()
@@ -76,7 +71,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load configuration
-	loader := config.NewLoader(nil, buildVerifierOpts()...)
+	loader := config.NewLoader(nil, planCfg.verifierOpts()...)
 	resources, err := loader.LoadPaths(args)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -94,9 +89,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	updateCfg := engine.UpdateConfig{
-		SyncMode:       syncRegistryPlan,
-		UpdateTools:    updateToolsPlan || updateAllPlan,
-		UpdateRuntimes: updateRuntimesPlan || updateAllPlan,
+		SyncMode:       planCfg.syncRegistry,
+		UpdateTools:    planCfg.updateTools || planCfg.updateAll,
+		UpdateRuntimes: planCfg.updateRuntimes || planCfg.updateAll,
 	}
 	result, err := resolvePlan(resources, updateCfg)
 	if err != nil {
@@ -104,7 +99,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output based on format
-	switch outputFormat {
+	switch planCfg.outputFormat {
 	case outputJSON:
 		exporter := graph.NewExporter(result.filteredLayers, result.resourceInfo, result.edges)
 		return exporter.ExportJSON(os.Stdout)
@@ -267,7 +262,7 @@ func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resou
 
 	// Print dependency tree
 	cmd.Println("Dependency Graph:")
-	printer := graph.NewTreePrinter(cmd.OutOrStdout(), noColor)
+	printer := graph.NewTreePrinter(cmd.OutOrStdout(), planCfg.noColor)
 	printer.PrintTree(result.resolver, result.resourceInfo)
 
 	// Print execution layers

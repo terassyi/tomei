@@ -41,7 +41,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	cmd.Println("Validating configuration...")
 	cmd.Println()
 
-	loader := config.NewLoader(nil, buildVerifierOpts()...)
+	loader := config.NewLoader(nil)
 	resources, err := loader.LoadPaths(args)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)

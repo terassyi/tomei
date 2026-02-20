@@ -32,15 +32,11 @@ import (
 
 // applyConfig holds configuration for the apply command.
 type applyConfig struct {
-	syncRegistry   bool
-	updateTools    bool
-	updateRuntimes bool
-	updateAll      bool
-	noColor        bool
-	quiet          bool
-	parallel       int
-	yes            bool
-	logLevel       string
+	loadConfig
+	quiet    bool
+	parallel int
+	yes      bool
+	logLevel string
 }
 
 var applyCfg applyConfig
@@ -62,11 +58,7 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
 }
 
 func init() {
-	applyCmd.Flags().BoolVar(&applyCfg.syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
-	applyCmd.Flags().BoolVar(&applyCfg.updateTools, "update-tools", false, "Update tools with non-exact versions (latest + alias) to latest")
-	applyCmd.Flags().BoolVar(&applyCfg.updateRuntimes, "update-runtimes", false, "Update runtimes with non-exact versions (latest + alias) to latest")
-	applyCmd.Flags().BoolVar(&applyCfg.updateAll, "update-all", false, "Update all tools and runtimes with non-exact versions")
-	applyCmd.Flags().BoolVar(&applyCfg.noColor, "no-color", false, "Disable colored output")
+	applyCfg.registerFlags(applyCmd)
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
@@ -91,7 +83,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
 	// Load resources from paths (manifests)
-	loader := config.NewLoader(nil, buildVerifierOpts()...)
+	loader := config.NewLoader(nil, cfg.verifierOpts()...)
 	resources, err := loader.LoadPaths(paths)
 	if err != nil {
 		return fmt.Errorf("failed to load resources: %w", err)

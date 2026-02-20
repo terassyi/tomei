@@ -594,13 +594,13 @@ func (l *Loader) verifyModuleDeps(absDir string) error {
 
 	for _, r := range results {
 		if r.Skipped {
-			slog.Debug("cosign verification skipped", "module", r.Module.ModulePath, "reason", r.SkipReason)
+			slog.Debug("cosign verification skipped", "module", r.Module.Path(), "reason", r.SkipReason)
 			continue
 		}
 		if !r.Verified {
-			return fmt.Errorf("cosign signature verification failed for module %s@%s", r.Module.ModulePath, r.Module.Version)
+			return fmt.Errorf("cosign signature verification failed for module %s", r.Module)
 		}
-		slog.Debug("cosign signature verified", "module", r.Module.ModulePath, "version", r.Module.Version)
+		slog.Debug("cosign signature verified", "module", r.Module.Path(), "version", r.Module.Version())
 	}
 
 	l.verifiedDirs[cueModDir] = true

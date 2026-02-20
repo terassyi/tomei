@@ -1,6 +1,10 @@
 package verify
 
-import "context"
+import (
+	"context"
+
+	"cuelang.org/go/mod/module"
+)
 
 // noopVerifier is a Verifier that skips all verification.
 // Used when verification is disabled (e.g. --ignore-cosign, vendor mode).
@@ -14,7 +18,7 @@ func NewNoopVerifier(reason string) Verifier {
 }
 
 // Verify returns a skipped Result for each dependency.
-func (v *noopVerifier) Verify(_ context.Context, deps []ModuleDependency) ([]Result, error) {
+func (v *noopVerifier) Verify(_ context.Context, deps []module.Version) ([]Result, error) {
 	results := make([]Result, len(deps))
 	for i, dep := range deps {
 		results[i] = Result{

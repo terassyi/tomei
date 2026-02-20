@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cuelang.org/go/mod/module"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -63,9 +64,9 @@ func TestNoopVerifier(t *testing.T) {
 	reason := "testing"
 	v := NewNoopVerifier(reason)
 
-	deps := []ModuleDependency{
-		{ModulePath: "tomei.terassyi.net@v0", Version: "v0.0.3"},
-		{ModulePath: "tomei.terassyi.net/presets/go@v0", Version: "v0.0.3"},
+	deps := []module.Version{
+		module.MustNewVersion("tomei.terassyi.net@v0", "v0.0.3"),
+		module.MustNewVersion("tomei.terassyi.net/presets/go@v0", "v0.0.3"),
 	}
 
 	results, err := v.Verify(context.Background(), deps)
@@ -73,8 +74,8 @@ func TestNoopVerifier(t *testing.T) {
 	require.Len(t, results, len(deps))
 
 	for i, r := range results {
-		assert.Equal(t, deps[i].ModulePath, r.Module.ModulePath)
-		assert.Equal(t, deps[i].Version, r.Module.Version)
+		assert.Equal(t, deps[i].Path(), r.Module.Path())
+		assert.Equal(t, deps[i].Version(), r.Module.Version())
 		assert.False(t, r.Verified)
 		assert.True(t, r.Skipped)
 		assert.Equal(t, reason, r.SkipReason)

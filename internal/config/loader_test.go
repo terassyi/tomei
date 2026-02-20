@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"cuelang.org/go/cue"
+	"cuelang.org/go/mod/module"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1170,11 +1171,11 @@ myTool: {
 // mockVerifier implements verify.Verifier for testing.
 type mockVerifier struct {
 	called bool
-	deps   []verify.ModuleDependency
+	deps   []module.Version
 	err    error
 }
 
-func (m *mockVerifier) Verify(_ context.Context, deps []verify.ModuleDependency) ([]verify.Result, error) {
+func (m *mockVerifier) Verify(_ context.Context, deps []module.Version) ([]verify.Result, error) {
 	m.called = true
 	m.deps = deps
 	if m.err != nil {
@@ -1224,8 +1225,8 @@ spec: {
 
 	assert.True(t, mv.called, "verifier should have been called")
 	require.Len(t, mv.deps, 1)
-	assert.Equal(t, "tomei.terassyi.net@v0", mv.deps[0].ModulePath)
-	assert.Equal(t, "v0.0.3", mv.deps[0].Version)
+	assert.Equal(t, "tomei.terassyi.net@v0", mv.deps[0].Path())
+	assert.Equal(t, "v0.0.3", mv.deps[0].Version())
 }
 
 func TestLoader_WithVerifier_Error(t *testing.T) {
@@ -1463,7 +1464,7 @@ type countingMockVerifier struct {
 	callCount int
 }
 
-func (m *countingMockVerifier) Verify(_ context.Context, deps []verify.ModuleDependency) ([]verify.Result, error) {
+func (m *countingMockVerifier) Verify(_ context.Context, deps []module.Version) ([]verify.Result, error) {
 	m.callCount++
 	results := make([]verify.Result, len(deps))
 	for i, dep := range deps {

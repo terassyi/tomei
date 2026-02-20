@@ -5,6 +5,8 @@ package verify
 import (
 	"context"
 	"strings"
+
+	"cuelang.org/go/mod/module"
 )
 
 const (
@@ -12,15 +14,9 @@ const (
 	FirstPartyPrefix = "tomei.terassyi.net"
 )
 
-// ModuleDependency represents a CUE module dependency to verify.
-type ModuleDependency struct {
-	ModulePath string // e.g. "tomei.terassyi.net@v0"
-	Version    string // e.g. "v0.0.3"
-}
-
 // Result represents the verification result for a single module.
 type Result struct {
-	Module     ModuleDependency
+	Module     module.Version
 	Verified   bool
 	Skipped    bool
 	SkipReason string
@@ -30,7 +26,7 @@ type Result struct {
 type Verifier interface {
 	// Verify checks the cosign signatures for the given module dependencies.
 	// Returns a Result for each dependency.
-	Verify(ctx context.Context, deps []ModuleDependency) ([]Result, error)
+	Verify(ctx context.Context, deps []module.Version) ([]Result, error)
 }
 
 // IsFirstParty returns true if the module path is a first-party tomei module.
