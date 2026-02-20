@@ -275,9 +275,9 @@ func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeSt
 
 // buildStateResolved creates a RuntimeState with explicit resolved version and version kind.
 func (i *Installer) buildStateResolved(spec *resource.RuntimeSpec, installPath, binDir, resolvedVersion string, versionKind resource.VersionKind) *resource.RuntimeState {
-	digest := ""
+	var digest checksum.Digest
 	if spec.Source != nil && spec.Source.Checksum != nil {
-		digest = checksum.ExtractHash(spec.Source.Checksum)
+		digest = checksum.ExtractHash(spec.Source.Checksum.Value)
 	}
 
 	// Expand ~ in toolBinPath

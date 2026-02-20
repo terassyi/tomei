@@ -17,6 +17,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
@@ -80,7 +81,7 @@ func TestInstaller_Install(t *testing.T) {
 		// Verify state
 		assert.Equal(t, resource.InstallTypeDownload, state.Type)
 		assert.Equal(t, "1.0.0", state.Version)
-		assert.Equal(t, archiveHash, state.Digest)
+		assert.Equal(t, checksum.Digest(archiveHash), state.Digest)
 		assert.Contains(t, state.InstallPath, "myruntime/1.0.0")
 		assert.Equal(t, []string{"mybin", "mybin2"}, state.Binaries)
 		assert.Equal(t, binDir, state.BinDir)

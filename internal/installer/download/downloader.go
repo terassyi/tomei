@@ -165,7 +165,7 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 
 	slog.Debug("verifying checksum", "file", filePath)
 
-	var expectedHash string
+	var expectedHash checksum.Digest
 	var algorithm checksum.Algorithm
 
 	if cs.Value != "" {
@@ -207,7 +207,7 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 // Supports two formats:
 //   - Standard text format: "<hash>  <filename>" or "<hash> *<filename>"
 //   - Go JSON format: [{"version":"go1.x","files":[{"filename":"...","sha256":"..."}]}]
-func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, string, error) {
+func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, checksum.Digest, error) {
 	slog.Debug("fetching checksum file", "url", url, "filename", filename)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

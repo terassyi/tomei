@@ -157,7 +157,10 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Get expected hash for validation
-	expectedHash := checksum.ExtractHash(spec.Source.Checksum)
+	var expectedHash checksum.Digest
+	if spec.Source.Checksum != nil {
+		expectedHash = checksum.ExtractHash(spec.Source.Checksum.Value)
+	}
 
 	// Create place target
 	target := place.Target{
@@ -167,7 +170,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Validate existing installation
-	action, err := i.placer.Validate(target, expectedHash)
+	action, err := i.placer.Validate(target, string(expectedHash))
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate: %w", err)
 	}
@@ -363,7 +366,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 }
 
 // buildState creates a ToolState from the installation result.
-func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest string) *resource.ToolState {
+func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest checksum.Digest) *resource.ToolState {
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/installer/extract"
 )
 
@@ -494,7 +495,7 @@ type ToolState struct {
 
 	// Digest is the SHA256 hash of the installed binary (for download pattern).
 	// Used to verify integrity and detect if the binary was modified.
-	Digest string `json:"digest,omitempty"`
+	Digest checksum.Digest `json:"digest,omitempty"`
 
 	// InstallPath is the absolute path to the installed binary.
 	// For download pattern: ~/.local/share/tomei/tools/{name}/{version}/{binary}

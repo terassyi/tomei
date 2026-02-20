@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/runtime"
 	"github.com/terassyi/tomei/internal/resource"
@@ -78,7 +79,7 @@ func TestRuntimeInstaller_Install_HTTP(t *testing.T) {
 
 		assert.Equal(t, resource.InstallTypeDownload, state.Type)
 		assert.Equal(t, "1.0.0", state.Version)
-		assert.Equal(t, archiveHash, state.Digest)
+		assert.Equal(t, checksum.Digest(archiveHash), state.Digest)
 		assert.DirExists(t, state.InstallPath)
 		assert.FileExists(t, filepath.Join(state.InstallPath, "bin", "mybin"))
 

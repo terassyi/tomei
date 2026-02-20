@@ -91,7 +91,7 @@ func isHexString(s string) bool {
 
 // ParseFile parses a checksum file and extracts the hash for the given filename.
 // Automatically detects the file format.
-func ParseFile(content []byte, filename string) (Algorithm, string, error) {
+func ParseFile(content []byte, filename string) (Algorithm, Digest, error) {
 	format := DetectFileFormat(content)
 	switch format {
 	case FileFormatGoJSON:
@@ -124,7 +124,7 @@ type goFile struct {
 
 // parseGoJSON parses Go's dl API JSON format checksums.
 // Format: [{"version":"go1.x","files":[{"filename":"...","sha256":"..."}]}]
-func parseGoJSON(content []byte, filename string) (Algorithm, string, error) {
+func parseGoJSON(content []byte, filename string) (Algorithm, Digest, error) {
 	var releases []goRelease
 	if err := json.Unmarshal(content, &releases); err != nil {
 		return "", "", fmt.Errorf("failed to parse JSON checksums: %w", err)
@@ -133,7 +133,7 @@ func parseGoJSON(content []byte, filename string) (Algorithm, string, error) {
 	for _, release := range releases {
 		for _, file := range release.Files {
 			if file.Filename == filename && file.SHA256 != "" {
-				return AlgorithmSHA256, file.SHA256, nil
+				return AlgorithmSHA256, Digest(file.SHA256), nil
 			}
 		}
 	}
@@ -143,7 +143,7 @@ func parseGoJSON(content []byte, filename string) (Algorithm, string, error) {
 
 // parseBSD parses BSD format checksums.
 // Format: "SHA256 (filename) = hash"
-func parseBSD(content []byte, filename string) (Algorithm, string, error) {
+func parseBSD(content []byte, filename string) (Algorithm, Digest, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -170,7 +170,7 @@ func parseBSD(content []byte, filename string) (Algorithm, string, error) {
 			default:
 				return "", "", fmt.Errorf("unsupported algorithm in BSD format: %s", algo)
 			}
-			return algorithm, hash, nil
+			return algorithm, Digest(hash), nil
 		}
 	}
 
@@ -183,7 +183,7 @@ func parseBSD(content []byte, filename string) (Algorithm, string, error) {
 
 // parseGNU parses GNU coreutils format checksums.
 // Format: "<hash>  <filename>" or "<hash> *<filename>"
-func parseGNU(content []byte, filename string) (Algorithm, string, error) {
+func parseGNU(content []byte, filename string) (Algorithm, Digest, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -197,7 +197,7 @@ func parseGNU(content []byte, filename string) (Algorithm, string, error) {
 			if algorithm == "" {
 				return "", "", fmt.Errorf("could not determine hash algorithm for %q", hash)
 			}
-			return algorithm, hash, nil
+			return algorithm, Digest(hash), nil
 		}
 	}
 

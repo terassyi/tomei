@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestParse(t *testing.T) {
@@ -21,7 +20,7 @@ func TestParse(t *testing.T) {
 		name          string
 		value         string
 		wantAlgorithm Algorithm
-		wantHash      string
+		wantHash      Digest
 		wantErr       bool
 	}{
 		{
@@ -72,40 +71,29 @@ func TestExtractHash(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		checksum *resource.Checksum
-		want     string
+		name  string
+		value string
+		want  Digest
 	}{
 		{
-			name:     "nil checksum",
-			checksum: nil,
-			want:     "",
+			name:  "empty value",
+			value: "",
+			want:  "",
 		},
 		{
-			name:     "empty checksum",
-			checksum: &resource.Checksum{},
-			want:     "",
+			name:  "valid sha256",
+			value: "sha256:abc123def456",
+			want:  "abc123def456",
 		},
 		{
-			name: "url only",
-			checksum: &resource.Checksum{
-				URL: "https://example.com/checksums.txt",
-			},
-			want: "",
+			name:  "valid sha512",
+			value: "sha512:def456",
+			want:  "def456",
 		},
 		{
-			name: "valid sha256",
-			checksum: &resource.Checksum{
-				Value: "sha256:abc123def456",
-			},
-			want: "abc123def456",
-		},
-		{
-			name: "invalid format",
-			checksum: &resource.Checksum{
-				Value: "invalidformat",
-			},
-			want: "",
+			name:  "invalid format",
+			value: "invalidformat",
+			want:  "",
 		},
 	}
 
@@ -113,7 +101,7 @@ func TestExtractHash(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := ExtractHash(tt.checksum)
+			got := ExtractHash(tt.value)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -134,19 +122,19 @@ func TestCalculate(t *testing.T) {
 	tests := []struct {
 		name      string
 		algorithm Algorithm
-		want      string
+		want      Digest
 		wantErr   bool
 	}{
 		{
 			name:      "sha256",
 			algorithm: AlgorithmSHA256,
-			want:      expectedSHA256,
+			want:      Digest(expectedSHA256),
 			wantErr:   false,
 		},
 		{
 			name:      "sha512",
 			algorithm: AlgorithmSHA512,
-			want:      expectedSHA512,
+			want:      Digest(expectedSHA512),
 			wantErr:   false,
 		},
 		{
@@ -181,7 +169,7 @@ func TestCalculateFromReader(t *testing.T) {
 
 	hash, err := CalculateFromReader(bytes.NewReader(content), AlgorithmSHA256)
 	require.NoError(t, err)
-	assert.Equal(t, expectedSHA256, hash)
+	assert.Equal(t, Digest(expectedSHA256), hash)
 }
 
 func TestVerify(t *testing.T) {
@@ -197,13 +185,13 @@ func TestVerify(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		hash      string
+		hash      Digest
 		algorithm Algorithm
 		wantErr   bool
 	}{
 		{
 			name:      "valid checksum",
-			hash:      expectedSHA256,
+			hash:      Digest(expectedSHA256),
 			algorithm: AlgorithmSHA256,
 			wantErr:   false,
 		},

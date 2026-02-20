@@ -89,7 +89,7 @@ func TestParseFile_GNU(t *testing.T) {
 		content    []byte
 		filename   string
 		wantAlgo   Algorithm
-		wantHash   string
+		wantHash   Digest
 		wantErr    bool
 		errContain string
 	}{
@@ -98,7 +98,7 @@ func TestParseFile_GNU(t *testing.T) {
 			content:  []byte(sha256Hash + "  test.tar.gz\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -106,7 +106,7 @@ func TestParseFile_GNU(t *testing.T) {
 			content:  []byte(sha256Hash + " *test.tar.gz\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -118,7 +118,7 @@ func TestParseFile_GNU(t *testing.T) {
 			),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -126,7 +126,7 @@ func TestParseFile_GNU(t *testing.T) {
 			content:  []byte(sha256Hash + "  path/to/test.tar.gz\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -170,7 +170,7 @@ func TestParseFile_BSD(t *testing.T) {
 		content    []byte
 		filename   string
 		wantAlgo   Algorithm
-		wantHash   string
+		wantHash   Digest
 		wantErr    bool
 		errContain string
 	}{
@@ -179,7 +179,7 @@ func TestParseFile_BSD(t *testing.T) {
 			content:  []byte("SHA256 (test.tar.gz) = " + sha256Hash + "\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -187,7 +187,7 @@ func TestParseFile_BSD(t *testing.T) {
 			content:  []byte("SHA512 (test.tar.gz) = " + sha512Hash + "\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA512,
-			wantHash: sha512Hash,
+			wantHash: Digest(sha512Hash),
 			wantErr:  false,
 		},
 		{
@@ -199,7 +199,7 @@ func TestParseFile_BSD(t *testing.T) {
 			),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -207,7 +207,7 @@ func TestParseFile_BSD(t *testing.T) {
 			content:  []byte("SHA256 (path/to/test.tar.gz) = " + sha256Hash + "\n"),
 			filename: "test.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -250,7 +250,7 @@ func TestParseFile_GoJSON(t *testing.T) {
 		content    []byte
 		filename   string
 		wantAlgo   Algorithm
-		wantHash   string
+		wantHash   Digest
 		wantErr    bool
 		errContain string
 	}{
@@ -274,7 +274,7 @@ func TestParseFile_GoJSON(t *testing.T) {
 			]`),
 			filename: "go1.23.5.linux-amd64.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{
@@ -298,7 +298,7 @@ func TestParseFile_GoJSON(t *testing.T) {
 			]`),
 			filename: "go1.23.5.linux-amd64.tar.gz",
 			wantAlgo: AlgorithmSHA256,
-			wantHash: sha256Hash,
+			wantHash: Digest(sha256Hash),
 			wantErr:  false,
 		},
 		{

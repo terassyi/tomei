@@ -9,9 +9,10 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	"github.com/terassyi/tomei/internal/resource"
 )
+
+// Digest represents a hex-encoded hash digest (e.g., SHA256).
+type Digest string
 
 // Algorithm represents a checksum hash algorithm.
 type Algorithm string
@@ -22,15 +23,15 @@ const (
 )
 
 // Parse parses a checksum value in format "algorithm:hash".
-// Returns the algorithm and hash value.
-func Parse(value string) (Algorithm, string, error) {
+// Returns the algorithm and hash digest.
+func Parse(value string) (Algorithm, Digest, error) {
 	parts := strings.SplitN(value, ":", 2)
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("invalid checksum format: expected 'algorithm:hash', got %q", value)
 	}
 
 	algorithm := Algorithm(parts[0])
-	hashValue := parts[1]
+	hashValue := Digest(parts[1])
 
 	switch algorithm {
 	case AlgorithmSHA256, AlgorithmSHA512:
@@ -42,14 +43,13 @@ func Parse(value string) (Algorithm, string, error) {
 	return algorithm, hashValue, nil
 }
 
-// ExtractHash extracts the hash value from a Checksum struct.
-// For direct value, it extracts the hash part.
-// For URL-based checksum, returns empty (hash is fetched during verification).
-func ExtractHash(checksum *resource.Checksum) string {
-	if checksum == nil || checksum.Value == "" {
+// ExtractHash extracts the hash digest from a checksum value string (e.g., "sha256:abc123").
+// For URL-based checksum, pass an empty string (hash is fetched during verification).
+func ExtractHash(value string) Digest {
+	if value == "" {
 		return ""
 	}
-	_, hashValue, err := Parse(checksum.Value)
+	_, hashValue, err := Parse(value)
 	if err != nil {
 		return ""
 	}
@@ -57,7 +57,7 @@ func ExtractHash(checksum *resource.Checksum) string {
 }
 
 // Calculate calculates the checksum of a file using the given algorithm.
-func Calculate(filePath string, algorithm Algorithm) (string, error) {
+func Calculate(filePath string, algorithm Algorithm) (Digest, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
@@ -68,7 +68,7 @@ func Calculate(filePath string, algorithm Algorithm) (string, error) {
 }
 
 // CalculateFromReader calculates the checksum from a reader using the given algorithm.
-func CalculateFromReader(r io.Reader, algorithm Algorithm) (string, error) {
+func CalculateFromReader(r io.Reader, algorithm Algorithm) (Digest, error) {
 	var h hash.Hash
 	switch algorithm {
 	case AlgorithmSHA256:
@@ -83,11 +83,11 @@ func CalculateFromReader(r io.Reader, algorithm Algorithm) (string, error) {
 		return "", fmt.Errorf("failed to read data: %w", err)
 	}
 
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return Digest(hex.EncodeToString(h.Sum(nil))), nil
 }
 
 // Verify verifies the checksum of a file.
-func Verify(filePath string, algorithm Algorithm, expectedHash string) error {
+func Verify(filePath string, algorithm Algorithm, expectedHash Digest) error {
 	actualHash, err := Calculate(filePath, algorithm)
 	if err != nil {
 		return err
