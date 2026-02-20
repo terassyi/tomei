@@ -68,6 +68,14 @@ type RuntimeSpec struct {
 	// this runtime will be reinstalled after a runtime version change.
 	// Default is false (opt-in). Presets for Go and Rust set this to true.
 	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
+
+	// ResolveVersion is an optional command to resolve version aliases for download-pattern runtimes.
+	// When set, the command is executed to resolve the actual version before downloading.
+	// Supports a built-in "github-release:owner/repo:tagPrefix" syntax for fetching
+	// the latest GitHub release tag, or arbitrary shell commands.
+	// Example: ["github-release:oven-sh/bun:bun-v"]
+	// Example: ["curl -sL https://go.dev/VERSION?m=text | head -1 | sed 's/^go//'"]
+	ResolveVersion []string `json:"resolveVersion,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -76,7 +84,8 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 	type Alias RuntimeSpec
 	var r struct {
 		Alias
-		Binaries json.RawMessage `json:"binaries,omitempty"`
+		Binaries       json.RawMessage `json:"binaries,omitempty"`
+		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
 	}
 	if err := json.Unmarshal(data, &r); err != nil {
 		return err
@@ -84,6 +93,7 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 	*s = RuntimeSpec(r.Alias)
 	return unmarshalStringFields([]stringField{
 		{"binaries", r.Binaries, &s.Binaries},
+		{"resolveVersion", r.ResolveVersion, &s.ResolveVersion},
 	})
 }
 
@@ -96,6 +106,11 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 //   - Remove: "rustup self uninstall -y"
 type RuntimeBootstrapSpec struct {
 	CommandSet
+
+	// Update is an optional command to update the runtime in-place (e.g., "rustup update stable").
+	// When set and the action is upgrade or reinstall, this command is used instead of Install.
+	// This avoids re-running the full bootstrap installer for lightweight updates.
+	Update []string `json:"update,omitempty"`
 
 	// ResolveVersion is an optional command to resolve version aliases like "stable" or "latest".
 	// Should output the actual version number to stdout.
@@ -111,14 +126,16 @@ func (r *RuntimeBootstrapSpec) UnmarshalJSON(data []byte) error {
 	if err := r.CommandSet.UnmarshalJSON(data); err != nil {
 		return err
 	}
-	// Decode the additional ResolveVersion field.
+	// Decode the additional Update and ResolveVersion fields.
 	var extra struct {
+		Update         json.RawMessage `json:"update,omitempty"`
 		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
 	}
 	if err := json.Unmarshal(data, &extra); err != nil {
 		return err
 	}
 	return unmarshalStringFields([]stringField{
+		{"update", extra.Update, &r.Update},
 		{"resolveVersion", extra.ResolveVersion, &r.ResolveVersion},
 	})
 }
@@ -228,8 +245,28 @@ type RuntimeState struct {
 	// Propagated from RuntimeSpec during installation.
 	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
 
+	// TaintReason indicates why this runtime needs reinstallation.
+	// Common reasons: "update_requested" (--update-runtimes flag).
+	// Empty string means the runtime is not tainted.
+	TaintReason string `json:"taintReason,omitempty"`
+
 	// UpdatedAt is the timestamp when this runtime was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (*RuntimeState) isState() {}
+
+// IsTainted returns true if the runtime needs reinstallation.
+func (s *RuntimeState) IsTainted() bool {
+	return s.TaintReason != ""
+}
+
+// Taint marks the runtime for reinstallation.
+func (s *RuntimeState) Taint(reason string) {
+	s.TaintReason = reason
+}
+
+// ClearTaint removes the taint flag.
+func (s *RuntimeState) ClearTaint() {
+	s.TaintReason = ""
+}

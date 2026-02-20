@@ -10,6 +10,9 @@ func RuntimeComparator() Comparator[*resource.Runtime, *resource.RuntimeState] {
 		if specVersionChanged(res.RuntimeSpec.Version, state.VersionKind, state.Version, state.SpecVersion) {
 			return true, "version changed: " + state.Version + " -> " + res.RuntimeSpec.Version
 		}
+		if state.IsTainted() {
+			return true, "tainted: " + state.TaintReason
+		}
 		return false, ""
 	}
 }

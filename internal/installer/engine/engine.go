@@ -135,7 +135,17 @@ type Engine struct {
 	resolverConfigurer      ResolverConfigurer
 	eventHandler            EventHandler
 	parallelism             int
-	syncMode                bool
+	updateCfg               UpdateConfig
+}
+
+// UpdateConfig holds update-related flags for apply and plan commands.
+type UpdateConfig struct {
+	// SyncMode taints tools with VersionKind=latest (for --sync).
+	SyncMode bool
+	// UpdateTools taints tools with VersionKind=latest or alias (for --update-tools).
+	UpdateTools bool
+	// UpdateRuntimes taints runtimes with VersionKind=alias or latest (for --update-runtimes).
+	UpdateRuntimes bool
 }
 
 // NewEngine creates a new Engine.
@@ -191,10 +201,9 @@ func (e *Engine) SetEventHandler(handler EventHandler) {
 	e.eventHandler = handler
 }
 
-// SetSyncMode enables sync mode, which taints latest-specified tools for re-resolution.
-// When enabled, tools with VersionKind=latest will be reinstalled to pick up newer versions.
-func (e *Engine) SetSyncMode(enabled bool) {
-	e.syncMode = enabled
+// SetUpdateConfig sets the update configuration (sync, update-tools, update-runtimes flags).
+func (e *Engine) SetUpdateConfig(cfg UpdateConfig) {
+	e.updateCfg = cfg
 }
 
 // emitEvent emits an event to the handler if set.
@@ -264,10 +273,8 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		}
 	}
 
-	// Taint latest-specified tools for re-resolution in sync mode
-	if e.syncMode {
-		e.taintLatestTools(st)
-	}
+	// Apply taint marks based on update flags
+	applyUpdateTaints(st, e.updateCfg)
 
 	// Build resource maps for quick lookup
 	resourceMap := buildResourceMap(resources)
@@ -663,10 +670,19 @@ func (e *Engine) executeRuntimeNode(
 
 	*totalActions++
 
-	// Track if runtime was upgraded (not first install).
-	// Only upgrades should trigger taint on dependent tools.
+	// Track if runtime was upgraded (not first install) and the version actually changed.
+	// Only version changes should trigger taint on dependent tools.
+	// This prevents unnecessary tool cascade when --update-runtimes re-resolves
+	// an alias to the same version.
 	if action.Type == resource.ActionUpgrade {
-		updatedRuntimes[action.Name] = true
+		oldVersion := ""
+		if action.State != nil {
+			oldVersion = action.State.Version
+		}
+		newRS, newExists, loadErr := e.runtimeStore.Load(rt.Name())
+		if loadErr == nil && newExists && newRS.Version != oldVersion {
+			updatedRuntimes[action.Name] = true
+		}
 	}
 
 	return nil
@@ -875,7 +891,7 @@ func (e *Engine) handleTaintedTools(
 	}
 	st = e.stateCache.Snapshot()
 
-	tools := extractTools(resources)
+	tools := extractByKind[*resource.Tool](resources)
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 
 	// Collect non-None actions and build layer node names for UI
@@ -966,9 +982,9 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	st := e.stateCache.Snapshot()
 
 	// Get full reconciliation to detect removals
-	tools := extractTools(resources)
-	runtimes := extractRuntimes(resources)
-	repos := extractInstallerRepositories(resources)
+	tools := extractByKind[*resource.Tool](resources)
+	runtimes := extractByKind[*resource.Runtime](resources)
+	repos := extractByKind[*resource.InstallerRepository](resources)
 
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 	repoActions := e.installerRepoReconciler.Reconcile(repos, st.InstallerRepositories)
@@ -1081,9 +1097,9 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 	slog.Debug("planning configuration", "resources", len(resources))
 
 	// Extract resources
-	runtimes := extractRuntimes(resources)
-	repos := extractInstallerRepositories(resources)
-	tools := extractTools(resources)
+	runtimes := extractByKind[*resource.Runtime](resources)
+	repos := extractByKind[*resource.InstallerRepository](resources)
+	tools := extractByKind[*resource.Tool](resources)
 
 	// Acquire lock for state read
 	if err := e.store.Lock(); err != nil {
@@ -1098,6 +1114,9 @@ func (e *Engine) PlanAll(ctx context.Context, resources []resource.Resource) ([]
 	}
 
 	_ = e.store.Unlock()
+
+	// Apply taint marks based on update flags (same as Apply)
+	applyUpdateTaints(st, e.updateCfg)
 
 	// Reconcile runtimes
 	var runtimeActions []RuntimeAction
@@ -1155,56 +1174,64 @@ func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[st
 	}
 }
 
-// taintLatestTools marks tools with VersionKind=latest for reinstallation.
-// This is used in sync mode to force re-resolution of latest versions.
-// Called before stateCache.Init(), so it modifies st directly and the
-// changes are picked up when Init sets the cache.
-func (e *Engine) taintLatestTools(st *state.UserState) {
-	taintedCount := 0
-	for name, toolState := range st.Tools {
-		if toolState.VersionKind == resource.VersionLatest {
-			toolState.Taint("sync_update")
-			taintedCount++
-			slog.Debug("tainted latest-specified tool for sync", "tool", name)
-		}
+// ApplyUpdateTaints applies taint marks to state based on update flags.
+// Called before stateCache.Init(), so it modifies st directly.
+// Exported for use by plan command.
+func ApplyUpdateTaints(st *state.UserState, cfg UpdateConfig) {
+	applyUpdateTaints(st, cfg)
+}
+
+func applyUpdateTaints(st *state.UserState, cfg UpdateConfig) {
+	isNonExact := func(vk resource.VersionKind) bool {
+		return vk == resource.VersionLatest || vk == resource.VersionAlias
 	}
 
-	if taintedCount > 0 {
-		slog.Debug("tainted latest tools for sync", "count", taintedCount)
+	if cfg.SyncMode {
+		taintMatching(st.Tools, func(s *resource.ToolState) bool {
+			return s.VersionKind == resource.VersionLatest
+		}, "sync_update", "tool")
+	}
+	if cfg.UpdateTools {
+		taintMatching(st.Tools, func(s *resource.ToolState) bool {
+			return isNonExact(s.VersionKind)
+		}, "update_requested", "tool")
+	}
+	if cfg.UpdateRuntimes {
+		taintMatching(st.Runtimes, func(s *resource.RuntimeState) bool {
+			return isNonExact(s.VersionKind)
+		}, "update_requested", "runtime")
 	}
 }
 
-// extractRuntimes filters Runtime resources from a list of resources.
-func extractRuntimes(resources []resource.Resource) []*resource.Runtime {
-	var runtimes []*resource.Runtime
-	for _, res := range resources {
-		if rt, ok := res.(*resource.Runtime); ok {
-			runtimes = append(runtimes, rt)
-		}
-	}
-	return runtimes
+// taintable is the constraint for state types that support taint marking.
+type taintable interface {
+	Taint(string)
 }
 
-// extractInstallerRepositories filters InstallerRepository resources from a list of resources.
-func extractInstallerRepositories(resources []resource.Resource) []*resource.InstallerRepository {
-	var repos []*resource.InstallerRepository
-	for _, res := range resources {
-		if repo, ok := res.(*resource.InstallerRepository); ok {
-			repos = append(repos, repo)
+// taintMatching iterates state entries and taints those matching the predicate.
+func taintMatching[S taintable](states map[string]S, match func(S) bool, reason, kind string) {
+	count := 0
+	for name, s := range states {
+		if match(s) {
+			s.Taint(reason)
+			count++
+			slog.Debug("tainted "+kind+" for update", kind, name)
 		}
 	}
-	return repos
+	if count > 0 {
+		slog.Debug("tainted "+kind+"s for update", "count", count)
+	}
 }
 
-// extractTools filters Tool resources from a list of resources.
-func extractTools(resources []resource.Resource) []*resource.Tool {
-	var tools []*resource.Tool
+// extractByKind filters resources of a specific concrete type from a list.
+func extractByKind[R resource.Resource](resources []resource.Resource) []R {
+	var result []R
 	for _, res := range resources {
-		if tool, ok := res.(*resource.Tool); ok {
-			tools = append(tools, tool)
+		if r, ok := res.(R); ok {
+			result = append(result, r)
 		}
 	}
-	return tools
+	return result
 }
 
 // checkRemovalDependencies validates that no remaining tools depend on runtimes being removed.

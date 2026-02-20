@@ -3,12 +3,20 @@ package go
 import "tomei.terassyi.net/schema"
 
 // #GoRuntime declares a Go runtime installed from go.dev.
-// User provides spec.version and platform.
+// When spec.version is set to an exact version string (e.g., "1.26.0"),
+// the resolveVersion step is skipped and the version is used as-is.
+// When spec.version is omitted (defaults to "latest"), the latest
+// stable version is automatically resolved from go.dev.
 //
-// Usage:
+// Usage (pinned):
 //   goRuntime: #GoRuntime & {
 //       platform: { os: _os, arch: _arch }
-//       spec: version: "1.25.6"
+//       spec: version: "1.26.0"
+//   }
+//
+// Usage (latest):
+//   goRuntime: #GoRuntime & {
+//       platform: { os: _os, arch: _arch }
 //   }
 #GoRuntime: schema.#Runtime & {
 	let _goBin = "~/go/bin"
@@ -25,16 +33,17 @@ import "tomei.terassyi.net/schema"
 	}
 	spec: {
 		type:    "download"
-		version: string & !=""
+		version: string | *"latest"
+		resolveVersion: ["http-text:https://go.dev/VERSION?m=text:^go(.+)"]
 		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(platform.os)-\(platform.arch).tar.gz"
+			url: "https://go.dev/dl/go{{.Version}}.\(platform.os)-\(platform.arch).tar.gz"
 			checksum: url: "https://go.dev/dl/?mode=json&include=all"
 		}
 		binaries: ["go", "gofmt"]
 		binDir:      _goBin
 		toolBinPath: _goBin
 		env: {
-			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
+			GOROOT: "~/.local/share/tomei/runtimes/go/{{.Version}}"
 			GOBIN:  _goBin
 		}
 		commands: {

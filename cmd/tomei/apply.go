@@ -32,12 +32,15 @@ import (
 
 // applyConfig holds configuration for the apply command.
 type applyConfig struct {
-	syncRegistry bool
-	noColor      bool
-	quiet        bool
-	parallel     int
-	yes          bool
-	logLevel     string
+	syncRegistry   bool
+	updateTools    bool
+	updateRuntimes bool
+	updateAll      bool
+	noColor        bool
+	quiet          bool
+	parallel       int
+	yes            bool
+	logLevel       string
 }
 
 var applyCfg applyConfig
@@ -60,6 +63,9 @@ For system-level resources (SystemPackageRepository, SystemPackageSet):
 
 func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.syncRegistry, "sync", false, "Sync aqua registry to latest version before apply")
+	applyCmd.Flags().BoolVar(&applyCfg.updateTools, "update-tools", false, "Update tools with non-exact versions (latest + alias) to latest")
+	applyCmd.Flags().BoolVar(&applyCfg.updateRuntimes, "update-runtimes", false, "Update runtimes with non-exact versions (latest + alias) to latest")
+	applyCmd.Flags().BoolVar(&applyCfg.updateAll, "update-all", false, "Update all tools and runtimes with non-exact versions")
 	applyCmd.Flags().BoolVar(&applyCfg.noColor, "no-color", false, "Disable colored output")
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
@@ -132,15 +138,21 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Create GitHub-aware HTTP client (uses GITHUB_TOKEN/GH_TOKEN if available)
 	ghClient := github.NewHTTPClient(github.TokenFromEnv())
 
-	// Sync registry if --sync flag is set
-	if cfg.syncRegistry {
+	// Sync registry if --sync flag is set, or if --update-tools/--update-all
+	// is used (latest tools need latest registry for accurate resolution)
+	if cfg.syncRegistry || cfg.updateTools || cfg.updateAll {
 		if err := aqua.SyncRegistry(ctx, store, ghClient); err != nil {
 			slog.Warn("failed to sync aqua registry", "error", err)
 		}
 	}
 
 	// Show plan and ask for confirmation when there are changes
-	hasChanges, err := planForResources(w, resources, cfg.noColor)
+	updCfg := engine.UpdateConfig{
+		SyncMode:       cfg.syncRegistry,
+		UpdateTools:    cfg.updateTools || cfg.updateAll,
+		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
+	}
+	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg)
 	if err != nil {
 		return fmt.Errorf("failed to plan: %w", err)
 	}
@@ -171,9 +183,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Create engine with event handler for progress display
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, repoInstaller, store)
 	eng.SetParallelism(cfg.parallel)
-	if cfg.syncRegistry {
-		eng.SetSyncMode(true)
-	}
+	eng.SetUpdateConfig(updCfg)
 
 	// Track results for summary
 	results := &ui.ApplyResults{}

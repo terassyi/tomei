@@ -36,9 +36,10 @@ package schema
 	remove?: [...string]
 }
 
-// RuntimeBootstrap extends CommandSet with version resolution support.
+// RuntimeBootstrap extends CommandSet with update and version resolution support.
 #RuntimeBootstrap: {
 	install: [...string] & [_, ...]
+	update?: [...string]
 	check?: [...string]
 	remove?: [...string]
 	resolveVersion?: [...string]
@@ -74,6 +75,7 @@ package schema
 		commands?: #CommandSet
 		env?: {[string]: string}
 		taintOnUpgrade?: bool
+		resolveVersion?: [...string]
 
 		// Conditional required fields
 		if type == "download" {

@@ -60,6 +60,9 @@ func (e *Executor[R, S]) Execute(ctx context.Context, action reconciler.Action[R
 func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R, S]) error {
 	slog.Debug("installing resource", "kind", e.kind, "name", action.Name, "action", action.Type)
 
+	// Propagate action type to installers via context
+	ctx = WithAction(ctx, action.Type)
+
 	// Install the resource
 	state, err := e.installer.Install(ctx, action.Resource, action.Name)
 	if err != nil {

@@ -206,6 +206,17 @@ func ClassifyVersion(specVersion string) VersionKind {
 	return VersionExact
 }
 
+// IsExactVersion returns true if the version string represents an exact version number
+// (e.g., "1.26.0", "v2.1.4") rather than an alias (e.g., "latest", "stable") or empty string.
+// It checks whether the version starts with a digit (after stripping an optional "v" prefix).
+func IsExactVersion(version string) bool {
+	if version == "" {
+		return false
+	}
+	v := strings.TrimPrefix(version, "v")
+	return len(v) > 0 && v[0] >= '0' && v[0] <= '9'
+}
+
 // CommandSet defines a set of shell commands for install/check/remove operations.
 // This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
 // Each command is a string slice; multiple entries are joined with " && " at execution time.

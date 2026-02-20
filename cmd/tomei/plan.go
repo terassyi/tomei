@@ -38,13 +38,19 @@ Use --output to change the output format (text, json, yaml).`,
 }
 
 var (
-	syncRegistryPlan bool
-	outputFormat     string
-	noColor          bool
+	syncRegistryPlan   bool
+	updateToolsPlan    bool
+	updateRuntimesPlan bool
+	updateAllPlan      bool
+	outputFormat       string
+	noColor            bool
 )
 
 func init() {
 	planCmd.Flags().BoolVar(&syncRegistryPlan, "sync", false, "Sync aqua registry to latest version before planning")
+	planCmd.Flags().BoolVar(&updateToolsPlan, "update-tools", false, "Show plan as if updating tools with non-exact versions")
+	planCmd.Flags().BoolVar(&updateRuntimesPlan, "update-runtimes", false, "Show plan as if updating runtimes with non-exact versions (latest + alias)")
+	planCmd.Flags().BoolVar(&updateAllPlan, "update-all", false, "Show plan as if updating all tools and runtimes with non-exact versions")
 	planCmd.Flags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json, yaml")
 	planCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	_ = planCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -58,8 +64,8 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		color.NoColor = true
 	}
 
-	// Sync registry if --sync flag is set
-	if syncRegistryPlan {
+	// Sync registry if --sync or --update-tools/--update-all flag is set
+	if syncRegistryPlan || updateToolsPlan || updateAllPlan {
 		ctx := cmd.Context()
 		if ctx == nil {
 			ctx = context.Background()
@@ -87,7 +93,12 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	result, err := resolvePlan(resources)
+	updateCfg := engine.UpdateConfig{
+		SyncMode:       syncRegistryPlan,
+		UpdateTools:    updateToolsPlan || updateAllPlan,
+		UpdateRuntimes: updateRuntimesPlan || updateAllPlan,
+	}
+	result, err := resolvePlan(resources, updateCfg)
 	if err != nil {
 		return err
 	}
@@ -107,7 +118,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Load config and state
@@ -128,6 +139,11 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 
 	if userState == nil {
 		fmt.Fprintln(os.Stderr, "Warning: tomei is not initialized. Run 'tomei init' for accurate state comparison.")
+	}
+
+	// Apply taint logic based on update flags (for plan preview)
+	if userState != nil {
+		engine.ApplyUpdateTaints(userState, updCfg)
 	}
 
 	for _, res := range resources {
@@ -155,7 +171,9 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 			switch res.Kind() {
 			case resource.KindRuntime:
 				if rt, ok := userState.Runtimes[res.Name()]; ok {
-					if rt.Version == resInfo.Version {
+					if rt.IsTainted() {
+						resInfo.Action = graph.ActionReinstall
+					} else if rt.Version == resInfo.Version {
 						resInfo.Action = graph.ActionNone
 					} else {
 						resInfo.Action = graph.ActionUpgrade
@@ -163,7 +181,9 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 				}
 			case resource.KindTool:
 				if tool, ok := userState.Tools[res.Name()]; ok {
-					if tool.Version == resInfo.Version {
+					if tool.IsTainted() {
+						resInfo.Action = graph.ActionReinstall
+					} else if tool.Version == resInfo.Version {
 						resInfo.Action = graph.ActionNone
 					} else {
 						resInfo.Action = graph.ActionUpgrade
@@ -214,7 +234,7 @@ func buildResourceInfo(resources []resource.Resource) map[graph.NodeID]graph.Res
 					runtimeSpecs[res.Name()] = rt.RuntimeSpec
 				}
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
-				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionUpgrade {
+				if ri, ok := info[nodeID]; ok && (ri.Action == graph.ActionUpgrade || ri.Action == graph.ActionReinstall) {
 					upgradedRuntimes[res.Name()] = true
 				}
 			}
@@ -269,7 +289,7 @@ type planResult struct {
 
 // resolvePlan builds the dependency graph, resolves execution layers, and
 // computes resource actions from the current state.
-func resolvePlan(resources []resource.Resource) (*planResult, error) {
+func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (*planResult, error) {
 	definedResources := make(map[string]struct{})
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -302,7 +322,7 @@ func resolvePlan(resources []resource.Resource) (*planResult, error) {
 		}
 	}
 
-	resourceInfo := buildResourceInfo(resources)
+	resourceInfo := buildResourceInfo(resources, updateCfg)
 
 	return &planResult{
 		resolver:       resolver,
@@ -315,8 +335,8 @@ func resolvePlan(resources []resource.Resource) (*planResult, error) {
 // planForResources runs the plan logic on already-loaded resources and
 // writes the text plan to w. It returns true if there are any changes
 // (install, upgrade, reinstall, or remove).
-func planForResources(w io.Writer, resources []resource.Resource, disableColor bool) (bool, error) {
-	result, err := resolvePlan(resources)
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig) (bool, error) {
+	result, err := resolvePlan(resources, updateCfg)
 	if err != nil {
 		return false, err
 	}

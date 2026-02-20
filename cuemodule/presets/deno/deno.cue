@@ -3,12 +3,20 @@ package deno
 import "tomei.terassyi.net/schema"
 
 // #DenoRuntime declares a Deno runtime installed from dl.deno.land.
-// User provides spec.version and platform.
+// When spec.version is set to an exact version string (e.g., "2.6.10"),
+// the resolveVersion step is skipped and the version is used as-is.
+// When spec.version is omitted (defaults to "latest"), the latest
+// version is automatically resolved from dl.deno.land.
 //
-// Usage:
+// Usage (pinned):
 //   denoRuntime: #DenoRuntime & {
 //       platform: { os: _os, arch: _arch }
 //       spec: version: "2.6.10"
+//   }
+//
+// Usage (latest):
+//   denoRuntime: #DenoRuntime & {
+//       platform: { os: _os, arch: _arch }
 //   }
 #DenoRuntime: schema.#Runtime & {
 	let _binDir = "~/.deno/bin"
@@ -37,9 +45,10 @@ import "tomei.terassyi.net/schema"
 	}
 	spec: {
 		type:    "download"
-		version: string & !=""
+		version: string | *"latest"
+		resolveVersion: ["http-text:https://dl.deno.land/release-latest.txt:^v(.+)"]
 		source: {
-			url:         "https://dl.deno.land/release/v\(spec.version)/deno-\(_target).zip"
+			url:         "https://dl.deno.land/release/v{{.Version}}/deno-\(_target).zip"
 			archiveType: "zip"
 		}
 		binaries: ["deno"]

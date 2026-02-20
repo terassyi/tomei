@@ -256,6 +256,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy tar-xz-test: %w", err)
 	}
 
+	// Copy update-flags-test configs
+	if err := copyDir(filepath.Join(configDir, "update-flags-test"), filepath.Join(e.testHome, "update-flags-test")); err != nil {
+		return fmt.Errorf("failed to copy update-flags-test: %w", err)
+	}
+
 	return nil
 }
 

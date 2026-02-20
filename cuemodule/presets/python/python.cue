@@ -22,6 +22,7 @@ import "tomei.terassyi.net/schema"
 		version: string | *"latest"
 		bootstrap: {
 			install: ["curl -LsSf https://astral.sh/uv/{{.Version}}/install.sh | sh"]
+			update: ["\(_uv) self update{{if ne .Version \"latest\"}} {{.Version}}{{end}}"]
 			check: ["\(_uv) --version"]
 			remove: ["\(_uv) self uninstall"]
 			resolveVersion: ["\(_uv) --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]

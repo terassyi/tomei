@@ -257,13 +257,15 @@ goRuntime: gopreset.#GoRuntime & {
 	require.True(t, ok)
 	assert.Equal(t, "go", runtime.Name())
 	assert.Equal(t, "1.25.6", runtime.RuntimeSpec.Version)
-	assert.Equal(t, "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz", runtime.RuntimeSpec.Source.URL)
+	assert.Equal(t, "https://go.dev/dl/go{{.Version}}.linux-amd64.tar.gz", runtime.RuntimeSpec.Source.URL)
 
 	// Verify []string fields are correctly deserialized via cue.Value.Decode()
 	require.NotNil(t, runtime.RuntimeSpec.Commands)
 	assert.Equal(t, []string{"go install {{.Package}}@{{.Version}}"}, runtime.RuntimeSpec.Commands.Install)
 	assert.Equal(t, []string{"rm -f {{.BinPath}}"}, runtime.RuntimeSpec.Commands.Remove)
 	assert.Equal(t, []string{"go", "gofmt"}, runtime.RuntimeSpec.Binaries)
+	// ResolveVersion should be present (http-text resolver)
+	assert.Equal(t, []string{"http-text:https://go.dev/VERSION?m=text:^go(.+)"}, runtime.RuntimeSpec.ResolveVersion)
 }
 
 // TestCueEcosystem_MockRegistry_SchemaImportResolution verifies that
@@ -351,7 +353,7 @@ goRuntime: gopreset.#GoRuntime & {
 
 	require.NotNil(t, runtime)
 	assert.Equal(t, "go", runtime.Name())
-	assert.Equal(t, "https://go.dev/dl/go1.25.6.darwin-arm64.tar.gz", runtime.RuntimeSpec.Source.URL)
+	assert.Equal(t, "https://go.dev/dl/go{{.Version}}.darwin-arm64.tar.gz", runtime.RuntimeSpec.Source.URL)
 }
 
 // TestCueEcosystem_MockRegistry_PlatformVariations verifies that the platform
@@ -370,25 +372,25 @@ func TestCueEcosystem_MockRegistry_PlatformVariations(t *testing.T) {
 			name:        "linux/amd64",
 			os:          "linux",
 			arch:        "amd64",
-			expectedURL: "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz",
+			expectedURL: "https://go.dev/dl/go{{.Version}}.linux-amd64.tar.gz",
 		},
 		{
 			name:        "linux/arm64",
 			os:          "linux",
 			arch:        "arm64",
-			expectedURL: "https://go.dev/dl/go1.25.6.linux-arm64.tar.gz",
+			expectedURL: "https://go.dev/dl/go{{.Version}}.linux-arm64.tar.gz",
 		},
 		{
 			name:        "darwin/arm64",
 			os:          "darwin",
 			arch:        "arm64",
-			expectedURL: "https://go.dev/dl/go1.25.6.darwin-arm64.tar.gz",
+			expectedURL: "https://go.dev/dl/go{{.Version}}.darwin-arm64.tar.gz",
 		},
 		{
 			name:        "darwin/amd64",
 			os:          "darwin",
 			arch:        "amd64",
-			expectedURL: "https://go.dev/dl/go1.25.6.darwin-amd64.tar.gz",
+			expectedURL: "https://go.dev/dl/go{{.Version}}.darwin-amd64.tar.gz",
 		},
 	}
 
@@ -576,6 +578,19 @@ func TestCueEcosystem_MockRegistry_CueInitThenLoad(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
 
+	// Isolate CUE module cache to avoid stale cache from previous runs
+	cueCache := filepath.Join(dir, "cue-cache")
+	require.NoError(t, os.MkdirAll(cueCache, 0755))
+	t.Setenv("CUE_CACHE_DIR", cueCache)
+	t.Cleanup(func() {
+		_ = filepath.Walk(cueCache, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			return os.Chmod(path, 0755)
+		})
+	})
+
 	// Simulate cue init output
 	moduleCue, err := cuemod.GenerateModuleCUE(cuemod.DefaultModuleName, cuemod.DefaultModuleVer)
 	require.NoError(t, err)
@@ -633,7 +648,7 @@ goRuntime: gopreset.#GoRuntime & {
 
 	require.NotNil(t, runtime)
 	assert.Equal(t, "go", runtime.Name())
-	assert.Equal(t, "https://go.dev/dl/go1.25.6.linux-arm64.tar.gz", runtime.RuntimeSpec.Source.URL)
+	assert.Equal(t, "https://go.dev/dl/go{{.Version}}.linux-arm64.tar.gz", runtime.RuntimeSpec.Source.URL)
 }
 
 // TestCueEcosystem_MockRegistry_ResolveLatestVersion verifies that
@@ -1060,25 +1075,25 @@ func TestCueEcosystem_MockRegistry_DenoPresetImport(t *testing.T) {
 			name:        "linux/amd64",
 			os:          "linux",
 			arch:        "amd64",
-			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-x86_64-unknown-linux-gnu.zip",
+			expectedURL: "https://dl.deno.land/release/v{{.Version}}/deno-x86_64-unknown-linux-gnu.zip",
 		},
 		{
 			name:        "linux/arm64",
 			os:          "linux",
 			arch:        "arm64",
-			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-aarch64-unknown-linux-gnu.zip",
+			expectedURL: "https://dl.deno.land/release/v{{.Version}}/deno-aarch64-unknown-linux-gnu.zip",
 		},
 		{
 			name:        "darwin/arm64",
 			os:          "darwin",
 			arch:        "arm64",
-			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-aarch64-apple-darwin.zip",
+			expectedURL: "https://dl.deno.land/release/v{{.Version}}/deno-aarch64-apple-darwin.zip",
 		},
 		{
 			name:        "darwin/amd64",
 			os:          "darwin",
 			arch:        "amd64",
-			expectedURL: "https://dl.deno.land/release/v2.6.10/deno-x86_64-apple-darwin.zip",
+			expectedURL: "https://dl.deno.land/release/v{{.Version}}/deno-x86_64-apple-darwin.zip",
 		},
 	}
 
@@ -1161,25 +1176,25 @@ func TestCueEcosystem_MockRegistry_BunPresetImport(t *testing.T) {
 			name:        "linux/amd64",
 			os:          "linux",
 			arch:        "amd64",
-			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-linux-x64.zip",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v{{.Version}}/bun-linux-x64.zip",
 		},
 		{
 			name:        "linux/arm64",
 			os:          "linux",
 			arch:        "arm64",
-			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-linux-aarch64.zip",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v{{.Version}}/bun-linux-aarch64.zip",
 		},
 		{
 			name:        "darwin/arm64",
 			os:          "darwin",
 			arch:        "arm64",
-			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-darwin-aarch64.zip",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v{{.Version}}/bun-darwin-aarch64.zip",
 		},
 		{
 			name:        "darwin/amd64",
 			os:          "darwin",
 			arch:        "amd64",
-			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v1.2.21/bun-darwin-x64.zip",
+			expectedURL: "https://github.com/oven-sh/bun/releases/download/bun-v{{.Version}}/bun-darwin-x64.zip",
 		},
 	}
 
