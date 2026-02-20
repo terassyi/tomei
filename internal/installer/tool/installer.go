@@ -326,7 +326,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	// Build DownloadSource from resolved info
 	source := &resource.DownloadSource{
 		URL:         resolved.URL,
-		ArchiveType: extract.ArchiveType(resolved.Format),
+		ArchiveType: resolved.Format,
 	}
 
 	// Add checksum if available

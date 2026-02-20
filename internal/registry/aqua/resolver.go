@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+
+	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/installer/extract"
 )
 
 // ResolvedSource contains the resolved download information for a package.
@@ -16,8 +19,8 @@ import (
 //	ResolvedSource{
 //	    URL:         "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_macOS_arm64.tar.gz",
 //	    ChecksumURL: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_checksums.txt",
-//	    Algorithm:   "sha256",
-//	    Format:      "tar.gz",
+//	    ChecksumAlgorithm: "sha256",
+//	    Format:            "tar.gz",
 //	    Files:       nil,
 //	    Warnings:    [],
 //	    Errors:      [],
@@ -31,12 +34,12 @@ type ResolvedSource struct {
 	// Example: "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_checksums.txt"
 	ChecksumURL string
 
-	// Algorithm is the checksum algorithm (e.g., "sha256", "sha512").
-	// Defaults to "sha256" if not specified in the registry.
-	Algorithm string
+	// ChecksumAlgorithm is the checksum algorithm.
+	// Defaults to checksum.AlgorithmSHA256 if not specified in the registry.
+	ChecksumAlgorithm checksum.Algorithm
 
-	// Format is the archive format (e.g., "tar.gz", "zip", "raw").
-	Format string
+	// Format is the archive format (e.g., tar.gz, zip, raw).
+	Format extract.ArchiveType
 
 	// Files specifies which files to extract from the archive.
 	// If empty, all files are extracted.
@@ -219,19 +222,19 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 				fmt.Sprintf("failed to build checksum URL: %v", err))
 		} else {
 			result.ChecksumURL = checksumURL
-			result.Algorithm = info.Checksum.Algorithm
-			if result.Algorithm == "" {
-				result.Algorithm = "sha256"
+			result.ChecksumAlgorithm = checksum.Algorithm(info.Checksum.Algorithm)
+			if result.ChecksumAlgorithm == "" {
+				result.ChecksumAlgorithm = checksum.AlgorithmSHA256
 			}
 		}
 	}
 
 	// 10. Set format and files
-	result.Format = info.Format
+	result.Format = extract.ArchiveType(info.Format)
 	if result.Format == "" && info.Asset != "" {
 		// Auto-detect raw binary format when asset has no archive extension
 		if !hasArchiveExtension(info.Asset) {
-			result.Format = "raw"
+			result.Format = extract.ArchiveTypeRaw
 		}
 	}
 	result.Files = info.Files
