@@ -18,12 +18,12 @@ type PlanOutput struct {
 
 // PlanResource represents a resource in the plan output.
 type PlanResource struct {
-	Kind         resource.Kind `json:"kind" yaml:"kind"`
-	Name         string        `json:"name" yaml:"name"`
-	Version      string        `json:"version,omitempty" yaml:"version,omitempty"`
-	Action       Action        `json:"action" yaml:"action"`
-	Layer        int           `json:"layer" yaml:"layer"`
-	Dependencies []string      `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
+	Kind         resource.Kind       `json:"kind" yaml:"kind"`
+	Name         string              `json:"name" yaml:"name"`
+	Version      string              `json:"version,omitempty" yaml:"version,omitempty"`
+	Action       resource.ActionType `json:"action" yaml:"action"`
+	Layer        int                 `json:"layer" yaml:"layer"`
+	Dependencies []string            `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
 }
 
 // PlanLayer represents an execution layer in the plan output.
@@ -105,15 +105,15 @@ func (e *Exporter) BuildOutput() PlanOutput {
 	}
 	for _, res := range output.Resources {
 		switch res.Action {
-		case ActionInstall:
+		case resource.ActionInstall:
 			summary.Install++
-		case ActionUpgrade:
+		case resource.ActionUpgrade:
 			summary.Upgrade++
-		case ActionReinstall:
+		case resource.ActionReinstall:
 			summary.Reinstall++
-		case ActionRemove:
+		case resource.ActionRemove:
 			summary.Remove++
-		case ActionNone:
+		case resource.ActionNone:
 			summary.NoChange++
 		}
 	}

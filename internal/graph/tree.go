@@ -11,23 +11,12 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-// Action represents the action to be taken on a resource.
-type Action string
-
-const (
-	ActionInstall   Action = "install"
-	ActionUpgrade   Action = "upgrade"
-	ActionReinstall Action = "reinstall"
-	ActionRemove    Action = "remove"
-	ActionNone      Action = "none"
-)
-
 // ResourceInfo holds information about a resource for display.
 type ResourceInfo struct {
 	Kind    resource.Kind
 	Name    string
 	Version string
-	Action  Action
+	Action  resource.ActionType
 }
 
 // TreePrinter prints dependency graphs as ASCII trees with colors.
@@ -167,23 +156,23 @@ func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool)
 		actionStr := ""
 		var actionColor *color.Color
 		switch info.Action {
-		case ActionInstall:
+		case resource.ActionInstall:
 			actionStr = " [+ install]"
 			actionColor = p.installColor
-		case ActionUpgrade:
+		case resource.ActionUpgrade:
 			actionStr = " [~ upgrade]"
 			actionColor = p.upgradeColor
-		case ActionReinstall:
+		case resource.ActionReinstall:
 			actionStr = " [↻ reinstall]"
 			actionColor = p.reinstallColor
-		case ActionRemove:
+		case resource.ActionRemove:
 			actionStr = " [- remove]"
 			actionColor = p.removeColor
-		case ActionNone:
+		case resource.ActionNone:
 			actionColor = p.noChangeColor
 		}
 
-		if actionColor != nil && info.Action != ActionNone {
+		if actionColor != nil && info.Action != resource.ActionNone {
 			sb.WriteString(actionColor.Sprint(nodeName + versionStr + actionStr))
 		} else {
 			sb.WriteString(nodeName + versionStr)
@@ -209,23 +198,23 @@ func (p *TreePrinter) PrintLayers(layers []Layer, resourceInfo map[NodeID]Resour
 
 // PrintSummary prints the action summary.
 func (p *TreePrinter) PrintSummary(resourceInfo map[NodeID]ResourceInfo) {
-	counts := map[Action]int{
-		ActionInstall:   0,
-		ActionUpgrade:   0,
-		ActionReinstall: 0,
-		ActionRemove:    0,
+	counts := map[resource.ActionType]int{
+		resource.ActionInstall:   0,
+		resource.ActionUpgrade:   0,
+		resource.ActionReinstall: 0,
+		resource.ActionRemove:    0,
 	}
 
 	for _, info := range resourceInfo {
-		if info.Action != ActionNone {
+		if info.Action != resource.ActionNone {
 			counts[info.Action]++
 		}
 	}
 
 	fmt.Fprintf(p.writer, "\nSummary: %s to install, %s to upgrade, %s to reinstall, %s to remove\n",
-		p.installColor.Sprintf("%d", counts[ActionInstall]),
-		p.upgradeColor.Sprintf("%d", counts[ActionUpgrade]),
-		p.reinstallColor.Sprintf("%d", counts[ActionReinstall]),
-		p.removeColor.Sprintf("%d", counts[ActionRemove]),
+		p.installColor.Sprintf("%d", counts[resource.ActionInstall]),
+		p.upgradeColor.Sprintf("%d", counts[resource.ActionUpgrade]),
+		p.reinstallColor.Sprintf("%d", counts[resource.ActionReinstall]),
+		p.removeColor.Sprintf("%d", counts[resource.ActionRemove]),
 	)
 }
