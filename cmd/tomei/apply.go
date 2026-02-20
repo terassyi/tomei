@@ -91,7 +91,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
 	// Load resources from paths (manifests)
-	loader := config.NewLoader(nil)
+	loader := config.NewLoader(nil, buildVerifierOpts()...)
 	resources, err := loader.LoadPaths(paths)
 	if err != nil {
 		return fmt.Errorf("failed to load resources: %w", err)

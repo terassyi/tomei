@@ -76,7 +76,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load configuration
-	loader := config.NewLoader(nil)
+	loader := config.NewLoader(nil, buildVerifierOpts()...)
 	resources, err := loader.LoadPaths(args)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)

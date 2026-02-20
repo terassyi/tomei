@@ -1,15 +1,21 @@
 package main
 
 import (
+	"log/slog"
+
 	"github.com/spf13/cobra"
+
 	cuecmd "github.com/terassyi/tomei/cmd/tomei/cue"
 	statecmd "github.com/terassyi/tomei/cmd/tomei/state"
+	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/verify"
 )
 
 const outputJSON = "json"
 
 var (
-	systemMode bool
+	systemMode   bool
+	ignoreCosign bool
 )
 
 var rootCmd = &cobra.Command{
@@ -29,6 +35,7 @@ Commands are separated by privilege level:
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Apply system-level resources (requires root)")
+	rootCmd.PersistentFlags().BoolVar(&ignoreCosign, "ignore-cosign", false, "Skip cosign signature verification for CUE module dependencies")
 
 	rootCmd.AddCommand(
 		versionCmd,
@@ -45,4 +52,18 @@ func init() {
 		cuecmd.Cmd,
 		statecmd.Cmd,
 	)
+}
+
+// buildVerifierOpts returns LoaderOptions for cosign signature verification.
+// If --ignore-cosign is set or the verifier cannot be created, returns nil (no verification).
+func buildVerifierOpts() []config.LoaderOption {
+	if ignoreCosign {
+		return nil
+	}
+	v, err := verify.NewSigstoreVerifier(config.CUERegistryOrDefault())
+	if err != nil {
+		slog.Warn("failed to create cosign verifier, skipping verification", "error", err)
+		return nil
+	}
+	return []config.LoaderOption{config.WithVerifier(v)}
 }

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/verify"
 )
 
 // setupMinimalCueMod creates a minimal cue.mod/module.cue in dir for tests.
@@ -1162,4 +1165,312 @@ myTool: {
 	require.NoError(t, json.Unmarshal(jsonBytes, &parsed))
 	assert.Equal(t, "tomei.terassyi.net/v1beta1", parsed.MyTool.APIVersion)
 	assert.Equal(t, "Tool", parsed.MyTool.Kind)
+}
+
+// mockVerifier implements verify.Verifier for testing.
+type mockVerifier struct {
+	called bool
+	deps   []verify.ModuleDependency
+	err    error
+}
+
+func (m *mockVerifier) Verify(_ context.Context, deps []verify.ModuleDependency) ([]verify.Result, error) {
+	m.called = true
+	m.deps = deps
+	if m.err != nil {
+		return nil, m.err
+	}
+	results := make([]verify.Result, len(deps))
+	for i, dep := range deps {
+		results[i] = verify.Result{
+			Module:   dep,
+			Verified: true,
+		}
+	}
+	return results, nil
+}
+
+func TestLoader_WithVerifier_Called(t *testing.T) {
+	dir := t.TempDir()
+	moduleCue := `module: "test.local@v0"
+language: version: "v0.9.0"
+deps: {
+	"tomei.terassyi.net@v0": v: "v0.0.3"
+}
+`
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "cue.mod", "module.cue"),
+		[]byte(moduleCue), 0644,
+	))
+
+	content := `package test
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version: "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	mv := &mockVerifier{}
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"}, WithVerifier(mv))
+
+	// EvalDir will call verifyModuleDeps before load.Instances.
+	// The CUE evaluation itself may fail (no real registry), but verifier should have been called.
+	_, _ = loader.EvalDir(dir)
+
+	assert.True(t, mv.called, "verifier should have been called")
+	require.Len(t, mv.deps, 1)
+	assert.Equal(t, "tomei.terassyi.net@v0", mv.deps[0].ModulePath)
+	assert.Equal(t, "v0.0.3", mv.deps[0].Version)
+}
+
+func TestLoader_WithVerifier_Error(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	moduleCue := `module: "test.local@v0"
+language: version: "v0.9.0"
+deps: {
+	"tomei.terassyi.net@v0": v: "v0.0.3"
+}
+`
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "cue.mod", "module.cue"),
+		[]byte(moduleCue), 0644,
+	))
+
+	content := `package test
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version: "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	mv := &mockVerifier{err: fmt.Errorf("signature verification failed")}
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"}, WithVerifier(mv))
+
+	_, err := loader.EvalDir(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cosign signature verification failed")
+}
+
+func TestLoader_WithoutVerifier_NoError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	setupMinimalCueMod(t, dir)
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version: "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	// No verifier, no package declaration → uses CompileString path, should load without error
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"})
+	resources, err := loader.LoadFile(filepath.Join(dir, "tools.cue"))
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+	assert.Equal(t, "jq", resources[0].Name())
+}
+
+func TestLoader_WithVerifier_NoCueMod(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	// No cue.mod/ — verifier should not be called
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version: "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	mv := &mockVerifier{}
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"}, WithVerifier(mv))
+
+	// No package declaration → uses CompileString, no verifyModuleDeps called
+	_, err := loader.LoadFile(filepath.Join(dir, "tools.cue"))
+	require.NoError(t, err)
+	assert.False(t, mv.called, "verifier should not be called when there is no cue.mod/")
+}
+
+func TestLoader_WithVerifier_VendorMode(t *testing.T) {
+	dir := t.TempDir()
+	moduleCue := `module: "test.local@v0"
+language: version: "v0.9.0"
+deps: {
+	"tomei.terassyi.net@v0": v: "v0.0.3"
+}
+`
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "cue.mod", "module.cue"),
+		[]byte(moduleCue), 0644,
+	))
+
+	content := `package test
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "jq"
+	spec: {
+		installerRef: "aqua"
+		version: "1.7.1"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	mv := &mockVerifier{}
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"}, WithVerifier(mv))
+
+	t.Setenv(EnvCUERegistry, "none")
+	_, _ = loader.EvalDir(dir) // May fail for CUE reasons, but verifier should be skipped
+
+	assert.False(t, mv.called, "verifier should not be called in vendor mode (CUE_REGISTRY=none)")
+}
+
+func TestFindCueModDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T) string // returns the dir to search from
+		wantFound bool
+	}{
+		{
+			name: "cue.mod in current directory",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755))
+				return dir
+			},
+			wantFound: true,
+		},
+		{
+			name: "cue.mod in parent directory",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				parent := t.TempDir()
+				require.NoError(t, os.MkdirAll(filepath.Join(parent, "cue.mod"), 0755))
+				child := filepath.Join(parent, "subdir")
+				require.NoError(t, os.MkdirAll(child, 0755))
+				return child
+			},
+			wantFound: true,
+		},
+		{
+			name: "no cue.mod anywhere",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				return t.TempDir()
+			},
+			wantFound: false,
+		},
+		{
+			name: "cue.mod is a file not a directory",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "cue.mod"), []byte("not a dir"), 0644))
+				return dir
+			},
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dir := tt.setup(t)
+			got := findCueModDir(dir)
+			if tt.wantFound {
+				assert.NotEmpty(t, got)
+				assert.DirExists(t, got)
+			} else {
+				assert.Empty(t, got)
+			}
+		})
+	}
+}
+
+func TestLoader_WithVerifier_DedupVerification(t *testing.T) {
+	dir := t.TempDir()
+	moduleCue := `module: "test.local@v0"
+language: version: "v0.9.0"
+deps: {
+	"tomei.terassyi.net@v0": v: "v0.0.3"
+}
+`
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "cue.mod"), 0755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "cue.mod", "module.cue"),
+		[]byte(moduleCue), 0644,
+	))
+
+	content := `package test
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "jq"
+spec: {
+	installerRef: "aqua"
+	version: "1.7.1"
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(content), 0644))
+
+	callCount := 0
+	mv := &mockVerifier{}
+	originalVerify := mv.Verify
+	_ = originalVerify
+	// Use a counting wrapper to track how many times Verify is called
+	countingVerifier := &countingMockVerifier{}
+	loader := NewLoader(&Env{OS: "linux", Arch: "amd64"}, WithVerifier(countingVerifier))
+
+	// Call EvalDir twice on the same directory
+	_, _ = loader.EvalDir(dir)
+	_, _ = loader.EvalDir(dir)
+
+	// Verify should only be called once due to dedup
+	assert.Equal(t, 1, countingVerifier.callCount,
+		"verifier should only be called once for the same cue.mod directory")
+	_ = callCount
+}
+
+// countingMockVerifier counts how many times Verify is called.
+type countingMockVerifier struct {
+	callCount int
+}
+
+func (m *countingMockVerifier) Verify(_ context.Context, deps []verify.ModuleDependency) ([]verify.Result, error) {
+	m.callCount++
+	results := make([]verify.Result, len(deps))
+	for i, dep := range deps {
+		results[i] = verify.Result{
+			Module:   dep,
+			Verified: true,
+		}
+	}
+	return results, nil
 }

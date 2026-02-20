@@ -137,6 +137,7 @@ tomei validate <files or directories...> [flags]
 | Flag | Description |
 |------|-------------|
 | `--no-color` | Disable colored output |
+| `--ignore-cosign` | Skip cosign signature verification for CUE module dependencies (global flag) |
 
 Checks:
 - CUE syntax errors
@@ -159,6 +160,7 @@ tomei plan <files or directories...> [flags]
 | `--update-all` | Show plan as if updating all tools and runtimes with non-exact versions |
 | `--output`, `-o` | Output format: `text` (default), `json`, `yaml` |
 | `--no-color` | Disable colored output |
+| `--ignore-cosign` | Skip cosign signature verification for CUE module dependencies (global flag) |
 
 Displays:
 - Dependency tree
@@ -184,6 +186,7 @@ tomei apply <files or directories...> [flags]
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
+| `--ignore-cosign` | Skip cosign signature verification for CUE module dependencies (global flag) |
 
 Before applying, `tomei apply` shows the execution plan and asks for confirmation (`y/N`). Use `--yes` to skip the prompt. If the current state already matches the manifests, no changes are made.
 
