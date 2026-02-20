@@ -189,10 +189,10 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 			Version:     "v0.17.0",
 			RuntimeRef:  "go",
 			VersionKind: resource.VersionLatest,
-			TaintReason: "runtime_upgraded",
+			TaintReason: resource.TaintReasonRuntimeUpgraded,
 		}
 		row := f.FormatRow("gopls", ts, false)
-		assert.Equal(t, "runtime_upgraded", row[4])
+		assert.Equal(t, string(resource.TaintReasonRuntimeUpgraded), row[4])
 		assert.Len(t, row, 5)
 	})
 
@@ -335,7 +335,7 @@ func TestPrintTable_Tools(t *testing.T) {
 			Version:     "v0.17.0",
 			RuntimeRef:  "go",
 			VersionKind: resource.VersionLatest,
-			TaintReason: "runtime_upgraded",
+			TaintReason: resource.TaintReasonRuntimeUpgraded,
 		},
 	}
 
@@ -349,7 +349,7 @@ func TestPrintTable_Tools(t *testing.T) {
 	assert.Contains(t, output, "TAINTED")
 
 	// Taint reason visible for gopls
-	assert.Contains(t, output, "runtime_upgraded")
+	assert.Contains(t, output, string(resource.TaintReasonRuntimeUpgraded))
 
 	// Rows sorted alphabetically (gopls before ripgrep)
 	assert.Contains(t, output, "gopls")

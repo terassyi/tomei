@@ -145,7 +145,7 @@ func TestCachedStore_markDirtyViaSave(t *testing.T) {
 
 	sc := NewStateCache(store)
 	st := state.NewUserState()
-	st.Tools["exa"] = &resource.ToolState{Version: "0.10.0", TaintReason: "runtime_upgrade"}
+	st.Tools["exa"] = &resource.ToolState{Version: "0.10.0", TaintReason: resource.TaintReasonRuntimeUpgraded}
 	sc.Init(st)
 
 	ts := NewToolStore(sc)

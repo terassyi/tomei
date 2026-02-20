@@ -30,7 +30,7 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 			return true, "version changed: " + state.Version + " -> " + res.ToolSpec.Version
 		}
 		if state.IsTainted() {
-			return true, "tainted: " + state.TaintReason
+			return true, "tainted: " + string(state.TaintReason)
 		}
 		return false, ""
 	}

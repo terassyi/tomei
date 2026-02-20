@@ -2892,7 +2892,7 @@ func TestApplyUpdateTaints_SyncMode(t *testing.T) {
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
-				assert.Equal(t, "sync_update", st.Tools[name].TaintReason)
+				assert.Equal(t, resource.TaintReasonSyncUpdate, st.Tools[name].TaintReason)
 			}
 			for _, name := range tt.wantNotTainted {
 				assert.False(t, st.Tools[name].IsTainted(), "tool %s should not be tainted", name)
@@ -2986,7 +2986,7 @@ func TestApplyUpdateTaints_UpdateTools(t *testing.T) {
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Tools[name].IsTainted(), "tool %s should be tainted", name)
-				assert.Equal(t, "update_requested", st.Tools[name].TaintReason)
+				assert.Equal(t, resource.TaintReasonUpdateRequested, st.Tools[name].TaintReason)
 			}
 			for _, name := range tt.wantNotTainted {
 				assert.False(t, st.Tools[name].IsTainted(), "tool %s should not be tainted", name)
@@ -3074,7 +3074,7 @@ func TestApplyUpdateTaints_UpdateRuntimes(t *testing.T) {
 
 			for _, name := range tt.wantTainted {
 				assert.True(t, st.Runtimes[name].IsTainted(), "runtime %s should be tainted", name)
-				assert.Equal(t, "update_requested", st.Runtimes[name].TaintReason)
+				assert.Equal(t, resource.TaintReasonUpdateRequested, st.Runtimes[name].TaintReason)
 			}
 			for _, name := range tt.wantNotTainted {
 				assert.False(t, st.Runtimes[name].IsTainted(), "runtime %s should not be tainted", name)

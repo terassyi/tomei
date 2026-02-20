@@ -200,7 +200,7 @@ func TestState_Taint(t *testing.T) {
 	require.NoError(t, store.Save(st))
 
 	// Simulate runtime upgrade - taint dependent tools
-	st.Tools["gopls"].Taint("runtime_upgraded")
+	st.Tools["gopls"].Taint(resource.TaintReasonRuntimeUpgraded)
 	require.NoError(t, store.Save(st))
 	require.NoError(t, store.Unlock())
 
@@ -211,7 +211,7 @@ func TestState_Taint(t *testing.T) {
 	require.NoError(t, store.Unlock())
 
 	assert.True(t, st.Tools["gopls"].IsTainted())
-	assert.Equal(t, "runtime_upgraded", st.Tools["gopls"].TaintReason)
+	assert.Equal(t, resource.TaintReasonRuntimeUpgraded, st.Tools["gopls"].TaintReason)
 
 	// Clear taint
 	require.NoError(t, store.Lock())

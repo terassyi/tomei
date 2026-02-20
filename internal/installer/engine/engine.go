@@ -1163,7 +1163,7 @@ func (e *Engine) taintDependentTools(st *state.UserState, updatedRuntimes map[st
 		if !ok || !rs.TaintOnUpgrade {
 			continue
 		}
-		toolState.Taint("runtime_upgraded")
+		toolState.Taint(resource.TaintReasonRuntimeUpgraded)
 		_ = e.toolStore.Save(name, toolState)
 		taintedCount++
 		slog.Debug("tainted tool due to runtime upgrade", "tool", name, "runtime", toolState.RuntimeRef)
@@ -1189,27 +1189,27 @@ func applyUpdateTaints(st *state.UserState, cfg UpdateConfig) {
 	if cfg.SyncMode {
 		taintMatching(st.Tools, func(s *resource.ToolState) bool {
 			return s.VersionKind == resource.VersionLatest
-		}, "sync_update", "tool")
+		}, resource.TaintReasonSyncUpdate, "tool")
 	}
 	if cfg.UpdateTools {
 		taintMatching(st.Tools, func(s *resource.ToolState) bool {
 			return isNonExact(s.VersionKind)
-		}, "update_requested", "tool")
+		}, resource.TaintReasonUpdateRequested, "tool")
 	}
 	if cfg.UpdateRuntimes {
 		taintMatching(st.Runtimes, func(s *resource.RuntimeState) bool {
 			return isNonExact(s.VersionKind)
-		}, "update_requested", "runtime")
+		}, resource.TaintReasonUpdateRequested, "runtime")
 	}
 }
 
 // taintable is the constraint for state types that support taint marking.
 type taintable interface {
-	Taint(string)
+	Taint(resource.TaintReason)
 }
 
 // taintMatching iterates state entries and taints those matching the predicate.
-func taintMatching[S taintable](states map[string]S, match func(S) bool, reason, kind string) {
+func taintMatching[S taintable](states map[string]S, match func(S) bool, reason resource.TaintReason, kind string) {
 	count := 0
 	for name, s := range states {
 		if match(s) {

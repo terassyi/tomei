@@ -112,32 +112,32 @@ func TestRuntimeState_Taint(t *testing.T) {
 	tests := []struct {
 		name         string
 		initial      *RuntimeState
-		taintReason  string
+		taintReason  TaintReason
 		wantTainted  bool
-		wantReason   string
+		wantReason   TaintReason
 		clearTaint   bool
 		wantAfterClr bool
 	}{
 		{
 			name:        "taint empty state",
 			initial:     &RuntimeState{},
-			taintReason: "update_requested",
+			taintReason: TaintReasonUpdateRequested,
 			wantTainted: true,
-			wantReason:  "update_requested",
+			wantReason:  TaintReasonUpdateRequested,
 		},
 		{
 			name:        "taint with runtime_upgraded reason",
 			initial:     &RuntimeState{Version: "1.83.0"},
-			taintReason: "runtime_upgraded",
+			taintReason: TaintReasonRuntimeUpgraded,
 			wantTainted: true,
-			wantReason:  "runtime_upgraded",
+			wantReason:  TaintReasonRuntimeUpgraded,
 		},
 		{
 			name:         "taint then clear",
 			initial:      &RuntimeState{},
-			taintReason:  "update_requested",
+			taintReason:  TaintReasonUpdateRequested,
 			wantTainted:  true,
-			wantReason:   "update_requested",
+			wantReason:   TaintReasonUpdateRequested,
 			clearTaint:   true,
 			wantAfterClr: false,
 		},

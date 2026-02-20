@@ -246,9 +246,8 @@ type RuntimeState struct {
 	TaintOnUpgrade bool `json:"taintOnUpgrade,omitempty"`
 
 	// TaintReason indicates why this runtime needs reinstallation.
-	// Common reasons: "update_requested" (--update-runtimes flag).
 	// Empty string means the runtime is not tainted.
-	TaintReason string `json:"taintReason,omitempty"`
+	TaintReason TaintReason `json:"taintReason,omitempty"`
 
 	// UpdatedAt is the timestamp when this runtime was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -262,7 +261,7 @@ func (s *RuntimeState) IsTainted() bool {
 }
 
 // Taint marks the runtime for reinstallation.
-func (s *RuntimeState) Taint(reason string) {
+func (s *RuntimeState) Taint(reason TaintReason) {
 	s.TaintReason = reason
 }
 
