@@ -1,3 +1,15 @@
+// Package command provides a command executor for running user-defined
+// shell commands during resource installation.
+//
+// Security Model:
+// Commands are executed via "sh -c" with template-expanded strings.
+// This design assumes that command templates originate from trusted,
+// user-authored CUE manifests — the same trust boundary as a Makefile
+// or shell script. It is intended for scenarios where the user who writes
+// the manifest is the same user who runs tomei, and the manifests are not
+// obtained from untrusted parties or unreviewed sources (e.g., arbitrary
+// PRs or shared repos). Running tomei with untrusted manifests can
+// introduce command injection risks and is not supported.
 package command
 
 import (
@@ -23,7 +35,10 @@ type Vars struct {
 	Version string // Version string (e.g., v0.16.0)
 	Name    string // Tool name (e.g., gopls)
 	BinPath string // Binary path (e.g., ~/go/bin/gopls)
-	Args    string // Additional arguments (space-joined, e.g., "--with-executables-from ansible-core")
+	// Args holds additional arguments for the installation command (space-joined).
+	// Security: values are sourced from the user's own CUE manifest,
+	// not from external/untrusted input.
+	Args string
 }
 
 // Executor executes shell commands with variable substitution.
