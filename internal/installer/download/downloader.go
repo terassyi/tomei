@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/terassyi/tomei/internal/checksum"
+	tomeiErrors "github.com/terassyi/tomei/internal/errors"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -72,13 +73,23 @@ func (d *httpDownloader) DownloadWithProgress(ctx context.Context, url, destPath
 	// Execute request
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to download: %w", err)
+		return "", &tomeiErrors.Error{
+			Category: tomeiErrors.CategoryNetwork,
+			Code:     tomeiErrors.CodeNetworkFailed,
+			Message:  fmt.Sprintf("failed to download from %s", url),
+			Cause:    err,
+		}
 	}
 	defer resp.Body.Close()
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download: HTTP %d", resp.StatusCode)
+		return "", &tomeiErrors.Error{
+			Category: tomeiErrors.CategoryNetwork,
+			Code:     tomeiErrors.CodeHTTPError,
+			Message:  fmt.Sprintf("failed to download: HTTP %d", resp.StatusCode),
+			Details:  map[string]any{"url": url, "status_code": resp.StatusCode},
+		}
 	}
 
 	// Create parent directory if needed
@@ -206,12 +217,22 @@ func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to fetch checksum file: %w", err)
+		return "", "", &tomeiErrors.Error{
+			Category: tomeiErrors.CategoryNetwork,
+			Code:     tomeiErrors.CodeNetworkFailed,
+			Message:  fmt.Sprintf("failed to fetch checksum file from %s", url),
+			Cause:    err,
+		}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("failed to fetch checksum file: HTTP %d", resp.StatusCode)
+		return "", "", &tomeiErrors.Error{
+			Category: tomeiErrors.CategoryNetwork,
+			Code:     tomeiErrors.CodeHTTPError,
+			Message:  fmt.Sprintf("failed to fetch checksum file: HTTP %d", resp.StatusCode),
+			Details:  map[string]any{"url": url, "status_code": resp.StatusCode},
+		}
 	}
 
 	body, err := io.ReadAll(resp.Body)
