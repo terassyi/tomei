@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tomeiErrors "github.com/terassyi/tomei/internal/errors"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -39,6 +40,7 @@ func TestDownloader_Download(t *testing.T) {
 		transport  roundTripFunc
 		wantErr    bool
 		errContain string
+		wantCode   tomeiErrors.Code
 	}{
 		{
 			name: "successful download",
@@ -61,6 +63,7 @@ func TestDownloader_Download(t *testing.T) {
 			},
 			wantErr:    true,
 			errContain: "404",
+			wantCode:   tomeiErrors.CodeHTTPError,
 		},
 		{
 			name: "500 server error",
@@ -72,6 +75,16 @@ func TestDownloader_Download(t *testing.T) {
 			},
 			wantErr:    true,
 			errContain: "500",
+			wantCode:   tomeiErrors.CodeHTTPError,
+		},
+		{
+			name: "network error",
+			transport: func(_ *http.Request) (*http.Response, error) {
+				return nil, fmt.Errorf("connection refused")
+			},
+			wantErr:    true,
+			errContain: "connection refused",
+			wantCode:   tomeiErrors.CodeNetworkFailed,
 		},
 	}
 
@@ -89,6 +102,12 @@ func TestDownloader_Download(t *testing.T) {
 				require.Error(t, err)
 				if tt.errContain != "" {
 					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				if tt.wantCode != "" {
+					var tErr *tomeiErrors.Error
+					require.ErrorAs(t, err, &tErr)
+					assert.Equal(t, tt.wantCode, tErr.Code)
+					assert.Equal(t, tomeiErrors.CategoryNetwork, tErr.Category)
 				}
 				assert.Empty(t, path)
 				return
@@ -226,6 +245,7 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 		filePattern string
 		wantErr     bool
 		errContain  string
+		wantCode    tomeiErrors.Code
 	}{
 		{
 			name:     "single hash format",
@@ -258,6 +278,7 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 			respStatus: http.StatusNotFound,
 			wantErr:    true,
 			errContain: "failed to fetch checksum file",
+			wantCode:   tomeiErrors.CodeHTTPError,
 		},
 		{
 			name:        "custom file pattern",
@@ -301,6 +322,11 @@ func TestDownloader_Verify_URLChecksum(t *testing.T) {
 				require.Error(t, err)
 				if tt.errContain != "" {
 					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				if tt.wantCode != "" {
+					var tErr *tomeiErrors.Error
+					require.ErrorAs(t, err, &tErr)
+					assert.Equal(t, tt.wantCode, tErr.Code)
 				}
 				return
 			}
