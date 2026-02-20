@@ -1,0 +1,45 @@
+// Package verify provides cosign signature verification for CUE module OCI artifacts.
+// It verifies that first-party modules (tomei.terassyi.net) are signed before CUE evaluation.
+package verify
+
+import (
+	"context"
+	"strings"
+
+	"cuelang.org/go/mod/module"
+)
+
+const (
+	// FirstPartyPrefix is the module path prefix for first-party tomei modules.
+	FirstPartyPrefix = "tomei.terassyi.net"
+)
+
+// Result represents the verification result for a single module.
+type Result struct {
+	Module     module.Version
+	Verified   bool
+	Skipped    bool
+	SkipReason string
+}
+
+// Verifier verifies cosign signatures of CUE module OCI artifacts.
+type Verifier interface {
+	// Verify checks the cosign signatures for the given module dependencies.
+	// Returns a Result for each dependency.
+	Verify(ctx context.Context, deps []module.Version) ([]Result, error)
+}
+
+// IsFirstParty returns true if the module path is a first-party tomei module.
+// It checks for the "tomei.terassyi.net" prefix followed by either
+// a path separator, major version separator, or end of string.
+func IsFirstParty(modulePath string) bool {
+	if modulePath == "" {
+		return false
+	}
+	if !strings.HasPrefix(modulePath, FirstPartyPrefix) {
+		return false
+	}
+	// Ensure it's an exact prefix match, not a partial domain match
+	rest := modulePath[len(FirstPartyPrefix):]
+	return rest == "" || rest[0] == '/' || rest[0] == '@'
+}

@@ -1,10 +1,13 @@
 package config
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/ast"
@@ -14,6 +17,7 @@ import (
 	"cuelang.org/go/mod/modconfig"
 
 	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/verify"
 )
 
 const (
@@ -35,33 +39,62 @@ const (
 	DefaultCUERegistry = "tomei.terassyi.net=ghcr.io/terassyi"
 )
 
+// verifyTimeout is the maximum time allowed for cosign signature verification
+// network calls (registry + Rekor). Prevents indefinite hangs if a remote
+// service is unresponsive.
+const verifyTimeout = 30 * time.Second
+
 // Loader loads and parses CUE configuration files.
 type Loader struct {
-	ctx *cue.Context
-	env *Env
+	ctx          *cue.Context
+	env          *Env
+	verifier     verify.Verifier
+	verifiedDirs map[string]bool // tracks cue.mod dirs already verified (dedup)
 }
 
-// NewLoader creates a new Loader with the given environment.
-func NewLoader(env *Env) *Loader {
+// LoaderOption configures a Loader.
+type LoaderOption func(*Loader)
+
+// WithVerifier sets the cosign signature verifier for CUE module dependencies.
+// When set, the Loader verifies first-party module signatures before CUE evaluation.
+func WithVerifier(v verify.Verifier) LoaderOption {
+	return func(l *Loader) {
+		l.verifier = v
+	}
+}
+
+// NewLoader creates a new Loader with the given environment and options.
+func NewLoader(env *Env, opts ...LoaderOption) *Loader {
 	if env == nil {
 		env = DetectEnv()
 	}
-	return &Loader{
-		ctx: cuecontext.New(),
-		env: env,
+	l := &Loader{
+		ctx:          cuecontext.New(),
+		env:          env,
+		verifiedDirs: make(map[string]bool),
 	}
+	for _, opt := range opts {
+		opt(l)
+	}
+	return l
+}
+
+// CUERegistryOrDefault returns the CUE_REGISTRY environment variable value,
+// or DefaultCUERegistry if not set.
+func CUERegistryOrDefault() string {
+	cueRegistry := os.Getenv(EnvCUERegistry)
+	if cueRegistry == "" {
+		return DefaultCUERegistry
+	}
+	return cueRegistry
 }
 
 // buildRegistry creates a modconfig.Registry for CUE module resolution.
 // It uses the CUE_REGISTRY environment variable if set, otherwise falls back
 // to the built-in default (tomei.terassyi.net=ghcr.io/terassyi).
 func buildRegistry() (modconfig.Registry, error) {
-	cueRegistry := os.Getenv(EnvCUERegistry)
-	if cueRegistry == "" {
-		cueRegistry = DefaultCUERegistry
-	}
 	return modconfig.NewRegistry(&modconfig.Config{
-		CUERegistry: cueRegistry,
+		CUERegistry: CUERegistryOrDefault(),
 	})
 }
 
@@ -209,6 +242,11 @@ func (l *Loader) evalDir(dir string) (cue.Value, error) {
 			return zero, fmt.Errorf("failed to read file %s: %w", f, err)
 		}
 		sources = append(sources, string(data))
+	}
+
+	// Verify cosign signatures on first-party module dependencies before CUE evaluation
+	if err := l.verifyModuleDeps(absDir); err != nil {
+		return zero, err
 	}
 
 	// Build load configuration with CUE module registry.
@@ -361,6 +399,11 @@ func (l *Loader) evalFileWithInstances(path, source string) (cue.Value, error) {
 
 	files := []string{fileName}
 
+	// Verify cosign signatures on first-party module dependencies before CUE evaluation
+	if err := l.verifyModuleDeps(absDir); err != nil {
+		return zero, err
+	}
+
 	loadCfg, err := l.buildLoadConfig(absDir, l.envTagsForSources(source))
 	if err != nil {
 		return zero, err
@@ -501,4 +544,81 @@ func decodeResource[R resource.Resource](value cue.Value) (R, error) {
 		return res, err
 	}
 	return res, nil
+}
+
+// verifyModuleDeps verifies cosign signatures on first-party CUE module dependencies.
+// It looks for cue.mod/ in or above absDir, extracts first-party deps, and verifies them.
+// Skips verification when no verifier is set, cue.mod/ doesn't exist,
+// or CUE_REGISTRY is set to "none" (vendor mode).
+func (l *Loader) verifyModuleDeps(absDir string) error {
+	if l.verifier == nil {
+		return nil
+	}
+
+	// Check if CUE_REGISTRY is "none" (vendor mode) — skip verification
+	cueRegistry := os.Getenv(EnvCUERegistry)
+	if cueRegistry == "none" {
+		slog.Debug("cosign verification skipped: vendor mode (CUE_REGISTRY=none)")
+		return nil
+	}
+
+	// Find cue.mod/ directory at or above absDir
+	cueModDir := findCueModDir(absDir)
+	if cueModDir == "" {
+		slog.Debug("cosign verification skipped: no cue.mod/ directory found")
+		return nil
+	}
+
+	// Skip if this cue.mod/ directory was already verified in this Loader session
+	if l.verifiedDirs[cueModDir] {
+		return nil
+	}
+
+	deps, err := verify.ExtractFirstPartyDeps(cueModDir)
+	if err != nil {
+		return fmt.Errorf("failed to extract module dependencies: %w", err)
+	}
+
+	if len(deps) == 0 {
+		l.verifiedDirs[cueModDir] = true
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), verifyTimeout)
+	defer cancel()
+
+	results, err := l.verifier.Verify(ctx, deps)
+	if err != nil {
+		return fmt.Errorf("cosign signature verification failed: %w", err)
+	}
+
+	for _, r := range results {
+		if r.Skipped {
+			slog.Debug("cosign verification skipped", "module", r.Module.Path(), "reason", r.SkipReason)
+			continue
+		}
+		if !r.Verified {
+			return fmt.Errorf("cosign signature verification failed for module %s", r.Module)
+		}
+		slog.Debug("cosign signature verified", "module", r.Module.Path(), "version", r.Module.Version())
+	}
+
+	l.verifiedDirs[cueModDir] = true
+	return nil
+}
+
+// findCueModDir walks up from dir looking for a cue.mod/ directory.
+// Returns the path to cue.mod/ if found, empty string otherwise.
+func findCueModDir(dir string) string {
+	for {
+		candidate := filepath.Join(dir, "cue.mod")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }

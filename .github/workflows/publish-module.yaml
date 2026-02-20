@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
+  id-token: write  # Required for cosign keyless signing (Fulcio OIDC)
 
 jobs:
   publish:
@@ -49,6 +50,20 @@ jobs:
         run: |
           echo "Publishing tomei.terassyi.net@v0 version ${{ steps.version.outputs.version }}"
           cue mod publish ${{ steps.version.outputs.version }}
+
+      - name: Install cosign
+        if: github.event_name == 'workflow_dispatch'
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign published module
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # Sign all published OCI artifacts for the tomei module
+          # Uses keyless signing via GitHub Actions OIDC + Fulcio + Rekor
+          REF="ghcr.io/terassyi/tomei.terassyi.net"
+          TAG="${{ steps.version.outputs.version }}"
+          echo "Signing ${REF}:${TAG}"
+          cosign sign --yes "${REF}:${TAG}"
 
       - name: Dry run summary
         if: github.event_name == 'push'
