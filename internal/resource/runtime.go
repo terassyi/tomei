@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/terassyi/tomei/internal/checksum"
 )
 
 // RuntimeSpec defines a language runtime (e.g., Go, Rust, Node.js).
@@ -210,7 +212,7 @@ type RuntimeState struct {
 
 	// Digest is the SHA256 hash of the downloaded archive (download pattern only).
 	// Used to verify integrity and detect corruption.
-	Digest string `json:"digest,omitempty"`
+	Digest checksum.Digest `json:"digest,omitempty"`
 
 	// InstallPath is the absolute path where the runtime is installed.
 	// For download pattern: ~/.local/share/tomei/runtimes/go/1.25.1
