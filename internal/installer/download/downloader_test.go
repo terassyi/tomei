@@ -28,6 +28,30 @@ func TestNewDownloader(t *testing.T) {
 	t.Parallel()
 	d := NewDownloader()
 	assert.NotNil(t, d)
+
+	hd, ok := d.(*httpDownloader)
+	require.True(t, ok)
+
+	// Verify transport-level timeouts are set (not http.Client.Timeout,
+	// which would limit body read time for large downloads).
+	tr, ok := hd.client.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Equal(t, defaultResponseHeaderTimeout, tr.ResponseHeaderTimeout)
+	assert.Equal(t, defaultDialTimeout, tr.TLSHandshakeTimeout)
+	assert.Zero(t, hd.client.Timeout, "Client.Timeout must be zero to allow large downloads")
+}
+
+func TestNewDownloaderWithClient_NilFallback(t *testing.T) {
+	t.Parallel()
+	d := NewDownloaderWithClient(nil)
+
+	hd, ok := d.(*httpDownloader)
+	require.True(t, ok)
+
+	tr, ok := hd.client.Transport.(*http.Transport)
+	require.True(t, ok)
+	assert.Equal(t, defaultResponseHeaderTimeout, tr.ResponseHeaderTimeout)
+	assert.Zero(t, hd.client.Timeout, "Client.Timeout must be zero to allow large downloads")
 }
 
 func TestDownloader_Download(t *testing.T) {

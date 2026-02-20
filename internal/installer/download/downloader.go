@@ -5,13 +5,39 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/resource"
 )
+
+// defaultDialTimeout is the timeout for establishing a TCP connection.
+const defaultDialTimeout = 30 * time.Second
+
+// defaultResponseHeaderTimeout is the timeout for receiving response headers
+// after a request is sent. This catches server hangs without limiting
+// the time to download large response bodies.
+const defaultResponseHeaderTimeout = 60 * time.Second
+
+// defaultTransport returns an http.Transport with timeouts configured
+// to prevent hangs on network failures. Unlike http.Client.Timeout,
+// transport-level timeouts do not limit body read time, allowing
+// large file downloads to complete at any speed.
+func defaultTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: defaultDialTimeout,
+		}).DialContext,
+		TLSHandshakeTimeout:   defaultDialTimeout,
+		ResponseHeaderTimeout: defaultResponseHeaderTimeout,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+}
 
 // ProgressCallback is called during download to report progress.
 // total is -1 if Content-Length is unknown.
@@ -36,17 +62,19 @@ type httpDownloader struct {
 	client *http.Client
 }
 
-// NewDownloader creates a new Downloader with the default HTTP client.
+// NewDownloader creates a new Downloader with a default HTTP client
+// configured with transport-level timeouts to prevent hanging on
+// network failures without limiting large file download time.
 func NewDownloader() Downloader {
 	return &httpDownloader{
-		client: http.DefaultClient,
+		client: &http.Client{Transport: defaultTransport()},
 	}
 }
 
 // NewDownloaderWithClient creates a new Downloader with the given HTTP client.
 func NewDownloaderWithClient(client *http.Client) Downloader {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Transport: defaultTransport()}
 	}
 	return &httpDownloader{
 		client: client,
