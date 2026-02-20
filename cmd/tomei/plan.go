@@ -146,7 +146,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		resInfo := graph.ResourceInfo{
 			Kind:   res.Kind(),
 			Name:   res.Name(),
-			Action: graph.ActionInstall, // default to install
+			Action: resource.ActionInstall, // default to install
 		}
 
 		// Get version from spec
@@ -167,26 +167,26 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			case resource.KindRuntime:
 				if rt, ok := userState.Runtimes[res.Name()]; ok {
 					if rt.IsTainted() {
-						resInfo.Action = graph.ActionReinstall
+						resInfo.Action = resource.ActionReinstall
 					} else if rt.Version == resInfo.Version {
-						resInfo.Action = graph.ActionNone
+						resInfo.Action = resource.ActionNone
 					} else {
-						resInfo.Action = graph.ActionUpgrade
+						resInfo.Action = resource.ActionUpgrade
 					}
 				}
 			case resource.KindTool:
 				if tool, ok := userState.Tools[res.Name()]; ok {
 					if tool.IsTainted() {
-						resInfo.Action = graph.ActionReinstall
+						resInfo.Action = resource.ActionReinstall
 					} else if tool.Version == resInfo.Version {
-						resInfo.Action = graph.ActionNone
+						resInfo.Action = resource.ActionNone
 					} else {
-						resInfo.Action = graph.ActionUpgrade
+						resInfo.Action = resource.ActionUpgrade
 					}
 				}
 			case resource.KindInstaller:
 				// Installers don't have versions in state typically
-				resInfo.Action = graph.ActionNone
+				resInfo.Action = resource.ActionNone
 			}
 		}
 
@@ -202,7 +202,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					Kind:    resource.KindRuntime,
 					Name:    name,
 					Version: rt.Version,
-					Action:  graph.ActionRemove,
+					Action:  resource.ActionRemove,
 				}
 			}
 		}
@@ -213,7 +213,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					Kind:    resource.KindTool,
 					Name:    name,
 					Version: tool.Version,
-					Action:  graph.ActionRemove,
+					Action:  resource.ActionRemove,
 				}
 			}
 		}
@@ -229,7 +229,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					runtimeSpecs[res.Name()] = rt.RuntimeSpec
 				}
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
-				if ri, ok := info[nodeID]; ok && (ri.Action == graph.ActionUpgrade || ri.Action == graph.ActionReinstall) {
+				if ri, ok := info[nodeID]; ok && (ri.Action == resource.ActionUpgrade || ri.Action == resource.ActionReinstall) {
 					upgradedRuntimes[res.Name()] = true
 				}
 			}
@@ -245,8 +245,8 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					continue
 				}
 				nodeID := graph.NewNodeID(resource.KindTool, name)
-				if ri, ok := info[nodeID]; ok && ri.Action == graph.ActionNone {
-					ri.Action = graph.ActionReinstall
+				if ri, ok := info[nodeID]; ok && ri.Action == resource.ActionNone {
+					ri.Action = resource.ActionReinstall
 					info[nodeID] = ri
 				}
 			}
@@ -338,7 +338,7 @@ func planForResources(w io.Writer, resources []resource.Resource, disableColor b
 
 	hasChanges := false
 	for _, info := range result.resourceInfo {
-		if info.Action != graph.ActionNone {
+		if info.Action != resource.ActionNone {
 			hasChanges = true
 			break
 		}
