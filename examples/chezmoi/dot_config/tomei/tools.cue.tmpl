@@ -1,0 +1,25 @@
+package tomei
+
+import "tomei.terassyi.net/presets/aqua"
+
+// Common tools — installed on all machines.
+commonTools: aqua.#AquaToolSet & {
+	metadata: name: "common-tools"
+	spec: tools: {
+		rg:  {package: "BurntSushi/ripgrep", version: "15.1.0"}
+		fd:  {package: "sharkdp/fd", version: "v10.3.0"}
+		jq:  {package: "jqlang/jq", version: "1.8.1"}
+		bat: {package: "sharkdp/bat", version: "v0.26.0"}
+	}
+}
+
+{{ if .work -}}
+// Work-only tools — installed when .work is true in chezmoi data.
+k8sTools: aqua.#AquaToolSet & {
+	metadata: name: "k8s-tools"
+	spec: tools: {
+		kubectl: {package: "kubernetes/kubectl", version: "v1.32.0"}
+		helm:    {package: "helm/helm", version: "v3.17.0"}
+	}
+}
+{{ end -}}
