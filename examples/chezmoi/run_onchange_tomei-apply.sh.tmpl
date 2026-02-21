@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+# chezmoi re-runs this script when any manifest hash changes.
+# tools.cue hash: {{ include "dot_config/tomei/tools.cue.tmpl" | sha256sum }}
+# runtimes.cue hash: {{ include "dot_config/tomei/runtimes.cue" | sha256sum }}
+
+export PATH="${HOME}/.local/bin:${PATH}"
+TOMEI_DIR="${HOME}/.config/tomei"
+
+# First-time initialization
+[ -f "${HOME}/.local/share/tomei/state.json" ] || tomei init --yes
+[ -d "${TOMEI_DIR}/cue.mod" ] || tomei cue init "${TOMEI_DIR}"
+
+# Apply manifests
+tomei apply --yes "${TOMEI_DIR}"
