@@ -32,6 +32,8 @@ type Downloader interface {
 	Verify(ctx context.Context, filePath string, checksum *resource.Checksum) error
 }
 
+var _ Downloader = (*httpDownloader)(nil)
+
 // httpDownloader implements Downloader using HTTP.
 type httpDownloader struct {
 	client *http.Client

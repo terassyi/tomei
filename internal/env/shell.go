@@ -55,6 +55,11 @@ func NewFormatter(st ShellType) Formatter {
 	}
 }
 
+var (
+	_ Formatter = (*posixFormatter)(nil)
+	_ Formatter = (*fishFormatter)(nil)
+)
+
 type posixFormatter struct{}
 
 func (posixFormatter) ExportVar(key, value string) string {
