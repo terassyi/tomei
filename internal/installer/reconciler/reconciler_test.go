@@ -233,7 +233,7 @@ func TestReconciler_Reconcile_Tainted(t *testing.T) {
 			SpecVersion:  "14.1.1",
 			InstallPath:  "/path/to/rg",
 			BinPath:      "/bin/rg",
-			TaintReason:  "runtime_upgraded",
+			TaintReason:  resource.TaintReasonRuntimeUpgraded,
 			UpdatedAt:    time.Now(),
 		},
 	}
@@ -464,7 +464,7 @@ func TestToolComparator_VersionKind(t *testing.T) {
 				SpecVersion: tt.specVer,
 			}
 			if tt.tainted {
-				state.TaintReason = "sync_update"
+				state.TaintReason = resource.TaintReasonSyncUpdate
 			}
 
 			needsUpdate, reason := comparator(res, state)
@@ -575,7 +575,7 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 				SpecVersion: tt.specVer,
 			}
 			if tt.tainted {
-				state.Taint("update_requested")
+				state.Taint(resource.TaintReasonUpdateRequested)
 			}
 
 			needsUpdate, reason := comparator(res, state)

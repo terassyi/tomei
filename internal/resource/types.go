@@ -217,6 +217,20 @@ func IsExactVersion(version string) bool {
 	return len(v) > 0 && v[0] >= '0' && v[0] <= '9'
 }
 
+// TaintReason represents the reason a resource needs reinstallation.
+type TaintReason string
+
+const (
+	// TaintReasonRuntimeUpgraded indicates the tool's runtime was upgraded.
+	TaintReasonRuntimeUpgraded TaintReason = "runtime_upgraded"
+
+	// TaintReasonSyncUpdate indicates the tool was tainted by --sync for latest-version update.
+	TaintReasonSyncUpdate TaintReason = "sync_update"
+
+	// TaintReasonUpdateRequested indicates the user requested an update via --update-tools/--update-runtimes.
+	TaintReasonUpdateRequested TaintReason = "update_requested"
+)
+
 // CommandSet defines a set of shell commands for install/check/remove operations.
 // This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
 // Each command is a string slice; multiple entries are joined with " && " at execution time.

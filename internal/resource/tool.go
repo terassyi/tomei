@@ -531,9 +531,8 @@ type ToolState struct {
 	SpecVersion string `json:"specVersion,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
-	// Common reasons: "runtime_upgraded" (runtime was updated).
 	// Empty string means the tool is not tainted.
-	TaintReason string `json:"taintReason,omitempty"`
+	TaintReason TaintReason `json:"taintReason,omitempty"`
 
 	// UpdatedAt is the timestamp when this tool was last installed or updated.
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -547,7 +546,7 @@ func (t *ToolState) IsTainted() bool {
 }
 
 // Taint marks the tool for reinstallation.
-func (t *ToolState) Taint(reason string) {
+func (t *ToolState) Taint(reason TaintReason) {
 	t.TaintReason = reason
 }
 

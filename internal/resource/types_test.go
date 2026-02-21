@@ -67,12 +67,12 @@ func TestToolState_Taint(t *testing.T) {
 		t.Error("new state should not be tainted")
 	}
 
-	state.Taint("runtime_upgraded")
+	state.Taint(TaintReasonRuntimeUpgraded)
 	if !state.IsTainted() {
 		t.Error("state should be tainted after Taint()")
 	}
-	if state.TaintReason != "runtime_upgraded" {
-		t.Errorf("expected taint reason 'runtime_upgraded', got %q", state.TaintReason)
+	if state.TaintReason != TaintReasonRuntimeUpgraded {
+		t.Errorf("expected taint reason %q, got %q", TaintReasonRuntimeUpgraded, state.TaintReason)
 	}
 
 	state.ClearTaint()
