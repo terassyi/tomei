@@ -1,8 +1,9 @@
 package verify
 
 import (
+	"bytes"
 	"context"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -92,7 +93,7 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep module.Version) Re
 		}
 	}
 
-	if result == nil || len(result.Bundles) == 0 {
+	if result == nil || len(result.Signatures) == 0 {
 		// No signatures found — warn and continue (initial release: soft-fail)
 		slog.Warn("cosign signature not found for module (unsigned)",
 			"module", dep.Path(),
@@ -106,9 +107,9 @@ func (v *SigstoreVerifier) verifyOne(ctx context.Context, dep module.Version) Re
 		}
 	}
 
-	// Try to verify each bundle, binding to the artifact digest
-	for _, b := range result.Bundles {
-		if err := v.verifySigstoreBundle(b, result.ArtifactDigest); err != nil {
+	// Try to verify each signature, binding to the artifact digest
+	for _, sig := range result.Signatures {
+		if err := v.verifySigstoreBundle(sig.Bundle, sig.SimpleSigningPayload, result.ArtifactDigest); err != nil {
 			slog.Debug("cosign signature verification attempt failed",
 				"module", dep.Path(),
 				"error", err,
@@ -149,9 +150,15 @@ func (v *SigstoreVerifier) getTrustedRoot() (*root.LiveTrustedRoot, error) {
 
 // verifySigstoreBundle verifies a parsed Sigstore bundle using the public-good
 // Sigstore trusted root (Fulcio + Rekor). It checks certificate identity for
-// the terassyi/tomei GitHub Actions workflow and binds the signature to the
-// given artifact digest to prevent signature transplant attacks.
-func (v *SigstoreVerifier) verifySigstoreBundle(b *bundle.Bundle, artifactDigest ociv1.Hash) error {
+// the terassyi/tomei GitHub Actions workflow.
+//
+// For cosign v2 signatures (simpleSigningPayload != nil), verification binds
+// the signature to the SimpleSigning payload, then verifies that the payload's
+// docker-manifest-digest matches the actual artifact digest.
+//
+// For legacy protobuf bundles (simpleSigningPayload == nil), it falls back to
+// direct artifact digest binding.
+func (v *SigstoreVerifier) verifySigstoreBundle(b *bundle.Bundle, simpleSigningPayload []byte, artifactDigest ociv1.Hash) error {
 	trustedRoot, err := v.getTrustedRoot()
 	if err != nil {
 		return fmt.Errorf("failed to fetch trusted root: %w", err)
@@ -178,21 +185,61 @@ func (v *SigstoreVerifier) verifySigstoreBundle(b *bundle.Bundle, artifactDigest
 		return fmt.Errorf("failed to create certificate identity: %w", err)
 	}
 
-	// Decode the artifact digest for binding the signature to the specific artifact.
-	// This prevents signature transplant attacks where a valid signature from one
-	// artifact version is reused for a different (tampered) artifact.
-	digestBytes, err := hex.DecodeString(artifactDigest.Hex)
-	if err != nil {
-		return fmt.Errorf("failed to decode artifact digest: %w", err)
+	if simpleSigningPayload != nil {
+		// Cosign v2: verify signature against SimpleSigning payload
+		_, err = verifierConfig.Verify(b, sgverify.NewPolicy(
+			sgverify.WithArtifact(bytes.NewReader(simpleSigningPayload)),
+			sgverify.WithCertificateIdentity(certIdentity),
+		))
+		if err != nil {
+			return fmt.Errorf("signature verification failed: %w", err)
+		}
+
+		// Verify that SimpleSigning payload references the correct artifact
+		if err := verifySimpleSigningBinding(simpleSigningPayload, artifactDigest); err != nil {
+			return fmt.Errorf("artifact binding verification failed: %w", err)
+		}
+
+		return nil
 	}
 
-	// Verify the bundle with artifact digest binding
+	// Legacy protobuf bundle: fall back to direct artifact digest binding with warning
+	slog.Warn("using legacy protobuf bundle without SimpleSigning payload — artifact binding is weaker")
+
 	_, err = verifierConfig.Verify(b, sgverify.NewPolicy(
-		sgverify.WithArtifactDigest(artifactDigest.Algorithm, digestBytes),
+		sgverify.WithoutArtifactUnsafe(),
 		sgverify.WithCertificateIdentity(certIdentity),
 	))
 	if err != nil {
 		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return nil
+}
+
+// simpleSigningDoc represents the minimal structure of a SimpleSigning JSON payload
+// for extracting the docker-manifest-digest.
+type simpleSigningDoc struct {
+	Critical struct {
+		Image struct {
+			DockerManifestDigest string `json:"docker-manifest-digest"`
+		} `json:"image"`
+	} `json:"critical"`
+}
+
+// verifySimpleSigningBinding checks that the SimpleSigning payload references
+// the expected OCI artifact digest. This prevents signature transplant attacks
+// where a valid signature from one artifact is reused for a different artifact.
+func verifySimpleSigningBinding(payload []byte, expectedDigest ociv1.Hash) error {
+	var doc simpleSigningDoc
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return fmt.Errorf("failed to parse SimpleSigning payload: %w", err)
+	}
+
+	actualDigest := doc.Critical.Image.DockerManifestDigest
+	expected := expectedDigest.String()
+	if actualDigest != expected {
+		return fmt.Errorf("SimpleSigning digest mismatch: payload contains %q but artifact has %q", actualDigest, expected)
 	}
 
 	return nil
