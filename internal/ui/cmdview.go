@@ -28,8 +28,11 @@ func (t *cmdTask) elapsed() time.Duration {
 }
 
 // CommandView manages task state and non-TTY output for command execution tasks.
+// All methods are safe for concurrent use. CommandView protects its own shared
+// state (tasks map and io.Writer) via its internal mutex, so callers do not
+// need to hold an external lock when calling CommandView methods.
 type CommandView struct {
-	mu            sync.Mutex
+	mu            sync.RWMutex
 	w             io.Writer
 	tasks         map[string]*cmdTask
 	headerPrinted bool
@@ -72,8 +75,8 @@ func (v *CommandView) AddOutput(key, line string) {
 
 // LastLog returns the most recent log line for a task.
 func (v *CommandView) LastLog(key string) string {
-	v.mu.Lock()
-	defer v.mu.Unlock()
+	v.mu.RLock()
+	defer v.mu.RUnlock()
 
 	if task, ok := v.tasks[key]; ok {
 		return task.lastLog
@@ -106,18 +109,17 @@ func (v *CommandView) FailTask(key string, err error) {
 // PrintTaskStart prints task start for non-TTY output.
 func (v *CommandView) PrintTaskStart(key string) {
 	v.mu.Lock()
-	task := v.tasks[key]
-	headerPrinted := v.headerPrinted
-	v.headerPrinted = true
-	v.mu.Unlock()
+	defer v.mu.Unlock()
 
+	task := v.tasks[key]
 	if task == nil {
 		return
 	}
 
-	if !headerPrinted {
+	if !v.headerPrinted {
 		fmt.Fprintln(v.w)
 		fmt.Fprintln(v.w, "Commands:")
+		v.headerPrinted = true
 	}
 
 	style := NewStyle()
@@ -127,15 +129,18 @@ func (v *CommandView) PrintTaskStart(key string) {
 
 // PrintOutput prints a single output line for non-TTY output.
 func (v *CommandView) PrintOutput(line string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	fmt.Fprintf(v.w, "    %s\n", line)
 }
 
 // PrintTaskComplete prints task completion for non-TTY output.
 func (v *CommandView) PrintTaskComplete(key string) {
 	v.mu.Lock()
-	task := v.tasks[key]
-	v.mu.Unlock()
+	defer v.mu.Unlock()
 
+	task := v.tasks[key]
 	if task == nil {
 		return
 	}
