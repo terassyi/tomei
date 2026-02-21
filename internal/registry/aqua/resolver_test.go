@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/tomei/internal/checksum"
+	"github.com/terassyi/tomei/internal/installer/extract"
 )
 
 func TestResolver_Resolve_GitHubRelease(t *testing.T) {
@@ -46,8 +48,8 @@ func TestResolver_Resolve_GitHubRelease(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_macOS_arm64.tar.gz", result.URL)
 	assert.Equal(t, "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_checksums.txt", result.ChecksumURL)
-	assert.Equal(t, "sha256", result.Algorithm)
-	assert.Equal(t, "tar.gz", result.Format)
+	assert.Equal(t, checksum.AlgorithmSHA256, result.ChecksumAlgorithm)
+	assert.Equal(t, extract.ArchiveTypeTarGz, result.Format)
 	assert.Empty(t, result.Errors)
 }
 
@@ -104,7 +106,7 @@ func TestResolver_Resolve_WithVersionOverrides(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/cli/cli/releases/download/v1.5.0/gh_old_1.5.0_linux_amd64.zip", result.URL)
-	assert.Equal(t, "zip", result.Format)
+	assert.Equal(t, extract.ArchiveTypeZip, result.Format)
 	assert.Contains(t, result.Warnings, "version v1.5.0 uses legacy asset format")
 }
 
@@ -135,7 +137,7 @@ func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/example/tool/releases/download/v1.0.0/tool_windows_amd64.zip", result.URL)
-	assert.Equal(t, "zip", result.Format)
+	assert.Equal(t, extract.ArchiveTypeZip, result.Format)
 }
 
 func TestResolver_Resolve_WithReplacements(t *testing.T) {
@@ -317,7 +319,7 @@ func TestResolver_Resolve_NoChecksum(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, result.URL)
 	assert.Empty(t, result.ChecksumURL)
-	assert.Empty(t, result.Algorithm)
+	assert.Empty(t, result.ChecksumAlgorithm)
 }
 
 func TestResolver_Resolve_UnsupportedType(t *testing.T) {
@@ -434,7 +436,7 @@ func TestResolver_Resolve_VersionPrefixWithTrimV(t *testing.T) {
 	require.NoError(t, err)
 	// version_prefix "jq-" + version "1.8.1" = tag "jq-1.8.1"
 	assert.Equal(t, "https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-linux-amd64", result.URL)
-	assert.Equal(t, "raw", result.Format, "should auto-detect raw format")
+	assert.Equal(t, extract.ArchiveTypeRaw, result.Format, "should auto-detect raw format")
 }
 
 func TestResolver_Resolve_NoVersionPrefix_SemVerEqualsVersion(t *testing.T) {
@@ -493,7 +495,7 @@ func TestResolver_Resolve_HTTPWithURLInVersionOverride(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://dl.k8s.io/v1.35.1/bin/linux/amd64/kubectl", result.URL)
-	assert.Equal(t, "raw", result.Format)
+	assert.Equal(t, extract.ArchiveTypeRaw, result.Format)
 }
 
 func TestResolver_Resolve_RawFormatAutoDetect(t *testing.T) {
@@ -518,7 +520,7 @@ func TestResolver_Resolve_RawFormatAutoDetect(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/mikefarah/yq/releases/download/v4.52.2/yq_linux_amd64", result.URL)
-	assert.Equal(t, "raw", result.Format, "should auto-detect raw format when asset has no archive extension")
+	assert.Equal(t, extract.ArchiveTypeRaw, result.Format, "should auto-detect raw format when asset has no archive extension")
 }
 
 func TestHasArchiveExtension(t *testing.T) {

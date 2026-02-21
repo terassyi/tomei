@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/terassyi/tomei/internal/installer/extract"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 )
 
@@ -97,7 +98,7 @@ func TestAquaResolverIntegration(t *testing.T) {
 
 		assert.Equal(t, "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_linux_arm64.tar.gz", resolved.URL)
 		assert.Equal(t, "https://github.com/cli/cli/releases/download/v2.86.0/gh_2.86.0_checksums.txt", resolved.ChecksumURL)
-		assert.Equal(t, "tar.gz", resolved.Format)
+		assert.Equal(t, extract.ArchiveTypeTarGz, resolved.Format)
 	})
 
 	t.Run("resolve gh for darwin/arm64", func(t *testing.T) {
@@ -180,7 +181,7 @@ func TestAquaComplexOverrides(t *testing.T) {
 		// version_overrides replacements completely replace base replacements (no merge)
 		// darwin→Darwin, linux→Linux are applied, but arm64 has no replacement so stays as arm64
 		assert.Equal(t, "https://github.com/complex/tool/releases/download/2.5.0/tool-v2_2.5.0_Linux_arm64.tar.gz", resolved.URL)
-		assert.Equal(t, "tar.gz", resolved.Format)
+		assert.Equal(t, extract.ArchiveTypeTarGz, resolved.Format)
 	})
 
 	t.Run("version < 2.0.0 uses legacy asset with zip format", func(t *testing.T) {
@@ -188,7 +189,7 @@ func TestAquaComplexOverrides(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "https://github.com/complex/tool/releases/download/1.5.0/tool-legacy_1.5.0_linux_x86_64.zip", resolved.URL)
-		assert.Equal(t, "zip", resolved.Format)
+		assert.Equal(t, extract.ArchiveTypeZip, resolved.Format)
 	})
 
 	t.Run("darwin/arm64 uses OS override asset", func(t *testing.T) {
