@@ -6,10 +6,6 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to release (e.g. v0.1.0)"
-        required: true
-        type: string
       dry-run:
         description: "Run in dry-run mode (snapshot)"
         type: boolean
@@ -34,12 +30,12 @@ jobs:
           CONCLUSION=$(gh run list \
             --repo "${{ github.repository }}" \
             --workflow release.yaml \
-            --branch "${{ inputs.tag }}" \
+            --branch "${{ github.ref_name }}" \
             --event push \
             --json conclusion \
             --jq '.[0].conclusion')
           if [ "$CONCLUSION" != "success" ]; then
-            echo "::error::CI has not passed for tag ${{ inputs.tag }} (status: ${CONCLUSION:-not found})"
+            echo "::error::CI has not passed for tag ${{ github.ref_name }} (status: ${CONCLUSION:-not found})"
             exit 1
           fi
 
@@ -50,14 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ github.ref }}
           fetch-depth: 0
 
       - name: Determine version
         id: version
         uses: ./.github/actions/determine-version
-        with:
-          version-input: ${{ inputs.tag }}
 
       - name: Verify git tag exists
         if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
