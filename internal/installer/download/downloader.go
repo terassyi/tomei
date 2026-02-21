@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -90,8 +91,34 @@ func (d *httpDownloader) Download(ctx context.Context, url, destPath string) (st
 	return d.DownloadWithProgress(ctx, url, destPath, nil)
 }
 
+// validateDownloadURL checks that the URL uses HTTPS scheme.
+// HTTP is allowed for localhost/127.0.0.1 for testing purposes.
+func validateDownloadURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", rawURL, err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if u.Scheme == "http" {
+		host := u.Hostname()
+		if host == "localhost" || host == "127.0.0.1" {
+			return nil
+		}
+	}
+	if u.Scheme == "" {
+		return fmt.Errorf("URL scheme is missing; use HTTPS (for example, https://example.com/...)")
+	}
+	return fmt.Errorf("URL scheme %q is not allowed; use HTTPS except for http://localhost or http://127.0.0.1: %s", u.Scheme, rawURL)
+}
+
 // DownloadWithProgress downloads a file with optional progress callback.
 func (d *httpDownloader) DownloadWithProgress(ctx context.Context, url, destPath string, callback ProgressCallback) (string, error) {
+	if err := validateDownloadURL(url); err != nil {
+		return "", err
+	}
+
 	slog.Debug("downloading file", "url", url, "dest", destPath)
 
 	// Create HTTP request
@@ -238,6 +265,10 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 //   - Standard text format: "<hash>  <filename>" or "<hash> *<filename>"
 //   - Go JSON format: [{"version":"go1.x","files":[{"filename":"...","sha256":"..."}]}]
 func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, checksum.Digest, error) {
+	if err := validateDownloadURL(url); err != nil {
+		return "", "", err
+	}
+
 	slog.Debug("fetching checksum file", "url", url, "filename", filename)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
