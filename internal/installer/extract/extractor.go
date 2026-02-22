@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ulikunitz/xz"
 )
@@ -189,6 +190,11 @@ func (e *zipExtractor) Extract(r io.Reader, destDir string) error {
 	}
 
 	for _, f := range zr.File {
+		// Skip macOS metadata directories injected by ZIP tools
+		if isOSMetadataPath(f.Name) {
+			continue
+		}
+
 		target := filepath.Join(destDir, f.Name)
 
 		// Security: prevent path traversal
@@ -269,6 +275,13 @@ func extractFile(r io.Reader, target string, mode os.FileMode) error {
 	}
 
 	return nil
+}
+
+// isOSMetadataPath returns true if the archive entry path belongs to an
+// OS-specific metadata tree that should be skipped during extraction.
+// Currently handles __MACOSX/, which macOS ZIP creation tools inject.
+func isOSMetadataPath(name string) bool {
+	return name == "__MACOSX" || name == "__MACOSX/" || strings.HasPrefix(name, "__MACOSX/")
 }
 
 // isInsideDir checks if target path is inside the base directory.
