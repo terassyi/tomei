@@ -50,7 +50,7 @@ MODULE_VERSION ?= $(VERSION)
 module-publish: ## Publish CUE module to OCI registry via cue mod publish
 	cd cuemodule && cue mod publish $(MODULE_VERSION)
 
-EXAMPLE_DIRS := examples/minimal examples/real-world
+EXAMPLE_DIRS := examples/minimal
 
 vendor-cue: ## Vendor CUE schema and presets into examples/*/cue.mod/pkg/
 	@for dir in $(EXAMPLE_DIRS); do \

@@ -36,7 +36,6 @@ type applyConfig struct {
 	quiet    bool
 	parallel int
 	yes      bool
-	logLevel string
 }
 
 var applyCfg applyConfig
@@ -62,7 +61,6 @@ func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
-	applyCmd.Flags().StringVar(&applyCfg.logLevel, "log-level", "warn", "Log level for TUI panel (debug, info, warn, error)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -223,9 +221,8 @@ func runApplyWithTUI(
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(w))
 
 	// Route slog output into the TUI log panel instead of stderr
-	logLevel := parseLogLevel(cfg.logLevel)
 	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(ui.NewTUILogHandler(p, logLevel)))
+	slog.SetDefault(slog.New(ui.NewTUILogHandler(p, globalLogLevel.Level())))
 	defer slog.SetDefault(prevLogger)
 
 	reporter := ui.NewThrottledReporter(p)
@@ -267,9 +264,8 @@ func runApplyWithProgressManager(
 	cfg *applyConfig,
 ) error {
 	// Apply log level filter for non-TUI mode
-	logLevel := parseLogLevel(cfg.logLevel)
 	prevLogger := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: globalLogLevel.Level()})))
 	defer slog.SetDefault(prevLogger)
 
 	pm := ui.NewProgressManager(w)
@@ -318,24 +314,6 @@ func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore
 		ui.PrintApplySummary(w, results)
 	}
 	return nil
-}
-
-// parseLogLevel converts a string log level to slog.Level.
-// Accepted values: "debug", "info", "warn", "error" (case-insensitive).
-// Defaults to slog.LevelWarn for unrecognized values.
-func parseLogLevel(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelWarn
-	}
 }
 
 // handleLogEvent dispatches an engine event to the LogStore.
