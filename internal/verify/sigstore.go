@@ -164,11 +164,14 @@ func (v *SigstoreVerifier) verifySigstoreBundle(b *bundle.Bundle, simpleSigningP
 		return fmt.Errorf("failed to fetch trusted root: %w", err)
 	}
 
-	// Create a verifier with certificate identity policy
+	// Create a verifier with certificate identity policy.
+	// WithIntegratedTimestamps(1) verifies timestamps embedded in Rekor
+	// transparency log entries, which is how GitHub Actions keyless signing works.
 	verifierConfig, err := sgverify.NewVerifier(
 		trustedRoot,
 		sgverify.WithSignedCertificateTimestamps(1),
 		sgverify.WithTransparencyLog(1),
+		sgverify.WithIntegratedTimestamps(1),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create verifier: %w", err)
