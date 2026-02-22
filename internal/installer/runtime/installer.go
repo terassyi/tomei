@@ -671,25 +671,31 @@ func (i *Installer) createSymlinks(installPath string, binaries []string, binDir
 }
 
 // findExtractedRoot finds the root directory of extracted content.
-// If the extracted content has a single top-level directory, return that.
-// Otherwise, return the extractDir itself.
+// It filters out hidden entries and OS metadata (e.g., __MACOSX), then counts
+// only directories. If there is exactly one directory, it is returned as the root.
+// Top-level files (LICENSE, README, etc.) do not affect root detection.
+// If there are zero or multiple directories, extractDir itself is returned.
 func findExtractedRoot(extractDir string) (string, error) {
 	entries, err := os.ReadDir(extractDir)
 	if err != nil {
 		return "", err
 	}
 
-	// Filter out hidden files
-	var visibleEntries []os.DirEntry
+	// Collect directories, filtering out hidden and OS metadata entries
+	var dirs []os.DirEntry
 	for _, e := range entries {
-		if !isHidden(e.Name()) {
-			visibleEntries = append(visibleEntries, e)
+		if !e.IsDir() {
+			continue
 		}
+		if isHidden(e.Name()) || isOSMetadata(e.Name()) {
+			continue
+		}
+		dirs = append(dirs, e)
 	}
 
-	// If there's exactly one directory, use it as root
-	if len(visibleEntries) == 1 && visibleEntries[0].IsDir() {
-		return filepath.Join(extractDir, visibleEntries[0].Name()), nil
+	// Single directory → use it as root
+	if len(dirs) == 1 {
+		return filepath.Join(extractDir, dirs[0].Name()), nil
 	}
 
 	return extractDir, nil
@@ -715,6 +721,13 @@ func findBinary(installPath, binary string) string {
 // isHidden returns true if the filename is hidden (starts with .)
 func isHidden(name string) bool {
 	return len(name) > 0 && name[0] == '.'
+}
+
+// isOSMetadata returns true if the name is an OS-specific metadata directory
+// that should be ignored during archive root detection.
+// Currently handles __MACOSX, which macOS ZIP tools inject.
+func isOSMetadata(name string) bool {
+	return name == "__MACOSX"
 }
 
 // copyDir copies a directory recursively.

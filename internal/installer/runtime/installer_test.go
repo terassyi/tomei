@@ -704,39 +704,126 @@ func TestInstaller_Remove(t *testing.T) {
 
 func TestFindExtractedRoot(t *testing.T) {
 	t.Parallel()
-	t.Run("single directory", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		subDir := filepath.Join(tmpDir, "myruntime")
-		require.NoError(t, os.MkdirAll(subDir, 0755))
 
-		root, err := findExtractedRoot(tmpDir)
-		require.NoError(t, err)
-		assert.Equal(t, subDir, root)
-	})
+	tests := []struct {
+		name      string
+		dirs      []string // directories to create
+		files     []string // files to create
+		wantIsDir bool     // true = expect a subdirectory, false = expect extractDir
+		wantName  string   // expected subdirectory name (when wantIsDir is true)
+	}{
+		{
+			name:      "single directory (Go pattern)",
+			dirs:      []string{"go"},
+			wantIsDir: true,
+			wantName:  "go",
+		},
+		{
+			name:  "flat binary (Deno pattern)",
+			files: []string{"deno"},
+		},
+		{
+			name:      "macOS ZIP (Bun pattern)",
+			dirs:      []string{"bun-darwin-aarch64", "__MACOSX"},
+			wantIsDir: true,
+			wantName:  "bun-darwin-aarch64",
+		},
+		{
+			name:      "sharkdp-style (bat pattern)",
+			dirs:      []string{"bat-v0.26.0-x86_64"},
+			files:     []string{"LICENSE", "README"},
+			wantIsDir: true,
+			wantName:  "bat-v0.26.0-x86_64",
+		},
+		{
+			name:      "macOS ZIP + files",
+			dirs:      []string{"myruntime", "__MACOSX"},
+			files:     []string{"LICENSE"},
+			wantIsDir: true,
+			wantName:  "myruntime",
+		},
+		{
+			name: "multiple real dirs",
+			dirs: []string{"bin", "lib"},
+		},
+		{
+			name:  "multiple dirs + files",
+			dirs:  []string{"bin", "lib"},
+			files: []string{"LICENSE"},
+		},
+		{
+			name: "empty directory",
+		},
+		{
+			name:      "hidden dir + real dir",
+			dirs:      []string{".git", "myruntime"},
+			wantIsDir: true,
+			wantName:  "myruntime",
+		},
+		{
+			name:  "files only",
+			files: []string{"binary", "LICENSE"},
+		},
+		{
+			name: "__MACOSX only",
+			dirs: []string{"__MACOSX"},
+		},
+		{
+			name:      "hidden file + real dir (existing regression)",
+			dirs:      []string{"myruntime"},
+			files:     []string{".hidden"},
+			wantIsDir: true,
+			wantName:  "myruntime",
+		},
+		{
+			name: "multiple dirs (existing regression)",
+			dirs: []string{"dir1", "dir2"},
+		},
+	}
 
-	t.Run("multiple entries", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir1"), 0755))
-		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "dir2"), 0755))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
 
-		root, err := findExtractedRoot(tmpDir)
-		require.NoError(t, err)
-		assert.Equal(t, tmpDir, root)
-	})
+			for _, d := range tt.dirs {
+				require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, d), 0755))
+			}
+			for _, f := range tt.files {
+				require.NoError(t, os.WriteFile(filepath.Join(tmpDir, f), []byte{}, 0644))
+			}
 
-	t.Run("hidden files ignored", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		subDir := filepath.Join(tmpDir, "myruntime")
-		require.NoError(t, os.MkdirAll(subDir, 0755))
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, ".hidden"), []byte{}, 0644))
+			root, err := findExtractedRoot(tmpDir)
+			require.NoError(t, err)
 
-		root, err := findExtractedRoot(tmpDir)
-		require.NoError(t, err)
-		assert.Equal(t, subDir, root)
-	})
+			if tt.wantIsDir {
+				assert.Equal(t, filepath.Join(tmpDir, tt.wantName), root)
+			} else {
+				assert.Equal(t, tmpDir, root)
+			}
+		})
+	}
+}
+
+func TestIsOSMetadata(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "__MACOSX", input: "__MACOSX", want: true},
+		{name: "regular name", input: "myruntime", want: false},
+		{name: "lowercase __macosx", input: "__macosx", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, isOSMetadata(tt.input))
+		})
+	}
 }
 
 func TestFindBinary(t *testing.T) {

@@ -343,6 +343,76 @@ func TestExtractor_Extract_Zip_File(t *testing.T) {
 	}
 }
 
+func TestExtractor_Zip_SkipsMacOSMetadata(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	archivePath := filepath.Join(tmpDir, "archive.zip")
+	destDir := filepath.Join(tmpDir, "dest")
+
+	// Create a ZIP with __MACOSX metadata entries
+	f, err := os.Create(archivePath)
+	require.NoError(t, err)
+	zw := zip.NewWriter(f)
+
+	// Real content
+	w, err := zw.Create("mydir/binary")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("binary content"))
+	require.NoError(t, err)
+
+	// macOS metadata (should be skipped)
+	w, err = zw.Create("__MACOSX/._binary")
+	require.NoError(t, err)
+	_, err = w.Write([]byte("metadata"))
+	require.NoError(t, err)
+
+	require.NoError(t, zw.Close())
+	require.NoError(t, f.Close())
+
+	// Extract
+	extractor, err := NewExtractor(ArchiveTypeZip)
+	require.NoError(t, err)
+
+	zf, err := os.Open(archivePath)
+	require.NoError(t, err)
+	defer zf.Close()
+
+	err = extractor.Extract(zf, destDir)
+	require.NoError(t, err)
+
+	// Verify real content exists
+	content, err := os.ReadFile(filepath.Join(destDir, "mydir", "binary"))
+	require.NoError(t, err)
+	assert.Equal(t, "binary content", string(content))
+
+	// Verify __MACOSX was NOT extracted
+	_, err = os.Stat(filepath.Join(destDir, "__MACOSX"))
+	assert.True(t, os.IsNotExist(err), "__MACOSX directory should not exist after extraction")
+}
+
+func TestIsOSMetadataPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "__MACOSX bare", input: "__MACOSX", want: true},
+		{name: "__MACOSX with slash", input: "__MACOSX/", want: true},
+		{name: "__MACOSX nested", input: "__MACOSX/._binary", want: true},
+		{name: "regular path", input: "mydir/binary", want: false},
+		{name: "lowercase", input: "__macosx/", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, isOSMetadataPath(tt.input))
+		})
+	}
+}
+
 func TestExtractor_TarGz_PreservesExecutablePermission(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
