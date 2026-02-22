@@ -13,7 +13,7 @@
 
 ## Installer Patterns
 
-`tomei` supports two installer patterns. Every resource uses one or the other.
+`tomei` supports three installer patterns. Every resource uses one of them.
 
 ### Delegation pattern
 
@@ -36,7 +36,22 @@ go.dev tarball → checksum verify → extract
 Aqua registry tool → resolve metadata → download → symlink
 ```
 
-Choosing between patterns is a per-resource decision. Go runtime uses download (tarball from go.dev). Rust runtime uses delegation (rustup bootstrap). Tools can use either pattern depending on their source.
+### Commands pattern
+
+The tool manages its own installation, update, and removal via shell commands
+defined directly on the Tool spec. No runtime or installer dependency is needed.
+
+```
+curl -fsSL https://cli.claude.ai/install.sh | sh    # install
+claude update                                         # update
+claude uninstall                                      # remove
+```
+
+Used for tools that provide their own installer scripts and self-update mechanisms.
+Commands-pattern tools bypass tomei's checksum verification and HTTPS-only validation
+for downloads — security of the installation is the user's responsibility.
+
+Choosing between patterns is a per-resource decision. Go runtime uses download (tarball from go.dev). Rust runtime uses delegation (rustup bootstrap). Tools can use either pattern depending on their source. Self-managed tools (e.g., Claude CLI) use the commands pattern.
 
 ## 3. Resource Model
 
@@ -56,7 +71,7 @@ System privilege (sudo tomei apply --system):
 └── SystemPackageSet         Set of system packages
 ```
 
-Each resource has `apiVersion`, `kind`, `metadata`, and `spec`. The full field reference is in [CUE Schema Reference](cue-schema.md).
+Each resource has `apiVersion`, `kind`, `metadata`, and `spec`. A Tool specifies exactly one of `runtimeRef`, `installerRef`, or `commands`. The full field reference is in [CUE Schema Reference](cue-schema.md).
 
 ### Dependency relationships
 

@@ -105,7 +105,7 @@ spec: {
 
 ### Tool
 
-Individual tool definition. Uses either `installerRef` or `runtimeRef` (mutually exclusive).
+Individual tool definition. Uses either `installerRef`, `runtimeRef`, or `commands` (mutually exclusive).
 
 #### Via aqua registry
 
@@ -152,19 +152,37 @@ spec: {
 }
 ```
 
+#### Via self-managed commands
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "claude"
+spec: {
+    commands: {
+        install:        ["curl -fsSL https://cli.claude.ai/install.sh | sh"]
+        update:         ["claude update"]
+        check:          ["claude --version"]
+        remove:         ["claude uninstall"]
+        resolveVersion: ["claude --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+'"]
+    }
+}
+```
+
 #### Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.installerRef` | string | no* | Reference to an Installer (e.g., `"aqua"`, `"download"`) |
 | `spec.runtimeRef` | string | no* | Reference to a Runtime (e.g., `"go"`, `"rust"`) |
+| `spec.commands` | [ToolCommandSet](#toolcommandset) | no* | Shell commands for self-managed tool installation |
 | `spec.repositoryRef` | string | no | Reference to an InstallerRepository |
 | `spec.version` | string | no | Tool version |
 | `spec.enabled` | bool | no | Default `true`. Set `false` to skip |
 | `spec.source` | [DownloadSource](#downloadsource) | no | Explicit download source |
 | `spec.package` | [Package](#package) | no | Package identifier for registry or delegation |
 
-\* One of `installerRef` or `runtimeRef` is required.
+\* Exactly one of `installerRef`, `runtimeRef`, or `commands` is required.
 
 ### ToolSet
 
@@ -311,6 +329,28 @@ Extends CommandSet with version resolution support.
     resolveVersion?: string          // resolve aliases like "stable" to actual version
 }
 ```
+
+### ToolCommandSet
+
+Extends CommandSet with update and version resolution for self-managed tools.
+
+```cue
+#ToolCommandSet: {
+    install:         [...string] & [_, ...]   // required
+    update?:         [...string]              // optional update-in-place command
+    check?:          [...string]              // verify installation
+    remove?:         [...string]              // uninstall command
+    resolveVersion?: [...string]              // capture installed version after install/update
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `install` | []string | yes | Command(s) to install the tool |
+| `update` | []string | no | Command to update in-place. Falls back to `install` if not set |
+| `check` | []string | no | Command to verify the tool is installed (exit 0 = success) |
+| `remove` | []string | no | Command to uninstall the tool |
+| `resolveVersion` | []string | no | Command to capture installed version. Supports `github-release:owner/repo:prefix`, `http-text:URL:regex`, or shell commands |
 
 ## Platform-Aware Manifests (`@tag()`)
 
