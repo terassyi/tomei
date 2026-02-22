@@ -49,15 +49,14 @@ goInstaller: {
 	}
 }
 
-// gopls Tool - installed via go installer
+// gopls Tool - installed via go runtime delegation
 gopls: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: name: "gopls"
 	spec: {
-		installerRef: "go"
-		runtimeRef:   "go"
-		package:      "golang.org/x/tools/gopls"
-		version:      "v0.17.1"
+		runtimeRef: "go"
+		package:    "golang.org/x/tools/gopls"
+		version:    "v0.17.1"
 	}
 }

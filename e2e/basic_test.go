@@ -361,10 +361,10 @@ func basicTests() {
 
 	Context("Doctor", func() {
 		It("reports no issues when environment is clean", func() {
-			By("Cleaning up any unmanaged tools from previous tests")
-			// Remove tools that may have been installed by dependency tests
-			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq")
-			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat ~/.local/share/tomei/tools/jq")
+			By("Cleaning up any unmanaged tools from previous test runs")
+			// Remove tools that may remain when re-running tests on the same container
+			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq ~/.local/bin/helm")
+			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat ~/.local/share/tomei/tools/jq ~/.local/share/tomei/tools/helm")
 
 			By("Running tomei doctor command")
 			output, err := testExec.Exec("tomei", "doctor")
