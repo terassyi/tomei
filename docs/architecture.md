@@ -137,6 +137,20 @@ The reconciler compares spec with state and generates actions:
 - StateCache provides thread-safe in-memory state updates
 - State is flushed to disk after each layer completes
 
+### Delegation serialization
+
+Tools installed via runtime delegation (e.g., `go install`, `pnpm add -g`) share global
+state within the package manager. Concurrent invocations can corrupt this state (e.g.,
+pnpm's global store overwrites). The engine partitions tool nodes by delegation key:
+
+- **Download-pattern tools** (aqua, direct download): fully parallel
+- **Same delegation key** (e.g., all `RuntimeRef: "pnpm"` tools): sequential within group
+- **Different delegation keys**: parallel across groups
+
+This is enforced in `executeToolNodesWithDelegationSerialization()`. The global semaphore
+still limits total concurrency. Future optimization: batch multiple tools into a single
+package manager invocation (e.g., `pnpm add -g X Y Z`).
+
 ### Events
 
 The engine emits events (`EventStart`, `EventProgress`, `EventOutput`, `EventComplete`, `EventError`) consumed by the UI layer for progress display.

@@ -202,6 +202,34 @@ func basicTests() {
 			Expect(output).To(ContainSubstring("golang.org/x/tools/gopls"))
 			Expect(output).To(ContainSubstring(versions.GoplsVersion))
 		})
+
+		It("places goimports binary in toolBinPath (~/go/bin)", func() {
+			By("Listing ~/go/bin directory")
+			output, err := testExec.ExecBash("ls ~/go/bin/goimports")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking goimports binary exists")
+			Expect(output).To(ContainSubstring("goimports"))
+		})
+
+		It("allows running goimports command after install", func() {
+			By("Executing goimports -h via shell to capture output regardless of exit code")
+			output, err := testExec.ExecBash("~/go/bin/goimports -h 2>&1 || true")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking goimports prints usage information")
+			Expect(output).To(ContainSubstring("usage"))
+		})
+
+		It("updates state.json with goimports tool info", func() {
+			By("Reading state.json")
+			output, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking goimports is in tools section with correct version")
+			Expect(output).To(ContainSubstring(`"goimports"`))
+			Expect(output).To(ContainSubstring(versions.GoimportsVersion))
+		})
 	})
 
 	Context("State Management", func() {
@@ -349,7 +377,8 @@ func basicTests() {
 		It("detects unmanaged tools in runtime bin path", func() {
 			By("Installing an unmanaged tool via go install using tomei-managed go runtime")
 			// Use the tomei-managed go binary from ~/go/bin with proper GOBIN set
-			_, err := testExec.ExecBash(fmt.Sprintf("export GOROOT=$HOME/.local/share/tomei/runtimes/go/%s && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/goimports@latest", versions.GoVersion))
+			// stringer is not managed by tomei, so doctor should detect it as unmanaged
+			_, err := testExec.ExecBash(fmt.Sprintf("export GOROOT=$HOME/.local/share/tomei/runtimes/go/%s && export GOBIN=$HOME/go/bin && ~/go/bin/go install golang.org/x/tools/cmd/stringer@latest", versions.GoVersion))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Running tomei doctor command")
@@ -358,7 +387,7 @@ func basicTests() {
 
 			By("Checking doctor detects unmanaged tool")
 			Expect(output).To(ContainSubstring("[go]"))
-			Expect(output).To(ContainSubstring("goimports"))
+			Expect(output).To(ContainSubstring("stringer"))
 			Expect(output).To(ContainSubstring("unmanaged"))
 
 			By("Checking doctor shows suggestions")
