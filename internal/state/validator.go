@@ -48,7 +48,8 @@ func ValidateUserState(st *UserState) *ValidationResult {
 	result.validateVersion(st.Version)
 
 	for name, tool := range st.Tools {
-		if tool.Version == "" {
+		// Commands-pattern tools may legitimately have no version (resolveVersion is optional)
+		if tool.Version == "" && tool.Commands == nil {
 			result.warn(fmt.Sprintf("tools.%s.version", name), "version is empty")
 		}
 	}

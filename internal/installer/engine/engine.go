@@ -864,6 +864,11 @@ func (e *Engine) executeToolNode(
 func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 	spec := t.ToolSpec
 
+	// Self-managed tool (commands pattern)
+	if spec.Commands != nil {
+		return "commands"
+	}
+
 	// Runtime delegation (e.g., "go install")
 	if spec.RuntimeRef != "" {
 		return spec.RuntimeRef + " install"
@@ -882,7 +887,9 @@ func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 // Tools with the same non-empty key must be installed sequentially to avoid
 // concurrent package manager invocations corrupting shared state (e.g.,
 // concurrent `go install` or `pnpm add -g`).
-// Returns "" for download-pattern tools that can run fully in parallel.
+// Returns "" for download-pattern tools and commands-pattern tools that can
+// run fully in parallel. Commands-pattern tools have no shared package manager
+// state, so they need no serialization.
 func delegationKeyForTool(t *resource.Tool, resourceMap map[string]resource.Resource) string {
 	// RuntimeRef takes precedence (e.g., "go install", "cargo install")
 	if t.ToolSpec.RuntimeRef != "" {

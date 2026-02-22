@@ -3703,6 +3703,69 @@ tool: {
 
 // --- Delegation Serialization Tests ---
 
+func TestEngine_DetermineInstallMethod_Commands(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	tests := []struct {
+		name string
+		tool *resource.Tool
+		want string
+	}{
+		{
+			name: "commands pattern",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "claude"}},
+				ToolSpec: &resource.ToolSpec{
+					Commands: &resource.ToolCommandSet{
+						CommandSet: resource.CommandSet{
+							Install: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+						},
+					},
+				},
+			},
+			want: "commands",
+		},
+		{
+			name: "runtime delegation",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
+				ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+			},
+			want: "go install",
+		},
+		{
+			name: "installer delegation",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "rg"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "14.0.0"},
+			},
+			want: "aqua install",
+		},
+		{
+			name: "download pattern",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gh"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "download", Version: "2.0.0"},
+			},
+			want: "download",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := eng.determineInstallMethod(tt.tool)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDelegationKeyForTool(t *testing.T) {
 	t.Parallel()
 
@@ -3802,6 +3865,21 @@ func TestDelegationKeyForTool(t *testing.T) {
 			tool: &resource.Tool{
 				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
 				ToolSpec:     &resource.ToolSpec{InstallerRef: "unknown", Package: &resource.Package{Name: "pkg"}},
+			},
+			resourceMap: nil,
+			want:        "",
+		},
+		{
+			name: "commands pattern returns empty key",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "claude"}},
+				ToolSpec: &resource.ToolSpec{
+					Commands: &resource.ToolCommandSet{
+						CommandSet: resource.CommandSet{
+							Install: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+						},
+					},
+				},
 			},
 			resourceMap: nil,
 			want:        "",
@@ -4528,4 +4606,211 @@ func TestEngine_Property_DelegationSerialization(t *testing.T) {
 			t.Fatalf("expected %d installed tools, got %d", totalTools, len(installed))
 		}
 	})
+}
+
+// commandsToolCUE generates a CUE manifest for a commands-pattern tool.
+// Optional fields (update, check, remove) are included only when non-empty.
+func commandsToolCUE(name, install string, opts ...string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `package tomei
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "%s"
+	spec: {
+		commands: {
+			install: ["%s"]`, name, install)
+	for i := 0; i+1 < len(opts); i += 2 {
+		fmt.Fprintf(&sb, "\n\t\t\t%s:  [\"%s\"]", opts[i], opts[i+1])
+	}
+	sb.WriteString(`
+		}
+	}
+}
+`)
+	return sb.String()
+}
+
+func TestEngine_Apply_CommandsPattern(t *testing.T) {
+	t.Parallel()
+
+	// Create test config directory with CUE file for a commands-pattern tool
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := commandsToolCUE("claude", "curl -fsSL https://cli.claude.ai/install.sh | sh",
+		"update", "claude update",
+		"check", "claude --version",
+		"remove", "claude uninstall",
+	)
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup mock and store
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installedTools := make(map[string]*resource.ToolState)
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			require.NotNil(t, res.ToolSpec.Commands)
+			require.Equal(t, []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"}, res.ToolSpec.Commands.Install)
+			st := &resource.ToolState{
+				Version:  "1.0.0",
+				Commands: res.ToolSpec.Commands,
+			}
+			installedTools[name] = st
+			return st, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Verify tool was installed
+	assert.Contains(t, installedTools, "claude")
+	assert.Equal(t, "1.0.0", installedTools["claude"].Version)
+	assert.NotNil(t, installedTools["claude"].Commands)
+
+	// Verify state was updated
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err := store.Load()
+	require.NoError(t, err)
+	assert.NotNil(t, st.Tools["claude"])
+	assert.Equal(t, "1.0.0", st.Tools["claude"].Version)
+	assert.NotNil(t, st.Tools["claude"].Commands)
+}
+
+func TestEngine_Apply_CommandsPattern_NoSpuriousUpgrade(t *testing.T) {
+	t.Parallel()
+
+	// Create test config directory with CUE file
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := commandsToolCUE("claude", "curl -fsSL https://cli.claude.ai/install.sh | sh",
+		"check", "claude --version",
+	)
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup mock and store with pre-existing state
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state matching the spec
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Tools["claude"] = &resource.ToolState{
+		Version:     "1.0.0",
+		VersionKind: resource.VersionLatest,
+		Commands: &resource.ToolCommandSet{
+			CommandSet: resource.CommandSet{
+				Install: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+				Check:   []string{"claude --version"},
+			},
+		},
+	}
+	err = store.Save(initialState)
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	installCalled := false
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installCalled = true
+			return nil, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Install should not be called since tool is already installed
+	assert.False(t, installCalled)
+}
+
+func TestEngine_Apply_UpdateTools_CommandsPattern(t *testing.T) {
+	t.Parallel()
+
+	// Create test config directory with CUE file
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := commandsToolCUE("claude", "curl -fsSL https://cli.claude.ai/install.sh | sh",
+		"update", "claude update",
+		"check", "claude --version",
+	)
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	// Load resources from config
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	// Setup mock and store with pre-existing state (VersionLatest so taint fires)
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Lock())
+	initialState := state.NewUserState()
+	initialState.Tools["claude"] = &resource.ToolState{
+		Version:     "1.0.0",
+		VersionKind: resource.VersionLatest,
+		Commands: &resource.ToolCommandSet{
+			CommandSet: resource.CommandSet{
+				Install: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+				Check:   []string{"claude --version"},
+			},
+			Update: []string{"claude update"},
+		},
+	}
+	err = store.Save(initialState)
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	installCalled := false
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installCalled = true
+			return &resource.ToolState{
+				Version:     "1.1.0",
+				VersionKind: resource.VersionLatest,
+				Commands:    res.ToolSpec.Commands,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetUpdateConfig(UpdateConfig{UpdateTools: true})
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// Install should be called due to --update-tools taint
+	assert.True(t, installCalled)
+
+	// Verify state was updated
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "1.1.0", st.Tools["claude"].Version)
 }
