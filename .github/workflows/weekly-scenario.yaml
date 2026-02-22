@@ -91,8 +91,6 @@ jobs:
           mypy --version
           http --version
           ansible --version
-          # deno tools
-          deployctl --version
           # bun tools
           biome --version
 
@@ -153,7 +151,6 @@ jobs:
           bun --version
           # Dependent tools
           gopls version
-          deployctl --version
           biome --version
 
       - name: Upload logs on failure
