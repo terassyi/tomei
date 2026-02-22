@@ -17,6 +17,11 @@ type releaseResponse struct {
 // It strips the optional tagPrefix from the tag name (e.g., "bun-v" from "bun-v1.2.3").
 // Returns the version string without the prefix.
 func GetLatestRelease(ctx context.Context, client *http.Client, owner, repo, tagPrefix string) (string, error) {
+	return GetLatestReleaseWithBase(ctx, client, owner, repo, tagPrefix, "https://api.github.com")
+}
+
+// GetLatestReleaseWithBase is like GetLatestRelease but allows overriding the API base URL (for testing).
+func GetLatestReleaseWithBase(ctx context.Context, client *http.Client, owner, repo, tagPrefix, baseURL string) (string, error) {
 	if strings.Contains(owner, "/") || strings.Contains(repo, "/") {
 		return "", fmt.Errorf("invalid owner %q or repo %q: must not contain '/'", owner, repo)
 	}
@@ -24,7 +29,7 @@ func GetLatestRelease(ctx context.Context, client *http.Client, owner, repo, tag
 		return "", fmt.Errorf("owner and repo must not be empty")
 	}
 
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", owner, repo)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", baseURL, owner, repo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)

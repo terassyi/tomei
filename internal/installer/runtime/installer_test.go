@@ -1131,116 +1131,74 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 	})
 }
 
+// TestInstaller_ResolveGitHubRelease tests GitHub release resolution through resolveVersionValue.
+// The underlying logic is in the resolve package; this tests the integration path.
 func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name    string
-		cmd     string
-		tag     string // tag_name returned by mock transport
-		want    string
-		wantErr string
-	}{
-		{
-			name: "valid owner/repo with tagPrefix",
-			cmd:  "github-release:oven-sh/bun:bun-v",
-			tag:  "bun-v1.2.3",
-			want: "1.2.3",
-		},
-		{
-			name: "valid owner/repo without tagPrefix",
-			cmd:  "github-release:golang/go",
-			tag:  "go1.26.0",
-			want: "go1.26.0",
-		},
-		{
-			name: "empty tagPrefix strips nothing",
-			cmd:  "github-release:owner/repo:",
-			tag:  "v2.0.0",
-			want: "v2.0.0",
-		},
-		{
-			name:    "missing slash in owner/repo",
-			cmd:     "github-release:no-slash",
-			wantErr: "invalid github-release format",
-		},
-		{
-			name:    "empty owner",
-			cmd:     "github-release:/repo:v",
-			wantErr: "invalid github-release format",
-		},
-		{
-			name:    "empty repo",
-			cmd:     "github-release:owner/:v",
-			wantErr: "invalid github-release format",
-		},
-	}
+	t.Run("valid owner/repo with tagPrefix", func(t *testing.T) {
+		t.Parallel()
+		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
+		installer.httpClient = &http.Client{
+			Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(strings.NewReader(`{"tag_name": "bun-v1.2.3"}`)),
+				}, nil
+			}),
+		}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+		spec := &resource.RuntimeSpec{
+			Version:        "latest",
+			ResolveVersion: []string{"github-release:oven-sh/bun:bun-v"},
+		}
+		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
+		require.NoError(t, err)
+		assert.Equal(t, "1.2.3", version)
+		assert.Equal(t, resource.VersionAlias, kind)
+	})
 
-			installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
+	t.Run("missing slash in owner/repo", func(t *testing.T) {
+		t.Parallel()
+		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-			if tt.wantErr != "" {
-				// Parse errors don't need a mock transport
-				_, err := installer.resolveGitHubRelease(context.Background(), tt.cmd)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
-				return
-			}
-
-			// Set up mock transport returning the tag
-			installer.httpClient = &http.Client{
-				Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Header:     http.Header{"Content-Type": []string{"application/json"}},
-						Body:       io.NopCloser(strings.NewReader(fmt.Sprintf(`{"tag_name": %q}`, tt.tag))),
-					}, nil
-				}),
-			}
-
-			version, err := installer.resolveGitHubRelease(context.Background(), tt.cmd)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want, version)
-		})
-	}
+		spec := &resource.RuntimeSpec{
+			Version:        "latest",
+			ResolveVersion: []string{"github-release:no-slash"},
+		}
+		_, _, err := installer.resolveVersionValue(context.Background(), spec)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid github-release format")
+	})
 }
 
+// TestInstaller_ResolveHTTPText tests HTTP text resolution through resolveVersionValue.
 func TestInstaller_ResolveHTTPText(t *testing.T) {
 	t.Parallel()
 
-	t.Run("invalid regex", func(t *testing.T) {
-		t.Parallel()
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
-
-		cmd := "http-text:https://example.com:[invalid"
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid http-text regex")
-	})
-
 	t.Run("missing scheme separator", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
+		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-		cmd := "http-text:not-a-url"
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
+		spec := &resource.RuntimeSpec{
+			Version:        "latest",
+			ResolveVersion: []string{"http-text:not-a-url"},
+		}
+		_, _, err := installer.resolveVersionValue(context.Background(), spec)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing ://")
 	})
 
 	t.Run("URL without regex part", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
+		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-		// Valid URL but no colon after the path to separate regex
-		cmd := "http-text:https://example.com/version"
-		_, err := installer.resolveHTTPText(context.Background(), cmd)
+		spec := &resource.RuntimeSpec{
+			Version:        "latest",
+			ResolveVersion: []string{"http-text:https://example.com/version"},
+		}
+		_, _, err := installer.resolveVersionValue(context.Background(), spec)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "expected http-text:<URL>:<regex>")
 	})

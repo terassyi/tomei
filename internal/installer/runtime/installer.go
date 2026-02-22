@@ -1,26 +1,23 @@
 package runtime
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/terassyi/tomei/internal/checksum"
-	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/extract"
+	"github.com/terassyi/tomei/internal/installer/resolve"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
 )
@@ -39,6 +36,7 @@ type Installer struct {
 	downloader       download.Downloader
 	cmdExecutor      CommandRunner
 	httpClient       *http.Client
+	resolver         *resolve.Resolver
 	runtimesDir      string
 	progressCallback download.ProgressCallback
 }
@@ -69,6 +67,13 @@ func (i *Installer) SetProgressCallback(callback download.ProgressCallback) {
 // SetHTTPClient sets a custom HTTP client for API calls (e.g., GitHub release resolution).
 func (i *Installer) SetHTTPClient(client *http.Client) {
 	i.httpClient = client
+	// Update shared resolver with the new client
+	i.resolver = resolve.NewResolver(i.cmdExecutor, client)
+}
+
+// Resolver returns the shared version resolver.
+func (i *Installer) Resolver() *resolve.Resolver {
+	return i.resolver
 }
 
 // Install installs a runtime according to the resource and returns its state.
@@ -320,8 +325,7 @@ func (i *Installer) buildStateResolved(spec *resource.RuntimeSpec, installPath, 
 // resolveVersionValue resolves the runtime version using resolveVersion commands.
 // If resolveVersion is not configured or the version is an exact version number,
 // returns the spec version as-is.
-// Supports "github-release:owner/repo:tagPrefix" and "http-text:URL:regex"
-// built-in syntaxes, and shell commands as fallback.
+// Delegates to the shared resolve.Resolver for built-in formats and shell commands.
 func (i *Installer) resolveVersionValue(ctx context.Context, spec *resource.RuntimeSpec) (string, resource.VersionKind, error) {
 	// No resolveVersion configured — use spec version directly
 	if len(spec.ResolveVersion) == 0 {
@@ -333,159 +337,18 @@ func (i *Installer) resolveVersionValue(ctx context.Context, spec *resource.Runt
 		return spec.Version, resource.VersionExact, nil
 	}
 
-	cmd := spec.ResolveVersion[0]
-
-	// Built-in GitHub release resolver
-	if strings.HasPrefix(cmd, "github-release:") {
-		version, err := i.resolveGitHubRelease(ctx, cmd)
-		if err != nil {
-			return "", "", err
-		}
-		return version, resource.VersionAlias, nil
+	// Use shared resolver (falls back to inline resolver if not set)
+	r := i.resolver
+	if r == nil {
+		r = resolve.NewResolver(i.cmdExecutor, i.httpClient)
 	}
 
-	// Built-in HTTP text resolver
-	if strings.HasPrefix(cmd, "http-text:") {
-		version, err := i.resolveHTTPText(ctx, cmd)
-		if err != nil {
-			return "", "", err
-		}
-		return version, resource.VersionAlias, nil
-	}
-
-	// Shell command fallback
-	slog.Debug("resolving version via command", "command", cmd)
-	version, err := i.cmdExecutor.ExecuteCapture(ctx, spec.ResolveVersion, command.Vars{Version: spec.Version}, nil)
+	version, err := r.Resolve(ctx, spec.ResolveVersion, command.Vars{Version: spec.Version})
 	if err != nil {
 		return "", "", err
 	}
-	if version == "" {
-		return "", "", fmt.Errorf("resolveVersion command returned empty result")
-	}
 
-	slog.Debug("version resolved via command", "resolved", version)
 	return version, resource.VersionAlias, nil
-}
-
-// resolveGitHubRelease parses "github-release:owner/repo:tagPrefix" and fetches the latest release.
-func (i *Installer) resolveGitHubRelease(ctx context.Context, cmd string) (string, error) {
-	// Parse "github-release:owner/repo:tagPrefix"
-	rest := strings.TrimPrefix(cmd, "github-release:")
-	parts := strings.SplitN(rest, ":", 2)
-
-	ownerRepo := parts[0]
-	tagPrefix := ""
-	if len(parts) == 2 {
-		tagPrefix = parts[1]
-	}
-
-	owner, repo, ok := strings.Cut(ownerRepo, "/")
-	if !ok || owner == "" || repo == "" {
-		return "", fmt.Errorf("invalid github-release format %q: expected github-release:owner/repo[:tagPrefix]", cmd)
-	}
-
-	client := i.httpClient
-	if client == nil {
-		client = github.NewHTTPClient(github.TokenFromEnv())
-	}
-
-	slog.Debug("resolving version via GitHub release", "owner", owner, "repo", repo, "tagPrefix", tagPrefix)
-	version, err := github.GetLatestRelease(ctx, client, owner, repo, tagPrefix)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve GitHub release: %w", err)
-	}
-	if version == "" {
-		return "", fmt.Errorf("GitHub release returned empty version for %s/%s", owner, repo)
-	}
-
-	slog.Debug("version resolved via GitHub release", "owner", owner, "repo", repo, "version", version)
-	return version, nil
-}
-
-// resolveHTTPText parses "http-text:<URL>:<regex>" and fetches the URL,
-// then applies the regex to extract a version from the response body.
-// The URL and regex are separated by the last ":" after the "://" scheme separator.
-// Note: the regex portion must not contain literal ":" characters, as LastIndex
-// is used to split the URL from the regex.
-func (i *Installer) resolveHTTPText(ctx context.Context, cmd string) (string, error) {
-	// Strip the "http-text:" prefix
-	rest := strings.TrimPrefix(cmd, "http-text:")
-
-	// Find the scheme separator "://" to avoid splitting on it
-	schemeIdx := strings.Index(rest, "://")
-	if schemeIdx < 0 {
-		return "", fmt.Errorf("invalid http-text format %q: missing ://", cmd)
-	}
-
-	// Find the last ":" after the scheme — this separates URL from regex
-	afterScheme := rest[schemeIdx+3:]
-	lastColon := strings.LastIndex(afterScheme, ":")
-	if lastColon < 0 {
-		return "", fmt.Errorf("invalid http-text format %q: expected http-text:<URL>:<regex>", cmd)
-	}
-
-	url := rest[:schemeIdx+3+lastColon]
-	pattern := afterScheme[lastColon+1:]
-
-	if url == "" || pattern == "" {
-		return "", fmt.Errorf("invalid http-text format %q: URL and regex must not be empty", cmd)
-	}
-
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return "", fmt.Errorf("invalid http-text regex %q: %w", pattern, err)
-	}
-
-	slog.Debug("resolving version via http-text", "url", url, "regex", pattern)
-
-	client := i.httpClient
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("http-text: %s returned status %d", url, resp.StatusCode)
-	}
-
-	// Read body (limit to 1 MiB to prevent abuse)
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Scan line by line for the first match
-	scanner := bufio.NewScanner(bytes.NewReader(body))
-	for scanner.Scan() {
-		line := scanner.Text()
-		m := re.FindStringSubmatch(line)
-		if m != nil {
-			if len(m) > 1 {
-				// Return first capture group
-				slog.Debug("version resolved via http-text", "version", m[1])
-				return m[1], nil
-			}
-			// No capture group — return full match
-			slog.Debug("version resolved via http-text", "version", m[0])
-			return m[0], nil
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("failed to scan response body: %w", err)
-	}
-
-	return "", fmt.Errorf("http-text: no match for regex %q in response from %s", pattern, url)
 }
 
 // versionVars holds template variables for version template expansion.
