@@ -1,13 +1,16 @@
 package resource
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestToolSpec_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		spec    *ToolSpec
@@ -59,9 +62,57 @@ func TestToolSpec_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name:    "missing installerRef and runtimeRef",
+			name: "valid commands pattern",
+			spec: &ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"curl -fsSL https://example.com/install.sh | sh"}},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid commands pattern with version",
+			spec: &ToolSpec{
+				Version: "1.0.0",
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"cmd"}},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "commands + installerRef (mutually exclusive)",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"cmd"}},
+				},
+			},
+			wantErr: "installerRef, runtimeRef, and commands are mutually exclusive",
+		},
+		{
+			name: "commands + runtimeRef (mutually exclusive)",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"cmd"}},
+				},
+			},
+			wantErr: "installerRef, runtimeRef, and commands are mutually exclusive",
+		},
+		{
+			name: "commands without install",
+			spec: &ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Check: []string{"tool --version"}},
+				},
+			},
+			wantErr: "commands.install is required",
+		},
+		{
+			name:    "missing installerRef and runtimeRef and commands",
 			spec:    &ToolSpec{Version: "1.0.0"},
-			wantErr: "either installerRef or runtimeRef is required",
+			wantErr: "one of installerRef, runtimeRef, or commands is required",
 		},
 		{
 			name: "missing version, source, and package",
@@ -147,6 +198,7 @@ func TestToolSpec_Validate(t *testing.T) {
 }
 
 func TestPackage_Validate(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		pkg     *Package
@@ -425,6 +477,15 @@ func TestToolSpec_Dependencies(t *testing.T) {
 				{Kind: KindInstallerRepository, Name: "custom-registry"},
 				{Kind: KindRuntime, Name: "go"},
 			},
+		},
+		{
+			name: "commands pattern (no deps)",
+			spec: &ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"cmd"}},
+				},
+			},
+			want: nil,
 		},
 		{
 			name: "neither (empty deps)",
@@ -746,6 +807,124 @@ func TestToolSpec_UnmarshalJSON(t *testing.T) {
 			name:    "invalid JSON",
 			json:    `{bad}`,
 			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got ToolSpec
+			err := got.UnmarshalJSON([]byte(tt.json))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestToolState_MarshalRoundtrip_Commands(t *testing.T) {
+	t.Parallel()
+	original := &ToolState{
+		Version:     "1.0.34",
+		VersionKind: VersionLatest,
+		SpecVersion: "",
+		Commands: &ToolCommandSet{
+			CommandSet: CommandSet{
+				Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+				Check:   []string{"tool --version"},
+				Remove:  []string{"tool uninstall"},
+			},
+			Update:         []string{"tool update"},
+			ResolveVersion: []string{"tool --version | grep -oP '\\d+\\.\\d+\\.\\d+'"},
+		},
+		UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got ToolState
+	err = json.Unmarshal(data, &got)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.Version, got.Version)
+	assert.Equal(t, original.VersionKind, got.VersionKind)
+	assert.Equal(t, original.SpecVersion, got.SpecVersion)
+	require.NotNil(t, got.Commands)
+	assert.Equal(t, original.Commands.Install, got.Commands.Install)
+	assert.Equal(t, original.Commands.Update, got.Commands.Update)
+	assert.Equal(t, original.Commands.Check, got.Commands.Check)
+	assert.Equal(t, original.Commands.Remove, got.Commands.Remove)
+	assert.Equal(t, original.Commands.ResolveVersion, got.Commands.ResolveVersion)
+}
+
+func TestToolState_MarshalRoundtrip_WithoutCommands(t *testing.T) {
+	t.Parallel()
+	original := &ToolState{
+		InstallerRef: "aqua",
+		Version:      "2.0.0",
+		VersionKind:  VersionExact,
+		SpecVersion:  "2.0.0",
+		UpdatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got ToolState
+	err = json.Unmarshal(data, &got)
+	require.NoError(t, err)
+
+	assert.Equal(t, original.InstallerRef, got.InstallerRef)
+	assert.Equal(t, original.Version, got.Version)
+	assert.Nil(t, got.Commands)
+}
+
+func TestToolSpec_UnmarshalJSON_Commands(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		json    string
+		want    ToolSpec
+		wantErr bool
+	}{
+		{
+			name: "commands as object with bare strings",
+			json: `{"commands":{"install":"curl -fsSL https://example.com/install.sh | sh","update":"tool update","check":"tool --version","remove":"tool uninstall","resolveVersion":"tool --version"}}`,
+			want: ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{
+						Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+						Check:   []string{"tool --version"},
+						Remove:  []string{"tool uninstall"},
+					},
+					Update:         []string{"tool update"},
+					ResolveVersion: []string{"tool --version"},
+				},
+			},
+		},
+		{
+			name: "commands as object with arrays",
+			json: `{"commands":{"install":["cmd1","cmd2"],"check":["chk"]}}`,
+			want: ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{
+						Install: []string{"cmd1", "cmd2"},
+						Check:   []string{"chk"},
+					},
+				},
+			},
+		},
+		{
+			name: "no commands (existing pattern)",
+			json: `{"installerRef":"aqua","version":"1.0.0"}`,
+			want: ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+			},
 		},
 	}
 

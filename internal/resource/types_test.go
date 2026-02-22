@@ -412,6 +412,92 @@ func TestIsExactVersion(t *testing.T) {
 	}
 }
 
+func TestToolCommandSet_UnmarshalJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		json    string
+		want    ToolCommandSet
+		wantErr bool
+	}{
+		{
+			name: "all fields as arrays",
+			json: `{"install":["curl -fsSL https://example.com/install.sh | sh"],"update":["tool update"],"check":["tool --version"],"remove":["tool uninstall"],"resolveVersion":["tool --version | grep -oP '\\d+\\.\\d+\\.\\d+'"]}`,
+			want: ToolCommandSet{
+				CommandSet: CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+					Check:   []string{"tool --version"},
+					Remove:  []string{"tool uninstall"},
+				},
+				Update:         []string{"tool update"},
+				ResolveVersion: []string{`tool --version | grep -oP '\d+\.\d+\.\d+'`},
+			},
+		},
+		{
+			name: "all fields as bare strings (CUE single-element list)",
+			json: `{"install":"curl -fsSL https://example.com/install.sh | sh","update":"tool update","check":"tool --version","remove":"tool uninstall","resolveVersion":"tool --version"}`,
+			want: ToolCommandSet{
+				CommandSet: CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+					Check:   []string{"tool --version"},
+					Remove:  []string{"tool uninstall"},
+				},
+				Update:         []string{"tool update"},
+				ResolveVersion: []string{"tool --version"},
+			},
+		},
+		{
+			name: "install only (minimal)",
+			json: `{"install":"cmd"}`,
+			want: ToolCommandSet{
+				CommandSet: CommandSet{
+					Install: []string{"cmd"},
+				},
+			},
+		},
+		{
+			name: "install and resolveVersion only",
+			json: `{"install":["cmd"],"resolveVersion":["github-release:owner/repo:v"]}`,
+			want: ToolCommandSet{
+				CommandSet: CommandSet{
+					Install: []string{"cmd"},
+				},
+				ResolveVersion: []string{"github-release:owner/repo:v"},
+			},
+		},
+		{
+			name: "mixed bare string and array",
+			json: `{"install":"cmd1","update":["up1","up2"],"check":"chk"}`,
+			want: ToolCommandSet{
+				CommandSet: CommandSet{
+					Install: []string{"cmd1"},
+					Check:   []string{"chk"},
+				},
+				Update: []string{"up1", "up2"},
+			},
+		},
+		{
+			name:    "invalid JSON",
+			json:    `{bad}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got ToolCommandSet
+			err := got.UnmarshalJSON([]byte(tt.json))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestCommandSet_UnmarshalJSON(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
