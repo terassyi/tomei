@@ -14,8 +14,10 @@ import (
 	"github.com/terassyi/tomei/internal/installer"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/extract"
 	"github.com/terassyi/tomei/internal/installer/place"
+	"github.com/terassyi/tomei/internal/installer/resolve"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 	"github.com/terassyi/tomei/internal/resource"
 )
@@ -36,11 +38,21 @@ type InstallerInfo struct {
 	Commands *resource.CommandsSpec
 }
 
-// Installer installs tools using download or delegation patterns.
+// CommandRunner is the interface for executing shell commands.
+// Enables testing with mocks instead of real command execution.
+type CommandRunner interface {
+	Execute(ctx context.Context, cmds []string, vars command.Vars) error
+	ExecuteWithEnv(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) error
+	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
+	Check(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) bool
+}
+
+// Installer installs tools using download, delegation, or commands patterns.
 type Installer struct {
 	downloader       download.Downloader
 	placer           place.Placer
-	cmdExecutor      *command.Executor
+	cmdExecutor      CommandRunner
+	versionResolver  *resolve.Resolver         // shared version resolver (optional)
 	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
 	installers       map[string]*InstallerInfo // name -> InstallerInfo
 	toolBinPaths     map[string]string         // installer name -> tool bin directory
@@ -59,6 +71,22 @@ func NewInstaller(downloader download.Downloader, placer place.Placer) *Installe
 		runtimes:    make(map[string]*RuntimeInfo),
 		installers:  make(map[string]*InstallerInfo),
 	}
+}
+
+// NewInstallerWithRunner creates a new tool Installer with a custom CommandRunner (for testing).
+func NewInstallerWithRunner(downloader download.Downloader, placer place.Placer, runner CommandRunner) *Installer {
+	return &Installer{
+		downloader:  downloader,
+		placer:      placer,
+		cmdExecutor: runner,
+		runtimes:    make(map[string]*RuntimeInfo),
+		installers:  make(map[string]*InstallerInfo),
+	}
+}
+
+// SetVersionResolver sets the shared version resolver.
+func (i *Installer) SetVersionResolver(r *resolve.Resolver) {
+	i.versionResolver = r
 }
 
 // RegisterRuntime registers a runtime for tool delegation.
@@ -116,6 +144,23 @@ func (i *Installer) SetOutputCallback(callback download.OutputCallback) {
 	i.outputCallback = callback
 }
 
+// resolveOutputCallback returns the effective output callback from context or field fallback.
+func (i *Installer) resolveOutputCallback(ctx context.Context) download.OutputCallback {
+	if cb := download.CallbackFromContext[download.OutputCallback](ctx); cb != nil {
+		return cb
+	}
+	return i.outputCallback
+}
+
+// executeCommand runs cmds with output streaming if a callback is available,
+// otherwise falls back to plain execution.
+func (i *Installer) executeCommand(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) error {
+	if cb := i.resolveOutputCallback(ctx); cb != nil {
+		return i.cmdExecutor.ExecuteWithOutput(ctx, cmds, vars, env, command.OutputCallback(cb))
+	}
+	return i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env)
+}
+
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
@@ -123,7 +168,12 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 	slog.Debug("installing tool", "name", name, "version", spec.Version)
 
 	// Determine installation pattern
-	// 1. If runtimeRef is set, use Runtime delegation (e.g., go install)
+	// 1. If commands is set, use self-managed commands pattern
+	if spec.Commands != nil {
+		return i.installByCommands(ctx, res, name)
+	}
+
+	// 2. If runtimeRef is set, use Runtime delegation (e.g., go install)
 	if spec.RuntimeRef != "" {
 		return i.installByRuntime(ctx, res, name)
 	}
@@ -382,9 +432,77 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 	}
 }
 
+// installByCommands installs a tool using self-managed commands.
+func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+	spec := res.ToolSpec
+	cmds := spec.Commands
+
+	// Determine command to run based on action type
+	actionType := executor.ActionFromContext(ctx)
+	var cmdToRun []string
+	switch {
+	case (actionType == resource.ActionUpgrade || actionType == resource.ActionReinstall) && len(cmds.Update) > 0:
+		cmdToRun = cmds.Update
+	default:
+		cmdToRun = cmds.Install
+	}
+
+	vars := command.Vars{Name: name, Version: spec.Version}
+
+	// Execute command with output streaming (env is nil: self-managed tools define their own environment)
+	if err := i.executeCommand(ctx, cmdToRun, vars, nil); err != nil {
+		return nil, fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	// Verify installation with check command
+	if len(cmds.Check) > 0 {
+		if !i.cmdExecutor.Check(ctx, cmds.Check, vars, nil) {
+			return nil, fmt.Errorf("check command failed after install")
+		}
+	}
+
+	// Resolve version after install/update (if configured and not exact)
+	resolvedVersion := spec.Version
+	versionKind := resource.ClassifyVersion(spec.Version)
+	if i.versionResolver != nil && len(cmds.ResolveVersion) > 0 && !resource.IsExactVersion(spec.Version) {
+		resolved, err := i.versionResolver.Resolve(ctx, cmds.ResolveVersion, vars)
+		if err != nil {
+			slog.Warn("resolveVersion failed, using spec version", "name", name, "error", err)
+		} else if resolved != "" {
+			resolvedVersion = resolved
+			if spec.Version == "" {
+				versionKind = resource.VersionLatest
+			} else {
+				versionKind = resource.VersionAlias
+			}
+		}
+	}
+
+	return &resource.ToolState{
+		Version:     resolvedVersion,
+		VersionKind: versionKind,
+		SpecVersion: spec.Version,
+		Commands:    spec.Commands,
+		UpdatedAt:   time.Now(),
+	}, nil
+}
+
 // Remove removes an installed tool.
 func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name string) error {
 	slog.Debug("removing tool", "name", name, "version", st.Version)
+
+	// Self-managed tool removal
+	if st.Commands != nil {
+		if len(st.Commands.Remove) > 0 {
+			vars := command.Vars{Name: name, Version: st.Version}
+			if err := i.cmdExecutor.Execute(ctx, st.Commands.Remove, vars); err != nil {
+				return fmt.Errorf("failed to execute remove command: %w", err)
+			}
+		} else {
+			slog.Warn("no remove command for self-managed tool, skipping", "name", name)
+		}
+		return nil
+	}
 
 	// Remove the binary
 	if st.InstallPath != "" {
@@ -461,19 +579,8 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Execute install command with runtime's environment and output streaming
-	// Prefer context callback for parallel execution
-	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
-	if outputCb == nil {
-		outputCb = i.outputCallback
-	}
-	if outputCb != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
-			return nil, fmt.Errorf("failed to execute install command: %w", err)
-		}
-	} else {
-		if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
-			return nil, fmt.Errorf("failed to execute install command: %w", err)
-		}
+	if err := i.executeCommand(ctx, info.Commands.Install, vars, env); err != nil {
+		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
 	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
@@ -508,19 +615,8 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 	env := i.buildEnvWithToolPath(spec.InstallerRef)
 
 	// Execute install command with output streaming
-	// Prefer context callback for parallel execution
-	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
-	if outputCb == nil {
-		outputCb = i.outputCallback
-	}
-	if outputCb != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, info.Commands.Install, vars, env, command.OutputCallback(outputCb)); err != nil {
-			return nil, fmt.Errorf("failed to execute install command: %w", err)
-		}
-	} else {
-		if err := i.cmdExecutor.ExecuteWithEnv(ctx, info.Commands.Install, vars, env); err != nil {
-			return nil, fmt.Errorf("failed to execute install command: %w", err)
-		}
+	if err := i.executeCommand(ctx, info.Commands.Install, vars, env); err != nil {
+		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
 	slog.Debug("tool installed via installer", "name", name, "version", spec.Version, "installer", spec.InstallerRef)
