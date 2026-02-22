@@ -90,33 +90,30 @@ func TestFetchCosignSignatures_WithSignature(t *testing.T) {
 	// Create a cosign-like signature image and push to the .sig tag
 	sigPayload := []byte(`{"critical":{"identity":{"docker-reference":"test"},"image":{"docker-manifest-digest":"sha256:test"},"type":"cosign container image signature"},"optional":{}}`)
 
-	// Build a minimally valid Sigstore bundle in protobuf JSON format.
-	// This passes structural validation (parseBundle) but fails
+	// Build cosign v2 annotations: signature + PEM certificate + Rekor entry JSON.
+	// These pass structural parsing (buildBundleFromCosignAnnotations) but fail
 	// cryptographic verification because the certificate and signature are fake.
 	dummyBytes := base64.StdEncoding.EncodeToString([]byte("test"))
-	bundleJSON := []byte(fmt.Sprintf(`{
-		"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
-		"verificationMaterial": {
-			"certificate": {
-				"rawBytes": "%s"
-			}
-		},
-		"messageSignature": {
-			"messageDigest": {
-				"algorithm": "SHA2_256",
-				"digest": "%s"
-			},
-			"signature": "%s"
+	dummyCertPEM := "-----BEGIN CERTIFICATE-----\n" + dummyBytes + "\n-----END CERTIFICATE-----"
+	rekorBody := base64.StdEncoding.EncodeToString([]byte(`{"kind":"hashedrekord","apiVersion":"0.0.1"}`))
+	rekorJSON := fmt.Sprintf(`{
+		"SignedEntryTimestamp": "%s",
+		"Payload": {
+			"body": "%s",
+			"integratedTime": 1700000000,
+			"logIndex": 1,
+			"logID": "deadbeef"
 		}
-	}`, dummyBytes, dummyBytes, dummyBytes))
+	}`, dummyBytes, rekorBody)
 
 	sigLayer := static.NewLayer(sigPayload, types.OCILayer)
 	sigImg := mutate.MediaType(empty.Image, types.OCIManifestSchema1)
 	sigImg, err = mutate.Append(sigImg.(ociv1.Image), mutate.Addendum{
 		Layer: sigLayer,
 		Annotations: map[string]string{
-			"dev.cosignproject.cosign/signature": "dGVzdC1zaWduYXR1cmU=",
-			"dev.sigstore.cosign/bundle":         string(bundleJSON),
+			"dev.cosignproject.cosign/signature":  "dGVzdC1zaWduYXR1cmU=",
+			"dev.sigstore.cosign/certificate":     dummyCertPEM,
+			"dev.sigstore.cosign/bundle":           rekorJSON,
 		},
 	})
 	require.NoError(t, err)
