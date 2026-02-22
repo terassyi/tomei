@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +16,35 @@ import (
 
 const outputJSON = "json"
 
-var systemMode bool
+// logLevelFlag implements pflag.Value for slog.Level.
+type logLevelFlag struct {
+	level slog.Level
+}
+
+func (f *logLevelFlag) String() string { return strings.ToLower(f.level.String()) }
+func (f *logLevelFlag) Type() string   { return "string" }
+func (f *logLevelFlag) Set(s string) error {
+	switch strings.ToLower(s) {
+	case "debug":
+		f.level = slog.LevelDebug
+	case "info":
+		f.level = slog.LevelInfo
+	case "warn":
+		f.level = slog.LevelWarn
+	case "error":
+		f.level = slog.LevelError
+	default:
+		return fmt.Errorf("unknown log level %q (valid: debug, info, warn, error)", s)
+	}
+	return nil
+}
+
+func (f *logLevelFlag) Level() slog.Level { return f.level }
+
+var (
+	systemMode     bool
+	globalLogLevel = &logLevelFlag{level: slog.LevelWarn}
+)
 
 // loadConfig holds flags shared between apply and plan commands.
 type loadConfig struct {
@@ -61,11 +92,19 @@ Commands are separated by privilege level:
   sudo tomei apply --system  Apply system-level resources (SystemPackage)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: globalLogLevel.Level()})))
+		return nil
+	},
 }
 
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Apply system-level resources (requires root)")
+	rootCmd.PersistentFlags().Var(globalLogLevel, "log-level", "Log level (debug, info, warn, error)")
+	_ = rootCmd.RegisterFlagCompletionFunc("log-level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	rootCmd.AddCommand(
 		versionCmd,
