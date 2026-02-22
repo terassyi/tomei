@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/config"
+	"github.com/terassyi/tomei/internal/graph"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/tool"
 	"github.com/terassyi/tomei/internal/resource"
@@ -3698,4 +3699,833 @@ tool: {
 				"InstallPath should contain the tool name")
 		}
 	}
+}
+
+// --- Delegation Serialization Tests ---
+
+func TestDelegationKeyForTool(t *testing.T) {
+	t.Parallel()
+
+	// Helper to build a resourceMap with an Installer
+	makeResourceMap := func(installers ...*resource.Installer) map[string]resource.Resource {
+		m := make(map[string]resource.Resource)
+		for _, inst := range installers {
+			id := fmt.Sprintf("Installer/%s", inst.Name())
+			m[id] = inst
+		}
+		return m
+	}
+
+	tests := []struct {
+		name        string
+		tool        *resource.Tool
+		resourceMap map[string]resource.Resource
+		want        string
+	}{
+		{
+			name: "runtime go",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
+				ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+			},
+			resourceMap: nil,
+			want:        "runtime:go",
+		},
+		{
+			name: "runtime pnpm",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "prettier"}},
+				ToolSpec:     &resource.ToolSpec{RuntimeRef: "pnpm", Package: &resource.Package{Name: "prettier"}},
+			},
+			resourceMap: nil,
+			want:        "runtime:pnpm",
+		},
+		{
+			name: "installer download type",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "rg"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "download", Version: "14.0.0"},
+			},
+			resourceMap: makeResourceMap(&resource.Installer{
+				BaseResource:  resource.BaseResource{Metadata: resource.Metadata{Name: "download"}},
+				InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload},
+			}),
+			want: "",
+		},
+		{
+			name: "installer aqua (download type)",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "fd"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "9.0.0"},
+			},
+			resourceMap: makeResourceMap(&resource.Installer{
+				BaseResource:  resource.BaseResource{Metadata: resource.Metadata{Name: "aqua"}},
+				InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload},
+			}),
+			want: "",
+		},
+		{
+			name: "installer binstall (delegation type)",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "rg"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "binstall", Package: &resource.Package{Name: "ripgrep"}},
+			},
+			resourceMap: makeResourceMap(&resource.Installer{
+				BaseResource:  resource.BaseResource{Metadata: resource.Metadata{Name: "binstall"}},
+				InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDelegation},
+			}),
+			want: "installer:binstall",
+		},
+		{
+			name: "runtime takes precedence over installer",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", InstallerRef: "x", Package: &resource.Package{Name: "example.com/tool"}},
+			},
+			resourceMap: makeResourceMap(&resource.Installer{
+				BaseResource:  resource.BaseResource{Metadata: resource.Metadata{Name: "x"}},
+				InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDelegation},
+			}),
+			want: "runtime:go",
+		},
+		{
+			name: "no refs (empty)",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec:     &resource.ToolSpec{Version: "1.0.0"},
+			},
+			resourceMap: nil,
+			want:        "",
+		},
+		{
+			name: "installer not in resource map",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "unknown", Package: &resource.Package{Name: "pkg"}},
+			},
+			resourceMap: nil,
+			want:        "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := delegationKeyForTool(tt.tool, tt.resourceMap)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPartitionToolsByDelegation(t *testing.T) {
+	t.Parallel()
+
+	makeNode := func(name string) *graph.Node {
+		return &graph.Node{ID: graph.NewNodeID(resource.KindTool, name), Kind: resource.KindTool, Name: name}
+	}
+	makeTool := func(name, runtimeRef, installerRef string) *resource.Tool {
+		return &resource.Tool{
+			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: name}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: runtimeRef, InstallerRef: installerRef, Version: "1.0.0"},
+		}
+	}
+	makeResourceMap := func(tools ...*resource.Tool) map[string]resource.Resource {
+		m := make(map[string]resource.Resource)
+		for _, t := range tools {
+			id := graph.NewNodeID(resource.KindTool, t.Name()).String()
+			m[id] = t
+		}
+		return m
+	}
+
+	tests := []struct {
+		name               string
+		nodes              []*graph.Node
+		resourceMap        map[string]resource.Resource
+		wantDownloadCount  int
+		wantGroupCount     int
+		wantGroupToolNames [][]string // each group's tool names (sorted by delegation key)
+	}{
+		{
+			name:  "all download tools",
+			nodes: []*graph.Node{makeNode("rg"), makeNode("fd"), makeNode("bat")},
+			resourceMap: makeResourceMap(
+				makeTool("rg", "", "aqua"),
+				makeTool("fd", "", "aqua"),
+				makeTool("bat", "", "aqua"),
+			),
+			wantDownloadCount: 3,
+			wantGroupCount:    0,
+		},
+		{
+			name:  "same runtime 3 tools",
+			nodes: []*graph.Node{makeNode("gopls"), makeNode("goimports"), makeNode("staticcheck")},
+			resourceMap: makeResourceMap(
+				makeTool("gopls", "go", ""),
+				makeTool("goimports", "go", ""),
+				makeTool("staticcheck", "go", ""),
+			),
+			wantDownloadCount:  0,
+			wantGroupCount:     1,
+			wantGroupToolNames: [][]string{{"gopls", "goimports", "staticcheck"}},
+		},
+		{
+			name:  "different runtimes",
+			nodes: []*graph.Node{makeNode("gopls"), makeNode("prettier")},
+			resourceMap: makeResourceMap(
+				makeTool("gopls", "go", ""),
+				makeTool("prettier", "pnpm", ""),
+			),
+			wantDownloadCount: 0,
+			wantGroupCount:    2,
+			// Sorted by delegation key: "runtime:go" < "runtime:pnpm"
+			wantGroupToolNames: [][]string{{"gopls"}, {"prettier"}},
+		},
+		{
+			name:  "mixed download and delegation",
+			nodes: []*graph.Node{makeNode("rg"), makeNode("gopls"), makeNode("fd"), makeNode("goimports")},
+			resourceMap: makeResourceMap(
+				makeTool("rg", "", "aqua"),
+				makeTool("gopls", "go", ""),
+				makeTool("fd", "", "aqua"),
+				makeTool("goimports", "go", ""),
+			),
+			wantDownloadCount:  2,
+			wantGroupCount:     1,
+			wantGroupToolNames: [][]string{{"gopls", "goimports"}},
+		},
+		{
+			name:              "empty input",
+			nodes:             nil,
+			resourceMap:       nil,
+			wantDownloadCount: 0,
+			wantGroupCount:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			downloadNodes, delegationGroups := partitionToolsByDelegation(tt.nodes, tt.resourceMap)
+			assert.Len(t, downloadNodes, tt.wantDownloadCount)
+			assert.Len(t, delegationGroups, tt.wantGroupCount)
+
+			// Assert group membership when specified
+			if tt.wantGroupToolNames != nil {
+				for i, wantNames := range tt.wantGroupToolNames {
+					var gotNames []string
+					for _, n := range delegationGroups[i] {
+						gotNames = append(gotNames, n.Name)
+					}
+					assert.Equal(t, wantNames, gotNames, "group %d tool names", i)
+				}
+			}
+		})
+	}
+}
+
+func TestEngine_Apply_DelegationToolsSerialized(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Track per-runtime concurrency
+	var goCurrentCount atomic.Int32
+	var goMaxConcurrent atomic.Int32
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			if res.ToolSpec.RuntimeRef == "go" {
+				current := goCurrentCount.Add(1)
+				defer goCurrentCount.Add(-1)
+
+				// Assert serialization immediately: no more than 1 concurrent go delegation
+				require.Equal(t, int32(1), current, "go delegation tools must run sequentially, but %s saw concurrency %d", name, current)
+
+				// Track max for extra safety
+				for {
+					old := goMaxConcurrent.Load()
+					if current <= old || goMaxConcurrent.CompareAndSwap(old, current) {
+						break
+					}
+				}
+
+				// Simulate some work
+				time.Sleep(20 * time.Millisecond)
+			}
+
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				RuntimeRef:   res.ToolSpec.RuntimeRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	// 3 go delegation tools + 2 download tools
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "go"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.23.0",
+				Binaries:    []string{"go"},
+				ToolBinPath: "~/go/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/go.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.21.0", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "goimports"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.33.0", Package: &resource.Package{Name: "golang.org/x/tools/cmd/goimports"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "staticcheck"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.5.1", Package: &resource.Package{Name: "honnef.co/go/tools/cmd/staticcheck"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "rg"}},
+			ToolSpec: &resource.ToolSpec{InstallerRef: "download", Version: "14.0.0", Source: &resource.DownloadSource{
+				URL:      "https://example.com/rg.tar.gz",
+				Checksum: &resource.Checksum{Value: "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+			}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "fd"}},
+			ToolSpec: &resource.ToolSpec{InstallerRef: "download", Version: "9.0.0", Source: &resource.DownloadSource{
+				URL:      "https://example.com/fd.tar.gz",
+				Checksum: &resource.Checksum{Value: "sha256:2222222222222222222222222222222222222222222222222222222222222222"},
+			}},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// All 5 tools should be installed
+	assert.True(t, installedTools["gopls"])
+	assert.True(t, installedTools["goimports"])
+	assert.True(t, installedTools["staticcheck"])
+	assert.True(t, installedTools["rg"])
+	assert.True(t, installedTools["fd"])
+
+	// Go delegation never exceeded concurrency 1
+	assert.Equal(t, int32(1), goMaxConcurrent.Load(), "go delegation tools should run sequentially")
+}
+
+func TestEngine_Apply_DifferentDelegationGroupsParallel(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Track per-runtime concurrency and cross-group overlap.
+	// Use a barrier pattern instead of time.Sleep to prove overlap deterministically:
+	// each group's first tool blocks until all groups have entered their first tool,
+	// guaranteeing concurrent execution is detected regardless of scheduler behavior.
+	var goCurrentCount, rustCurrentCount atomic.Int32
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+
+	// Barrier: both groups signal arrival, then wait for each other
+	goArrived := make(chan struct{})
+	rustArrived := make(chan struct{})
+	var overlapDetected atomic.Bool
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			switch res.ToolSpec.RuntimeRef {
+			case "go":
+				current := goCurrentCount.Add(1)
+				defer goCurrentCount.Add(-1)
+				require.Equal(t, int32(1), current, "go tools must be sequential")
+
+				// First go tool: signal arrival and wait for rust group
+				if current == 1 {
+					select {
+					case goArrived <- struct{}{}:
+					default:
+					}
+					select {
+					case <-rustArrived:
+						overlapDetected.Store(true)
+					case <-time.After(5 * time.Second):
+						// Timeout fallback: don't block the test forever
+					}
+				}
+			case "rust":
+				current := rustCurrentCount.Add(1)
+				defer rustCurrentCount.Add(-1)
+				require.Equal(t, int32(1), current, "rust tools must be sequential")
+
+				// First rust tool: signal arrival and wait for go group
+				if current == 1 {
+					select {
+					case rustArrived <- struct{}{}:
+					default:
+					}
+					select {
+					case <-goArrived:
+						overlapDetected.Store(true)
+					case <-time.After(5 * time.Second):
+						// Timeout fallback
+					}
+				}
+			}
+
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+
+			return &resource.ToolState{
+				RuntimeRef:  res.ToolSpec.RuntimeRef,
+				Version:     res.ToolSpec.Version,
+				InstallPath: "/tools/" + name,
+				BinPath:     "/bin/" + name,
+			}, nil
+		},
+	}
+
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	// 2 runtimes x 2 tools
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "go"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.23.0",
+				Binaries:    []string{"go"},
+				ToolBinPath: "~/go/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/go.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "rust"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.82.0",
+				Binaries:    []string{"rustc", "cargo"},
+				ToolBinPath: "~/.cargo/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/rust.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.21.0", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "goimports"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.33.0", Package: &resource.Package{Name: "golang.org/x/tools/cmd/goimports"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "sd"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "rust", Version: "1.0.0", Package: &resource.Package{Name: "sd"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "bat"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "rust", Version: "0.24.0", Package: &resource.Package{Name: "bat"}},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	// All 4 tools installed
+	assert.True(t, installedTools["gopls"])
+	assert.True(t, installedTools["goimports"])
+	assert.True(t, installedTools["sd"])
+	assert.True(t, installedTools["bat"])
+
+	// Different groups should have run in parallel (proven by barrier, not timing)
+	assert.True(t, overlapDetected.Load(), "different delegation groups should run in parallel (barrier handshake)")
+}
+
+func TestEngine_Apply_DelegationGroupErrorStopsGroup(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+
+	// Track execution order of go delegation tools
+	var executionOrder []string
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			if res.ToolSpec.RuntimeRef == "go" {
+				mu.Lock()
+				executionOrder = append(executionOrder, name)
+				isSecond := len(executionOrder) >= 2 && name == executionOrder[1]
+				mu.Unlock()
+
+				// Second delegation tool in execution order fails
+				if isSecond {
+					return nil, fmt.Errorf("simulated failure for %s", name)
+				}
+			}
+
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				RuntimeRef:   res.ToolSpec.RuntimeRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	// 3 go delegation tools + 1 download tool
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "go"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.23.0",
+				Binaries:    []string{"go"},
+				ToolBinPath: "~/go/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/go.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.21.0", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "goimports"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.33.0", Package: &resource.Package{Name: "golang.org/x/tools/cmd/goimports"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "staticcheck"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.5.1", Package: &resource.Package{Name: "honnef.co/go/tools/cmd/staticcheck"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "rg"}},
+			ToolSpec: &resource.ToolSpec{InstallerRef: "download", Version: "14.0.0", Source: &resource.DownloadSource{
+				URL:      "https://example.com/rg.tar.gz",
+				Checksum: &resource.Checksum{Value: "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+			}},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.Error(t, err, "should fail because one go delegation tool fails")
+
+	// Download tool should still complete
+	assert.True(t, installedTools["rg"], "download tool should complete despite delegation group error")
+
+	// Not all 3 go tools should have been executed (group stops on error)
+	goToolsExecuted := 0
+	for _, name := range []string{"gopls", "goimports", "staticcheck"} {
+		if installedTools[name] {
+			goToolsExecuted++
+		}
+	}
+	assert.Less(t, goToolsExecuted, 3, "not all go delegation tools should complete when one fails")
+}
+
+func TestEngine_Apply_AllDelegationSingleGroup(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			time.Sleep(10 * time.Millisecond)
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+			return &resource.ToolState{
+				RuntimeRef:  res.ToolSpec.RuntimeRef,
+				Version:     res.ToolSpec.Version,
+				InstallPath: "/tools/" + name,
+				BinPath:     "/bin/" + name,
+			}, nil
+		},
+	}
+
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	// All tools in same delegation group (no download tools)
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "go"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.23.0",
+				Binaries:    []string{"go"},
+				ToolBinPath: "~/go/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/go.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.21.0", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "goimports"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.33.0", Package: &resource.Package{Name: "golang.org/x/tools/cmd/goimports"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "staticcheck"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.5.1", Package: &resource.Package{Name: "honnef.co/go/tools/cmd/staticcheck"}},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err, "should not deadlock with all-delegation single group")
+
+	assert.True(t, installedTools["gopls"])
+	assert.True(t, installedTools["goimports"])
+	assert.True(t, installedTools["staticcheck"])
+}
+
+func TestEngine_Apply_DelegationWithParallelismOne(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var mu sync.Mutex
+	installedTools := make(map[string]bool)
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			time.Sleep(5 * time.Millisecond)
+			mu.Lock()
+			installedTools[name] = true
+			mu.Unlock()
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				RuntimeRef:   res.ToolSpec.RuntimeRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetParallelism(1)
+
+	// Mix of delegation and download tools
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "go"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.23.0",
+				Binaries:    []string{"go"},
+				ToolBinPath: "~/go/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/go.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.21.0", Package: &resource.Package{Name: "golang.org/x/tools/gopls"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "goimports"}},
+			ToolSpec:     &resource.ToolSpec{RuntimeRef: "go", Version: "v0.33.0", Package: &resource.Package{Name: "golang.org/x/tools/cmd/goimports"}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "rg"}},
+			ToolSpec: &resource.ToolSpec{InstallerRef: "download", Version: "14.0.0", Source: &resource.DownloadSource{
+				URL:      "https://example.com/rg.tar.gz",
+				Checksum: &resource.Checksum{Value: "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+			}},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err, "should not deadlock with parallelism=1")
+
+	assert.True(t, installedTools["gopls"])
+	assert.True(t, installedTools["goimports"])
+	assert.True(t, installedTools["rg"])
+}
+
+func TestEngine_Property_DelegationSerialization(t *testing.T) {
+	t.Parallel()
+	rapid.Check(t, func(t *rapid.T) {
+		nRuntimes := rapid.IntRange(1, 3).Draw(t, "numRuntimes")
+		nToolsPerRuntime := rapid.IntRange(1, 5).Draw(t, "toolsPerRuntime")
+		nDownloadTools := rapid.IntRange(0, 5).Draw(t, "downloadTools")
+		parallelism := rapid.IntRange(1, 10).Draw(t, "parallelism")
+
+		// Build resources programmatically
+		var resources []resource.Resource
+
+		// Track per-runtime concurrent counts
+		runtimeConcurrent := make([]atomic.Int32, nRuntimes)
+
+		for i := range nRuntimes {
+			rtName := fmt.Sprintf("rt%d", i)
+			resources = append(resources, &resource.Runtime{
+				BaseResource: resource.BaseResource{
+					APIVersion:   resource.GroupVersion,
+					ResourceKind: resource.KindRuntime,
+					Metadata:     resource.Metadata{Name: rtName},
+				},
+				RuntimeSpec: &resource.RuntimeSpec{
+					Type:        resource.InstallTypeDownload,
+					Version:     "1.0.0",
+					Binaries:    []string{rtName},
+					ToolBinPath: fmt.Sprintf("~/%s/bin", rtName),
+					Source: &resource.DownloadSource{
+						URL:      fmt.Sprintf("https://example.com/%s.tar.gz", rtName),
+						Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+					},
+				},
+			})
+
+			for j := range nToolsPerRuntime {
+				toolName := fmt.Sprintf("rt%d-tool%d", i, j)
+				resources = append(resources, &resource.Tool{
+					BaseResource: resource.BaseResource{
+						APIVersion:   resource.GroupVersion,
+						ResourceKind: resource.KindTool,
+						Metadata:     resource.Metadata{Name: toolName},
+					},
+					ToolSpec: &resource.ToolSpec{
+						RuntimeRef: rtName,
+						Version:    "1.0.0",
+						Package:    &resource.Package{Name: fmt.Sprintf("example.com/%s", toolName)},
+					},
+				})
+			}
+		}
+
+		for i := range nDownloadTools {
+			toolName := fmt.Sprintf("dl-tool%d", i)
+			resources = append(resources, &resource.Tool{
+				BaseResource: resource.BaseResource{
+					APIVersion:   resource.GroupVersion,
+					ResourceKind: resource.KindTool,
+					Metadata:     resource.Metadata{Name: toolName},
+				},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "download",
+					Version:      "1.0.0",
+					Source: &resource.DownloadSource{
+						URL:      fmt.Sprintf("https://example.com/%s.tar.gz", toolName),
+						Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+					},
+				},
+			})
+		}
+
+		dir, err := os.MkdirTemp("", "engine-delegation-prop-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.RemoveAll(dir) // Clean up per trial, not at end of all trials
+		store, err := state.NewStore[state.UserState](dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var installedMu sync.Mutex
+		installed := make(map[string]bool)
+
+		toolMock := &mockToolInstaller{
+			installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+				// Track per-runtime concurrency
+				if res.ToolSpec.RuntimeRef != "" {
+					for i := range nRuntimes {
+						rtName := fmt.Sprintf("rt%d", i)
+						if res.ToolSpec.RuntimeRef == rtName {
+							current := runtimeConcurrent[i].Add(1)
+							defer runtimeConcurrent[i].Add(-1)
+							if current > 1 {
+								t.Fatalf("runtime %s had concurrent count %d > 1 for tool %s", rtName, current, name)
+							}
+							break
+						}
+					}
+				}
+
+				time.Sleep(5 * time.Millisecond)
+
+				installedMu.Lock()
+				installed[name] = true
+				installedMu.Unlock()
+
+				return &resource.ToolState{
+					InstallerRef: res.ToolSpec.InstallerRef,
+					RuntimeRef:   res.ToolSpec.RuntimeRef,
+					Version:      res.ToolSpec.Version,
+					InstallPath:  "/tools/" + name,
+					BinPath:      "/bin/" + name,
+				}, nil
+			},
+		}
+
+		eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+		eng.SetParallelism(parallelism)
+
+		if err := eng.Apply(context.Background(), resources); err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		// Property: every tool must be installed
+		totalTools := nRuntimes*nToolsPerRuntime + nDownloadTools
+		if len(installed) != totalTools {
+			t.Fatalf("expected %d installed tools, got %d", totalTools, len(installed))
+		}
+	})
 }

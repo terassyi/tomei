@@ -21,6 +21,7 @@ type e2eVersions struct {
 	GoVersionUpgrade string // runtime.cue.upgrade → Runtime/go
 	GhVersion        string // tools.cue → Tool/gh
 	GoplsVersion     string // delegation.cue → Tool/gopls
+	GoimportsVersion string // delegation.cue → Tool/goimports
 	RustVersion      string // rust-runtime.cue → Runtime/rust
 	SdVersion        string // rust-delegation.cue → Tool/sd
 
@@ -83,6 +84,12 @@ func loadVersions() (*e2eVersions, error) {
 		return nil, fmt.Errorf("delegation.cue: %w", err)
 	} else {
 		v.GoplsVersion = ver
+	}
+
+	if ver, err := loadVersion(loader, filepath.Join(manifestsDir, "delegation.cue"), resource.KindTool, "goimports"); err != nil {
+		return nil, fmt.Errorf("delegation.cue goimports: %w", err)
+	} else {
+		v.GoimportsVersion = ver
 	}
 
 	if ver, err := loadVersion(loader, filepath.Join(delegationTestDir, "rust-runtime.cue"), resource.KindRuntime, "rust"); err != nil {

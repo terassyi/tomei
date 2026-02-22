@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -424,8 +425,10 @@ func (e *Engine) executeLayer(
 		return err
 	}
 
-	// Phase 3: Execute Tool nodes in parallel
-	return e.executeNodeGroup(ctx, toolNodes, resourceMap, updatedRuntimes, totalActions)
+	// Phase 3: Execute Tool nodes with delegation serialization.
+	// Tools installed via runtime delegation share global state within the
+	// package manager, so concurrent invocations can corrupt it.
+	return e.executeToolNodesWithDelegationSerialization(ctx, toolNodes, resourceMap, updatedRuntimes, totalActions)
 }
 
 // executeNodeGroup executes a group of nodes, using parallel execution when there are
@@ -875,7 +878,195 @@ func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 	return "download"
 }
 
+// delegationKeyForTool returns the serialization group key for a tool.
+// Tools with the same non-empty key must be installed sequentially to avoid
+// concurrent package manager invocations corrupting shared state (e.g.,
+// concurrent `go install` or `pnpm add -g`).
+// Returns "" for download-pattern tools that can run fully in parallel.
+func delegationKeyForTool(t *resource.Tool, resourceMap map[string]resource.Resource) string {
+	// RuntimeRef takes precedence (e.g., "go install", "cargo install")
+	if t.ToolSpec.RuntimeRef != "" {
+		return "runtime:" + t.ToolSpec.RuntimeRef
+	}
+	// Check InstallerRef for delegation-type installers via resource map
+	if ref := t.ToolSpec.InstallerRef; ref != "" {
+		instID := graph.NewNodeID(resource.KindInstaller, ref).String()
+		if inst, ok := resourceMap[instID]; ok {
+			if installer, ok := inst.(*resource.Installer); ok && installer.InstallerSpec != nil {
+				if installer.InstallerSpec.Type.IsDelegation() {
+					return "installer:" + ref
+				}
+			}
+		}
+	}
+	return "" // download pattern
+}
+
+// partitionToolsByDelegation splits tool nodes into download nodes (fully parallel)
+// and delegation groups (sequential within each group, parallel across groups).
+func partitionToolsByDelegation(
+	nodes []*graph.Node,
+	resourceMap map[string]resource.Resource,
+) (downloadNodes []*graph.Node, delegationGroups [][]*graph.Node) {
+	groups := make(map[string][]*graph.Node)
+	for _, node := range nodes {
+		res, ok := resourceMap[graph.NewNodeID(node.Kind, node.Name).String()]
+		if !ok || node.Kind != resource.KindTool {
+			downloadNodes = append(downloadNodes, node)
+			continue
+		}
+		t := res.(*resource.Tool)
+		key := delegationKeyForTool(t, resourceMap)
+		if key == "" {
+			downloadNodes = append(downloadNodes, node)
+		} else {
+			groups[key] = append(groups[key], node)
+		}
+	}
+	// Sort groups by key for deterministic ordering (aids debugging and log reproducibility)
+	for _, k := range slices.Sorted(maps.Keys(groups)) {
+		delegationGroups = append(delegationGroups, groups[k])
+	}
+	return downloadNodes, delegationGroups
+}
+
+// executeToolNodesWithDelegationSerialization executes tool nodes with delegation
+// groups serialized. Download-pattern tools run fully in parallel. Tools sharing
+// the same delegation key (e.g., same RuntimeRef) run sequentially within the group
+// but different groups run in parallel, all under the global semaphore.
+func (e *Engine) executeToolNodesWithDelegationSerialization(
+	ctx context.Context,
+	nodes []*graph.Node,
+	resourceMap map[string]resource.Resource,
+	updatedRuntimes map[string]bool,
+	totalActions *int,
+) error {
+	downloadNodes, delegationGroups := partitionToolsByDelegation(nodes, resourceMap)
+
+	// Fast path: no delegation groups — fully parallel as before
+	if len(delegationGroups) == 0 {
+		return e.executeNodeGroup(ctx, downloadNodes, resourceMap, updatedRuntimes, totalActions)
+	}
+
+	// Fast path: no download nodes and a single delegation group — sequential.
+	// This uses fail-fast (returns on first error) because a failed package manager
+	// invocation may leave shared state (GOPATH, module cache) in a broken state,
+	// making subsequent installs in the same group unreliable.
+	if len(downloadNodes) == 0 && len(delegationGroups) == 1 {
+		for _, node := range delegationGroups[0] {
+			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
+			if err := e.executeNode(nodeCtx, node, resourceMap, updatedRuntimes, totalActions); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Mixed execution: download tools + delegation groups under shared semaphore
+	sem := semaphore.NewWeighted(int64(e.parallelism))
+
+	var (
+		atomicTotal atomic.Int64
+		mu          sync.Mutex // protects updatedRuntimes and errs
+		errs        []error
+		wg          sync.WaitGroup
+	)
+
+	// Launch download tools as individual goroutines (same as executeNodesParallel)
+	for _, node := range downloadNodes {
+		if err := sem.Acquire(ctx, 1); err != nil {
+			mu.Lock()
+			errs = append(errs, err)
+			mu.Unlock()
+			break
+		}
+
+		wg.Go(func() {
+			defer sem.Release(1)
+
+			localUpdated := make(map[string]bool)
+			var localActions int
+
+			nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
+
+			if err := e.executeNode(nodeCtx, node, resourceMap, localUpdated, &localActions); err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
+
+			atomicTotal.Add(int64(localActions))
+
+			if len(localUpdated) > 0 {
+				mu.Lock()
+				maps.Copy(updatedRuntimes, localUpdated)
+				mu.Unlock()
+			}
+		})
+	}
+
+	// Launch each delegation group as a single goroutine with internal sequential execution.
+	// Within a group, a failure stops remaining tools because a failed package manager
+	// invocation may leave shared state in a broken state.
+	for _, group := range delegationGroups {
+		if ctx.Err() != nil {
+			break
+		}
+
+		wg.Go(func() {
+			for i, node := range group {
+				// Acquire semaphore per tool to maintain fair scheduling with download tools
+				if err := sem.Acquire(ctx, 1); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+
+				localUpdated := make(map[string]bool)
+				var localActions int
+
+				nodeCtx := e.buildNodeContext(ctx, node, resourceMap)
+				err := e.executeNode(nodeCtx, node, resourceMap, localUpdated, &localActions)
+
+				sem.Release(1)
+
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+
+					// Log only tools that were actually skipped (after the failed one)
+					for _, remaining := range group[i+1:] {
+						slog.Debug("skipping delegation tool due to group error",
+							"tool", remaining.Name, "error", err)
+					}
+					return
+				}
+
+				atomicTotal.Add(int64(localActions))
+
+				if len(localUpdated) > 0 {
+					mu.Lock()
+					maps.Copy(updatedRuntimes, localUpdated)
+					mu.Unlock()
+				}
+			}
+		})
+	}
+
+	wg.Wait()
+
+	*totalActions += int(atomicTotal.Load())
+
+	return errors.Join(errs...)
+}
+
 // handleTaintedTools handles reinstallation of tools that depend on updated runtimes.
+// NOTE: Tainted tools are reinstalled sequentially in a simple loop, which implicitly
+// provides delegation serialization safety. If this is ever parallelized, it must
+// respect delegation group boundaries (see executeToolNodesWithDelegationSerialization).
 func (e *Engine) handleTaintedTools(
 	ctx context.Context,
 	resources []resource.Resource,
