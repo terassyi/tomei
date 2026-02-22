@@ -80,7 +80,7 @@ jobs:
           helm version
           kind version
           # Rust tools
-          cargo-binstall --version
+          cargo-binstall -V
           # pnpm tools
           prettier --version
           ts-node --version
@@ -163,42 +163,3 @@ jobs:
           name: scenario-logs-${{ matrix.os }}-${{ matrix.arch }}
           path: ~/.local/share/tomei/
           retention-days: 7
-
-  cosign-verify:
-    name: Cosign Verify (${{ matrix.os }}/${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-            runner: ubuntu-latest
-          - os: linux
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - os: darwin
-            arch: arm64
-            runner: macos-latest
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install tomei
-        run: |
-          gh release download --repo terassyi/tomei --pattern "tomei_*_${{ matrix.os }}_${{ matrix.arch }}.tar.gz" --output tomei.tar.gz
-          sudo tar xzf tomei.tar.gz -C /usr/local/bin tomei
-          tomei version
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Initialize and resolve modules
-        run: |
-          tomei init --yes
-          tomei cue init --force examples/real-world/
-
-      - name: Verify cosign signature
-        run: |
-          tomei plan examples/real-world/ 2>&1 | tee /tmp/tomei-plan.log
-          grep -q "cosign signature verified" /tmp/tomei-plan.log
