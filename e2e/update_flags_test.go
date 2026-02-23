@@ -88,6 +88,34 @@ func updateFlagsTests() {
 		})
 	})
 
+	Context("--update-tools", func() {
+		It("shows reinstall in plan for latest-versioned tool", func() {
+			By("Running plan with --update-tools")
+			output, err := testExec.Exec("tomei", "plan", "--update-tools", "--no-color", "~/update-flags-test/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking that latest-versioned tool is marked for reinstall")
+			Expect(output).To(ContainSubstring("Tool/latest-mock-tool"))
+			Expect(output).To(ContainSubstring("reinstall"))
+		})
+
+		It("reinstalls latest-versioned tool via --update-tools", func() {
+			By("Applying with --update-tools")
+			output, err := ExecApply(testExec, "--update-tools", "~/update-flags-test/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Checking latest-versioned tool was reinstalled")
+			Expect(output).To(ContainSubstring("latest-mock-tool"))
+		})
+
+		It("is idempotent after update-tools", func() {
+			By("Running apply without update flags")
+			output, err := ExecApply(testExec, "~/update-flags-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("No changes to apply"))
+		})
+	})
+
 	Context("--update-all", func() {
 		BeforeAll(func() {
 			By("Resetting marker file before update-all tests")

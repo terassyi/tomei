@@ -57,5 +57,8 @@ COPY --chown=testuser:testuser config/tar-xz-test/ /home/testuser/tar-xz-test/
 # Copy update-flags-test manifests
 COPY --chown=testuser:testuser config/update-flags-test/ /home/testuser/update-flags-test/
 
+# Copy commands-test manifests
+COPY --chown=testuser:testuser config/commands-test/ /home/testuser/commands-test/
+
 # Default command
 CMD ["tomei", "version"]

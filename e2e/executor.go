@@ -261,6 +261,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy update-flags-test: %w", err)
 	}
 
+	// Copy commands-test configs
+	if err := copyDir(filepath.Join(configDir, "commands-test"), filepath.Join(e.testHome, "commands-test")); err != nil {
+		return fmt.Errorf("failed to copy commands-test: %w", err)
+	}
+
 	return nil
 }
 
