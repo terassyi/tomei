@@ -91,13 +91,17 @@ func stateBackupDiffTests() {
 			By("Checking header is shown")
 			Expect(output).To(ContainSubstring("State changes"))
 
-			By("Checking go runtime is shown as added")
-			Expect(output).To(ContainSubstring("go"))
-			Expect(output).To(ContainSubstring(versions.GoVersion))
+			By("Checking Runtimes group header is shown")
+			Expect(output).To(ContainSubstring("Runtimes:"))
 
-			By("Checking gh tool is shown as added")
-			Expect(output).To(ContainSubstring("gh"))
-			Expect(output).To(ContainSubstring(versions.GhVersion))
+			By("Checking go runtime is shown as added with version")
+			Expect(output).To(ContainSubstring("go " + versions.GoVersion))
+
+			By("Checking Tools group header is shown")
+			Expect(output).To(ContainSubstring("Tools:"))
+
+			By("Checking gh tool is shown as added with version")
+			Expect(output).To(ContainSubstring("gh " + versions.GhVersion))
 
 			By("Checking gopls tool is shown as added")
 			Expect(output).To(ContainSubstring("gopls"))
@@ -137,7 +141,7 @@ func stateBackupDiffTests() {
 
 			By("Checking output still contains diff content")
 			Expect(output).To(ContainSubstring("State changes"))
-			Expect(output).To(ContainSubstring("go"))
+			Expect(output).To(ContainSubstring("Runtimes:"))
 		})
 	})
 
@@ -186,7 +190,8 @@ func stateBackupDiffTests() {
 
 			By("Checking diff shows runtime version change")
 			Expect(output).To(ContainSubstring("State changes"))
-			Expect(output).To(ContainSubstring("go"))
+			Expect(output).To(ContainSubstring("Runtimes:"))
+			// The text diff shows "go <oldVersion> -> <newVersion>" for modifications
 			Expect(output).To(ContainSubstring(versions.GoVersion))
 			Expect(output).To(ContainSubstring(versions.GoVersionUpgrade))
 
@@ -231,6 +236,7 @@ func stateBackupDiffTests() {
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Checking diff shows gh as removed")
+			Expect(output).To(ContainSubstring("Tools:"))
 			Expect(output).To(ContainSubstring("gh"))
 			Expect(output).To(ContainSubstring("removed"))
 		})

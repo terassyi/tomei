@@ -60,8 +60,12 @@ func registryTests() {
 
 		It("installs tools via aqua registry", func() {
 			By("Running tomei apply on registry manifests")
-			_, err := ExecApply(testExec, "~/manifests/registry/")
+			output, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying apply completed with installations")
+			Expect(output).To(ContainSubstring("Apply complete!"))
+			Expect(output).To(ContainSubstring("Installed:"))
 		})
 
 		It("installs ripgrep via aqua registry", func() {
@@ -154,16 +158,27 @@ func registryTests() {
 	Context("Registry Sync", func() {
 		It("--sync flag works with apply", func() {
 			By("Running tomei apply --sync")
-			_, err := ExecApply(testExec, "--sync", "~/manifests/registry/")
+			output, err := ExecApply(testExec, "--sync", "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying --sync apply completed without error")
+			// --sync may or may not result in changes depending on registry state,
+			// but the command should succeed without error
+			Expect(output).To(SatisfyAny(
+				ContainSubstring("No changes to apply"),
+				ContainSubstring("Apply complete!"),
+			))
 		})
 	})
 
 	Context("Idempotency", func() {
 		It("subsequent apply has no changes", func() {
 			By("Running tomei apply again on registry manifests")
-			_, err := ExecApply(testExec, "~/manifests/registry/")
+			output, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying no changes were needed")
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 
 		It("tools still work after idempotent apply", func() {
@@ -245,8 +260,11 @@ func registryTests() {
 
 		It("is idempotent after version changes", func() {
 			By("Running tomei apply again")
-			_, err := ExecApply(testExec, "~/manifests/registry/")
+			output, err := ExecApply(testExec, "~/manifests/registry/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying no changes were needed")
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 	})
 
