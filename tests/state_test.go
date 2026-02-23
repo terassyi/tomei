@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 )
@@ -26,13 +27,40 @@ func TestState_Persistence(t *testing.T) {
 	// Lock and save initial state
 	require.NoError(t, store.Lock())
 
+	now := time.Now().Truncate(time.Second)
 	initialState := &state.UserState{
 		Tools: map[string]*resource.ToolState{
 			"ripgrep": {
 				InstallerRef: "download",
 				Version:      "14.0.0",
+				Digest:       checksum.Digest("sha256:abc123def456"),
 				BinPath:      "/home/user/.local/bin/rg",
-				UpdatedAt:    time.Now().Truncate(time.Second),
+				VersionKind:  resource.VersionExact,
+				SpecVersion:  "14.0.0",
+				UpdatedAt:    now,
+			},
+			"claude": {
+				Version:     "1.0.5",
+				VersionKind: resource.VersionLatest,
+				BinPath:     "/home/user/.local/bin/claude",
+				Commands: &resource.ToolCommandSet{
+					CommandSet: resource.CommandSet{
+						Install: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+						Check:   []string{"claude --version"},
+						Remove:  []string{"rm -f ~/.local/bin/claude"},
+					},
+					Update:         []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+					ResolveVersion: []string{"claude --version"},
+				},
+				UpdatedAt: now,
+			},
+			"gopls": {
+				Version:     "v0.16.0",
+				RuntimeRef:  "go",
+				VersionKind: resource.VersionExact,
+				SpecVersion: "v0.16.0",
+				BinPath:     "/home/user/go/bin/gopls",
+				UpdatedAt:   now,
 			},
 		},
 		Runtimes: map[string]*resource.RuntimeState{
@@ -45,7 +73,7 @@ func TestState_Persistence(t *testing.T) {
 				Env: map[string]string{
 					"GOROOT": "/home/user/.local/share/tomei/runtimes/go/1.25.5",
 				},
-				UpdatedAt: time.Now().Truncate(time.Second),
+				UpdatedAt: now,
 			},
 		},
 	}
@@ -64,13 +92,41 @@ func TestState_Persistence(t *testing.T) {
 	require.NoError(t, store2.Unlock())
 
 	// Verify loaded state matches saved state
-	assert.Len(t, loadedState.Tools, 1)
+	assert.Len(t, loadedState.Tools, 3)
 	assert.Len(t, loadedState.Runtimes, 1)
 
-	assert.Equal(t, "14.0.0", loadedState.Tools["ripgrep"].Version)
-	assert.Equal(t, "download", loadedState.Tools["ripgrep"].InstallerRef)
-	assert.Equal(t, "/home/user/.local/bin/rg", loadedState.Tools["ripgrep"].BinPath)
+	// Verify ripgrep (download pattern with Digest, VersionKind, SpecVersion)
+	rg := loadedState.Tools["ripgrep"]
+	require.NotNil(t, rg)
+	assert.Equal(t, "14.0.0", rg.Version)
+	assert.Equal(t, "download", rg.InstallerRef)
+	assert.Equal(t, "/home/user/.local/bin/rg", rg.BinPath)
+	assert.Equal(t, checksum.Digest("sha256:abc123def456"), rg.Digest)
+	assert.Equal(t, resource.VersionExact, rg.VersionKind)
+	assert.Equal(t, "14.0.0", rg.SpecVersion)
+	assert.Nil(t, rg.Commands, "download-pattern tool should have nil Commands")
 
+	// Verify claude (commands pattern with full ToolCommandSet)
+	claude := loadedState.Tools["claude"]
+	require.NotNil(t, claude)
+	assert.Equal(t, "1.0.5", claude.Version)
+	assert.Equal(t, resource.VersionLatest, claude.VersionKind)
+	require.NotNil(t, claude.Commands, "commands-pattern tool should have non-nil Commands")
+	assert.Equal(t, []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"}, claude.Commands.Install)
+	assert.Equal(t, []string{"claude --version"}, claude.Commands.Check)
+	assert.Equal(t, []string{"rm -f ~/.local/bin/claude"}, claude.Commands.Remove)
+	assert.Equal(t, []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"}, claude.Commands.Update)
+	assert.Equal(t, []string{"claude --version"}, claude.Commands.ResolveVersion)
+
+	// Verify gopls (runtime delegation with RuntimeRef)
+	gopls := loadedState.Tools["gopls"]
+	require.NotNil(t, gopls)
+	assert.Equal(t, "v0.16.0", gopls.Version)
+	assert.Equal(t, "go", gopls.RuntimeRef)
+	assert.Equal(t, resource.VersionExact, gopls.VersionKind)
+	assert.Equal(t, "v0.16.0", gopls.SpecVersion)
+
+	// Verify runtime
 	assert.Equal(t, "1.25.5", loadedState.Runtimes["go"].Version)
 	assert.Equal(t, []string{"go", "gofmt"}, loadedState.Runtimes["go"].Binaries)
 	assert.Equal(t, "/home/user/go/bin", loadedState.Runtimes["go"].ToolBinPath)
@@ -171,62 +227,81 @@ func TestState_AddAndRemove(t *testing.T) {
 	assert.Contains(t, st.Tools, "bat")
 }
 
-// TestState_Taint tests the taint functionality for tools.
+// TestState_Taint tests the taint functionality for tools with all taint reasons.
 func TestState_Taint(t *testing.T) {
-	stateDir := t.TempDir()
-
-	store, err := state.NewStore[state.UserState](stateDir)
-	require.NoError(t, err)
-
-	require.NoError(t, store.Lock())
-	st := &state.UserState{
-		Tools: map[string]*resource.ToolState{
-			"gopls": {
-				InstallerRef: "go",
-				Version:      "0.15.0",
-				RuntimeRef:   "go",
-				BinPath:      "/home/user/go/bin/gopls",
-			},
+	tests := []struct {
+		name        string
+		reason      resource.TaintReason
+		toolName    string
+		description string
+	}{
+		{
+			name:        "TaintReasonRuntimeUpgraded",
+			reason:      resource.TaintReasonRuntimeUpgraded,
+			toolName:    "gopls",
+			description: "runtime upgrade triggers tool reinstallation",
 		},
-		Runtimes: map[string]*resource.RuntimeState{
-			"go": {
-				Type:        resource.InstallTypeDownload,
-				Version:     "1.25.5",
-				InstallPath: "/home/user/.local/share/tomei/runtimes/go/1.25.5",
-				Binaries:    []string{"go", "gofmt"},
-			},
+		{
+			name:        "TaintReasonSyncUpdate",
+			reason:      resource.TaintReasonSyncUpdate,
+			toolName:    "ripgrep",
+			description: "sync flag triggers latest-version update",
+		},
+		{
+			name:        "TaintReasonUpdateRequested",
+			reason:      resource.TaintReasonUpdateRequested,
+			toolName:    "fd",
+			description: "user-requested update via --update-tools",
 		},
 	}
-	require.NoError(t, store.Save(st))
 
-	// Simulate runtime upgrade - taint dependent tools
-	st.Tools["gopls"].Taint(resource.TaintReasonRuntimeUpgraded)
-	require.NoError(t, store.Save(st))
-	require.NoError(t, store.Unlock())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := t.TempDir()
 
-	// Reload and verify taint
-	require.NoError(t, store.Lock())
-	st, err = store.Load()
-	require.NoError(t, err)
-	require.NoError(t, store.Unlock())
+			store, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
 
-	assert.True(t, st.Tools["gopls"].IsTainted())
-	assert.Equal(t, resource.TaintReasonRuntimeUpgraded, st.Tools["gopls"].TaintReason)
+			require.NoError(t, store.Lock())
+			st := &state.UserState{
+				Tools: map[string]*resource.ToolState{
+					tt.toolName: {
+						Version: "1.0.0",
+						BinPath: "/home/user/.local/bin/" + tt.toolName,
+					},
+				},
+			}
+			require.NoError(t, store.Save(st))
 
-	// Clear taint
-	require.NoError(t, store.Lock())
-	st.Tools["gopls"].ClearTaint()
-	require.NoError(t, store.Save(st))
-	require.NoError(t, store.Unlock())
+			// Apply taint
+			st.Tools[tt.toolName].Taint(tt.reason)
+			require.NoError(t, store.Save(st))
+			require.NoError(t, store.Unlock())
 
-	// Verify taint cleared
-	require.NoError(t, store.Lock())
-	st, err = store.Load()
-	require.NoError(t, err)
-	require.NoError(t, store.Unlock())
+			// Reload and verify taint persists
+			require.NoError(t, store.Lock())
+			st, err = store.Load()
+			require.NoError(t, err)
+			require.NoError(t, store.Unlock())
 
-	assert.False(t, st.Tools["gopls"].IsTainted())
-	assert.Empty(t, st.Tools["gopls"].TaintReason)
+			assert.True(t, st.Tools[tt.toolName].IsTainted(), "%s: tool should be tainted", tt.description)
+			assert.Equal(t, tt.reason, st.Tools[tt.toolName].TaintReason, "%s: taint reason should match", tt.description)
+
+			// Clear taint and verify
+			require.NoError(t, store.Lock())
+			st.Tools[tt.toolName].ClearTaint()
+			require.NoError(t, store.Save(st))
+			require.NoError(t, store.Unlock())
+
+			require.NoError(t, store.Lock())
+			st, err = store.Load()
+			require.NoError(t, err)
+			require.NoError(t, store.Unlock())
+
+			assert.False(t, st.Tools[tt.toolName].IsTainted(), "%s: taint should be cleared", tt.description)
+			assert.Empty(t, st.Tools[tt.toolName].TaintReason, "%s: taint reason should be empty", tt.description)
+		})
+	}
 }
 
 // TestState_JSONFormat tests that state.json has the expected format.
@@ -524,4 +599,188 @@ func TestState_RegistryUpdate(t *testing.T) {
 	require.NoError(t, store.Unlock())
 
 	assert.Equal(t, "v4.465.0", reloaded.Registry.Aqua.Ref)
+}
+
+// TestState_ToolCommandsPersistence tests that ToolState with full ToolCommandSet
+// survives a save/load roundtrip with all subfields intact.
+func TestState_ToolCommandsPersistence(t *testing.T) {
+	tests := []struct {
+		name     string
+		commands *resource.ToolCommandSet
+	}{
+		{
+			name: "full commands (all subfields)",
+			commands: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+					Check:   []string{"mytool --version"},
+					Remove:  []string{"rm -f ~/.local/bin/mytool"},
+				},
+				Update:         []string{"curl -fsSL https://example.com/update.sh | sh"},
+				ResolveVersion: []string{"mytool --version"},
+			},
+		},
+		{
+			name: "install only (minimal)",
+			commands: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"echo install"},
+				},
+			},
+		},
+		{
+			name: "multi-command install",
+			commands: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"mkdir -p /tmp/build", "make install"},
+					Check:   []string{"which mytool"},
+				},
+			},
+		},
+		{
+			name:     "nil commands",
+			commands: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+
+			store, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			require.NoError(t, store.Lock())
+			st := &state.UserState{
+				Tools: map[string]*resource.ToolState{
+					"mytool": {
+						Version:   "1.0.0",
+						BinPath:   "/home/user/.local/bin/mytool",
+						Commands:  tt.commands,
+						UpdatedAt: time.Date(2026, 2, 23, 12, 0, 0, 0, time.UTC),
+					},
+				},
+			}
+			require.NoError(t, store.Save(st))
+			require.NoError(t, store.Unlock())
+
+			// Load from a new store instance
+			store2, err := state.NewStore[state.UserState](stateDir)
+			require.NoError(t, err)
+
+			require.NoError(t, store2.Lock())
+			loaded, err := store2.Load()
+			require.NoError(t, err)
+			require.NoError(t, store2.Unlock())
+
+			require.Len(t, loaded.Tools, 1)
+			tool := loaded.Tools["mytool"]
+			require.NotNil(t, tool)
+			assert.Equal(t, "1.0.0", tool.Version)
+
+			if tt.commands == nil {
+				assert.Nil(t, tool.Commands, "nil commands should remain nil after roundtrip")
+				return
+			}
+
+			require.NotNil(t, tool.Commands, "non-nil commands should survive roundtrip")
+			assert.Equal(t, tt.commands.Install, tool.Commands.Install)
+			assert.Equal(t, tt.commands.Check, tool.Commands.Check)
+			assert.Equal(t, tt.commands.Remove, tool.Commands.Remove)
+			assert.Equal(t, tt.commands.Update, tool.Commands.Update)
+			assert.Equal(t, tt.commands.ResolveVersion, tool.Commands.ResolveVersion)
+		})
+	}
+}
+
+// TestState_ToolCommandsJSONFormat verifies the JSON structure of state.json
+// for tools with and without Commands.
+func TestState_ToolCommandsJSONFormat(t *testing.T) {
+	stateDir := t.TempDir()
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	require.NoError(t, store.Lock())
+	st := &state.UserState{
+		Tools: map[string]*resource.ToolState{
+			"with-commands": {
+				Version: "2.0.0",
+				BinPath: "/home/user/.local/bin/with-commands",
+				Commands: &resource.ToolCommandSet{
+					CommandSet: resource.CommandSet{
+						Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+						Check:   []string{"with-commands --version"},
+						Remove:  []string{"rm -f ~/.local/bin/with-commands"},
+					},
+					Update:         []string{"curl -fsSL https://example.com/update.sh | sh"},
+					ResolveVersion: []string{"with-commands --version"},
+				},
+				UpdatedAt: time.Date(2026, 2, 23, 12, 0, 0, 0, time.UTC),
+			},
+			"without-commands": {
+				InstallerRef: "aqua",
+				Version:      "14.0.0",
+				BinPath:      "/home/user/.local/bin/without-commands",
+				UpdatedAt:    time.Date(2026, 2, 23, 12, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	require.NoError(t, store.Save(st))
+	require.NoError(t, store.Unlock())
+
+	// Read raw JSON
+	stateFile := filepath.Join(stateDir, "state.json")
+	data, err := os.ReadFile(stateFile)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(data, &parsed))
+
+	tools, ok := parsed["tools"].(map[string]any)
+	require.True(t, ok, "tools should be a map")
+
+	// Verify "with-commands" has a "commands" key with correct structure
+	withCmds, ok := tools["with-commands"].(map[string]any)
+	require.True(t, ok, "with-commands tool should be a map")
+
+	cmds, ok := withCmds["commands"].(map[string]any)
+	require.True(t, ok, "commands should be a map")
+
+	// Verify install is a JSON array
+	installArr, ok := cmds["install"].([]any)
+	require.True(t, ok, "install should be an array")
+	require.Len(t, installArr, 1)
+	assert.Equal(t, "curl -fsSL https://example.com/install.sh | sh", installArr[0])
+
+	// Verify update exists
+	updateArr, ok := cmds["update"].([]any)
+	require.True(t, ok, "update should be an array")
+	require.Len(t, updateArr, 1)
+	assert.Equal(t, "curl -fsSL https://example.com/update.sh | sh", updateArr[0])
+
+	// Verify check exists
+	checkArr, ok := cmds["check"].([]any)
+	require.True(t, ok, "check should be an array")
+	require.Len(t, checkArr, 1)
+	assert.Equal(t, "with-commands --version", checkArr[0])
+
+	// Verify remove exists
+	removeArr, ok := cmds["remove"].([]any)
+	require.True(t, ok, "remove should be an array")
+	require.Len(t, removeArr, 1)
+	assert.Equal(t, "rm -f ~/.local/bin/with-commands", removeArr[0])
+
+	// Verify resolveVersion exists
+	resolveArr, ok := cmds["resolveVersion"].([]any)
+	require.True(t, ok, "resolveVersion should be an array")
+	require.Len(t, resolveArr, 1)
+	assert.Equal(t, "with-commands --version", resolveArr[0])
+
+	// Verify "without-commands" does NOT have a "commands" key (omitempty)
+	withoutCmds, ok := tools["without-commands"].(map[string]any)
+	require.True(t, ok, "without-commands tool should be a map")
+
+	_, hasCommands := withoutCmds["commands"]
+	assert.False(t, hasCommands, "commands key should be absent when Commands is nil (omitempty)")
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,6 +80,82 @@ func TestEnv_GenerateFromState(t *testing.T) {
 		assert.Contains(t, output, `set -gx GOROOT`)
 		assert.Contains(t, output, `fish_add_path`)
 	})
+}
+
+func TestGenerate_MultipleRuntimes(t *testing.T) {
+	runtimes := map[string]*resource.RuntimeState{
+		"go": {
+			Type:        resource.InstallTypeDownload,
+			Version:     "1.25.6",
+			InstallPath: "/opt/go/1.25.6",
+			BinDir:      "/opt/go/1.25.6/bin",
+			ToolBinPath: "/home/user/go/bin",
+			Env: map[string]string{
+				"GOROOT": "/opt/go/1.25.6",
+			},
+		},
+		"rust": {
+			Type:        resource.InstallTypeDownload,
+			Version:     "1.85.0",
+			InstallPath: "/opt/rust/1.85.0",
+			BinDir:      "/opt/rust/1.85.0/bin",
+			ToolBinPath: "/home/user/.cargo/bin",
+			Env: map[string]string{
+				"RUSTUP_HOME": "/opt/rust/1.85.0",
+			},
+		},
+	}
+
+	userBinDir := "/home/user/.local/bin"
+	f := env.NewFormatter(env.ShellPosix)
+	lines := env.Generate(runtimes, userBinDir, f)
+	assert.NotEmpty(t, lines)
+
+	output := joinLines(lines)
+
+	// Verify PATH contains entries for all runtimes
+	assert.Contains(t, output, "export PATH=")
+	assert.Contains(t, output, "/opt/go/1.25.6/bin")
+	assert.Contains(t, output, "/home/user/go/bin")
+	assert.Contains(t, output, "/opt/rust/1.85.0/bin")
+	assert.Contains(t, output, "/home/user/.cargo/bin")
+	assert.Contains(t, output, "/home/user/.local/bin")
+
+	// Verify env vars from each runtime are present
+	assert.Contains(t, output, "export GOROOT=")
+	assert.Contains(t, output, "export RUSTUP_HOME=")
+
+	// Verify deterministic ordering: run twice and compare
+	lines2 := env.Generate(runtimes, userBinDir, f)
+	assert.Equal(t, lines, lines2, "output should be deterministic across calls")
+
+	// Verify "go" env vars come before "rust" env vars (sorted by runtime name)
+	gorootIdx := -1
+	rustupIdx := -1
+	for i, l := range lines {
+		if gorootIdx < 0 && strings.HasPrefix(l, "export GOROOT=") {
+			gorootIdx = i
+		}
+		if rustupIdx < 0 && strings.HasPrefix(l, "export RUSTUP_HOME=") {
+			rustupIdx = i
+		}
+	}
+	if gorootIdx >= 0 && rustupIdx >= 0 {
+		assert.Less(t, gorootIdx, rustupIdx, "go env vars should come before rust env vars (alphabetical)")
+	}
+}
+
+func TestGenerate_EmptyRuntimes(t *testing.T) {
+	runtimes := map[string]*resource.RuntimeState{}
+
+	userBinDir := "/home/user/.local/bin"
+	f := env.NewFormatter(env.ShellPosix)
+	lines := env.Generate(runtimes, userBinDir, f)
+
+	// Should only contain the PATH entry with userBinDir
+	require.Len(t, lines, 1, "should only contain the PATH export")
+	assert.Contains(t, lines[0], "/home/user/.local/bin")
+	assert.Contains(t, lines[0], "export PATH=")
 }
 
 func joinLines(lines []string) string {

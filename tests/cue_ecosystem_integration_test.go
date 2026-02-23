@@ -1261,3 +1261,149 @@ bunTools: bun.#BunToolSet & {
 	assert.Equal(t, "bun", toolset.ToolSetSpec.RuntimeRef)
 	assert.Len(t, toolset.ToolSetSpec.Tools, 1)
 }
+
+// TestCueEcosystem_MockRegistry_ToolWithCommands verifies that a Tool with
+// the commands pattern (self-managed tool) can be loaded via schema import
+// from the mock OCI registry and all ToolCommandSet fields survive the
+// CUE -> JSON -> Go round-trip.
+func TestCueEcosystem_MockRegistry_ToolWithCommands(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["curl -fsSL https://example.com/install.sh | sh"]
+			update: ["mytool update"]
+			check: ["mytool --version"]
+			remove: ["mytool uninstall"]
+			resolveVersion: ["mytool --version | head -1"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	tool, ok := resources[0].(*resource.Tool)
+	require.True(t, ok, "resource should be *resource.Tool")
+	assert.Equal(t, "mytool", tool.Name())
+
+	// Commands must be non-nil
+	require.NotNil(t, tool.ToolSpec.Commands, "commands must not be nil for commands-pattern tool")
+
+	// Verify all ToolCommandSet fields
+	assert.Equal(t, []string{"curl -fsSL https://example.com/install.sh | sh"}, tool.ToolSpec.Commands.Install)
+	assert.Equal(t, []string{"mytool update"}, tool.ToolSpec.Commands.Update)
+	assert.Equal(t, []string{"mytool --version"}, tool.ToolSpec.Commands.Check)
+	assert.Equal(t, []string{"mytool uninstall"}, tool.ToolSpec.Commands.Remove)
+	assert.Equal(t, []string{"mytool --version | head -1"}, tool.ToolSpec.Commands.ResolveVersion)
+
+	// InstallerRef and RuntimeRef must be empty for commands pattern
+	assert.Empty(t, tool.ToolSpec.InstallerRef)
+	assert.Empty(t, tool.ToolSpec.RuntimeRef)
+}
+
+// TestCueEcosystem_MockRegistry_ToolCommandSetSchemaValidation verifies that
+// the CUE schema rejects invalid ToolCommandSet configurations.
+func TestCueEcosystem_MockRegistry_ToolCommandSetSchemaValidation(t *testing.T) {
+	reg := startMockRegistry(t)
+
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{
+			name: "empty commands (missing required install)",
+			manifest: `package tomei
+
+import "tomei.terassyi.net/schema"
+
+badTool: schema.#Tool & {
+	metadata: name: "bad"
+	spec: {
+		commands: {}
+	}
+}
+`,
+		},
+		{
+			name: "commands with empty install list",
+			manifest: `package tomei
+
+import "tomei.terassyi.net/schema"
+
+badTool: schema.#Tool & {
+	metadata: name: "bad"
+	spec: {
+		commands: {
+			install: []
+		}
+	}
+}
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := setupMockRegistryDir(t, reg)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(tt.manifest), 0644))
+
+			loader := config.NewLoader(nil)
+			_, err := loader.Load(dir)
+			assert.Error(t, err, "CUE schema should reject invalid commands: %s", tt.name)
+		})
+	}
+}
+
+// TestCueEcosystem_MockRegistry_ToolCommandsSingleElementList verifies that
+// single-element lists in ToolCommandSet survive the CUE -> MarshalJSON ->
+// UnmarshalJSON round-trip. CUE's MarshalJSON serializes single-element
+// [...string] as a bare string, which our custom UnmarshalJSON must handle.
+func TestCueEcosystem_MockRegistry_ToolCommandsSingleElementList(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+	metadata: name: "singletool"
+	spec: {
+		commands: {
+			install: ["single-install-cmd"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+
+	tool, ok := resources[0].(*resource.Tool)
+	require.True(t, ok)
+	require.NotNil(t, tool.ToolSpec.Commands)
+
+	// Single-element list must survive as []string{"single-install-cmd"}, not a bare string
+	assert.Equal(t, []string{"single-install-cmd"}, tool.ToolSpec.Commands.Install,
+		"single-element install list must survive CUE -> JSON -> Go round-trip")
+	// Optional fields not specified should be nil
+	assert.Nil(t, tool.ToolSpec.Commands.Update)
+	assert.Nil(t, tool.ToolSpec.Commands.Check)
+	assert.Nil(t, tool.ToolSpec.Commands.Remove)
+	assert.Nil(t, tool.ToolSpec.Commands.ResolveVersion)
+}

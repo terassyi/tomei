@@ -4,13 +4,11 @@ package tests
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -263,9 +261,9 @@ func TestAquaChecksumFlow(t *testing.T) {
 
 // TestAquaCacheConsistency tests that cache is correctly used across multiple resolves.
 func TestAquaCacheConsistency(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`packages:
   - type: github_release
@@ -284,12 +282,12 @@ func TestAquaCacheConsistency(t *testing.T) {
 	// First resolve - should hit the server
 	_, err := resolver.ResolveWithOS(ctx, aqua.RegistryRef("v4.465.0"), "cache/test", "1.0.0", "linux", "amd64")
 	require.NoError(t, err)
-	assert.Equal(t, 1, requestCount, "first resolve should hit the server")
+	assert.Equal(t, int32(1), requestCount.Load(), "first resolve should hit the server")
 
 	// Second resolve with same parameters - should use cache
 	_, err = resolver.ResolveWithOS(ctx, aqua.RegistryRef("v4.465.0"), "cache/test", "2.0.0", "linux", "amd64")
 	require.NoError(t, err)
-	assert.Equal(t, 1, requestCount, "second resolve should use cache, no additional request")
+	assert.Equal(t, int32(1), requestCount.Load(), "second resolve should use cache, no additional request")
 
 	// Verify cache file exists
 	cachePath := filepath.Join(cacheDir, "v4.465.0", "pkgs", "cache", "test", "registry.yaml")
@@ -397,23 +395,4 @@ func TestAquaReplacementsMerge(t *testing.T) {
 		// amd64 has no replacement anywhere, so stays as amd64
 		assert.Equal(t, "https://github.com/merge/test/releases/download/2.5.0/test_2.5.0_Linux_amd64.tar.gz", resolved.URL)
 	})
-}
-
-// createTestArchive creates a minimal tar.gz archive for testing.
-func createTestArchive(t *testing.T, binaryName string) ([]byte, string) {
-	t.Helper()
-
-	// Create a minimal executable (just some bytes for testing)
-	content := []byte("#!/bin/sh\necho 'test binary'\n")
-
-	// Calculate SHA256
-	hash := sha256.Sum256(content)
-	checksum := hex.EncodeToString(hash[:])
-
-	return content, checksum
-}
-
-// Helper to create checksum file content
-func createChecksumFile(filename, checksum string) string {
-	return fmt.Sprintf("%s  %s\n", checksum, filename)
 }

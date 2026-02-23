@@ -200,13 +200,14 @@ spec: {
 func TestDependencyResolution(t *testing.T) {
 	dir := t.TempDir()
 
-	// Tool depends on Installer and Runtime
+	// Tool uses runtimeRef for delegation installation (go install).
+	// runtimeRef and installerRef are mutually exclusive per Validate(),
+	// so we use only runtimeRef here.
 	toolCue := `
 apiVersion: "tomei.terassyi.net/v1beta1"
 kind: "Tool"
 metadata: name: "golangci-lint"
 spec: {
-	installerRef: "go"
 	runtimeRef: "go"
 	package: "github.com/golangci/golangci-lint/cmd/golangci-lint"
 	version: "v1.55.0"
@@ -261,20 +262,21 @@ spec: {
 	tool, ok := resource.Get[*resource.Tool](store, "golangci-lint")
 	require.True(t, ok)
 
-	deps := tool.Spec().Dependencies()
-	assert.Len(t, deps, 2) // Installer + Runtime
+	// Validate passes — runtimeRef only, no mutual exclusivity violation
+	require.NoError(t, tool.Spec().Validate())
 
-	// Verify all dependencies can be resolved from store
+	deps := tool.Spec().Dependencies()
+	assert.Len(t, deps, 1) // Runtime only (no installerRef)
+
+	// Verify runtime dependency can be resolved from store
 	for _, dep := range deps {
 		switch dep.Kind {
-		case resource.KindInstaller:
-			installer, ok := resource.Get[*resource.Installer](store, dep.Name)
-			assert.True(t, ok, "Installer dependency should be resolvable")
-			assert.Equal(t, "go", installer.Name())
 		case resource.KindRuntime:
 			runtime, ok := resource.Get[*resource.Runtime](store, dep.Name)
 			assert.True(t, ok, "Runtime dependency should be resolvable")
 			assert.Equal(t, "go", runtime.Name())
+		default:
+			t.Errorf("unexpected dependency kind: %s", dep.Kind)
 		}
 	}
 
@@ -453,6 +455,56 @@ spec: {
 			wantKind: resource.KindToolSet,
 			wantName: "cli-tools",
 		},
+		{
+			name: "Tool with commands pattern",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "claude"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://cli.claude.ai/install.sh | sh"]
+	}
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "claude",
+		},
+		{
+			name: "Tool with commands and version",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "mise"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://mise.run | sh"]
+	}
+	version: "2025.1.0"
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "mise",
+		},
+		{
+			name: "Tool with full commands",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "custom-tool"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://example.com/install.sh | sh"]
+		update: ["curl -fsSL https://example.com/update.sh | sh"]
+		check: ["custom-tool --version"]
+		remove: ["rm -f ~/.local/bin/custom-tool"]
+		resolveVersion: ["custom-tool --version"]
+	}
+}
+`,
+			wantKind: resource.KindTool,
+			wantName: "custom-tool",
+		},
 	}
 
 	for _, tt := range tests {
@@ -467,6 +519,201 @@ spec: {
 			require.Len(t, resources, 1)
 			assert.Equal(t, tt.wantKind, resources[0].Kind())
 			assert.Equal(t, tt.wantName, resources[0].Name())
+		})
+	}
+}
+
+// TestSchemaValidation_CommandsToolFields verifies that the Commands field
+// is correctly populated when loading a commands-pattern Tool from CUE.
+func TestSchemaValidation_CommandsToolFields(t *testing.T) {
+	tests := []struct {
+		name               string
+		content            string
+		wantInstall        []string
+		wantUpdate         []string
+		wantCheck          []string
+		wantRemove         []string
+		wantResolveVersion []string
+		wantVersion        string
+	}{
+		{
+			name: "minimal commands (install only)",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "claude"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://cli.claude.ai/install.sh | sh"]
+	}
+}
+`,
+			wantInstall: []string{"curl -fsSL https://cli.claude.ai/install.sh | sh"},
+		},
+		{
+			name: "commands with version",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "mise"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://mise.run | sh"]
+	}
+	version: "2025.1.0"
+}
+`,
+			wantInstall: []string{"curl -fsSL https://mise.run | sh"},
+			wantVersion: "2025.1.0",
+		},
+		{
+			name: "full commands (all subfields)",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "custom-tool"
+spec: {
+	commands: {
+		install: ["curl -fsSL https://example.com/install.sh | sh"]
+		update: ["curl -fsSL https://example.com/update.sh | sh"]
+		check: ["custom-tool --version"]
+		remove: ["rm -f ~/.local/bin/custom-tool"]
+		resolveVersion: ["custom-tool --version"]
+	}
+}
+`,
+			wantInstall:        []string{"curl -fsSL https://example.com/install.sh | sh"},
+			wantUpdate:         []string{"curl -fsSL https://example.com/update.sh | sh"},
+			wantCheck:          []string{"custom-tool --version"},
+			wantRemove:         []string{"rm -f ~/.local/bin/custom-tool"},
+			wantResolveVersion: []string{"custom-tool --version"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "test.cue")
+			require.NoError(t, os.WriteFile(cueFile, []byte(tt.content), 0644))
+
+			loader := config.NewLoader(nil)
+			resources, err := loader.LoadFile(cueFile)
+			require.NoError(t, err)
+			require.Len(t, resources, 1)
+
+			tool, ok := resources[0].(*resource.Tool)
+			require.True(t, ok, "expected *resource.Tool")
+
+			require.NotNil(t, tool.ToolSpec.Commands, "Commands should be non-nil for commands-pattern tool")
+			assert.Equal(t, tt.wantInstall, tool.ToolSpec.Commands.Install)
+			assert.Equal(t, tt.wantUpdate, tool.ToolSpec.Commands.Update)
+			assert.Equal(t, tt.wantCheck, tool.ToolSpec.Commands.Check)
+			assert.Equal(t, tt.wantRemove, tool.ToolSpec.Commands.Remove)
+			assert.Equal(t, tt.wantResolveVersion, tool.ToolSpec.Commands.ResolveVersion)
+			assert.Equal(t, tt.wantVersion, tool.ToolSpec.Version)
+
+			// Validate passes for commands-pattern tools
+			require.NoError(t, tool.Spec().Validate())
+
+			// Commands-pattern tools have no dependencies
+			assert.Empty(t, tool.Spec().Dependencies())
+		})
+	}
+}
+
+// TestSchemaValidation_RejectsInvalid tests that Go-level Validate() correctly
+// rejects invalid resource configurations that CUE schema allows (since CUE
+// does not enforce all mutual exclusivity rules).
+func TestSchemaValidation_RejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		wantErrMsg  string
+	}{
+		{
+			name: "Tool with commands and installerRef (mutual exclusivity)",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "bad-tool"
+spec: {
+	installerRef: "aqua"
+	commands: {
+		install: ["echo install"]
+	}
+}
+`,
+			wantErrMsg: "mutually exclusive",
+		},
+		{
+			name: "Tool with commands and runtimeRef (mutual exclusivity)",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "bad-tool"
+spec: {
+	runtimeRef: "go"
+	package: "example.com/tool"
+	commands: {
+		install: ["echo install"]
+	}
+}
+`,
+			wantErrMsg: "mutually exclusive",
+		},
+		{
+			name: "Tool with commands but empty install",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "bad-tool"
+spec: {
+	commands: {
+		check: ["echo ok"]
+	}
+}
+`,
+			wantErrMsg: "commands.install is required",
+		},
+		{
+			name: "Tool with installerRef and runtimeRef (mutual exclusivity)",
+			content: `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "Tool"
+metadata: name: "bad-tool"
+spec: {
+	installerRef: "go"
+	runtimeRef: "go"
+	package: "example.com/tool"
+	version: "v1.0.0"
+}
+`,
+			wantErrMsg: "mutually exclusive",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cueFile := filepath.Join(dir, "test.cue")
+			require.NoError(t, os.WriteFile(cueFile, []byte(tt.content), 0644))
+
+			loader := config.NewLoader(nil)
+			resources, err := loader.LoadFile(cueFile)
+			// CUE loading may succeed (CUE schema is permissive for some combinations),
+			// but Go Validate() must reject them.
+			if err != nil {
+				// If CUE rejects it, that's also acceptable
+				return
+			}
+			require.Len(t, resources, 1)
+
+			tool, ok := resources[0].(*resource.Tool)
+			require.True(t, ok, "expected *resource.Tool")
+
+			err = tool.Spec().Validate()
+			require.Error(t, err, "Validate() should reject invalid tool spec")
+			assert.Contains(t, err.Error(), tt.wantErrMsg)
 		})
 	}
 }

@@ -23,6 +23,11 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
+// NOTE: These tests exercise the shared resolve.Resolver indirectly through
+// runtime.Installer. Direct unit tests are in internal/installer/resolve/resolve_test.go.
+// The tool commands pattern (installByCommands) also uses the shared resolver
+// but is tested at the unit level in internal/installer/tool/installer_test.go.
+
 // TestHTTPTextResolver_ResolveAndInstall tests the http-text version resolver
 // via the full Install path.  These tests use httptest.NewServer to verify
 // actual HTTP communication behavior.
