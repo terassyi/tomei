@@ -196,6 +196,24 @@ func TestToolFormatter_FormatRow(t *testing.T) {
 		assert.Len(t, row, 5)
 	})
 
+	t.Run("with commands", func(t *testing.T) {
+		t.Parallel()
+
+		ts := &resource.ToolState{
+			Version:     "1.0.0",
+			VersionKind: resource.VersionExact,
+			SpecVersion: "1.0.0",
+			Commands: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{Install: []string{"install-cmd"}},
+			},
+		}
+		row := f.FormatRow("claude", ts, false)
+		assert.Equal(t, "claude", row[0])
+		assert.Equal(t, "1.0.0", row[1])
+		assert.Equal(t, "commands", row[3])
+		assert.Len(t, row, 5)
+	})
+
 	t.Run("wide adds package and binpath", func(t *testing.T) {
 		t.Parallel()
 

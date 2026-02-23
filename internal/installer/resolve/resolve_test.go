@@ -15,11 +15,17 @@ import (
 
 // mockCaptureRunner is a test double for CaptureRunner.
 type mockCaptureRunner struct {
-	result string
-	err    error
+	result     string
+	err        error
+	called     bool
+	calledCmds []string
+	calledVars command.Vars
 }
 
-func (m *mockCaptureRunner) ExecuteCapture(_ context.Context, _ []string, _ command.Vars, _ map[string]string) (string, error) {
+func (m *mockCaptureRunner) ExecuteCapture(_ context.Context, cmds []string, vars command.Vars, _ map[string]string) (string, error) {
+	m.called = true
+	m.calledCmds = cmds
+	m.calledVars = vars
 	return m.result, m.err
 }
 
@@ -103,6 +109,9 @@ func TestResolver_Resolve_ShellCommand(t *testing.T) {
 	version, err := resolver.Resolve(context.Background(), []string{"tool --version"}, command.Vars{Name: "tool"})
 	require.NoError(t, err)
 	assert.Equal(t, "3.14.0", version)
+	assert.True(t, runner.called)
+	assert.Equal(t, []string{"tool --version"}, runner.calledCmds)
+	assert.Equal(t, command.Vars{Name: "tool"}, runner.calledVars)
 }
 
 func TestResolver_Resolve_ShellCommand_Error(t *testing.T) {
@@ -155,4 +164,94 @@ func TestResolver_Resolve_InvalidHTTPTextFormat(t *testing.T) {
 	_, err := resolver.Resolve(context.Background(), []string{"http-text:noscheme"}, command.Vars{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid http-text format")
+}
+
+func TestResolver_Resolve_HTTPText_Non200(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	resolver := NewResolver(&mockCaptureRunner{}, srv.Client())
+
+	cmds := []string{fmt.Sprintf("http-text:%s:([0-9.]+)", srv.URL)}
+	_, err := resolver.Resolve(context.Background(), cmds, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "status 404")
+}
+
+func TestResolver_Resolve_HTTPText_InvalidRegex(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewResolver(&mockCaptureRunner{}, http.DefaultClient)
+
+	_, err := resolver.Resolve(context.Background(), []string{"http-text:https://example.com:([invalid"}, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid http-text regex")
+}
+
+func TestResolver_Resolve_HTTPText_NoMatch(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintln(w, "no version here")
+	}))
+	defer srv.Close()
+
+	resolver := NewResolver(&mockCaptureRunner{}, srv.Client())
+
+	cmds := []string{fmt.Sprintf(`http-text:%s:\d+\.\d+\.\d+`, srv.URL)}
+	_, err := resolver.Resolve(context.Background(), cmds, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no match")
+}
+
+func TestResolver_Resolve_GitHubRelease_EmptyTag(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/repos/owner/repo/releases/latest" {
+			fmt.Fprintln(w, `{"tag_name": ""}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	resolver := NewResolver(&mockCaptureRunner{}, srv.Client(), WithGitHubBaseURL(srv.URL))
+
+	_, err := resolver.Resolve(context.Background(), []string{"github-release:owner/repo"}, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty tag_name")
+}
+
+func TestResolver_Resolve_GitHubRelease_EmptyAfterPrefix(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewResolver(&mockCaptureRunner{}, http.DefaultClient)
+
+	_, err := resolver.Resolve(context.Background(), []string{"github-release:"}, command.Vars{})
+	require.Error(t, err)
+}
+
+func TestResolver_Resolve_GitHubRelease_EmptyOwner(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewResolver(&mockCaptureRunner{}, http.DefaultClient)
+
+	_, err := resolver.Resolve(context.Background(), []string{"github-release:/repo"}, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid github-release format")
+}
+
+func TestResolver_Resolve_GitHubRelease_EmptyRepo(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewResolver(&mockCaptureRunner{}, http.DefaultClient)
+
+	_, err := resolver.Resolve(context.Background(), []string{"github-release:owner/"}, command.Vars{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid github-release format")
 }

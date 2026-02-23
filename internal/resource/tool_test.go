@@ -110,6 +110,35 @@ func TestToolSpec_Validate(t *testing.T) {
 			wantErr: "commands.install is required",
 		},
 		{
+			name: "installerRef + runtimeRef (mutually exclusive)",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				RuntimeRef:   "go",
+				Package:      &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: "installerRef, runtimeRef, and commands are mutually exclusive",
+		},
+		{
+			name: "all three set (mutually exclusive)",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				RuntimeRef:   "go",
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"cmd"}},
+				},
+			},
+			wantErr: "installerRef, runtimeRef, and commands are mutually exclusive",
+		},
+		{
+			name: "commands with empty install slice",
+			spec: &ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{}},
+				},
+			},
+			wantErr: "commands.install is required",
+		},
+		{
 			name:    "missing installerRef and runtimeRef and commands",
 			spec:    &ToolSpec{Version: "1.0.0"},
 			wantErr: "one of installerRef, runtimeRef, or commands is required",

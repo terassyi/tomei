@@ -77,6 +77,22 @@ func TestValidateUserState(t *testing.T) {
 			wantWarnings: 1,
 		},
 		{
+			name: "commands-pattern tool with empty version is valid",
+			state: &UserState{
+				Version: Version,
+				Tools: map[string]*resource.ToolState{
+					"claude": {
+						Version: "",
+						Commands: &resource.ToolCommandSet{
+							CommandSet: resource.CommandSet{Install: []string{"curl -fsSL https://example.com/install.sh | sh"}},
+						},
+					},
+				},
+			},
+			wantValid:    true,
+			wantWarnings: 0,
+		},
+		{
 			name: "multiple warnings",
 			state: &UserState{
 				Version: "",

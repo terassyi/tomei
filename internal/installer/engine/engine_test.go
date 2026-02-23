@@ -3973,6 +3973,29 @@ func TestPartitionToolsByDelegation(t *testing.T) {
 			wantGroupToolNames: [][]string{{"gopls", "goimports"}},
 		},
 		{
+			name: "commands-pattern tool goes to download nodes",
+			nodes: []*graph.Node{
+				makeNode("claude"),
+				makeNode("gopls"),
+			},
+			resourceMap: func() map[string]resource.Resource {
+				commandsTool := &resource.Tool{
+					BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "claude"}},
+					ToolSpec: &resource.ToolSpec{
+						Version: "1.0.0",
+						Commands: &resource.ToolCommandSet{
+							CommandSet: resource.CommandSet{Install: []string{"curl -fsSL https://example.com/install.sh | sh"}},
+						},
+					},
+				}
+				delegationTool := makeTool("gopls", "go", "")
+				return makeResourceMap(commandsTool, delegationTool)
+			}(),
+			wantDownloadCount:  1,
+			wantGroupCount:     1,
+			wantGroupToolNames: [][]string{{"gopls"}},
+		},
+		{
 			name:              "empty input",
 			nodes:             nil,
 			resourceMap:       nil,
