@@ -4125,9 +4125,11 @@ func TestEngine_Apply_DifferentDelegationGroupsParallel(t *testing.T) {
 	var mu sync.Mutex
 	installedTools := make(map[string]bool)
 
-	// Barrier: both groups signal arrival, then wait for each other
-	goArrived := make(chan struct{})
-	rustArrived := make(chan struct{})
+	// Barrier: both groups signal arrival, then wait for each other.
+	// Channels MUST be buffered so the non-blocking send always succeeds
+	// regardless of goroutine scheduling order.
+	goArrived := make(chan struct{}, 1)
+	rustArrived := make(chan struct{}, 1)
 	var overlapDetected atomic.Bool
 
 	toolMock := &mockToolInstaller{
