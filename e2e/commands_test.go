@@ -17,7 +17,7 @@ func commandsPatternTests() {
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
 		// Clean up any leftover artifacts from previous runs
 		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-cmd-update-test")
-		_, _ = testExec.ExecBash("mise implode --yes 2>/dev/null")
+		_, _ = testExec.ExecBash("$HOME/.local/bin/mise implode --yes 2>/dev/null")
 	})
 
 	Context("Validate and Plan", func() {
@@ -57,7 +57,7 @@ func commandsPatternTests() {
 
 		It("installs mise binary via curl | sh", func() {
 			By("Checking mise binary is executable")
-			output, err := testExec.ExecBash("mise --version")
+			output, err := testExec.ExecBash("$HOME/.local/bin/mise --version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(MatchRegexp(`\d+\.\d+\.\d+`))
 		})
@@ -115,7 +115,7 @@ func commandsPatternTests() {
 			Expect(strings.TrimSpace(output)).To(Equal("installed"))
 
 			By("Checking mise binary still works")
-			output, err = testExec.ExecBash("mise --version")
+			output, err = testExec.ExecBash("$HOME/.local/bin/mise --version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(MatchRegexp(`\d+\.\d+\.\d+`))
 		})
@@ -156,7 +156,7 @@ func commandsPatternTests() {
 			Expect(output).To(ContainSubstring("Removed:"))
 
 			By("Verifying mise binary is gone")
-			_, err = testExec.ExecBash("which mise")
+			_, err = testExec.ExecBash("test -x $HOME/.local/bin/mise")
 			Expect(err).To(HaveOccurred())
 
 			By("Verifying update-tool marker still exists")
@@ -175,7 +175,7 @@ func commandsPatternTests() {
 			Expect(output).To(ContainSubstring("mise"))
 
 			By("Verifying mise binary works again")
-			output, err = testExec.ExecBash("mise --version")
+			output, err = testExec.ExecBash("$HOME/.local/bin/mise --version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(MatchRegexp(`\d+\.\d+\.\d+`))
 		})
@@ -184,7 +184,7 @@ func commandsPatternTests() {
 	AfterAll(func() {
 		By("Cleaning up commands-pattern test state")
 		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-cmd-update-test")
-		_, _ = testExec.ExecBash("mise implode --yes 2>/dev/null")
+		_, _ = testExec.ExecBash("$HOME/.local/bin/mise implode --yes 2>/dev/null")
 		_, _ = testExec.ExecBash("for f in ~/commands-test/*.hidden; do mv \"$f\" \"${f%.hidden}\"; done 2>/dev/null")
 	})
 }

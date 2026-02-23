@@ -11,9 +11,9 @@ mise: {
 	spec: {
 		commands: {
 			install:        ["MISE_QUIET=1 curl -fsSL https://mise.jdx.dev/install.sh | sh"]
-			check:          ["mise --version"]
-			remove:         ["mise implode --yes"]
-			resolveVersion: ["mise --version 2>/dev/null | awk '{print $1}'"]
+			check:          ["$HOME/.local/bin/mise --version"]
+			remove:         ["$HOME/.local/bin/mise implode --yes"]
+			resolveVersion: ["$HOME/.local/bin/mise --version 2>/dev/null | awk '{print $1}'"]
 		}
 	}
 }

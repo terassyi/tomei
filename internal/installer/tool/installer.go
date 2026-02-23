@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,12 +65,14 @@ type Installer struct {
 
 // NewInstaller creates a new tool Installer.
 func NewInstaller(downloader download.Downloader, placer place.Placer) *Installer {
+	cmdExec := command.NewExecutor("")
 	return &Installer{
-		downloader:  downloader,
-		placer:      placer,
-		cmdExecutor: command.NewExecutor(""),
-		runtimes:    make(map[string]*RuntimeInfo),
-		installers:  make(map[string]*InstallerInfo),
+		downloader:      downloader,
+		placer:          placer,
+		cmdExecutor:     cmdExec,
+		versionResolver: resolve.NewResolver(cmdExec, http.DefaultClient),
+		runtimes:        make(map[string]*RuntimeInfo),
+		installers:      make(map[string]*InstallerInfo),
 	}
 }
 
