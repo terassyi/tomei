@@ -196,11 +196,17 @@ const (
 	VersionAlias VersionKind = "alias"
 )
 
+// IsLatestVersion returns true if the version string means "use latest".
+// Both empty string and "latest" are treated as latest.
+func IsLatestVersion(version string) bool {
+	return version == "" || version == "latest"
+}
+
 // ClassifyVersion determines the VersionKind for a given spec version string.
-// Empty string → VersionLatest, otherwise VersionExact.
+// Empty string or "latest" → VersionLatest, otherwise VersionExact.
 // VersionAlias is only assigned by runtime installers that use ResolveVersion.
 func ClassifyVersion(specVersion string) VersionKind {
-	if specVersion == "" {
+	if IsLatestVersion(specVersion) {
 		return VersionLatest
 	}
 	return VersionExact

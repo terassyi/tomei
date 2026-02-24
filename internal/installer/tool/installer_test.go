@@ -714,6 +714,34 @@ func TestInstallByCommands(t *testing.T) {
 			wantCommands:    true,
 		},
 		{
+			name: "latest string resolves to VersionLatest",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			version:         "latest",
+			checkResult:     true,
+			resolver:        &mockCaptureRunner{result: "4.0.0"},
+			wantVersion:     "4.0.0",
+			wantVersionKind: resource.VersionLatest,
+			wantSpecVersion: "latest",
+			wantCommands:    true,
+		},
+		{
+			name: "latest string without resolver",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"install-cmd"},
+				},
+			},
+			version:         "latest",
+			checkResult:     true,
+			wantVersion:     "latest",
+			wantVersionKind: resource.VersionLatest,
+			wantSpecVersion: "latest",
+			wantCommands:    true,
+		},
+		{
 			name: "alias version resolves to VersionAlias",
 			cmds: &resource.ToolCommandSet{
 				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},

@@ -343,7 +343,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	// Determine version: use spec.Version or fetch latest
 	pkgName := spec.Package.String()
 	version := spec.Version
-	if version == "" {
+	if resource.IsLatestVersion(version) {
 		slog.Debug("fetching latest version from registry", "package", pkgName)
 		// Fetch package info to get repo owner/name for version lookup
 		info, err := i.resolver.FetchPackageInfo(ctx, i.registryRef, pkgName)
@@ -473,7 +473,7 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 			slog.Warn("resolveVersion failed, using spec version", "name", name, "error", err)
 		} else if resolved != "" {
 			resolvedVersion = resolved
-			if spec.Version == "" {
+			if resource.IsLatestVersion(spec.Version) {
 				versionKind = resource.VersionLatest
 			} else {
 				versionKind = resource.VersionAlias

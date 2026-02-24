@@ -304,6 +304,22 @@ func TestSpecVersionChanged(t *testing.T) {
 			want:             true,
 		},
 		{
+			name:             "latest: spec is literal latest - no change",
+			specVersion:      "latest",
+			stateVersionKind: resource.VersionLatest,
+			stateVersion:     "2.86.0",
+			stateSpecVersion: "",
+			want:             false,
+		},
+		{
+			name:             "latest: spec is literal latest with latest stateSpecVersion - no change",
+			specVersion:      "latest",
+			stateVersionKind: resource.VersionLatest,
+			stateVersion:     "2.86.0",
+			stateSpecVersion: "latest",
+			want:             false,
+		},
+		{
 			name:             "latest: spec changed to alias",
 			specVersion:      "stable",
 			stateVersionKind: resource.VersionLatest,
@@ -400,6 +416,14 @@ func TestToolComparator_VersionKind(t *testing.T) {
 		{
 			name:        "latest: spec still empty - no change",
 			specVersion: "",
+			stateVer:    "2.86.0",
+			versionKind: resource.VersionLatest,
+			specVer:     "",
+			wantUpdate:  false,
+		},
+		{
+			name:        "latest: spec is literal latest - no change",
+			specVersion: "latest",
 			stateVer:    "2.86.0",
 			versionKind: resource.VersionLatest,
 			specVer:     "",
@@ -593,8 +617,8 @@ func TestRuntimeComparator_VersionKind(t *testing.T) {
 func TestSpecVersionChanged_Property_ExactSameVersion(t *testing.T) {
 	t.Parallel()
 	f := func(version string) bool {
-		if version == "" {
-			return true // skip: empty is VersionLatest, not VersionExact
+		if resource.IsLatestVersion(version) {
+			return true // skip: latest is VersionLatest, not VersionExact
 		}
 		return !specVersionChanged(version, resource.VersionExact, version, version)
 	}
@@ -617,11 +641,13 @@ func TestSpecVersionChanged_Property_ExactDifferentVersion(t *testing.T) {
 	}
 }
 
-// Property: VersionLatest with empty spec → always false (updates driven by --sync)
+// Property: VersionLatest with empty or "latest" spec → always false (updates driven by --sync)
 func TestSpecVersionChanged_Property_LatestStaysEmpty(t *testing.T) {
 	t.Parallel()
 	f := func(stateVersion string) bool {
-		return !specVersionChanged("", resource.VersionLatest, stateVersion, "")
+		// Both "" and "latest" should be treated as no change
+		return !specVersionChanged("", resource.VersionLatest, stateVersion, "") &&
+			!specVersionChanged("latest", resource.VersionLatest, stateVersion, "")
 	}
 	if err := quick.Check(f, nil); err != nil {
 		t.Error(err)
@@ -632,7 +658,7 @@ func TestSpecVersionChanged_Property_LatestStaysEmpty(t *testing.T) {
 func TestSpecVersionChanged_Property_LatestToExplicit(t *testing.T) {
 	t.Parallel()
 	f := func(specVersion, stateVersion string) bool {
-		if specVersion == "" {
+		if resource.IsLatestVersion(specVersion) {
 			return true // skip: still latest
 		}
 		return specVersionChanged(specVersion, resource.VersionLatest, stateVersion, "")
