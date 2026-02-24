@@ -33,7 +33,7 @@ detect_arch() {
 # --- Resolve latest version tag from GitHub ---
 resolve_latest_version() {
     url="${GITHUB_BASE}/releases/latest"
-    redirect=$(curl -fsSL -o /dev/null -w '%{redirect_url}' "$url")
+    redirect=$(curl -fsS -o /dev/null -w '%{redirect_url}' "$url")
     if [ -z "$redirect" ]; then
         echo "Error: failed to resolve latest version (no stable release found)" >&2
         echo "Hint: use TOMEI_VERSION=v0.1.0-rc to install a pre-release" >&2
