@@ -10,6 +10,8 @@ A declarative, idempotent development environment setup tool powered by [CUE](ht
 
 The name "tomei" comes from the Japanese word "透明" — transparent. What you write is what you get, with nothing hidden in between.
 
+![demo](demo/demo.gif)
+
 ## Design
 
 Write the desired state in CUE manifests, run `tomei apply`, and the result is always the same no matter how many times you run it.
@@ -32,43 +34,40 @@ The script detects your OS and architecture, downloads the binary, verifies the 
 
 ## Getting Started
 
-You can try tomei without installing anything on your machine using a clean Ubuntu container:
-
 ```bash
-make -C examples build
-make -C examples run
+# Initialize
+tomei init
+
+# Set up CUE module
+tomei cue init
+
+# Write manifests, then apply
+tomei plan .
+tomei apply .
+
+# Add runtime env vars to your shell
+eval "$(tomei env)"
 ```
 
-### 1. Initialize
+## How to Write CUE Manifests
 
-`tomei init` sets up the required directories, state file, and aqua registry:
+Manifests are [CUE](https://cuelang.org/) files in `package tomei`. Run `tomei cue init` to create the `cue.mod/` directory, which enables schema imports and preset resolution via OCI registry.
 
-```console
-$ tomei init --yes
-Initializing tomei...
+### Presets
 
-Directories:
-  ✓ ~/.config/tomei
-  ✓ ~/.local/share/tomei
-  ✓ ~/.local/bin
+Presets provide ready-made definitions for common runtimes and tools. Available presets:
 
-Schema:
-  ✓ Available via import "tomei.terassyi.net/schema"
+| Import | Provides |
+|--------|----------|
+| `tomei.terassyi.net/presets/go` | `#GoRuntime`, `#GoTool`, `#GoToolSet` |
+| `tomei.terassyi.net/presets/rust` | `#RustRuntime`, `#CargoBinstall`, `#BinstallInstaller`, `#BinstallToolSet` |
+| `tomei.terassyi.net/presets/aqua` | `#AquaTool`, `#AquaToolSet` |
+| `tomei.terassyi.net/presets/node` | `#PnpmRuntime` |
+| `tomei.terassyi.net/presets/python` | `#UvRuntime` |
+| `tomei.terassyi.net/presets/deno` | `#DenoRuntime` |
+| `tomei.terassyi.net/presets/bun` | `#BunRuntime` |
 
-State:
-  ✓ ~/.local/share/tomei/state.json
-
-Registry:
-  ✓ aqua-registry v4.467.0
-
-Initialization complete!
-```
-
-### 2. Write manifests
-
-Manifests use [CUE](https://cuelang.org/) with presets and schema imports for type-safe, platform-aware definitions. Run `tomei cue init` first to set up the CUE module.
-
-`runtimes.cue` — install runtimes via presets:
+**Runtimes:**
 
 ```cue
 package tomei
@@ -80,7 +79,7 @@ import (
 
 goRuntime: gopreset.#GoRuntime & {
 	platform: {os: _os, arch: _arch}
-	spec: version: "1.26.0"
+	spec: version: "1.26.0"  // or "latest"
 }
 
 rustRuntime: rust.#RustRuntime & {
@@ -88,7 +87,7 @@ rustRuntime: rust.#RustRuntime & {
 }
 ```
 
-`tools.cue` — install tools via ToolSet presets:
+**Tools via ToolSet:**
 
 ```cue
 package tomei
@@ -101,162 +100,55 @@ import (
 goTools: gopreset.#GoToolSet & {
 	metadata: name: "go-tools"
 	spec: tools: {
-		gopls:       {package: "golang.org/x/tools/gopls", version: "v0.21.1"}
-		staticcheck: {package: "honnef.co/go/tools/cmd/staticcheck", version: "v0.7.0"}
+		gopls:       {package: "golang.org/x/tools/gopls", version: "latest"}
+		staticcheck: {package: "honnef.co/go/tools/cmd/staticcheck", version: "latest"}
 	}
 }
 
 cliTools: aqua.#AquaToolSet & {
 	metadata: name: "cli-tools"
 	spec: tools: {
-		rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
-		fd: {package: "sharkdp/fd", version: "v10.3.0"}
-		jq: {package: "jqlang/jq", version: "1.8.1"}
+		rg: {package: "BurntSushi/ripgrep", version: "latest"}
+		jq: {package: "jqlang/jq", version: "latest"}
 	}
 }
 ```
 
-For raw CUE examples without presets, see [`examples/minimal/`](examples/minimal/).
+### Platform Tags
 
-### 3. Plan
+CUE `@tag()` attributes are automatically injected by `tomei apply`, `tomei plan`, and `tomei cue eval`:
 
-`tomei plan` shows the dependency graph and execution order before applying:
+| Tag | Type | Example values |
+|-----|------|----------------|
+| `@tag(os)` | `string` | `linux`, `darwin` |
+| `@tag(arch)` | `string` | `amd64`, `arm64` |
+| `@tag(headless)` | `bool` | `true`, `false` |
 
-```console
-$ tomei plan .
-Planning changes for [.]
+Declare them in a platform file:
 
-Found 7 resource(s)
+```cue
+package tomei
 
-Dependency Graph:
-Installer/aqua
-├── ToolSet/cli-tools [+ install]
-Runtime/go (1.26.0) [+ install]
-├── ToolSet/go-tools [+ install]
-Runtime/rust (stable) [+ install]
-Tool/mise [+ install]
-
-Execution Order:
-  Layer 1: Runtime/go, Runtime/rust, Tool/mise
-  Layer 2: ToolSet/cli-tools, ToolSet/go-tools
-
-Summary: 7 to install, 0 to upgrade, 0 to remove
+_os:       string @tag(os)
+_arch:     string @tag(arch)
+_headless: bool | *false @tag(headless,type=bool)
 ```
 
-Commands-pattern tools (like `mise`) have no dependencies, so they run in Layer 1 alongside runtimes. ToolSets that depend on runtimes or installers are scheduled in Layer 2. Resources within the same layer are installed in parallel.
+### Version
 
-### 4. Apply
-
-`tomei apply` reconciles your environment to match the manifests:
-
-```console
-$ tomei apply .
-Applying user-level resources from [.]
-
-Downloads:
-  ✓ Runtime/go 1.26.0
-
-Commands:
- => Runtime/rust stable (rustup bootstrap)
- => Tool/mise (commands install)
- => Tool/mise done (1.2s)
- => Runtime/rust stable done (8.4s)
- => ToolSet/cli-tools (aqua install)
- => ToolSet/go-tools (go install)
- => ToolSet/cli-tools done (3.1s)
- => ToolSet/go-tools done (42.7s)
-
-Summary:
-  ✓ Installed: 7
-
-Apply complete!
-```
-
-Running `tomei apply` again is idempotent — no changes are made if the state is already up to date.
-
-### Circular dependency detection
-
-tomei detects circular dependencies at validation time:
-
-```console
-$ tomei validate circular.cue
-Validating configuration...
-
-Resources:
-  ✓ Installer/installer-a
-  ✓ Tool/tool-b
-
-Dependencies:
-  ✗ circular dependency detected: [Installer/installer-a Tool/tool-b Installer/installer-a]
-
-✗ Validation failed
-```
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `tomei init` | Initialize directories, state file, and aqua registry |
-| `tomei apply` | Reconcile environment to match manifests |
-| `tomei plan` | Show dependency graph and execution order |
-| `tomei validate` | Validate manifests without applying |
-| `tomei get` | Display installed resources (table/wide/JSON) |
-| `tomei env` | Output runtime environment variables for shell |
-| `tomei logs` | Show installation logs from the last apply |
-| `tomei doctor` | Diagnose the environment |
-| `tomei state diff` | Compare state backups |
-| `tomei completion` | Generate shell completion scripts |
-| `tomei uninit` | Remove tomei directories and state |
-| `tomei version` | Print the version |
-| `tomei cue init` | Initialize a CUE module for tomei manifests |
-| `tomei cue scaffold` | Generate a manifest scaffold for a resource kind |
-| `tomei cue eval` | Evaluate CUE manifests with `@tag()` injection |
-| `tomei cue export` | Export CUE manifests as JSON |
-
-## CUE Subcommands
+Use a pinned version (`"1.26.0"`) for reproducibility, or `"latest"` for auto-resolution. Running `tomei apply --sync` re-resolves `"latest"` versions.
 
 ### Scaffold
 
-`tomei cue scaffold` generates a manifest template for a given resource kind:
+`tomei cue scaffold` generates a starting template:
 
-```console
-$ tomei cue scaffold tool
-package tomei
-
-import "tomei.terassyi.net/schema"
-
-myTool: schema.#Tool & {
-    apiVersion: "tomei.terassyi.net/v1beta1"
-    kind:       "Tool"
-    metadata: name: "my-tool"
-    spec: {
-        installerRef: "aqua"
-        version:      "1.0.0"
-        // package:      "owner/repo"
-        // runtimeRef:   "go"
-        // source: {
-        //     url: "https://example.com/tool.tar.gz"
-        // }
-        // commands: {
-        //     install: ["curl -fsSL https://example.com/install.sh | sh"]
-        // }
-        // args: ["--flag"]
-    }
-}
+```bash
+tomei cue scaffold tool      # Tool template
+tomei cue scaffold toolset   # ToolSet template
+tomei cue scaffold runtime   # Runtime template
 ```
 
-Supported kinds: `tool`, `toolset`, `runtime`.
-
-### Eval / Export
-
-`tomei cue eval` evaluates manifests with `@tag()` injection and prints the CUE output. `tomei cue export` does the same but outputs JSON:
-
-```console
-$ tomei cue eval .
-$ tomei cue export .
-```
-
-These commands inject `@tag(os)`, `@tag(arch)`, and `@tag(headless)` automatically, just like `tomei apply`.
+For raw CUE examples without presets, see [`examples/minimal/`](examples/minimal/). For a full multi-runtime setup, see [`examples/real-world/`](examples/real-world/).
 
 ## Shell Integration
 
