@@ -181,6 +181,83 @@ func TestDoctor_Integration_StateIntegrity(t *testing.T) {
 	assert.True(t, hasMissingBinary)
 }
 
+func TestDoctor_Integration_EmptyState(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(dataDir, 0755))
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+
+	paths, err := path.New(
+		path.WithUserDataDir(dataDir),
+		path.WithUserBinDir(binDir),
+	)
+	require.NoError(t, err)
+
+	// Create an empty UserState (no tools, no runtimes)
+	userState := &state.UserState{
+		Version:  "1",
+		Tools:    map[string]*resource.ToolState{},
+		Runtimes: map[string]*resource.RuntimeState{},
+	}
+
+	doc, err := doctor.New(paths, userState)
+	require.NoError(t, err)
+	result, err := doc.Check(context.Background())
+	require.NoError(t, err)
+
+	assert.False(t, result.HasIssues())
+	assert.Empty(t, result.StateIssues)
+	assert.Empty(t, result.Conflicts)
+}
+
+func TestDoctor_Integration_BrokenSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join(tmpDir, "data")
+	binDir := filepath.Join(tmpDir, "bin")
+	require.NoError(t, os.MkdirAll(dataDir, 0755))
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+
+	paths, err := path.New(
+		path.WithUserDataDir(dataDir),
+		path.WithUserBinDir(binDir),
+	)
+	require.NoError(t, err)
+
+	// Create a symlink pointing to a non-existent target (broken symlink)
+	symlinkPath := filepath.Join(binDir, "broken-tool")
+	require.NoError(t, os.Symlink(filepath.Join(tmpDir, "nonexistent-target"), symlinkPath))
+
+	// Create a ToolState referencing the broken symlink
+	userState := &state.UserState{
+		Version: "1",
+		Tools: map[string]*resource.ToolState{
+			"broken-tool": {
+				Version: "1.0.0",
+				BinPath: symlinkPath,
+			},
+		},
+	}
+
+	doc, err := doctor.New(paths, userState)
+	require.NoError(t, err)
+	result, err := doc.Check(context.Background())
+	require.NoError(t, err)
+
+	assert.True(t, result.HasIssues())
+	assert.NotEmpty(t, result.StateIssues)
+
+	// Check for broken symlink issue
+	var hasBrokenSymlink bool
+	for _, issue := range result.StateIssues {
+		if issue.Kind == doctor.StateIssueBrokenSymlink && issue.Name == "broken-tool" {
+			hasBrokenSymlink = true
+			break
+		}
+	}
+	assert.True(t, hasBrokenSymlink, "should detect the broken symlink")
+}
+
 func TestDoctor_Integration_NoIssues(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")

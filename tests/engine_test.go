@@ -3121,6 +3121,405 @@ nodeRuntime: {
 	assert.Contains(t, st.Runtimes, "node")
 }
 
+// TestEngine_PlanAll_CommandsTool tests that PlanAll detects a commands-pattern tool
+// and plans ActionInstall for it.
+func TestEngine_PlanAll_CommandsTool(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["echo install"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
+	require.NoError(t, err)
+
+	assert.Empty(t, runtimeActions)
+	require.Len(t, toolActions, 1)
+	assert.Equal(t, "mytool", toolActions[0].Name)
+	assert.Equal(t, resource.ActionInstall, toolActions[0].Type)
+
+	// Verify spec has commands populated
+	assert.NotNil(t, toolActions[0].Resource.ToolSpec.Commands)
+	assert.Equal(t, []string{"echo install"}, toolActions[0].Resource.ToolSpec.Commands.Install)
+}
+
+// TestEngine_Apply_CommandsTool tests that a commands-pattern tool is installed via Apply
+// and its state includes the Commands field.
+func TestEngine_Apply_CommandsTool(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["echo installing mytool"]
+			check: ["echo ok"]
+			remove: ["echo removing mytool"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Mock installer that detects commands pattern and returns appropriate state
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, _ string) (*resource.ToolState, error) {
+		require.NotNil(t, res.ToolSpec.Commands, "commands-pattern tool must have Commands set")
+		return &resource.ToolState{
+			Version:     "latest",
+			VersionKind: resource.VersionLatest,
+			SpecVersion: "",
+			Commands:    res.ToolSpec.Commands,
+			UpdatedAt:   time.Now(),
+		}, nil
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// Apply
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Verify state was updated with Commands field
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	require.Contains(t, st.Tools, "mytool")
+	toolState := st.Tools["mytool"]
+	assert.Equal(t, "latest", toolState.Version)
+	assert.Equal(t, resource.VersionLatest, toolState.VersionKind)
+	require.NotNil(t, toolState.Commands, "state should have Commands populated")
+	assert.Equal(t, []string{"echo installing mytool"}, toolState.Commands.Install)
+	assert.Equal(t, []string{"echo ok"}, toolState.Commands.Check)
+	assert.Equal(t, []string{"echo removing mytool"}, toolState.Commands.Remove)
+}
+
+// TestEngine_Apply_CommandsTool_Idempotent tests that applying the same commands-pattern
+// manifest twice results in no-op on the second run.
+func TestEngine_Apply_CommandsTool_Idempotent(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["echo installing mytool"]
+			check: ["echo ok"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	installCount := 0
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, _ string) (*resource.ToolState, error) {
+		installCount++
+		return &resource.ToolState{
+			Version:     "latest",
+			VersionKind: resource.VersionLatest,
+			SpecVersion: "",
+			Commands:    res.ToolSpec.Commands,
+			UpdatedAt:   time.Now(),
+		}, nil
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// First apply
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+	assert.Equal(t, 1, installCount, "first apply should install once")
+
+	// Second apply — should be no-op
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	assert.Empty(t, runtimeActions)
+	assert.Empty(t, toolActions, "second apply should plan no actions (idempotent)")
+}
+
+// TestEngine_Apply_CommandsTool_Remove tests that removing a commands-pattern tool
+// from the manifest triggers removal.
+func TestEngine_Apply_CommandsTool_Remove(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// Initial manifest: commands-pattern tool
+	cueContent := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["echo installing mytool"]
+			check: ["echo ok"]
+			remove: ["echo removing mytool"]
+		}
+	}
+}
+`
+	cueFile := filepath.Join(configDir, "tool.cue")
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, _ string) (*resource.ToolState, error) {
+		return &resource.ToolState{
+			Version:     "latest",
+			VersionKind: resource.VersionLatest,
+			SpecVersion: "",
+			Commands:    res.ToolSpec.Commands,
+			UpdatedAt:   time.Now(),
+		}, nil
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	// First apply: install the commands-pattern tool
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Verify tool is in state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+	require.Contains(t, st.Tools, "mytool")
+
+	// Replace manifest without mytool (keep another tool to avoid empty config)
+	cueContentV2 := `package tomei
+
+other: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "other"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/other"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(cueFile, []byte(cueContentV2), 0644))
+	resourcesV2 := loadResources(t, configDir)
+
+	// Apply removal
+	err = eng.Apply(ctx, resourcesV2)
+	require.NoError(t, err)
+
+	// Verify mytool was removed from state
+	require.NoError(t, store.Lock())
+	st, err = store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.NotContains(t, st.Tools, "mytool", "mytool should be removed from state")
+	assert.True(t, mockTool.removed["mytool"], "mock Remove should have been called for mytool")
+}
+
+// TestEngine_Apply_CommandsTool_MixedWithDownload tests that a commands-pattern tool
+// and a download-pattern tool can coexist in the same manifest and both install successfully.
+func TestEngine_Apply_CommandsTool_MixedWithDownload(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+cmdTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "cmdtool"
+	spec: {
+		commands: {
+			install: ["echo installing cmdtool"]
+			check: ["echo ok"]
+		}
+	}
+}
+
+dlTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "dltool"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/dltool"
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tools.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+		if res.ToolSpec.Commands != nil {
+			// Commands pattern
+			return &resource.ToolState{
+				Version:     "latest",
+				VersionKind: resource.VersionLatest,
+				SpecVersion: "",
+				Commands:    res.ToolSpec.Commands,
+				UpdatedAt:   time.Now(),
+			}, nil
+		}
+		// Download pattern
+		return &resource.ToolState{
+			InstallerRef: res.ToolSpec.InstallerRef,
+			Version:      res.ToolSpec.Version,
+			BinPath:      filepath.Join("/mock/bin", name),
+			UpdatedAt:    time.Now(),
+		}, nil
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	err = eng.Apply(ctx, resources)
+	require.NoError(t, err)
+
+	// Verify state has both tools
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	require.Len(t, st.Tools, 2)
+	require.Contains(t, st.Tools, "cmdtool")
+	require.Contains(t, st.Tools, "dltool")
+
+	// Verify commands-pattern tool state
+	assert.NotNil(t, st.Tools["cmdtool"].Commands)
+	assert.Equal(t, "latest", st.Tools["cmdtool"].Version)
+
+	// Verify download-pattern tool state
+	assert.Nil(t, st.Tools["dltool"].Commands)
+	assert.Equal(t, "1.0.0", st.Tools["dltool"].Version)
+	assert.Equal(t, "download", st.Tools["dltool"].InstallerRef)
+}
+
+// TestEngine_Apply_SingleToolFailure tests that Apply returns an error when a tool
+// installation fails.
+func TestEngine_Apply_SingleToolFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	cueContent := `package tomei
+
+failTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "failtool"
+	spec: {
+		commands: {
+			install: ["echo this will fail"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "tool.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, _ *resource.Tool, _ string) (*resource.ToolState, error) {
+		return nil, fmt.Errorf("simulated install failure for commands-pattern tool")
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	ctx := context.Background()
+
+	err = eng.Apply(ctx, resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failtool")
+}
+
 // TestEngine_Apply_RuntimeWithoutBinDir tests that BinDir defaults to ToolBinPath.
 func TestEngine_Apply_RuntimeWithoutBinDir(t *testing.T) {
 	tmpDir := t.TempDir()

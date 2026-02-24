@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/place"
+	"github.com/terassyi/tomei/internal/installer/resolve"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 	"github.com/terassyi/tomei/internal/resource"
 )
@@ -465,6 +469,378 @@ func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 
 			if !tt.fieldCallback && !tt.ctxCallback {
 				assert.Nil(t, dl.lastProgressCallback, "callback should be nil")
+			}
+		})
+	}
+}
+
+// --- Commands pattern tests ---
+
+// mockCommandRunner records commands executed for verification.
+type mockCommandRunner struct {
+	executedCmds [][]string
+	executedVars []command.Vars
+	methods      []string // "Execute", "ExecuteWithEnv", "ExecuteWithOutput", "Check"
+	checkedCmds  [][]string
+	checkResult  bool
+	executeErr   error
+}
+
+func (m *mockCommandRunner) Execute(_ context.Context, cmds []string, vars command.Vars) error {
+	m.methods = append(m.methods, "Execute")
+	m.executedCmds = append(m.executedCmds, cmds)
+	m.executedVars = append(m.executedVars, vars)
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, _ map[string]string) error {
+	m.methods = append(m.methods, "ExecuteWithEnv")
+	m.executedCmds = append(m.executedCmds, cmds)
+	m.executedVars = append(m.executedVars, vars)
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, _ map[string]string, _ command.OutputCallback) error {
+	m.methods = append(m.methods, "ExecuteWithOutput")
+	m.executedCmds = append(m.executedCmds, cmds)
+	m.executedVars = append(m.executedVars, vars)
+	return m.executeErr
+}
+
+func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, _ map[string]string) bool {
+	m.methods = append(m.methods, "Check")
+	m.checkedCmds = append(m.checkedCmds, cmds)
+	m.executedVars = append(m.executedVars, vars)
+	return m.checkResult
+}
+
+// mockCaptureRunner for resolve.Resolver
+type mockCaptureRunner struct {
+	result string
+	err    error
+	called bool
+}
+
+func (m *mockCaptureRunner) ExecuteCapture(_ context.Context, _ []string, _ command.Vars, _ map[string]string) (string, error) {
+	m.called = true
+	return m.result, m.err
+}
+
+func makeCommandsTool(cmds *resource.ToolCommandSet, version string) *resource.Tool {
+	return &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			Version:  version,
+			Commands: cmds,
+		},
+	}
+}
+
+func TestInstallByCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		cmds               *resource.ToolCommandSet
+		version            string
+		action             resource.ActionType
+		checkResult        bool
+		executeErr         error
+		resolver           *mockCaptureRunner // nil = no resolver
+		wantErr            string
+		wantCmds           [][]string // expected commands executed
+		wantVersion        string
+		wantVersionKind    resource.VersionKind
+		wantSpecVersion    string
+		wantCommands       bool  // state should contain Commands
+		wantResolverCalled *bool // nil = don't check, non-nil = assert value
+	}{
+		{
+			name: "fresh install",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+					Check:   []string{"tool --version"},
+				},
+			},
+			checkResult:     true,
+			wantCmds:        [][]string{{"curl -fsSL https://example.com/install.sh | sh"}},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "upgrade with update command",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+				},
+				Update: []string{"tool update"},
+			},
+			action:          resource.ActionUpgrade,
+			checkResult:     true,
+			wantCmds:        [][]string{{"tool update"}},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "upgrade falls back to install when no update",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"curl -fsSL https://example.com/install.sh | sh"},
+				},
+			},
+			action:          resource.ActionUpgrade,
+			checkResult:     true,
+			wantCmds:        [][]string{{"curl -fsSL https://example.com/install.sh | sh"}},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "reinstall uses update command",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"install-cmd"},
+				},
+				Update: []string{"update-cmd"},
+			},
+			action:          resource.ActionReinstall,
+			checkResult:     true,
+			wantCmds:        [][]string{{"update-cmd"}},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "install failure propagates",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"bad-cmd"},
+				},
+			},
+			executeErr: fmt.Errorf("install failed"),
+			wantErr:    "failed to execute command",
+		},
+		{
+			name: "check after install succeeds",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"install-cmd"},
+					Check:   []string{"check-cmd"},
+				},
+			},
+			checkResult:     true,
+			wantCmds:        [][]string{{"install-cmd"}},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "check failure after install",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"install-cmd"},
+					Check:   []string{"check-cmd"},
+				},
+			},
+			checkResult: false,
+			wantErr:     "check command failed",
+		},
+		{
+			name: "state contains all commands",
+			cmds: &resource.ToolCommandSet{
+				CommandSet: resource.CommandSet{
+					Install: []string{"install-cmd"},
+					Check:   []string{"check-cmd"},
+					Remove:  []string{"remove-cmd"},
+				},
+				Update:         []string{"update-cmd"},
+				ResolveVersion: []string{"resolve-cmd"},
+			},
+			version:         "1.0.0",
+			checkResult:     true,
+			wantVersion:     "1.0.0",
+			wantVersionKind: resource.VersionExact,
+			wantSpecVersion: "1.0.0",
+			wantCommands:    true,
+		},
+		{
+			name: "resolveVersion populates state",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			checkResult:     true,
+			resolver:        &mockCaptureRunner{result: "1.0.34"},
+			wantVersion:     "1.0.34",
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "resolveVersion soft-fail",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			checkResult:     true,
+			resolver:        &mockCaptureRunner{err: fmt.Errorf("resolve failed")},
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "exact version skips resolveVersion",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			version:            "1.0.0",
+			checkResult:        true,
+			resolver:           &mockCaptureRunner{result: "should-not-be-called"},
+			wantVersion:        "1.0.0",
+			wantVersionKind:    resource.VersionExact,
+			wantSpecVersion:    "1.0.0",
+			wantCommands:       true,
+			wantResolverCalled: new(bool),
+		},
+		{
+			name: "empty version resolves to latest",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			checkResult:     true,
+			resolver:        &mockCaptureRunner{result: "2.0.0"},
+			wantVersion:     "2.0.0",
+			wantVersionKind: resource.VersionLatest,
+			wantCommands:    true,
+		},
+		{
+			name: "alias version resolves to VersionAlias",
+			cmds: &resource.ToolCommandSet{
+				CommandSet:     resource.CommandSet{Install: []string{"install-cmd"}},
+				ResolveVersion: []string{"tool --version"},
+			},
+			version:         "stable",
+			checkResult:     true,
+			resolver:        &mockCaptureRunner{result: "3.2.1"},
+			wantVersion:     "3.2.1",
+			wantVersionKind: resource.VersionAlias,
+			wantSpecVersion: "stable",
+			wantCommands:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{checkResult: tt.checkResult, executeErr: tt.executeErr}
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, runner)
+
+			if tt.resolver != nil {
+				inst.SetVersionResolver(resolve.NewResolver(tt.resolver, nil))
+			}
+
+			tool := makeCommandsTool(tt.cmds, tt.version)
+
+			ctx := context.Background()
+			if tt.action != "" {
+				ctx = executor.WithAction(ctx, tt.action)
+			}
+
+			state, err := inst.Install(ctx, tool, "mytool")
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, state)
+
+			if tt.wantCmds != nil {
+				assert.Equal(t, tt.wantCmds, runner.executedCmds)
+			}
+			assert.Equal(t, tt.wantVersion, state.Version)
+			assert.Equal(t, tt.wantVersionKind, state.VersionKind)
+			assert.Equal(t, tt.wantSpecVersion, state.SpecVersion)
+			if tt.wantCommands {
+				assert.Equal(t, tt.cmds, state.Commands)
+			}
+			if tt.wantResolverCalled != nil && tt.resolver != nil {
+				assert.Equal(t, *tt.wantResolverCalled, tt.resolver.called, "resolver.called")
+			}
+		})
+	}
+}
+
+func TestRemoveByCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		state      *resource.ToolState
+		executeErr error
+		wantErr    string
+		wantCmds   [][]string
+	}{
+		{
+			name: "remove with command",
+			state: &resource.ToolState{
+				Version: "1.0.0",
+				Commands: &resource.ToolCommandSet{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd"},
+						Remove:  []string{"tool uninstall"},
+					},
+				},
+			},
+			wantCmds: [][]string{{"tool uninstall"}},
+		},
+		{
+			name: "remove without command is no-op",
+			state: &resource.ToolState{
+				Version: "1.0.0",
+				Commands: &resource.ToolCommandSet{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd"},
+					},
+				},
+			},
+		},
+		{
+			name: "remove failure propagates",
+			state: &resource.ToolState{
+				Version: "1.0.0",
+				Commands: &resource.ToolCommandSet{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd"},
+						Remove:  []string{"tool uninstall"},
+					},
+				},
+			},
+			executeErr: fmt.Errorf("uninstall failed"),
+			wantErr:    "failed to execute remove command",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{checkResult: true, executeErr: tt.executeErr}
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, runner)
+
+			err := inst.Remove(context.Background(), tt.state, "mytool")
+
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			if tt.wantCmds != nil {
+				assert.Equal(t, tt.wantCmds, runner.executedCmds)
+			} else {
+				assert.Empty(t, runner.executedCmds)
 			}
 		})
 	}

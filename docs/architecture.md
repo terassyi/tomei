@@ -151,6 +151,20 @@ This is enforced in `executeToolNodesWithDelegationSerialization()`. The global 
 still limits total concurrency. Future optimization: batch multiple tools into a single
 package manager invocation (e.g., `pnpm add -g X Y Z`).
 
+### Self-managed tools (commands pattern)
+
+Tools with `spec.commands` use their own install/update/remove commands.
+They have no runtime or installer dependency, so they appear in the first
+execution layer alongside download-pattern tools. They run fully in parallel
+(no shared state like delegation tools).
+
+On upgrade (`--update-tools` taint), the engine uses `commands.update` if defined,
+falling back to `commands.install`. The commands are persisted in `state.json`
+so that `commands.remove` can be executed when the tool is removed from the manifest.
+
+Note: changes to `commands.remove` alone do not trigger reconciliation. The updated
+remove command takes effect after the next actual upgrade (version change or --update-tools).
+
 ### Events
 
 The engine emits events (`EventStart`, `EventProgress`, `EventOutput`, `EventComplete`, `EventError`) consumed by the UI layer for progress display.

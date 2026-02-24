@@ -128,8 +128,11 @@ func getTests() {
 
 	Context("Error Handling", func() {
 		It("returns error for unknown resource type", func() {
-			_, err := testExec.Exec("tomei", "get", "unknown")
+			output, err := testExec.Exec("tomei", "get", "unknown")
 			Expect(err).To(HaveOccurred())
+
+			By("Checking error message mentions unknown resource type")
+			Expect(output).To(ContainSubstring("unknown resource type"))
 		})
 	})
 

@@ -99,3 +99,53 @@ func TestGetLatestRelease_HTTP(t *testing.T) {
 	}
 }
 
+// TestGetLatestRelease_MalformedJSON verifies that malformed JSON from the server
+// results in a decode error.
+func TestGetLatestRelease_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Return truncated/invalid JSON
+		_, _ = w.Write([]byte(`{"tag_name": "v1.0`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			req.URL.Scheme = "http"
+			req.URL.Host = server.Listener.Addr().String()
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	_, err := github.GetLatestRelease(context.Background(), client, "owner", "repo", "v")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode response")
+}
+
+// TestGetLatestRelease_HTMLErrorPage verifies that an HTML response (e.g., from GitHub
+// rate limiting) results in a decode error rather than a misleading success.
+func TestGetLatestRelease_HTMLErrorPage(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<html><body><h1>Rate Limit Exceeded</h1></body></html>`))
+	}))
+	defer server.Close()
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			req.URL.Scheme = "http"
+			req.URL.Host = server.Listener.Addr().String()
+			return http.DefaultTransport.RoundTrip(req)
+		}),
+	}
+
+	_, err := github.GetLatestRelease(context.Background(), client, "owner", "repo", "v")
+	require.Error(t, err)
+	// HTML is not valid JSON, so json.Decoder.Decode should fail
+	assert.Contains(t, err.Error(), "failed to decode response")
+}
+

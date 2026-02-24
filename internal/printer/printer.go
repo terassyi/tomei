@@ -113,6 +113,9 @@ func (toolFormatter) FormatRow(name string, t *resource.ToolState, wide bool) []
 	if t.RuntimeRef != "" {
 		ref = t.RuntimeRef
 	}
+	if t.Commands != nil {
+		ref = "commands"
+	}
 	row := []string{name, t.Version, formatVersionKind(t.VersionKind, t.SpecVersion), ref, string(t.TaintReason)}
 	if wide {
 		pkg := ""

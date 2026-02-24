@@ -45,6 +45,15 @@ package schema
 	resolveVersion?: [...string]
 }
 
+// ToolCommandSet extends CommandSet with update and version resolution for self-managed tools.
+#ToolCommandSet: {
+	install: [...string] & [_, ...]
+	update?: [...string]
+	check?: [...string]
+	remove?: [...string]
+	resolveVersion?: [...string]
+}
+
 // Package accepts both string ("owner/repo" or module path) and object form.
 #Package: string | {
 	owner?: string
@@ -142,6 +151,7 @@ package schema
 		enabled?:       bool
 		source?:        #DownloadSource
 		package?:       #Package
+		commands?:      #ToolCommandSet
 		args?: [...string]
 	}
 }

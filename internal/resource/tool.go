@@ -196,15 +196,16 @@ type Checksum struct {
 }
 
 // ToolSpec defines the desired state of an individual tool.
-// A tool can be installed via three patterns:
-//  1. Download pattern (explicit): Downloads with Source specified
-//  2. Download pattern (registry): Uses Package with owner/repo to resolve URL from aqua-registry
-//  3. Delegation pattern: Uses Package with name for runtime/installer commands
+// A tool can be installed via four patterns:
+//  1. Commands pattern: Self-managed tool with install/update/remove commands
+//  2. Download pattern (explicit): Downloads with Source specified
+//  3. Download pattern (registry): Uses Package with owner/repo to resolve URL from aqua-registry
+//  4. Delegation pattern: Uses Package with name for runtime/installer commands
 type ToolSpec struct {
 	// InstallerRef references an Installer resource by name.
 	// For download pattern: points to an installer like "aqua" that handles downloading.
 	// For delegation pattern: points to an installer like "go", "cargo", "npm" that has install commands.
-	// Either InstallerRef or RuntimeRef must be specified.
+	// Mutually exclusive with RuntimeRef and Commands.
 	InstallerRef string `json:"installerRef,omitempty"`
 
 	// RepositoryRef references an InstallerRepository resource by name.
@@ -216,6 +217,7 @@ type ToolSpec struct {
 	// Version specifies the tool version to install.
 	// Format depends on the tool (e.g., "2.62.0", "v2.62.0", "latest").
 	// Required for download pattern with Source; optional for registry pattern (defaults to latest).
+	// Optional for commands pattern (can be resolved via commands.resolveVersion).
 	Version string `json:"version,omitempty"`
 
 	// Enabled controls whether this tool should be installed.
@@ -238,8 +240,13 @@ type ToolSpec struct {
 	// When set, the tool is installed using the runtime's install command
 	// (e.g., "go install" for Go runtime).
 	// The tool will be tainted (marked for reinstallation) when the runtime is upgraded.
-	// Either InstallerRef or RuntimeRef must be specified.
+	// Mutually exclusive with InstallerRef and Commands.
 	RuntimeRef string `json:"runtimeRef,omitempty"`
+
+	// Commands configures shell commands for self-managed tool installation.
+	// Tools installed via curl scripts or self-contained installers use this field.
+	// Mutually exclusive with InstallerRef and RuntimeRef.
+	Commands *ToolCommandSet `json:"commands,omitempty"`
 
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
@@ -266,18 +273,32 @@ func (s *ToolSpec) UnmarshalJSON(data []byte) error {
 
 // Validate validates the ToolSpec.
 func (s *ToolSpec) Validate() error {
-	// Either installerRef or runtimeRef must be specified
-	if s.InstallerRef == "" && s.RuntimeRef == "" {
-		return fmt.Errorf("either installerRef or runtimeRef is required")
+	// Exactly one install method: InstallerRef, RuntimeRef, or Commands
+	hasInstaller := s.InstallerRef != ""
+	hasRuntime := s.RuntimeRef != ""
+	hasCommands := s.Commands != nil
+
+	if !hasInstaller && !hasRuntime && !hasCommands {
+		return fmt.Errorf("one of installerRef, runtimeRef, or commands is required")
+	}
+	if (hasInstaller && hasRuntime) || (hasRuntime && hasCommands) || (hasInstaller && hasCommands) {
+		return fmt.Errorf("installerRef, runtimeRef, and commands are mutually exclusive")
 	}
 
-	// Version, Source, or Package must be specified
-	if s.Version == "" && s.Source == nil && s.Package.IsEmpty() {
-		return fmt.Errorf("version, source, or package is required")
+	// Commands must have at least Install
+	if hasCommands && len(s.Commands.Install) == 0 {
+		return fmt.Errorf("commands.install is required")
+	}
+
+	// For non-commands patterns, version/source/package is required
+	if !hasCommands {
+		if s.Version == "" && s.Source == nil && s.Package.IsEmpty() {
+			return fmt.Errorf("version, source, or package is required")
+		}
 	}
 
 	// Runtime delegation requires package
-	if s.RuntimeRef != "" && s.Package.IsEmpty() {
+	if hasRuntime && s.Package.IsEmpty() {
 		return fmt.Errorf("package is required when using runtimeRef")
 	}
 
@@ -529,6 +550,10 @@ type ToolState struct {
 	// For VersionLatest: empty string.
 	// For VersionAlias: the alias string (e.g., "stable").
 	SpecVersion string `json:"specVersion,omitempty"`
+
+	// Commands records the shell commands for self-managed tools.
+	// Persisted in state so Remove() and Update can execute without re-reading the manifest.
+	Commands *ToolCommandSet `json:"commands,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
 	// Empty string means the tool is not tainted.

@@ -23,7 +23,8 @@ This document describes the scenarios verified by tomei's E2E tests.
 | Installer Repository | 13 | Helm repository management via delegation, dependency chain (InstallerRepository → Tool), removal |
 | Dependency Resolution | 15 | Circular dependency detection, parallel installation, --parallel flag, dependency chains, toolRef chain |
 | CUE Ecosystem | 15 | tomei cue init, env CUE_REGISTRY, validate with cue.mod, scaffold, eval, export |
-| Update Flags | 9 | --update-runtimes, --update-all plan/apply with alias-versioned delegation runtime, bootstrap.update command verification |
+| Update Flags | 12 | --update-runtimes, --update-tools, --update-all plan/apply with alias-versioned delegation runtime, bootstrap.update command verification |
+| Commands Pattern | 9 | Self-managed tool install (mise via curl, update-tool via mock), update, remove, resolveVersion, idempotency |
 
 ## Scenario Flow
 
@@ -103,12 +104,25 @@ flowchart TD
         direction TB
         S6_1["6.1 Setup<br/>Mock delegation runtime (alias) + tool"]
         S6_2["6.2 --update-runtimes<br/>Plan shows reinstall, apply reinstalls alias runtime"]
-        S6_3["6.3 --update-all<br/>Plan/apply reinstalls both runtime and tool"]
+        S6_3["6.3 --update-tools<br/>Plan/apply reinstalls latest-versioned tool"]
+        S6_4["6.4 --update-all<br/>Plan/apply reinstalls both runtime and tool"]
 
-        S6_1 --> S6_2 --> S6_3
+        S6_1 --> S6_2 --> S6_3 --> S6_4
     end
 
-    S1 --> S1b --> S2 --> S3 --> S4 --> S5 --> S6
+    subgraph S7["7. Commands Pattern"]
+        direction TB
+        S7_1["7.1 Validate & Plan<br/>mise + update-tool"]
+        S7_2["7.2 Install<br/>Shell commands (mkdir/echo)"]
+        S7_3["7.3 State & Get<br/>resolveVersion, 'commands' display"]
+        S7_4["7.4 Idempotency<br/>No changes on re-apply"]
+        S7_5["7.5 --update-tools<br/>update command used"]
+        S7_6["7.6 Removal<br/>remove command executed"]
+
+        S7_1 --> S7_2 --> S7_3 --> S7_4 --> S7_5 --> S7_6
+    end
+
+    S1 --> S1b --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
 ```
 
 ### Dependency Graph Patterns
@@ -1029,7 +1043,24 @@ Reduced manifest for removal test:
 #### Idempotency After Update
 - `tomei apply ~/update-flags-test/` outputs "total_actions=0"
 
-### 7.3 `--update-all`
+### 7.3 `--update-tools`
+
+#### Plan Preview
+1. Run `tomei plan --update-tools ~/update-flags-test/`
+2. Verify:
+   - Output contains "Tool/latest-mock-tool"
+   - Output contains "reinstall" (latest-versioned tool is tainted)
+
+#### Apply
+1. Run `tomei apply --update-tools ~/update-flags-test/`
+2. Verify:
+   - Tool is reinstalled
+   - Output contains "latest-mock-tool"
+
+#### Idempotency After Update Tools
+- `tomei apply ~/update-flags-test/` outputs "No changes to apply"
+
+### 7.4 `--update-all`
 
 #### Plan Preview
 1. Run `tomei plan --update-all ~/update-flags-test/`
@@ -1061,6 +1092,93 @@ Mock tool:
 - runtimeRef: "mock-rt"
 - package: "mock-package"
 - version: "0.1.0"
+
+### `e2e/config/update-flags-test/latest-tool.cue`
+Mock tool with latest version:
+- runtimeRef: "mock-rt"
+- package: "latest-mock-package"
+- No version field (VersionLatest — tainted by --update-tools)
+
+### `e2e/config/commands-test/update.cue`
+Mock tool for verifying `commands.update` vs `commands.install` dispatch.
+When `--update-tools` is used, the engine should run `commands.update` instead of
+`commands.install`. The marker file distinguishes which command ran:
+"installed" = install command, "updated" = update command.
+Real tools (like mise) cannot distinguish this because their update
+is not observable via a side-effect file.
+- install: creates `/tmp/tomei-cmd-update-test/marker` with content "installed"
+- update: overwrites marker with "updated"
+- check: verifies marker file exists
+- remove: removes `/tmp/tomei-cmd-update-test/` directory
+- resolveVersion: echoes "2.0.0"
+
+### `e2e/config/commands-test/mise.cue`
+Real-world self-managed tool (mise — polyglot tool version manager):
+- install: `curl -fsSL https://mise.jdx.dev/install.sh | sh` (downloads binary to `~/.local/bin/mise`)
+- check: `mise --version`
+- remove: `mise implode --yes` (removes binary and all data)
+- resolveVersion: `mise --version | awk '{print $1}'` (extracts semver like "2026.2.19")
+
+---
+
+## 8. Commands Pattern (Self-Managed Tools)
+
+### 8.1 Validate and Plan
+
+#### Validation
+- `tomei validate ~/commands-test/` succeeds
+- Recognizes Tool/update-tool and Tool/mise
+
+#### Plan
+- `tomei plan ~/commands-test/` shows both tools
+- Output contains "update-tool" and "mise"
+
+### 8.2 Install via Commands Pattern
+
+#### Apply
+1. Run `tomei apply ~/commands-test/`
+2. Verify:
+   - Output contains "Apply complete!"
+   - Marker file `/tmp/tomei-cmd-update-test/marker` contains "installed"
+   - `mise --version` outputs a valid semver (real binary downloaded via curl)
+
+### 8.3 State Recording and Display
+
+#### State JSON
+1. Run `tomei get tools -o json`
+2. Verify:
+   - Tool/update-tool version is "2.0.0" (from resolveVersion)
+   - Tool/mise version matches `\d{4}\.\d+\.\d+` (resolved from `mise --version`)
+
+#### Table Display
+1. Run `tomei get tools`
+2. Verify output contains "commands" (INSTALLER/RUNTIME column)
+
+### 8.4 Idempotency
+
+- Second `tomei apply ~/commands-test/` outputs "No changes to apply"
+- Marker files preserved
+
+### 8.5 Update with `--update-tools`
+
+1. Run `tomei apply --yes --update-tools ~/commands-test/`
+2. Verify:
+   - update-tool's marker file changes to "updated" (update command used)
+3. Subsequent `tomei apply ~/commands-test/` outputs "No changes to apply"
+
+### 8.6 Removal
+
+#### mise removal
+1. Hide `mise.cue` (rename to `.hidden`)
+2. Run `tomei apply ~/commands-test/`
+3. Verify:
+   - `which mise` fails (binary removed via `mise implode --yes`)
+   - update-tool marker still exists (not affected)
+
+#### Restore and re-install
+1. Restore all hidden manifests
+2. Run `tomei apply ~/commands-test/`
+3. Verify mise binary works again
 
 ---
 

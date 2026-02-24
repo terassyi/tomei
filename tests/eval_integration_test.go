@@ -238,11 +238,6 @@ fd: {
 	assert.Equal(t, "fd", s2)
 }
 
-// startMockRegistryForEval is an alias leveraging the existing helper from
-// cue_ecosystem_integration_test.go (same package).
-// startMockRegistry and setupMockRegistryDir are already defined there.
-// We verify they are accessible by using them directly above.
-
 func TestEvalFile_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	setupMinimalCueMod(t, dir)
@@ -286,6 +281,19 @@ func TestEval_MockRegistry_MultipleVersions(t *testing.T) {
 	require.NoError(t, cuemod.WriteFileIfAllowed(moduleCuePath, moduleCue, false))
 	t.Setenv("CUE_REGISTRY", fmt.Sprintf("tomei.terassyi.net=%s+insecure", reg.Host()))
 
+	// Isolate CUE module cache per test to avoid stale cache from previous runs.
+	cueCache := filepath.Join(dir, "cue-cache")
+	require.NoError(t, os.MkdirAll(cueCache, 0755))
+	t.Setenv("CUE_CACHE_DIR", cueCache)
+	t.Cleanup(func() {
+		_ = filepath.Walk(cueCache, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			return os.Chmod(path, 0755)
+		})
+	})
+
 	platformCue, err := cuemod.GeneratePlatformCUE()
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "tomei_platform.cue"), platformCue, 0644))
@@ -309,4 +317,114 @@ goRuntime: gopreset.#GoRuntime & {
 	s, err := url.String()
 	require.NoError(t, err)
 	assert.Contains(t, s, "darwin-arm64")
+}
+
+// TestEvalDir_CommandsPatternTool verifies that EvalDir produces a cue.Value
+// containing commands.install for a commands-pattern tool.
+func TestEvalDir_CommandsPatternTool(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+	metadata: name: "cmdtool"
+	spec: {
+		commands: {
+			install: ["curl -fsSL https://example.com/install.sh | sh"]
+			update: ["cmdtool self-update"]
+			check: ["cmdtool --version"]
+			remove: ["rm -f /usr/local/bin/cmdtool"]
+			resolveVersion: ["cmdtool --version | head -1"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	value, err := loader.EvalDir(dir)
+	require.NoError(t, err)
+
+	// Verify commands.install path exists and is correct
+	install := value.LookupPath(cue.ParsePath("myTool.spec.commands.install"))
+	require.True(t, install.Exists(), "commands.install path must exist in cue.Value")
+
+	// Verify it is a list with one element
+	iter, err := install.List()
+	require.NoError(t, err)
+	require.True(t, iter.Next())
+	s, err := iter.Value().String()
+	require.NoError(t, err)
+	assert.Equal(t, "curl -fsSL https://example.com/install.sh | sh", s)
+
+	// Verify other command fields
+	update := value.LookupPath(cue.ParsePath("myTool.spec.commands.update"))
+	require.True(t, update.Exists(), "commands.update path must exist")
+
+	check := value.LookupPath(cue.ParsePath("myTool.spec.commands.check"))
+	require.True(t, check.Exists(), "commands.check path must exist")
+
+	remove := value.LookupPath(cue.ParsePath("myTool.spec.commands.remove"))
+	require.True(t, remove.Exists(), "commands.remove path must exist")
+
+	resolveVersion := value.LookupPath(cue.ParsePath("myTool.spec.commands.resolveVersion"))
+	require.True(t, resolveVersion.Exists(), "commands.resolveVersion path must exist")
+
+	// Verify metadata
+	name := value.LookupPath(cue.ParsePath("myTool.metadata.name"))
+	nameStr, err := name.String()
+	require.NoError(t, err)
+	assert.Equal(t, "cmdtool", nameStr)
+
+	// JSON export should contain commands
+	jsonBytes, err := value.MarshalJSON()
+	require.NoError(t, err)
+	assert.Contains(t, string(jsonBytes), `"commands"`)
+	assert.Contains(t, string(jsonBytes), `"install"`)
+}
+
+// TestEvalFile_CommandsPatternTool verifies that EvalFile produces a cue.Value
+// containing commands.install for a commands-pattern tool loaded from a single file.
+func TestEvalFile_CommandsPatternTool(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/schema"
+
+myTool: schema.#Tool & {
+	metadata: name: "filetool"
+	spec: {
+		commands: {
+			install: ["wget -O /tmp/filetool https://example.com/filetool && chmod +x /tmp/filetool && mv /tmp/filetool /usr/local/bin/"]
+			check: ["filetool version"]
+		}
+	}
+}
+`
+	filePath := filepath.Join(dir, "tool.cue")
+	require.NoError(t, os.WriteFile(filePath, []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	value, err := loader.EvalFile(filePath)
+	require.NoError(t, err)
+	require.True(t, value.Exists())
+
+	// Verify commands.install path exists
+	install := value.LookupPath(cue.ParsePath("myTool.spec.commands.install"))
+	require.True(t, install.Exists(), "commands.install path must exist in EvalFile result")
+
+	// Verify metadata
+	name := value.LookupPath(cue.ParsePath("myTool.metadata.name"))
+	nameStr, err := name.String()
+	require.NoError(t, err)
+	assert.Equal(t, "filetool", nameStr)
+
+	// Verify check command
+	check := value.LookupPath(cue.ParsePath("myTool.spec.commands.check"))
+	require.True(t, check.Exists(), "commands.check path must exist")
 }

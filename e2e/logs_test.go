@@ -13,7 +13,7 @@ func logsTests() {
 		// Initialize tomei (may already be initialized by other tests, ignore errors)
 		_, _ = testExec.Exec("tomei", "init", "--yes")
 		// Reset state to avoid interference from previous test contexts
-		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{}}' > ~/.local/share/tomei/state.json`)
+		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
 		// Clean up any existing log sessions
 		_, _ = testExec.ExecBash("rm -rf ~/.cache/tomei/logs")
 	})

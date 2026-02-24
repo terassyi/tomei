@@ -674,6 +674,98 @@ gopls: {
 		"expected no tool reinstallation when download runtime resolves to same version")
 }
 
+// TestEngine_UpdateTools_CommandsTool tests that a commands-pattern tool with
+// VersionKind=VersionLatest is tainted and re-installed when --update-tools is set.
+func TestEngine_UpdateTools_CommandsTool(t *testing.T) {
+	env := setupUpdateFlagsTest(t)
+
+	// Manifest: commands-pattern tool with empty version (latest)
+	cueContent := `package tomei
+
+myTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "mytool"
+	spec: {
+		commands: {
+			install: ["echo installing mytool"]
+			check: ["echo ok"]
+		}
+	}
+}
+`
+	env.writeManifest(t, "tools.cue", cueContent)
+	resources := env.loadResources(t)
+
+	// Pre-populate state: commands-pattern tool with VersionLatest
+	initialState := state.NewUserState()
+	initialState.Tools["mytool"] = &resource.ToolState{
+		Version:     "1.0.0",
+		VersionKind: resource.VersionLatest,
+		SpecVersion: "",
+		Commands: &resource.ToolCommandSet{
+			CommandSet: resource.CommandSet{
+				Install: []string{"echo installing mytool"},
+				Check:   []string{"echo ok"},
+			},
+		},
+	}
+	env.populateState(t, initialState)
+
+	mockTool := newMockToolInstaller()
+	mockRuntime := newMockRuntimeInstaller()
+
+	ctx := context.Background()
+
+	// Without --update-tools: no actions (version matches state since VersionLatest is unchanged)
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	runtimeActions, _, toolActions, err := eng.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	assert.Empty(t, runtimeActions)
+	assert.Empty(t, toolActions, "expected no actions without --update-tools")
+
+	// With --update-tools: should taint the VersionLatest commands-pattern tool
+	engWithUpdate := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	engWithUpdate.SetUpdateConfig(engine.UpdateConfig{UpdateTools: true})
+
+	runtimeActions, _, toolActions, err = engWithUpdate.PlanAll(ctx, resources)
+	require.NoError(t, err)
+	assert.Empty(t, runtimeActions)
+	require.Len(t, toolActions, 1, "expected 1 action for mytool")
+	assert.Equal(t, "mytool", toolActions[0].Name)
+	assert.Equal(t, resource.ActionUpgrade, toolActions[0].Type)
+
+	// Actually apply with --update-tools to verify the tool is re-installed
+	installCount := 0
+	mockToolForApply := newMockToolInstaller()
+	mockToolForApply.installFunc = func(_ context.Context, res *resource.Tool, _ string) (*resource.ToolState, error) {
+		installCount++
+		return &resource.ToolState{
+			Version:     "2.0.0",
+			VersionKind: resource.VersionLatest,
+			SpecVersion: "",
+			Commands:    res.ToolSpec.Commands,
+		}, nil
+	}
+
+	engApply := engine.NewEngine(mockToolForApply, mockRuntime, newMockInstallerRepositoryInstaller(), env.store)
+	engApply.SetUpdateConfig(engine.UpdateConfig{UpdateTools: true})
+
+	err = engApply.Apply(ctx, resources)
+	require.NoError(t, err)
+	assert.Equal(t, 1, installCount, "commands-pattern tool should be re-installed")
+
+	// Verify state was updated
+	require.NoError(t, env.store.Lock())
+	st, err := env.store.Load()
+	require.NoError(t, err)
+	_ = env.store.Unlock()
+
+	require.Contains(t, st.Tools, "mytool")
+	assert.Equal(t, "2.0.0", st.Tools["mytool"].Version)
+	assert.False(t, st.Tools["mytool"].IsTainted(), "taint should be cleared after re-install")
+}
+
 // TestEngine_UpdateAll_TaintsBothToolsAndRuntimes tests the --update-all
 // behavior: both non-exact tools and runtimes are tainted.
 func TestEngine_UpdateAll_TaintsBothToolsAndRuntimes(t *testing.T) {

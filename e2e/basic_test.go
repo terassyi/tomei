@@ -96,6 +96,9 @@ func basicTests() {
 			output, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
+			By("Verifying apply completed successfully")
+			Expect(output).To(ContainSubstring("Apply complete!"))
+
 			By("Verifying no taint reinstall on first install")
 			Expect(output).NotTo(ContainSubstring("Reinstalled:"))
 		})
@@ -325,19 +328,24 @@ func basicTests() {
 	Context("Idempotency", func() {
 		It("is idempotent on subsequent applies", func() {
 			By("Running tomei apply again")
-			_, err := ExecApply(testExec, "~/manifests/")
+			output, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying no changes were needed")
+			Expect(output).To(ContainSubstring("No changes to apply"))
 		})
 
 		It("does not re-download on multiple applies", func() {
 			By("Running tomei apply two more times")
-			_, err := ExecApply(testExec, "~/manifests/")
+			output, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
-			_, err = ExecApply(testExec, "~/manifests/")
+			Expect(output).To(ContainSubstring("No changes to apply"))
+			output, err = ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("No changes to apply"))
 
 			By("Checking go still works")
-			output, err := testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
+			output, err = testExec.ExecBash("GOTOOLCHAIN=local ~/go/bin/go version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("go" + versions.GoVersion))
 
@@ -349,11 +357,14 @@ func basicTests() {
 
 		It("is idempotent for runtime delegation tools", func() {
 			By("Running tomei apply again")
-			_, err := ExecApply(testExec, "~/manifests/")
+			output, err := ExecApply(testExec, "~/manifests/")
 			Expect(err).NotTo(HaveOccurred())
 
+			By("Verifying no changes were needed")
+			Expect(output).To(ContainSubstring("No changes to apply"))
+
 			By("Checking gopls still works")
-			output, err := testExec.ExecBash("~/go/bin/gopls version")
+			output, err = testExec.ExecBash("~/go/bin/gopls version")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring(versions.GoplsVersion))
 		})
@@ -361,10 +372,10 @@ func basicTests() {
 
 	Context("Doctor", func() {
 		It("reports no issues when environment is clean", func() {
-			By("Cleaning up any unmanaged tools from previous tests")
-			// Remove tools that may have been installed by dependency tests
-			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq")
-			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat ~/.local/share/tomei/tools/jq")
+			By("Cleaning up any unmanaged tools from previous test runs")
+			// Remove tools that may remain when re-running tests on the same container
+			_, _ = testExec.ExecBash("rm -f ~/.local/bin/rg ~/.local/bin/fd ~/.local/bin/bat ~/.local/bin/jq ~/.local/bin/helm")
+			_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools/rg ~/.local/share/tomei/tools/fd ~/.local/share/tomei/tools/bat ~/.local/share/tomei/tools/jq ~/.local/share/tomei/tools/helm")
 
 			By("Running tomei doctor command")
 			output, err := testExec.Exec("tomei", "doctor")

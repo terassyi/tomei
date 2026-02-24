@@ -20,8 +20,8 @@ import (
 	"github.com/terassyi/tomei/internal/state"
 )
 
-// handleLogEvent dispatches an engine event to the LogStore.
-// This replicates the logic in cmd/tomei/apply.go (main package).
+// handleLogEvent replicates event dispatch logic from cmd/tomei/apply.go.
+// NOTE: If new event types are added to the engine, this helper must be updated.
 func handleLogEvent(logStore *tomeilog.Store, event engine.Event) {
 	switch event.Type {
 	case engine.EventStart:

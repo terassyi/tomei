@@ -308,6 +308,45 @@ func (c *CommandSet) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// ToolCommandSet extends CommandSet with update and version resolution for self-managed tools.
+// Structurally identical to RuntimeBootstrapSpec — kept separate for semantic clarity
+// (runtime bootstrap vs tool self-management) and future divergence.
+type ToolCommandSet struct {
+	CommandSet
+
+	// Update is an optional command to update the tool in-place.
+	// When set and the action is upgrade/reinstall, this command is used instead of Install.
+	// Falls back to Install if not specified.
+	Update []string `json:"update,omitempty"`
+
+	// ResolveVersion is an optional command to capture the installed version after install/update.
+	// Supports "github-release:owner/repo:tagPrefix", "http-text:URL:regex", and shell commands.
+	// The resolved version is stored in state.json for display via "tomei get".
+	ResolveVersion []string `json:"resolveVersion,omitempty"`
+}
+
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings. Delegates Install/Check/Remove to CommandSet
+// and handles Update and ResolveVersion separately.
+func (t *ToolCommandSet) UnmarshalJSON(data []byte) error {
+	// Decode the embedded CommandSet fields (Install, Check, Remove).
+	if err := t.CommandSet.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	// Decode the additional Update and ResolveVersion fields.
+	var extra struct {
+		Update         json.RawMessage `json:"update,omitempty"`
+		ResolveVersion json.RawMessage `json:"resolveVersion,omitempty"`
+	}
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	return unmarshalStringFields([]stringField{
+		{"update", extra.Update, &t.Update},
+		{"resolveVersion", extra.ResolveVersion, &t.ResolveVersion},
+	})
+}
+
 // BaseResource provides common fields for all resources.
 // Embed this in concrete resource types.
 type BaseResource struct {
