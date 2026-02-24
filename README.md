@@ -16,7 +16,7 @@ Write the desired state in CUE manifests, run `tomei apply`, and the result is a
 
 No containers, no virtual filesystems, no shims. `tomei` sets up your real environment directly.
 
-Rather than reinventing package managers, tomei delegates to existing tools like, `go install`, `cargo install`. `tomei` orchestrates; they execute.
+Rather than reinventing package managers, tomei delegates to existing tools like `go install`, `cargo install`. For tools with their own installer scripts — like `mise` or `uv` — you can define install/update/remove commands directly. `tomei` orchestrates; they execute.
 
 Native [aqua registry](https://github.com/aquaproj/aqua-registry) integration lets you install thousands of CLI tools by just specifying a package name and version.
 
@@ -29,17 +29,6 @@ curl -fsSL https://raw.githubusercontent.com/terassyi/tomei/main/install.sh | sh
 ```
 
 The script detects your OS and architecture, downloads the binary, verifies the SHA-256 checksum, and installs it to `~/.local/bin`.
-
-To install a specific version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/terassyi/tomei/main/install.sh | sh
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TOMEI_VERSION` | latest | Install a specific version (e.g. `v0.1.0`) |
-| `TOMEI_INSTALL_DIR` | `~/.local/bin` | Custom install directory |
 
 ## Getting Started
 
@@ -77,122 +66,57 @@ Initialization complete!
 
 ### 2. Write manifests
 
-`runtime.cue` — install a Go runtime and tools via `go install` (runtime delegation):
+Manifests use [CUE](https://cuelang.org/) with presets and schema imports for type-safe, platform-aware definitions. Run `tomei cue init` first to set up the CUE module.
+
+`runtimes.cue` — install runtimes via presets:
 
 ```cue
 package tomei
 
-_os:   string @tag(os)
-_arch: string @tag(arch)
+import (
+	gopreset "tomei.terassyi.net/presets/go"
+	"tomei.terassyi.net/presets/rust"
+)
 
-goRuntime: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Runtime"
-	metadata: name: "go"
-	spec: {
-		type:    "download"
-		version: "1.26.0"
-		source: {
-			url: "https://go.dev/dl/go\(spec.version).\(_os)-\(_arch).tar.gz"
-			checksum: url: "https://go.dev/dl/?mode=json&include=all"
-		}
-		binaries: ["go", "gofmt"]
-		binDir:      "~/go/bin"
-		toolBinPath: "~/go/bin"
-		env: {
-			GOROOT: "~/.local/share/tomei/runtimes/go/\(spec.version)"
-			GOBIN:  "~/go/bin"
-		}
-		commands: {
-			install: "go install {{.Package}}@{{.Version}}"
-			remove:  "rm -f {{.BinPath}}"
-		}
-	}
+goRuntime: gopreset.#GoRuntime & {
+	platform: {os: _os, arch: _arch}
+	spec: version: "1.26.0"
 }
 
-gopls: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "gopls"
-	spec: {
-		runtimeRef: "go"
-		package:    "golang.org/x/tools/gopls"
-		version:    "v0.21.0"
-	}
-}
-
-staticcheck: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "staticcheck"
-	spec: {
-		runtimeRef: "go"
-		package:    "honnef.co/go/tools/cmd/staticcheck"
-		version:    "v0.6.0"
-	}
-}
-
-goimports: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "goimports"
-	spec: {
-		runtimeRef: "go"
-		package:    "golang.org/x/tools/cmd/goimports"
-		version:    "v0.31.0"
-	}
+rustRuntime: rust.#RustRuntime & {
+	spec: version: "stable"
 }
 ```
 
-`tools.cue` — install CLI tools via aqua registry:
+`tools.cue` — install tools via ToolSet presets:
 
 ```cue
 package tomei
 
-ripgrep: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "rg"
-	spec: {
-		installerRef: "aqua"
-		version:      "15.1.0"
-		package:      "BurntSushi/ripgrep"
+import (
+	gopreset "tomei.terassyi.net/presets/go"
+	"tomei.terassyi.net/presets/aqua"
+)
+
+goTools: gopreset.#GoToolSet & {
+	metadata: name: "go-tools"
+	spec: tools: {
+		gopls:       {package: "golang.org/x/tools/gopls", version: "v0.21.1"}
+		staticcheck: {package: "honnef.co/go/tools/cmd/staticcheck", version: "v0.7.0"}
 	}
 }
 
-fd: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "fd"
-	spec: {
-		installerRef: "aqua"
-		version:      "v10.3.0"
-		package:      "sharkdp/fd"
-	}
-}
-
-jq: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "jq"
-	spec: {
-		installerRef: "aqua"
-		version:      "jq-1.8.1"
-		package:      "jqlang/jq"
-	}
-}
-
-bat: {
-	apiVersion: "tomei.terassyi.net/v1beta1"
-	kind:       "Tool"
-	metadata: name: "bat"
-	spec: {
-		installerRef: "aqua"
-		version:      "v0.26.1"
-		package:      "sharkdp/bat"
+cliTools: aqua.#AquaToolSet & {
+	metadata: name: "cli-tools"
+	spec: tools: {
+		rg: {package: "BurntSushi/ripgrep", version: "15.1.0"}
+		fd: {package: "sharkdp/fd", version: "v10.3.0"}
+		jq: {package: "jqlang/jq", version: "1.8.1"}
 	}
 }
 ```
+
+For raw CUE examples without presets, see [`examples/minimal/`](examples/minimal/).
 
 ### 3. Plan
 
@@ -202,27 +126,24 @@ bat: {
 $ tomei plan .
 Planning changes for [.]
 
-Found 8 resource(s)
+Found 7 resource(s)
 
 Dependency Graph:
 Installer/aqua
-├── Tool/bat (v0.26.1) [+ install]
-├── Tool/fd (v10.3.0) [+ install]
-├── Tool/jq (jq-1.8.1) [+ install]
-└── Tool/rg (15.1.0) [+ install]
+├── ToolSet/cli-tools [+ install]
 Runtime/go (1.26.0) [+ install]
-├── Tool/goimports (v0.31.0) [+ install]
-├── Tool/gopls (v0.21.0) [+ install]
-└── Tool/staticcheck (v0.6.0) [+ install]
+├── ToolSet/go-tools [+ install]
+Runtime/rust (stable) [+ install]
+Tool/mise [+ install]
 
 Execution Order:
-  Layer 1: Runtime/go
-  Layer 2: Tool/bat, Tool/fd, Tool/goimports, Tool/gopls, Tool/jq, Tool/rg, Tool/staticcheck
+  Layer 1: Runtime/go, Runtime/rust, Tool/mise
+  Layer 2: ToolSet/cli-tools, ToolSet/go-tools
 
-Summary: 8 to install, 0 to upgrade, 0 to remove
+Summary: 7 to install, 0 to upgrade, 0 to remove
 ```
 
-gopls, staticcheck, and goimports depend on the Go runtime, so they are scheduled in Layer 2. All Layer 2 resources are installed in parallel.
+Commands-pattern tools (like `mise`) have no dependencies, so they run in Layer 1 alongside runtimes. ToolSets that depend on runtimes or installers are scheduled in Layer 2. Resources within the same layer are installed in parallel.
 
 ### 4. Apply
 
@@ -236,23 +157,17 @@ Downloads:
   ✓ Runtime/go 1.26.0
 
 Commands:
- => Tool/jq jq-1.8.1 (aqua install)
- => Tool/fd v10.3.0 (aqua install)
- => Tool/bat v0.26.1 (aqua install)
- => Tool/goimports v0.31.0 (go install)
- => Tool/gopls v0.21.0 (go install)
- => Tool/fd v10.3.0 done (1.5s)
- => Tool/rg 15.1.0 (aqua install)
- => Tool/jq jq-1.8.1 done (2.3s)
- => Tool/staticcheck v0.6.0 (go install)
- => Tool/bat v0.26.1 done (2.4s)
- => Tool/rg 15.1.0 done (1.7s)
- => Tool/goimports v0.31.0 done (21.8s)
- => Tool/staticcheck v0.6.0 done (32.4s)
- => Tool/gopls v0.21.0 done (45.9s)
+ => Runtime/rust stable (rustup bootstrap)
+ => Tool/mise (commands install)
+ => Tool/mise done (1.2s)
+ => Runtime/rust stable done (8.4s)
+ => ToolSet/cli-tools (aqua install)
+ => ToolSet/go-tools (go install)
+ => ToolSet/cli-tools done (3.1s)
+ => ToolSet/go-tools done (42.7s)
 
 Summary:
-  ✓ Installed: 8
+  ✓ Installed: 7
 
 Apply complete!
 ```
@@ -321,6 +236,9 @@ myTool: schema.#Tool & {
         // runtimeRef:   "go"
         // source: {
         //     url: "https://example.com/tool.tar.gz"
+        // }
+        // commands: {
+        //     install: ["curl -fsSL https://example.com/install.sh | sh"]
         // }
         // args: ["--flag"]
     }

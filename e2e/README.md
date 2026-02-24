@@ -22,10 +22,22 @@ All tests run within a single `Ordered` Describe block to guarantee execution or
 
 ```
 tomei E2E
-├── Basic             # init, validate, plan, apply, runtime/tool install, upgrade, doctor
-├── ToolSet           # ToolSet expansion and installation via runtime delegation
-├── Aqua Registry     # Registry-based tool install, version upgrade/downgrade
-└── Dependency Resolution  # Circular detection, parallel install, runtime chain, toolRef
+├── Basic                 # init, validate, plan, apply, runtime/tool install, upgrade, doctor
+├── ToolSet               # ToolSet expansion and installation
+├── Aqua Registry         # Registry-based tool install, version upgrade/downgrade
+├── Dependency Resolution # Circular detection, parallel install, runtime chain, toolRef
+├── Delegation            # Runtime delegation serialization
+├── Installer Repository  # InstallerRepository management
+├── Logs                  # Log inspection commands
+├── Get                   # Resource listing (table/wide/JSON)
+├── State Backup and Diff # State backup comparison
+├── CUE Ecosystem         # CUE module loading, eval, export
+├── Schema Management     # CUE schema validation
+├── Three-Segment Version # Three-segment version handling
+├── Taint on Upgrade      # Runtime upgrade triggers tool reinstall
+├── Tar.xz Archives       # tar.xz archive extraction
+├── Update Flags          # --update-tools, --update-runtimes, --update-all
+└── Commands Pattern      # Self-managed tools (mise, update-tool mock)
 ```
 
 ## Version Management
@@ -63,6 +75,11 @@ Example: updating the Go runtime version
 | `config/dependency-test/toolref.cue` | `_jqVersion` | Checksum update required |
 | `config/registry/tools.cue` | `_rgVersion`, `_fdVersion`, `_jqVersion` | No checksum (registry resolves) |
 | `config/registry/tools.cue.old` | `_rgVersionOld`, `_fdVersionOld`, `_jqVersionOld` | No checksum (registry resolves) |
+| `config/commands-test/mise.cue` | — | Commands pattern, no version management |
+| `config/commands-test/update.cue` | — | Commands pattern, mock update-tool |
+| `config/update-flags-test/latest-tool.cue` | — | Latest-version tool for update flag tests |
+| `config/update-flags-test/runtime.cue` | — | Runtime for update flag tests |
+| `config/update-flags-test/tool.cue` | — | Pinned tool for update flag tests |
 
 ### Maintenance notes
 
@@ -80,38 +97,80 @@ Manifests like `runtime.cue`, `runtime.cue.upgrade`, and `tools.cue` use `\(spec
 
 `config/registry/tools.cue` and `tools.cue.old` use the aqua registry to resolve download URLs and checksums. Only the version variable needs to be changed.
 
+**4. Commands pattern manifests (no version/checksum)**
+
+`commands-test/mise.cue` and `commands-test/update.cue` use shell commands for installation. No version or checksum management — the tool manages itself.
+
 > **Tip:** When updating `runtime.cue.upgrade`, keep it one patch version ahead of `runtime.cue` so the upgrade test remains meaningful.
 
 ## Directory Structure
 
 ```
 e2e/
-├── README.md                # This file
-├── suite_test.go            # Ginkgo suite setup, single Ordered Describe
-├── versions_test.go         # CUE → Go version extraction
-├── executor.go              # Test executor (container/native mode)
-├── basic_test.go            # Basic workflow tests
-├── toolset_test.go          # ToolSet tests
-├── registry_test.go         # Aqua registry tests
-├── dependency_test.go       # Dependency resolution tests
+├── README.md                    # This file
+├── suite_test.go                # Ginkgo suite setup, single Ordered Describe
+├── versions_test.go             # CUE → Go version extraction
+├── executor.go                  # Test executor (container/native mode)
+├── basic_test.go                # Basic workflow tests
+├── toolset_test.go              # ToolSet tests
+├── registry_test.go             # Aqua registry tests
+├── dependency_test.go           # Dependency resolution tests
+├── delegation_test.go           # Runtime delegation tests
+├── installer_repository_test.go # InstallerRepository tests
+├── logs_test.go                 # Log inspection tests
+├── get_test.go                  # Resource listing tests
+├── state_backup_diff_test.go    # State backup and diff tests
+├── cue_ecosystem_test.go        # CUE module loading tests
+├── schema_management_test.go    # CUE schema validation tests
+├── tag_test.go                  # @tag() injection tests
+├── taint_on_upgrade_test.go     # Taint on upgrade tests
+├── completion_test.go           # Shell completion tests
+├── update_flags_test.go         # Update flag tests
+├── commands_test.go             # Commands pattern tests
 ├── config/
-│   ├── manifests/           # Basic test CUE manifests
+│   ├── manifests/               # Basic test CUE manifests
 │   │   ├── runtime.cue
 │   │   ├── runtime.cue.upgrade
 │   │   ├── tools.cue
 │   │   ├── toolset.cue
-│   │   ├── delegation.cue
-│   │   └── registry/
-│   │       ├── tools.cue
-│   │       └── tools.cue.old
-│   └── dependency-test/     # Dependency test CUE manifests
-│       ├── parallel.cue
-│       ├── runtime-chain.cue
-│       ├── toolref.cue
-│       ├── circular.cue
-│       ├── circular3.cue
-│       └── invalid-installer.cue
+│   │   └── delegation.cue
+│   ├── registry/                # Aqua registry test manifests
+│   │   ├── tools.cue
+│   │   └── tools.cue.old
+│   ├── dependency-test/         # Dependency test CUE manifests
+│   │   ├── parallel.cue
+│   │   ├── parallel-failure.cue
+│   │   ├── runtime-chain.cue
+│   │   ├── toolref.cue
+│   │   ├── circular.cue
+│   │   ├── circular3.cue
+│   │   └── invalid-installer.cue
+│   ├── delegation-test/         # Runtime delegation manifests
+│   │   ├── rust-runtime.cue
+│   │   └── rust-delegation.cue
+│   ├── installer-repo-test/     # InstallerRepository manifests
+│   │   ├── helm-repo.cue
+│   │   ├── helm-only.cue
+│   │   └── repo-with-tool.cue
+│   ├── logs-test/               # Log inspection manifests
+│   │   └── failing-tool.cue
+│   ├── taint-on-upgrade-test/   # Taint test manifests
+│   │   ├── runtime.cue
+│   │   ├── runtime.cue.upgrade
+│   │   ├── runtime-taint-enabled.cue.upgrade
+│   │   └── delegation.cue
+│   ├── three-segment-test/      # Three-segment version manifests
+│   │   └── logcli.cue
+│   ├── tar-xz-test/             # tar.xz archive manifests
+│   │   └── tool.cue
+│   ├── update-flags-test/       # Update flag manifests
+│   │   ├── runtime.cue
+│   │   ├── tool.cue
+│   │   └── latest-tool.cue
+│   └── commands-test/           # Commands pattern manifests
+│       ├── mise.cue
+│       └── update.cue
 └── containers/
     └── ubuntu/
-        └── Dockerfile       # Ubuntu test container
+        └── Dockerfile           # Ubuntu test container
 ```

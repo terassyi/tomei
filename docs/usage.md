@@ -215,9 +215,22 @@ tomei apply --update-all .
 tomei apply --parallel 4 .
 ```
 
+### Self-Managed Tools (Commands Pattern)
+
+Tools with `spec.commands` manage their own installation via shell commands, without needing a runtime or installer dependency.
+
+On `tomei apply`, the engine runs `commands.install` followed by `commands.check` to verify success. `resolveVersion` captures the installed version for `tomei get`.
+
+On `--update-tools`, the engine uses `commands.update` if defined, falling back to `commands.install`.
+On removal (manifest deleted), the engine runs `commands.remove`.
+
+Commands-pattern tools run in the first execution layer alongside download-pattern tools.
+
+See [CUE Schema Reference — ToolCommandSet](cue-schema.md#toolcommandset) for field details.
+
 ### Version Resolvers
 
-Runtime presets can declare a `resolveVersion` field that automatically resolves the actual version at install time. Two built-in resolver syntaxes are available, plus a shell command fallback.
+Runtime presets and commands-pattern tools can declare a `resolveVersion` field that automatically resolves the actual version at install time. Two built-in resolver syntaxes are available, plus a shell command fallback.
 
 #### `github-release:owner/repo[:tagPrefix]`
 
