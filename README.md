@@ -8,7 +8,8 @@
 
 A declarative, idempotent development environment setup tool powered by [CUE](https://cuelang.org/).
 
-The name "tomei" comes from the Japanese word "透明" — transparent. What you write is what you get, with nothing hidden in between.
+> [!TIP]
+> The name "tomei" comes from the Japanese word **"透明"** — transparent. What you write is what you get, with nothing hidden in between.
 
 ![demo](demo/demo.gif)
 
@@ -51,7 +52,10 @@ eval "$(tomei env)"
 
 ## How to Write CUE Manifests
 
-Manifests are [CUE](https://cuelang.org/) files in `package tomei`. Run `tomei cue init` to create the `cue.mod/` directory, which enables schema imports and preset resolution via OCI registry.
+Manifests are [CUE](https://cuelang.org/) files in `package tomei`. Run `tomei cue init` to create the `cue.mod/` directory, which enables schema imports and preset resolution via OCI registry. For details, see:
+
+- [CUE Schema Reference](docs/cue-schema.md)
+- [CUE Ecosystem Integration](docs/cue-ecosystem.md)
 
 ### Presets
 
