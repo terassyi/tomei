@@ -15,7 +15,7 @@ import (
 func specVersionChanged(specVersion string, stateVersionKind resource.VersionKind, stateVersion, stateSpecVersion string) bool {
 	switch stateVersionKind {
 	case resource.VersionLatest:
-		return specVersion != ""
+		return !resource.IsLatestVersion(specVersion)
 	case resource.VersionAlias:
 		return specVersion != stateSpecVersion
 	default: // VersionExact

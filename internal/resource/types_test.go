@@ -372,6 +372,54 @@ func Test_unmarshalStringOrSlice(t *testing.T) {
 	}
 }
 
+func TestIsLatestVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		version string
+		want    bool
+	}{
+		{"empty string", "", true},
+		{"latest", "latest", true},
+		{"stable", "stable", false},
+		{"exact version", "1.0.0", false},
+		{"lts", "lts", false},
+		{"LATEST uppercase", "LATEST", false},
+		{"Latest mixed case", "Latest", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := IsLatestVersion(tt.version)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestClassifyVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		version string
+		want    VersionKind
+	}{
+		{"empty string", "", VersionLatest},
+		{"latest string", "latest", VersionLatest},
+		{"exact version", "1.0.0", VersionExact},
+		{"stable alias", "stable", VersionExact},
+		{"v-prefixed version", "v2.1.0", VersionExact},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ClassifyVersion(tt.version)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestIsExactVersion(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
