@@ -230,7 +230,7 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 	}
 
 	// 10. Set format and files
-	result.Format = extract.ArchiveType(info.Format)
+	result.Format = extract.NormalizeArchiveType(info.Format)
 	if result.Format == "" && info.Asset != "" {
 		// Auto-detect raw binary format when asset has no archive extension
 		if !hasArchiveExtension(info.Asset) {

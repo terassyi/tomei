@@ -32,6 +32,24 @@ const (
 	ArchiveTypeRaw ArchiveType = "raw"
 )
 
+// NormalizeArchiveType normalizes an archive type string to a canonical ArchiveType constant.
+// It handles common aliases (e.g., "tgz" → ArchiveTypeTarGz, "txz" → ArchiveTypeTarXz).
+// Unrecognized values are passed through as-is (NewExtractor will reject them).
+func NormalizeArchiveType(raw string) ArchiveType {
+	switch strings.ToLower(raw) {
+	case "tar.gz", "tgz":
+		return ArchiveTypeTarGz
+	case "tar.xz", "txz":
+		return ArchiveTypeTarXz
+	case "zip":
+		return ArchiveTypeZip
+	case "raw":
+		return ArchiveTypeRaw
+	default:
+		return ArchiveType(raw)
+	}
+}
+
 // DetectArchiveType detects the archive type from a URL or filename.
 // Returns empty string if the type cannot be detected.
 func DetectArchiveType(urlOrFilename string) ArchiveType {

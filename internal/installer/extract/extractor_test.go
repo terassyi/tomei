@@ -16,6 +16,32 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
+func TestNormalizeArchiveType(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  ArchiveType
+	}{
+		{name: "tar.gz", input: "tar.gz", want: ArchiveTypeTarGz},
+		{name: "tgz", input: "tgz", want: ArchiveTypeTarGz},
+		{name: "TGZ uppercase", input: "TGZ", want: ArchiveTypeTarGz},
+		{name: "tar.xz", input: "tar.xz", want: ArchiveTypeTarXz},
+		{name: "txz", input: "txz", want: ArchiveTypeTarXz},
+		{name: "zip", input: "zip", want: ArchiveTypeZip},
+		{name: "raw", input: "raw", want: ArchiveTypeRaw},
+		{name: "unknown", input: "unknown", want: ArchiveType("unknown")},
+		{name: "empty", input: "", want: ArchiveType("")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, NormalizeArchiveType(tt.input))
+		})
+	}
+}
+
 func TestDetectArchiveType(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
