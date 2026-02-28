@@ -246,6 +246,11 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 		}
 		algorithm = alg
 		expectedHash = hash
+
+		// Prefer explicit algorithm from resolver over auto-detected
+		if cs.Algorithm != "" {
+			algorithm = cs.Algorithm
+		}
 	} else {
 		slog.Debug("no checksum value or URL specified, skipping verification")
 		return nil
@@ -261,9 +266,11 @@ func (d *httpDownloader) Verify(ctx context.Context, filePath string, cs *resour
 }
 
 // fetchChecksumFromURL fetches a checksums file from URL and extracts the hash for the given filename.
-// Supports two formats:
-//   - Standard text format: "<hash>  <filename>" or "<hash> *<filename>"
+// Supports multiple formats:
+//   - GNU text format: "<hash>  <filename>" or "<hash> *<filename>"
+//   - BSD format: "SHA256 (<filename>) = <hash>"
 //   - Go JSON format: [{"version":"go1.x","files":[{"filename":"...","sha256":"..."}]}]
+//   - Bare hash format: single hex hash value with no filename (per-file checksum files)
 func (d *httpDownloader) fetchChecksumFromURL(ctx context.Context, url, filename string) (checksum.Algorithm, checksum.Digest, error) {
 	if err := validateDownloadURL(url); err != nil {
 		return "", "", err

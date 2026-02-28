@@ -257,6 +257,7 @@ func createMockResolver(t *testing.T, cacheDir, baseURL string) *aqua.Resolver {
 type mockDownloader struct {
 	archiveData          []byte
 	lastProgressCallback download.ProgressCallback
+	lastVerifyChecksum   *resource.Checksum
 }
 
 func (m *mockDownloader) Download(_ context.Context, _, destPath string) (string, error) {
@@ -277,7 +278,8 @@ func (m *mockDownloader) DownloadWithProgress(_ context.Context, _, destPath str
 	return destPath, nil
 }
 
-func (m *mockDownloader) Verify(_ context.Context, _ string, _ *resource.Checksum) error {
+func (m *mockDownloader) Verify(_ context.Context, _ string, cs *resource.Checksum) error {
+	m.lastVerifyChecksum = cs
 	return nil
 }
 
@@ -872,4 +874,60 @@ func TestRemoveByCommands(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInstallFromRegistry_ChecksumAlgorithmPropagation(t *testing.T) {
+	t.Parallel()
+
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "mytool", binaryContent)
+
+	// Setup aqua registry cache with checksum algorithm
+	cacheDir := t.TempDir()
+	ref := aqua.RegistryRef("v4.465.0")
+	pkg := "test/mytool"
+
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: test
+    repo_name: mytool
+    asset: mytool_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    checksum:
+      type: github_release
+      asset: mytool_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz.sha256
+      algorithm: sha256
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	dl := &mockDownloader{archiveData: tarGzContent}
+	inst := NewInstaller(dl, &mockPlacer{})
+
+	resolver := aqua.NewResolver(cacheDir, nil)
+	inst.SetResolver(resolver, ref)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v1.0.0",
+			Package: &resource.Package{
+				Owner: "test",
+				Repo:  "mytool",
+			},
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, "mytool")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// Verify ChecksumAlgorithm was propagated to the checksum passed to Verify
+	require.NotNil(t, dl.lastVerifyChecksum, "Verify should have been called with a checksum")
+	assert.Equal(t, "sha256", string(dl.lastVerifyChecksum.Algorithm), "algorithm should be propagated from aqua resolver")
+	assert.NotEmpty(t, dl.lastVerifyChecksum.URL, "checksum URL should be set")
 }

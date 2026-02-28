@@ -388,7 +388,8 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	// Add checksum if available
 	if resolved.ChecksumURL != "" {
 		source.Checksum = &resource.Checksum{
-			URL: resolved.ChecksumURL,
+			URL:       resolved.ChecksumURL,
+			Algorithm: resolved.ChecksumAlgorithm,
 		}
 	}
 
