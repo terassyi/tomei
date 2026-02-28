@@ -67,6 +67,36 @@ func TestDetectFileFormat(t *testing.T) {
 			content: []byte("not a valid checksum file"),
 			want:    FileFormatUnknown,
 		},
+		{
+			name:    "bare hash SHA256",
+			content: []byte(sha256Hash),
+			want:    FileFormatBareHash,
+		},
+		{
+			name:    "bare hash SHA512",
+			content: []byte("309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"),
+			want:    FileFormatBareHash,
+		},
+		{
+			name:    "bare hash with trailing newline",
+			content: []byte(sha256Hash + "\n"),
+			want:    FileFormatBareHash,
+		},
+		{
+			name:    "bare hash with surrounding whitespace",
+			content: []byte("  " + sha256Hash + "  \n"),
+			want:    FileFormatBareHash,
+		},
+		{
+			name:    "bare hash surrounded by empty lines",
+			content: []byte("\n\n" + sha256Hash + "\n\n"),
+			want:    FileFormatBareHash,
+		},
+		{
+			name:    "two hashes is not bare hash",
+			content: []byte(sha256Hash + "\n" + sha256Hash + "\n"),
+			want:    FileFormatUnknown,
+		},
 	}
 
 	for _, tt := range tests {
@@ -216,6 +246,72 @@ func TestParseFile_BSD(t *testing.T) {
 			filename:   "test.tar.gz",
 			wantErr:    true,
 			errContain: "not found in BSD checksums file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			algo, hash, err := ParseFile(tt.content, tt.filename)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContain != "" {
+					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAlgo, algo)
+			assert.Equal(t, tt.wantHash, hash)
+		})
+	}
+}
+
+func TestParseFile_BareHash(t *testing.T) {
+	t.Parallel()
+
+	sha256Hash := "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+	sha512Hash := "309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f"
+
+	tests := []struct {
+		name       string
+		content    []byte
+		filename   string
+		wantAlgo   Algorithm
+		wantHash   Digest
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name:     "SHA256 bare hash",
+			content:  []byte(sha256Hash + "\n"),
+			filename: "tool.tar.gz",
+			wantAlgo: AlgorithmSHA256,
+			wantHash: Digest(sha256Hash),
+		},
+		{
+			name:     "SHA512 bare hash",
+			content:  []byte(sha512Hash + "\n"),
+			filename: "tool.tar.gz",
+			wantAlgo: AlgorithmSHA512,
+			wantHash: Digest(sha512Hash),
+		},
+		{
+			name:     "bare hash with whitespace",
+			content:  []byte("  " + sha256Hash + "  \n"),
+			filename: "tool.tar.gz",
+			wantAlgo: AlgorithmSHA256,
+			wantHash: Digest(sha256Hash),
+		},
+		{
+			name:     "filename is ignored for bare hash",
+			content:  []byte(sha256Hash + "\n"),
+			filename: "completely-different-name.zip",
+			wantAlgo: AlgorithmSHA256,
+			wantHash: Digest(sha256Hash),
 		},
 	}
 

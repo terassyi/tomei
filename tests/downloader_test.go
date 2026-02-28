@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/resource"
 )
@@ -144,6 +145,75 @@ func TestDownloader_Verify_URLChecksum_HTTP(t *testing.T) {
 
 			d := download.NewDownloader()
 			err = d.Verify(context.Background(), filePath, checksum)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContain != "" {
+					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDownloader_Verify_BareHashChecksum_HTTP(t *testing.T) {
+	t.Parallel()
+	testContent := []byte("hello world")
+	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
+
+	tests := []struct {
+		name       string
+		handler    http.HandlerFunc
+		algorithm  checksum.Algorithm
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name: "bare hash only",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(sha256sum + "\n"))
+			},
+			wantErr: false,
+		},
+		{
+			name: "bare hash with explicit algorithm",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(sha256sum + "\n"))
+			},
+			algorithm: checksum.AlgorithmSHA256,
+			wantErr:   false,
+		},
+		{
+			name: "bare hash mismatch",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("0000000000000000000000000000000000000000000000000000000000000000\n"))
+			},
+			wantErr:    true,
+			errContain: "checksum mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			tmpDir := t.TempDir()
+			filePath := filepath.Join(tmpDir, "tool.tar.gz")
+			err := os.WriteFile(filePath, testContent, 0644)
+			require.NoError(t, err)
+
+			cs := &resource.Checksum{
+				URL:       server.URL + "/tool.tar.gz.sha256",
+				Algorithm: tt.algorithm,
+			}
+
+			d := download.NewDownloader()
+			err = d.Verify(context.Background(), filePath, cs)
 
 			if tt.wantErr {
 				require.Error(t, err)

@@ -26,6 +26,11 @@ const (
 	// See: https://go.dev/dl/?mode=json
 	FileFormatGoJSON FileFormat = "go_json"
 
+	// FileFormatBareHash is a single bare hash value with no filename.
+	// This is used by tools like starship that publish per-file checksum files
+	// (e.g., "tool.tar.gz.sha256") containing only the hash value.
+	FileFormatBareHash FileFormat = "bare_hash"
+
 	// FileFormatUnknown is returned when the format cannot be determined.
 	FileFormatUnknown FileFormat = "unknown"
 )
@@ -69,6 +74,16 @@ func DetectFileFormat(content []byte) FileFormat {
 			}
 		}
 
+		// Check bare hash format: single hex string with no filename (per-file checksum)
+		if len(parts) == 1 {
+			hash := parts[0]
+			if (len(hash) == 64 || len(hash) == 128) && isHexString(hash) {
+				if !hasMoreNonEmptyLines(scanner) {
+					return FileFormatBareHash
+				}
+			}
+		}
+
 		// Could not determine format from first line
 		return FileFormatUnknown
 	}
@@ -89,6 +104,16 @@ func isHexString(s string) bool {
 	return len(s) > 0
 }
 
+// hasMoreNonEmptyLines checks if the scanner has more non-empty lines remaining.
+func hasMoreNonEmptyLines(scanner *bufio.Scanner) bool {
+	for scanner.Scan() {
+		if strings.TrimSpace(scanner.Text()) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseFile parses a checksum file and extracts the hash for the given filename.
 // Automatically detects the file format.
 func ParseFile(content []byte, filename string) (Algorithm, Digest, error) {
@@ -100,6 +125,8 @@ func ParseFile(content []byte, filename string) (Algorithm, Digest, error) {
 		return parseBSD(content, filename)
 	case FileFormatGNU:
 		return parseGNU(content, filename)
+	case FileFormatBareHash:
+		return parseBareHash(content, filename)
 	default:
 		return "", "", fmt.Errorf("unknown or unsupported checksum file format")
 	}
@@ -206,6 +233,23 @@ func parseGNU(content []byte, filename string) (Algorithm, Digest, error) {
 	}
 
 	return "", "", fmt.Errorf("checksum for %q not found in GNU checksums file", filename)
+}
+
+// parseBareHash parses a bare hash checksum file (single hash value, no filename).
+// The filename parameter is accepted for signature consistency but unused,
+// as bare hash files are per-file checksums with no filename in the content.
+func parseBareHash(content []byte, _ string) (Algorithm, Digest, error) {
+	hash := strings.TrimSpace(string(content))
+	if hash == "" {
+		return "", "", fmt.Errorf("empty bare hash content")
+	}
+
+	algorithm := DetectAlgorithm(hash)
+	if algorithm == "" {
+		return "", "", fmt.Errorf("could not determine hash algorithm for bare hash %q", hash)
+	}
+
+	return algorithm, Digest(hash), nil
 }
 
 // parseGNULine parses a line from a GNU format checksums file.

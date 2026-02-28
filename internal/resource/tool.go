@@ -193,6 +193,11 @@ type Checksum struct {
 	// If empty, matches against the downloaded filename.
 	// Example: "gh_*_linux_amd64.tar.gz"
 	FilePattern string `json:"filePattern,omitempty"`
+
+	// Algorithm is the checksum algorithm resolved from the registry (e.g., aqua).
+	// When set, it takes priority over auto-detection from hash length.
+	// This is not specified in CUE manifests — it is populated internally by resolvers.
+	Algorithm checksum.Algorithm `json:"algorithm,omitempty"`
 }
 
 // ToolSpec defines the desired state of an individual tool.

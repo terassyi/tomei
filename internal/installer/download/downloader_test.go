@@ -565,3 +565,95 @@ func TestDownloader_Verify_FileNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to open file")
 }
+
+func TestDownloader_Verify_BareHashChecksum(t *testing.T) {
+	t.Parallel()
+	testContent := []byte("hello world")
+	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
+
+	tests := []struct {
+		name       string
+		respBody   string
+		wantErr    bool
+		errContain string
+	}{
+		{
+			name:     "valid bare hash",
+			respBody: sha256sum + "\n",
+			wantErr:  false,
+		},
+		{
+			name:       "mismatched bare hash",
+			respBody:   "0000000000000000000000000000000000000000000000000000000000000000\n",
+			wantErr:    true,
+			errContain: "checksum mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := NewDownloaderWithClient(&http.Client{
+				Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Body:       io.NopCloser(bytes.NewBufferString(tt.respBody)),
+					}, nil
+				}),
+			})
+
+			tmpDir := t.TempDir()
+			filePath := filepath.Join(tmpDir, "tool.tar.gz")
+			err := os.WriteFile(filePath, testContent, 0644)
+			require.NoError(t, err)
+
+			cs := &resource.Checksum{
+				URL: "https://example.com/tool.tar.gz.sha256",
+			}
+
+			err = d.Verify(context.Background(), filePath, cs)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContain != "" {
+					assert.Contains(t, err.Error(), tt.errContain)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDownloader_Verify_AlgorithmOverride(t *testing.T) {
+	t.Parallel()
+	testContent := []byte("hello world")
+	sha256sum := fmt.Sprintf("%x", sha256.Sum256(testContent))
+
+	// Serve a bare hash (auto-detect would give SHA256 from length)
+	// but explicitly set Algorithm to SHA256 to confirm override path is taken.
+	d := NewDownloaderWithClient(&http.Client{
+		Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewBufferString(sha256sum + "\n")),
+			}, nil
+		}),
+	})
+
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "tool.tar.gz")
+	err := os.WriteFile(filePath, testContent, 0644)
+	require.NoError(t, err)
+
+	// Algorithm explicitly set — should override auto-detected
+	cs := &resource.Checksum{
+		URL:       "https://example.com/tool.tar.gz.sha256",
+		Algorithm: "sha256",
+	}
+
+	err = d.Verify(context.Background(), filePath, cs)
+	require.NoError(t, err)
+}
