@@ -571,6 +571,138 @@ func TestExtractor_Raw_CreatesParentDirectory(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestExtractTar_DeferredLinks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		entries []tarEntry
+		verify  func(t *testing.T, destDir string)
+	}{
+		{
+			name: "symlink with missing parent directory",
+			entries: []tarEntry{
+				{typeflag: tar.TypeReg, name: "root/data.txt", content: "hello"},
+				{typeflag: tar.TypeSymlink, name: "root/sub/deep/link.txt", linkname: "../../data.txt"},
+			},
+			verify: func(t *testing.T, destDir string) {
+				target, err := os.Readlink(filepath.Join(destDir, "root/sub/deep/link.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, "../../data.txt", target)
+
+				content, err := os.ReadFile(filepath.Join(destDir, "root/sub/deep/link.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, "hello", string(content))
+			},
+		},
+		{
+			name: "forward-reference symlink",
+			entries: []tarEntry{
+				{typeflag: tar.TypeDir, name: "pkg/", mode: 0755},
+				{typeflag: tar.TypeSymlink, name: "pkg/link.txt", linkname: "real.txt"},
+				{typeflag: tar.TypeReg, name: "pkg/real.txt", content: "forward ref"},
+			},
+			verify: func(t *testing.T, destDir string) {
+				target, err := os.Readlink(filepath.Join(destDir, "pkg/link.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, "real.txt", target)
+
+				content, err := os.ReadFile(filepath.Join(destDir, "pkg/link.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, "forward ref", string(content))
+			},
+		},
+		{
+			name: "hard link",
+			entries: []tarEntry{
+				{typeflag: tar.TypeReg, name: "original.txt", content: "hardlink content"},
+				{typeflag: tar.TypeLink, name: "linked.txt", linkname: "original.txt"},
+			},
+			verify: func(t *testing.T, destDir string) {
+				orig, err := os.ReadFile(filepath.Join(destDir, "original.txt"))
+				require.NoError(t, err)
+				linked, err := os.ReadFile(filepath.Join(destDir, "linked.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, string(orig), string(linked))
+
+				origInfo, err := os.Stat(filepath.Join(destDir, "original.txt"))
+				require.NoError(t, err)
+				linkedInfo, err := os.Stat(filepath.Join(destDir, "linked.txt"))
+				require.NoError(t, err)
+				assert.True(t, os.SameFile(origInfo, linkedInfo), "expected hard link (same inode)")
+			},
+		},
+		{
+			name: "forward-reference hard link",
+			entries: []tarEntry{
+				{typeflag: tar.TypeLink, name: "link-first.txt", linkname: "target-later.txt"},
+				{typeflag: tar.TypeReg, name: "target-later.txt", content: "deferred hard"},
+			},
+			verify: func(t *testing.T, destDir string) {
+				orig, err := os.ReadFile(filepath.Join(destDir, "target-later.txt"))
+				require.NoError(t, err)
+				linked, err := os.ReadFile(filepath.Join(destDir, "link-first.txt"))
+				require.NoError(t, err)
+				assert.Equal(t, string(orig), string(linked))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := createTarGzStreamWithEntries(t, tt.entries)
+			destDir := filepath.Join(t.TempDir(), "dest")
+
+			ext, err := NewExtractor(ArchiveTypeTarGz)
+			require.NoError(t, err)
+			require.NoError(t, ext.Extract(r, destDir))
+
+			tt.verify(t, destDir)
+		})
+	}
+}
+
+func TestExtractTar_LinkEscape(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		entries    []tarEntry
+		errContain string
+	}{
+		{
+			name: "symlink escapes destDir",
+			entries: []tarEntry{
+				{typeflag: tar.TypeSymlink, name: "escape", linkname: "../../../etc/passwd"},
+			},
+			errContain: "invalid symlink target",
+		},
+		{
+			name: "hard link escapes destDir",
+			entries: []tarEntry{
+				{typeflag: tar.TypeLink, name: "escape", linkname: "../../../etc/passwd"},
+			},
+			errContain: "invalid hard link target",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			r := createTarGzStreamWithEntries(t, tt.entries)
+			destDir := filepath.Join(t.TempDir(), "dest")
+
+			ext, err := NewExtractor(ArchiveTypeTarGz)
+			require.NoError(t, err)
+
+			err = ext.Extract(r, destDir)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContain)
+		})
+	}
+}
+
 // Helper functions to create test data
 
 func createTarGzStream(t *testing.T) io.Reader {
@@ -682,6 +814,59 @@ func createTarXzStreamWithExecutable(t *testing.T) io.Reader {
 	require.NoError(t, tw.Close())
 	require.NoError(t, xw.Close())
 
+	return &buf
+}
+
+// tarEntry describes a single entry for createTarGzStreamWithEntries.
+type tarEntry struct {
+	typeflag byte
+	name     string
+	content  string // only for TypeReg
+	linkname string // for TypeSymlink / TypeLink
+	mode     int64  // 0 defaults to 0644 (files) or 0755 (dirs)
+}
+
+// createTarGzStreamWithEntries builds a tar.gz stream from arbitrary entries,
+// preserving the given order so that tests can exercise forward-reference scenarios.
+func createTarGzStreamWithEntries(t *testing.T, entries []tarEntry) io.Reader {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	for _, e := range entries {
+		mode := e.mode
+		hdr := &tar.Header{
+			Name:     e.name,
+			Typeflag: e.typeflag,
+			Linkname: e.linkname,
+		}
+		switch e.typeflag {
+		case tar.TypeDir:
+			if mode == 0 {
+				mode = 0755
+			}
+			hdr.Mode = mode
+		case tar.TypeReg:
+			if mode == 0 {
+				mode = 0644
+			}
+			hdr.Mode = mode
+			hdr.Size = int64(len(e.content))
+		case tar.TypeSymlink, tar.TypeLink:
+			// no size / mode needed
+		}
+
+		require.NoError(t, tw.WriteHeader(hdr))
+		if e.typeflag == tar.TypeReg {
+			_, err := tw.Write([]byte(e.content))
+			require.NoError(t, err)
+		}
+	}
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
 	return &buf
 }
 
