@@ -138,9 +138,37 @@ func (e *tarXzExtractor) Extract(r io.Reader, destDir string) error {
 	return extractTar(xr, destDir)
 }
 
+// deferredLink holds a link entry to be created after all regular files are extracted.
+type deferredLink struct {
+	oldname string // symlink: hdr.Linkname (relative), hardlink: resolved absolute path
+	newname string // link file path (absolute)
+	isHard  bool
+}
+
+// create creates the deferred link on disk, ensuring the parent directory exists.
+func (d deferredLink) create() error {
+	if err := os.MkdirAll(filepath.Dir(d.newname), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for link: %w", err)
+	}
+	if d.isHard {
+		if err := os.Link(d.oldname, d.newname); err != nil {
+			return fmt.Errorf("failed to create hard link: %w", err)
+		}
+	} else {
+		if err := os.Symlink(d.oldname, d.newname); err != nil {
+			return fmt.Errorf("failed to create symlink: %w", err)
+		}
+	}
+	return nil
+}
+
 // extractTar extracts a tar archive from the decompressed reader to the destination directory.
+// Links (symlinks and hardlinks) are deferred to a second pass so that target files and
+// parent directories are guaranteed to exist before link creation.
 func extractTar(r io.Reader, destDir string) error {
 	tr := tar.NewReader(r)
+
+	var deferredLinks []deferredLink
 
 	for {
 		hdr, err := tr.Next()
@@ -173,9 +201,28 @@ func extractTar(r io.Reader, destDir string) error {
 			if !isInsideDir(destDir, linkTarget) {
 				return fmt.Errorf("invalid symlink target: %s -> %s", hdr.Name, hdr.Linkname)
 			}
-			if err := os.Symlink(hdr.Linkname, target); err != nil {
-				return fmt.Errorf("failed to create symlink: %w", err)
+			deferredLinks = append(deferredLinks, deferredLink{
+				oldname: hdr.Linkname,
+				newname: target,
+			})
+		case tar.TypeLink:
+			// Security: validate hard link target
+			linkTarget := filepath.Join(destDir, hdr.Linkname)
+			if !isInsideDir(destDir, linkTarget) {
+				return fmt.Errorf("invalid hard link target: %s -> %s", hdr.Name, hdr.Linkname)
 			}
+			deferredLinks = append(deferredLinks, deferredLink{
+				oldname: linkTarget,
+				newname: target,
+				isHard:  true,
+			})
+		}
+	}
+
+	// Second pass: create all deferred links now that files and directories exist.
+	for _, link := range deferredLinks {
+		if err := link.create(); err != nil {
+			return err
 		}
 	}
 
