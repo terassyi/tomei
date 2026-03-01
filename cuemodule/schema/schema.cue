@@ -74,8 +74,8 @@ package schema
 		arch: string
 	}
 	spec: {
-		type:        "download" | "delegation"
-		version:     string & !=""
+		type:         "download" | "delegation"
+		version:      string & !=""
 		toolBinPath?: string & !=""
 		source?:      #DownloadSource
 		bootstrap?:   #RuntimeBootstrap
