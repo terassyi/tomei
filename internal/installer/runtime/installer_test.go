@@ -272,9 +272,10 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, []string{"install-cmd {{.Version}}"}, runner.executeWithEnvCalls[0].cmds)
 		assert.Equal(t, "1.0.0", runner.executeWithEnvCalls[0].vars.Version)
 
-		// Verify check command was called
+		// Verify check command was called with version
 		require.Len(t, runner.checkCalls, 1)
 		assert.Equal(t, []string{"check-cmd"}, runner.checkCalls[0].cmds)
+		assert.Equal(t, "1.0.0", runner.checkCalls[0].vars.Version)
 	})
 
 	t.Run("delegation with ResolveVersion", func(t *testing.T) {
@@ -317,6 +318,10 @@ func TestInstaller_Install(t *testing.T) {
 		// Verify install was called with resolved version
 		require.Len(t, runner.executeWithEnvCalls, 1)
 		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
+
+		// Verify check receives resolved version
+		require.Len(t, runner.checkCalls, 1)
+		assert.Equal(t, "1.83.0", runner.checkCalls[0].vars.Version)
 	})
 
 	t.Run("delegation check fails", func(t *testing.T) {
@@ -345,6 +350,40 @@ func TestInstaller_Install(t *testing.T) {
 		_, err := installer.Install(context.Background(), rt, "mock")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bootstrap check failed")
+	})
+
+	t.Run("delegation check receives Version template variable", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			checkResult: true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "1.22.0",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"myruntime --version | grep {{.Version}}"},
+					},
+				},
+			},
+		}
+
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+		assert.Equal(t, "1.22.0", state.Version)
+
+		// Verify check command receives version in vars
+		require.Len(t, runner.checkCalls, 1)
+		assert.Equal(t, []string{"myruntime --version | grep {{.Version}}"}, runner.checkCalls[0].cmds)
+		assert.Equal(t, "1.22.0", runner.checkCalls[0].vars.Version)
 	})
 
 	t.Run("delegation ResolveVersion fails", func(t *testing.T) {
