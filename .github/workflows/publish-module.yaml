@@ -59,7 +59,7 @@ jobs:
 
       - name: Install crane
         if: github.event_name == 'workflow_dispatch'
-        uses: imjasonh/setup-crane@v0.4
+        uses: imjasonh/setup-crane@v0.5
 
       - name: Sign published module
         if: github.event_name == 'workflow_dispatch'
