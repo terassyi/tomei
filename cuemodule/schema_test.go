@@ -170,6 +170,58 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "Runtime download without toolBinPath and without commands",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "lua"
+				spec: {
+					type:    "download"
+					version: "5.4.7"
+					source: {
+						url: "https://www.lua.org/ftp/lua-5.4.7.tar.gz"
+					}
+					binaries: ["lua", "luac"]
+				}
+			}`,
+		},
+		{
+			name: "Runtime delegation without toolBinPath and without commands",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "lua-delegation"
+				spec: {
+					type:    "delegation"
+					version: "5.4.7"
+					bootstrap: {
+						install: ["luaver install 5.4.7"]
+						check:   ["lua -v"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "Runtime delegation with commands and toolBinPath",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "rust"
+				spec: {
+					type:    "delegation"
+					version: "stable"
+					bootstrap: {
+						install: ["curl -sSf https://sh.rustup.rs | sh"]
+						check:   ["rustc --version"]
+					}
+					toolBinPath: "~/.cargo/bin"
+					commands: {
+						install: ["cargo install {{.Package}}"]
+					}
+				}
+			}`,
+		},
+		{
 			name: "Installer download type",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -478,6 +530,43 @@ func TestSchema_InvalidResources(t *testing.T) {
 					installerRef: "aqua"
 					source: {
 						type: "git"
+					}
+				}
+			}`,
+		},
+		{
+			name: "Runtime with commands but without toolBinPath",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "go"
+				spec: {
+					type:    "download"
+					version: "1.25.6"
+					source: {
+						url: "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz"
+					}
+					commands: {
+						install: ["go install {{.Package}}@{{.Version}}"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "Runtime delegation with commands but without toolBinPath",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "rust"
+				spec: {
+					type:    "delegation"
+					version: "stable"
+					bootstrap: {
+						install: ["curl -sSf https://sh.rustup.rs | sh"]
+						check:   ["rustc --version"]
+					}
+					commands: {
+						install: ["cargo install {{.Package}}"]
 					}
 				}
 			}`,

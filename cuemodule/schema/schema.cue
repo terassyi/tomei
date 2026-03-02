@@ -74,11 +74,11 @@ package schema
 		arch: string
 	}
 	spec: {
-		type:        "download" | "delegation"
-		version:     string & !=""
-		toolBinPath: string & !=""
-		source?:     #DownloadSource
-		bootstrap?:  #RuntimeBootstrap
+		type:         "download" | "delegation"
+		version:      string & !=""
+		toolBinPath?: string & !=""
+		source?:      #DownloadSource
+		bootstrap?:   #RuntimeBootstrap
 		binaries?: [...string]
 		binDir?:   string
 		commands?: #CommandSet
@@ -95,6 +95,9 @@ package schema
 				install: [...string] & [_, ...]
 				check: [...string] & [_, ...]
 			}
+		}
+		if commands != _|_ {
+			toolBinPath: string & !=""
 		}
 	}
 }

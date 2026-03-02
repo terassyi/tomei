@@ -107,6 +107,122 @@ func TestRuntimeSpec_UnmarshalJSON(t *testing.T) {
 	}
 }
 
+func TestRuntimeSpec_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		spec    RuntimeSpec
+		wantErr string
+	}{
+		{
+			name: "valid download with toolBinPath and commands",
+			spec: RuntimeSpec{
+				Type:        InstallTypeDownload,
+				Version:     "1.25.6",
+				ToolBinPath: "~/go/bin",
+				Source:      &DownloadSource{URL: "https://go.dev/dl/go1.25.6.tar.gz"},
+				Commands:    &CommandsSpec{Install: []string{"go install"}},
+			},
+		},
+		{
+			name: "valid download without toolBinPath and without commands",
+			spec: RuntimeSpec{
+				Type:    InstallTypeDownload,
+				Version: "1.0.0",
+				Source:  &DownloadSource{URL: "https://example.com/runtime.tar.gz"},
+			},
+		},
+		{
+			name: "toolBinPath omitted with commands defined",
+			spec: RuntimeSpec{
+				Type:     InstallTypeDownload,
+				Version:  "1.0.0",
+				Source:   &DownloadSource{URL: "https://example.com/runtime.tar.gz"},
+				Commands: &CommandsSpec{Install: []string{"install-cmd"}},
+			},
+			wantErr: "toolBinPath is required when commands is defined",
+		},
+		{
+			name: "missing version",
+			spec: RuntimeSpec{
+				Type: InstallTypeDownload,
+			},
+			wantErr: "version is required",
+		},
+		{
+			name: "download without source",
+			spec: RuntimeSpec{
+				Type:    InstallTypeDownload,
+				Version: "1.0.0",
+			},
+			wantErr: "source.url is required for download type",
+		},
+		{
+			name: "delegation without bootstrap",
+			spec: RuntimeSpec{
+				Type:    InstallTypeDelegation,
+				Version: "stable",
+			},
+			wantErr: "bootstrap is required for delegation type",
+		},
+		{
+			name: "valid delegation with toolBinPath and without commands",
+			spec: RuntimeSpec{
+				Type:        InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: "~/.cargo/bin",
+				Bootstrap: &RuntimeBootstrapSpec{
+					CommandSet: CommandSet{
+						Install: []string{"curl -sSf https://sh.rustup.rs | sh"},
+						Check:   []string{"rustc --version"},
+					},
+				},
+			},
+		},
+		{
+			name: "valid delegation without toolBinPath and without commands",
+			spec: RuntimeSpec{
+				Type:    InstallTypeDelegation,
+				Version: "stable",
+				Bootstrap: &RuntimeBootstrapSpec{
+					CommandSet: CommandSet{
+						Install: []string{"curl -sSf https://sh.rustup.rs | sh"},
+						Check:   []string{"rustc --version"},
+					},
+				},
+			},
+		},
+		{
+			name: "delegation with commands but without toolBinPath",
+			spec: RuntimeSpec{
+				Type:    InstallTypeDelegation,
+				Version: "stable",
+				Bootstrap: &RuntimeBootstrapSpec{
+					CommandSet: CommandSet{
+						Install: []string{"curl -sSf https://sh.rustup.rs | sh"},
+						Check:   []string{"rustc --version"},
+					},
+				},
+				Commands: &CommandsSpec{Install: []string{"cargo install {{.Package}}"}},
+			},
+			wantErr: "toolBinPath is required when commands is defined",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.spec.Validate()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestRuntimeState_Taint(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

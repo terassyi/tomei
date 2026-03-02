@@ -50,8 +50,9 @@ type RuntimeSpec struct {
 
 	// ToolBinPath specifies where tools installed via this runtime should be placed.
 	// This is where "go install" or "cargo install" will put binaries.
+	// Required when Commands is defined; optional otherwise.
 	// Example: "~/go/bin" for Go tools, "~/.cargo/bin" for Rust tools.
-	ToolBinPath string `json:"toolBinPath"`
+	ToolBinPath string `json:"toolBinPath,omitempty"`
 
 	// Commands defines shell commands for installing TOOLS via this runtime.
 	// This is NOT for installing the runtime itself, but for installing tools
@@ -147,8 +148,8 @@ func (s *RuntimeSpec) Validate() error {
 	if s.Version == "" {
 		return fmt.Errorf("version is required")
 	}
-	if s.ToolBinPath == "" {
-		return fmt.Errorf("toolBinPath is required")
+	if s.Commands != nil && s.ToolBinPath == "" {
+		return fmt.Errorf("toolBinPath is required when commands is defined")
 	}
 
 	// Type-specific validation
