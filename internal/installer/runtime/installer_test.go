@@ -305,7 +305,8 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		state, err := installer.Install(context.Background(), rt, "mock")
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
 		require.NoError(t, err)
 
 		assert.Equal(t, "1.83.0", state.Version)
@@ -323,6 +324,86 @@ func TestInstaller_Install(t *testing.T) {
 		// Verify check receives resolved version
 		require.Len(t, runner.checkCalls, 1)
 		assert.Equal(t, "1.83.0", runner.checkCalls[0].vars.Version)
+	})
+
+	t.Run("delegation install skips resolveVersion", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureResult: "should-not-be-called",
+			checkResult:   true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					ResolveVersion: []string{"resolve-cmd"},
+				},
+			},
+		}
+
+		// Default action (no context) = install → resolveVersion is skipped
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "stable", state.Version)
+		assert.Equal(t, resource.VersionExact, state.VersionKind)
+
+		// resolveVersion must NOT be called on install
+		assert.Empty(t, runner.captureCalls, "resolveVersion should be skipped on install")
+
+		// install command receives spec version directly
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
+	})
+
+	t.Run("delegation upgrade calls resolveVersion", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureResult: "1.83.0",
+			checkResult:   true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					Update:         []string{"update-cmd {{.Version}}"},
+					ResolveVersion: []string{"resolve-cmd"},
+				},
+			},
+		}
+
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "1.83.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+
+		// resolveVersion IS called on upgrade
+		require.Len(t, runner.captureCalls, 1)
+		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 	})
 
 	t.Run("delegation check fails", func(t *testing.T) {
@@ -411,7 +492,8 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		_, err := installer.Install(context.Background(), rt, "mock")
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		_, err := installer.Install(ctx, rt, "mock")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to resolve version")
 	})
@@ -476,7 +558,8 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		state, err := installer.Install(context.Background(), rt, "mock")
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
 		require.NoError(t, err)
 
 		assert.Equal(t, "1.42.0", state.Version)
