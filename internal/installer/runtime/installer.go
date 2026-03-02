@@ -437,7 +437,7 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 
 	// Verify installation with check command
 	if len(spec.Bootstrap.Check) > 0 {
-		if !i.cmdExecutor.Check(ctx, spec.Bootstrap.Check, command.Vars{}, env) {
+		if !i.cmdExecutor.Check(ctx, spec.Bootstrap.Check, vars, env) {
 			return nil, fmt.Errorf("bootstrap check failed after install")
 		}
 	}
