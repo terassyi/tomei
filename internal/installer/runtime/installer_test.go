@@ -326,13 +326,13 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, "1.83.0", runner.checkCalls[0].vars.Version)
 	})
 
-	t.Run("delegation install skips resolveVersion", func(t *testing.T) {
+	t.Run("delegation install calls resolveVersion", func(t *testing.T) {
 		t.Parallel()
 		tmpDir := t.TempDir()
 		binDir := filepath.Join(tmpDir, "bin")
 
 		runner := &mockCommandRunner{
-			captureResult: "should-not-be-called",
+			captureResult: "1.83.0",
 			checkResult:   true,
 		}
 		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
@@ -352,19 +352,21 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		// Default action (no context) = install → resolveVersion is skipped
+		// resolveVersion is called regardless of action (including first install)
 		state, err := installer.Install(context.Background(), rt, "mock")
 		require.NoError(t, err)
 
-		assert.Equal(t, "stable", state.Version)
-		assert.Equal(t, resource.VersionExact, state.VersionKind)
+		assert.Equal(t, "1.83.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+		assert.Equal(t, "stable", state.SpecVersion)
 
-		// resolveVersion must NOT be called on install
-		assert.Empty(t, runner.captureCalls, "resolveVersion should be skipped on install")
+		// resolveVersion IS called on install
+		require.Len(t, runner.captureCalls, 1)
+		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 
-		// install command receives spec version directly
+		// install command receives resolved version
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
+		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
 	})
 
 	t.Run("delegation upgrade calls resolveVersion", func(t *testing.T) {

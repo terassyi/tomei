@@ -391,22 +391,15 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		return nil, fmt.Errorf("bootstrap.install is required for delegation pattern")
 	}
 
-	// Resolve version only on upgrade/reinstall — on first install the runtime
-	// binary doesn't exist yet, so resolveVersion (e.g. "rustc --version") would
-	// return empty. The bootstrap installer handles aliases like "stable" directly.
-	action := executor.ActionFromContext(ctx)
-	var resolvedVersion string
-	var versionKind resource.VersionKind
-	if (action == resource.ActionUpgrade || action == resource.ActionReinstall) && len(spec.Bootstrap.ResolveVersion) > 0 {
-		var err error
-		resolvedVersion, versionKind, err = i.resolveVersion(ctx, spec.Version, spec.Bootstrap.ResolveVersion)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve version: %w", err)
-		}
-	} else {
-		resolvedVersion = spec.Version
-		versionKind = resource.ClassifyVersion(spec.Version)
+	// Resolve version using the shared resolver (supports http-text:, github-release:,
+	// and shell command fallback). When no resolveVersion commands are configured,
+	// resolveVersion returns spec.Version directly.
+	resolvedVersion, versionKind, err := i.resolveVersion(ctx, spec.Version, spec.Bootstrap.ResolveVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve version: %w", err)
 	}
+
+	action := executor.ActionFromContext(ctx)
 
 	// Prepare environment: expand {{.Version}} templates, then expand ~
 	env := expandEnv(spec.Env, resolvedVersion)
