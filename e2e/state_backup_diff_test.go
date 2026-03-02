@@ -24,9 +24,11 @@ func stateBackupDiffTests() {
 		By("Removing any leftover backup file")
 		_, _ = testExec.ExecBash("rm -f ~/.local/share/tomei/state.json.bak")
 
-		By("Removing any leftover tools/runtimes from previous tests")
-		_, _ = testExec.ExecBash("rm -rf ~/.local/share/tomei/tools ~/.local/share/tomei/runtimes")
-		_, _ = testExec.ExecBash("rm -f ~/.local/bin/* ~/go/bin/*")
+		// Keep existing tool/runtime installations on disk from prior test groups.
+		// init --force already reset state.json, so tomei treats all resources as
+		// new (ActionInstall). The download-pattern installer detects existing files
+		// and skips re-downloading, which eliminates the ~130 MB network fetch that
+		// previously made this test flaky in CI.
 	})
 
 	Context("Diff Before First Apply", func() {
@@ -221,6 +223,28 @@ func stateBackupDiffTests() {
 		})
 	})
 
+	// Backup Overwrite runs before Resource Removal so it can exercise an
+	// idempotent apply while all resources are still installed on disk,
+	// avoiding a flaky re-download of removed tools.
+	Context("Backup Overwrite", func() {
+		It("overwrites backup on each apply", func() {
+			By("Recording current backup content")
+			backupBefore, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running tomei apply again")
+			_, err = ExecApply(testExec, "~/manifests/")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Reading new backup content")
+			backupAfter, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying backup was updated")
+			Expect(backupAfter).NotTo(Equal(backupBefore))
+		})
+	})
+
 	Context("Diff After Resource Removal", func() {
 		It("shows removed tool in text diff", func() {
 			By("Hiding tool manifest to trigger removal")
@@ -254,25 +278,6 @@ func stateBackupDiffTests() {
 		AfterAll(func() {
 			By("Restoring tool manifest")
 			_, _ = testExec.ExecBash("mv ~/manifests/tools.cue.hidden ~/manifests/tools.cue")
-		})
-	})
-
-	Context("Backup Overwrite", func() {
-		It("overwrites backup on each apply", func() {
-			By("Recording current backup content")
-			backupBefore, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Running tomei apply again")
-			_, err = ExecApply(testExec, "~/manifests/")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Reading new backup content")
-			backupAfter, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json.bak")
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Verifying backup was updated")
-			Expect(backupAfter).NotTo(Equal(backupBefore))
 		})
 	})
 }
