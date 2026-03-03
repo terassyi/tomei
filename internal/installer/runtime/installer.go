@@ -134,14 +134,9 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 	// Check if already installed
 	if _, err := os.Stat(installPath); err == nil {
 		slog.Debug("runtime already installed, rebuilding symlinks", "name", name, "version", resolvedVersion)
-		binDir, err := i.resolveBinDir(spec)
+		binDir, err := i.ensureSymlinks(installPath, spec)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
-		}
-		if binDir != "" && len(spec.Binaries) > 0 {
-			if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
-				return nil, fmt.Errorf("failed to rebuild symlinks: %w", err)
-			}
+			return nil, fmt.Errorf("failed to rebuild symlinks: %w", err)
 		}
 		return i.buildStateResolved(spec, installPath, binDir, resolvedVersion, versionKind), nil
 	}
@@ -217,14 +212,9 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 	}
 
 	// Create symlinks for binaries
-	binDir, err := i.resolveBinDir(spec)
+	binDir, err := i.ensureSymlinks(installPath, spec)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
-	}
-	if binDir != "" {
-		if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
-			return nil, fmt.Errorf("failed to create symlinks: %w", err)
-		}
+		return nil, fmt.Errorf("failed to create symlinks: %w", err)
 	}
 
 	slog.Debug("runtime installed successfully", "name", name, "version", resolvedVersion, "path", installPath)
@@ -241,14 +231,7 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 	}
 
 	// Download pattern: remove symlinks and install directory
-	if st.BinDir != "" {
-		for _, binary := range st.Binaries {
-			linkPath := filepath.Join(st.BinDir, binary)
-			if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
-				slog.Debug("failed to remove symlink", "path", linkPath, "error", err)
-			}
-		}
-	}
+	removeSymlinks(st.BinDir, st.Binaries, false)
 
 	if st.InstallPath != "" {
 		if err := os.RemoveAll(st.InstallPath); err != nil {
@@ -265,6 +248,9 @@ func (i *Installer) Remove(ctx context.Context, st *resource.RuntimeState, name 
 
 // removeDelegation removes a delegation-pattern runtime by executing its remove command.
 func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeState, name string) error {
+	// Clean up tomei-created symlinks before running remove command
+	removeSymlinks(st.BinDir, st.Binaries, true)
+
 	if len(st.RemoveCommand) == 0 {
 		slog.Warn("no remove command for delegation runtime, skipping", "name", name)
 		return nil
@@ -276,6 +262,30 @@ func (i *Installer) removeDelegation(ctx context.Context, st *resource.RuntimeSt
 
 	slog.Debug("delegation runtime removed", "name", name)
 	return nil
+}
+
+// removeSymlinks removes binaries from binDir.
+// When symlinkOnly is true, only symlinks are removed (safe for delegation binaries
+// managed by external tools). When false, any file type is removed.
+func removeSymlinks(binDir string, binaries []string, symlinkOnly bool) {
+	if binDir == "" {
+		return
+	}
+	for _, binary := range binaries {
+		linkPath := filepath.Join(binDir, binary)
+		if symlinkOnly {
+			info, err := os.Lstat(linkPath)
+			if err != nil {
+				continue
+			}
+			if info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+		}
+		if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+			slog.Debug("failed to remove symlink", "path", linkPath, "error", err)
+		}
+	}
 }
 
 // buildStateResolved creates a RuntimeState with explicit resolved version and version kind.
@@ -423,15 +433,8 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 
 	// Execute bootstrap command
 	vars := command.Vars{Version: resolvedVersion}
-	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
-	if outputCb != nil {
-		if err := i.cmdExecutor.ExecuteWithOutput(ctx, cmds, vars, env, command.OutputCallback(outputCb)); err != nil {
-			return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
-		}
-	} else {
-		if err := i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env); err != nil {
-			return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
-		}
+	if err := i.executeBootstrap(ctx, cmds, vars, env); err != nil {
+		return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
 	}
 
 	// Verify installation with check command
@@ -446,12 +449,46 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
 	}
 
+	// Create symlinks for delegation binaries if needed
+	installPath := ""
+	if binDir != "" && len(spec.Binaries) > 0 {
+		var symlinkErr error
+		installPath, symlinkErr = i.createDelegationSymlinks(name, resolvedVersion, spec.Binaries, binDir)
+		if symlinkErr != nil {
+			return nil, fmt.Errorf("failed to create symlinks: %w", symlinkErr)
+		}
+	}
+
 	slog.Debug("runtime installed via delegation", "name", name, "version", resolvedVersion)
 
-	state := i.buildStateResolved(spec, "", binDir, resolvedVersion, versionKind)
+	state := i.buildStateResolved(spec, installPath, binDir, resolvedVersion, versionKind)
 	state.Env = env
 	state.RemoveCommand = spec.Bootstrap.Remove
 	return state, nil
+}
+
+// ensureSymlinks resolves the bin directory and creates symlinks for runtime binaries.
+// Returns the resolved binDir (may be empty if no symlinks are needed).
+func (i *Installer) ensureSymlinks(installPath string, spec *resource.RuntimeSpec) (string, error) {
+	binDir, err := i.resolveBinDir(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve bin directory: %w", err)
+	}
+	if binDir != "" && len(spec.Binaries) > 0 {
+		if err := i.createSymlinks(installPath, spec.Binaries, binDir); err != nil {
+			return "", err
+		}
+	}
+	return binDir, nil
+}
+
+// executeBootstrap runs bootstrap commands, routing output to the context callback if present.
+func (i *Installer) executeBootstrap(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) error {
+	outputCb := download.CallbackFromContext[download.OutputCallback](ctx)
+	if outputCb != nil {
+		return i.cmdExecutor.ExecuteWithOutput(ctx, cmds, vars, env, command.OutputCallback(outputCb))
+	}
+	return i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env)
 }
 
 // resolveBinDir determines where to create symlinks for runtime binaries.
@@ -479,6 +516,36 @@ func (i *Installer) resolveBinDir(spec *resource.RuntimeSpec) (string, error) {
 	return "", nil
 }
 
+// createDelegationSymlinks checks if delegation binaries are accessible from binDir.
+// If any binary is missing from binDir, it creates symlinks from runtimesDir/name/version.
+// Returns (installPath, nil) if symlinks were created, ("", nil) if binaries are already
+// in binDir, or ("", error) if symlink creation failed.
+func (i *Installer) createDelegationSymlinks(name, version string, binaries []string, binDir string) (string, error) {
+	// Check if all binaries are already in binDir (e.g. Rust → ~/.cargo/bin/)
+	allInBinDir := true
+	for _, binary := range binaries {
+		if _, err := os.Stat(filepath.Join(binDir, binary)); err != nil {
+			allInBinDir = false
+			break
+		}
+	}
+	if allInBinDir {
+		slog.Debug("all delegation binaries found in binDir, skipping symlinks",
+			"name", name, "binDir", binDir)
+		return "", nil
+	}
+
+	// Binaries not in binDir → create symlinks from runtimesDir/name/version
+	installPath := filepath.Join(i.runtimesDir, name, version)
+	if err := i.createSymlinks(installPath, binaries, binDir); err != nil {
+		return "", err
+	}
+
+	slog.Debug("created delegation symlinks", "name", name,
+		"source", installPath, "binDir", binDir)
+	return installPath, nil
+}
+
 // createSymlinks creates symlinks for runtime binaries in the specified binDir.
 func (i *Installer) createSymlinks(installPath string, binaries []string, binDir string) error {
 	if err := os.MkdirAll(binDir, 0755); err != nil {
@@ -493,6 +560,13 @@ func (i *Installer) createSymlinks(installPath string, binaries []string, binDir
 		}
 
 		linkPath := filepath.Join(binDir, binary)
+
+		// Same-path guard: binary is already at the destination
+		if binaryPath == linkPath {
+			slog.Debug("binary already at destination, skipping symlink",
+				"binary", binary, "path", linkPath)
+			continue
+		}
 
 		// Remove existing symlink if any
 		if _, err := os.Lstat(linkPath); err == nil {
