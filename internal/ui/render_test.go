@@ -147,7 +147,6 @@ func TestRenderLayerHeader(t *testing.T) {
 }
 
 func TestRenderLayerHeader_Styled(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	header := renderLayerHeader(engine.PhaseDAG, 0, 2, []string{"Runtime/go"}, "4.4s", 80)
@@ -246,7 +245,6 @@ func TestRenderDelegationLines(t *testing.T) {
 }
 
 func TestRenderDelegationLines_Styled(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	task := &taskState{
@@ -667,7 +665,6 @@ func TestView_NoLayerHeaderDuplication_ThreeLayers(t *testing.T) {
 }
 
 func TestLayerHeaderStyle(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	input := "Layer 1/2: Runtime/go"
@@ -678,7 +675,6 @@ func TestLayerHeaderStyle(t *testing.T) {
 }
 
 func TestDelegationLogStyle(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	input := "go: downloading golang.org/x/tools v0.31.0"
@@ -720,7 +716,6 @@ func TestRenderTaskList_CompletedDelegationNoLogs(t *testing.T) {
 }
 
 func TestView_DelegationLogLinesStyledWhileRunning(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	results := &ApplyResults{}
@@ -920,7 +915,6 @@ func TestRenderLogPanel_WithLines(t *testing.T) {
 }
 
 func TestRenderLogPanel_Styled(t *testing.T) {
-	t.Parallel()
 	enableColorForTest(t)
 
 	lines := []slogLine{
