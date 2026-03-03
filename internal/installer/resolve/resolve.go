@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,9 @@ import (
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/installer/command"
 )
+
+// ErrEmptyResult is returned when a shell command resolveVersion succeeds but returns empty output.
+var ErrEmptyResult = errors.New("resolveVersion command returned empty result")
 
 // CaptureRunner executes commands and captures stdout.
 // Satisfied by *command.Executor.
@@ -86,7 +90,7 @@ func (r *Resolver) Resolve(ctx context.Context, cmds []string, vars command.Vars
 		return "", err
 	}
 	if version == "" {
-		return "", fmt.Errorf("resolveVersion command returned empty result")
+		return "", ErrEmptyResult
 	}
 
 	slog.Debug("version resolved via command", "resolved", version)

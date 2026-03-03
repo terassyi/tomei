@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,7 +305,8 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		state, err := installer.Install(context.Background(), rt, "mock")
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
 		require.NoError(t, err)
 
 		assert.Equal(t, "1.83.0", state.Version)
@@ -322,6 +324,88 @@ func TestInstaller_Install(t *testing.T) {
 		// Verify check receives resolved version
 		require.Len(t, runner.checkCalls, 1)
 		assert.Equal(t, "1.83.0", runner.checkCalls[0].vars.Version)
+	})
+
+	t.Run("delegation install calls resolveVersion", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureResult: "1.83.0",
+			checkResult:   true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					ResolveVersion: []string{"resolve-cmd"},
+				},
+			},
+		}
+
+		// resolveVersion is called regardless of action (including first install)
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "1.83.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+		assert.Equal(t, "stable", state.SpecVersion)
+
+		// resolveVersion IS called on install
+		require.Len(t, runner.captureCalls, 1)
+		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
+
+		// install command receives resolved version
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
+	})
+
+	t.Run("delegation upgrade calls resolveVersion", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureResult: "1.83.0",
+			checkResult:   true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					Update:         []string{"update-cmd {{.Version}}"},
+					ResolveVersion: []string{"resolve-cmd"},
+				},
+			},
+		}
+
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "1.83.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+
+		// resolveVersion IS called on upgrade
+		require.Len(t, runner.captureCalls, 1)
+		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 	})
 
 	t.Run("delegation check fails", func(t *testing.T) {
@@ -410,9 +494,49 @@ func TestInstaller_Install(t *testing.T) {
 			},
 		}
 
-		_, err := installer.Install(context.Background(), rt, "mock")
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		_, err := installer.Install(ctx, rt, "mock")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to resolve version")
+	})
+
+	t.Run("delegation install falls back to spec version when resolve fails", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureErr:  fmt.Errorf("command not found"),
+			checkResult: true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					ResolveVersion: []string{"binary --version"},
+				},
+			},
+		}
+
+		// On first install, resolveVersion failure falls back to spec.Version
+		ctx := executor.WithAction(context.Background(), resource.ActionInstall)
+		state, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "stable", state.Version)
+		assert.Equal(t, resource.VersionExact, state.VersionKind)
+
+		// install command receives spec version directly
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
 	})
 
 	t.Run("delegation install command fails", func(t *testing.T) {
@@ -441,6 +565,54 @@ func TestInstaller_Install(t *testing.T) {
 		_, err := installer.Install(context.Background(), rt, "mock")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "bootstrap install failed")
+	})
+
+	t.Run("delegation with http-text resolveVersion", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		// Start a mock HTTP server that returns a version string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintln(w, "latest: v1.42.0")
+		}))
+		defer srv.Close()
+
+		runner := &mockCommandRunner{
+			checkResult: true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+		installer.SetHTTPClient(srv.Client())
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "latest",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					ResolveVersion: []string{fmt.Sprintf("http-text:%s:v([0-9.]+)", srv.URL)},
+				},
+			},
+		}
+
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		state, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "1.42.0", state.Version)
+		assert.Equal(t, resource.VersionAlias, state.VersionKind)
+		assert.Equal(t, "latest", state.SpecVersion)
+
+		// Verify install was called with resolved version
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "1.42.0", runner.executeWithEnvCalls[0].vars.Version)
+
+		// Verify no shell capture was called (resolved via http-text, not ExecuteCapture)
+		assert.Empty(t, runner.captureCalls, "http-text resolver should not use ExecuteCapture")
 	})
 
 	t.Run("delegation missing bootstrap", func(t *testing.T) {
@@ -1170,7 +1342,7 @@ func TestInstaller_Download_ResolveVersion(t *testing.T) {
 	})
 }
 
-// TestInstaller_ResolveGitHubRelease tests GitHub release resolution through resolveVersionValue.
+// TestInstaller_ResolveGitHubRelease tests GitHub release resolution through resolveVersion.
 // The underlying logic is in the resolve package; this tests the integration path.
 func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 	t.Parallel()
@@ -1188,11 +1360,7 @@ func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 			}),
 		}
 
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"github-release:oven-sh/bun:bun-v"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
+		version, kind, err := installer.resolveVersion(context.Background(), "latest", []string{"github-release:oven-sh/bun:bun-v"})
 		require.NoError(t, err)
 		assert.Equal(t, "1.2.3", version)
 		assert.Equal(t, resource.VersionAlias, kind)
@@ -1202,17 +1370,13 @@ func TestInstaller_ResolveGitHubRelease(t *testing.T) {
 		t.Parallel()
 		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"github-release:no-slash"},
-		}
-		_, _, err := installer.resolveVersionValue(context.Background(), spec)
+		_, _, err := installer.resolveVersion(context.Background(), "latest", []string{"github-release:no-slash"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid github-release format")
 	})
 }
 
-// TestInstaller_ResolveHTTPText tests HTTP text resolution through resolveVersionValue.
+// TestInstaller_ResolveHTTPText tests HTTP text resolution through resolveVersion.
 func TestInstaller_ResolveHTTPText(t *testing.T) {
 	t.Parallel()
 
@@ -1220,11 +1384,7 @@ func TestInstaller_ResolveHTTPText(t *testing.T) {
 		t.Parallel()
 		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"http-text:not-a-url"},
-		}
-		_, _, err := installer.resolveVersionValue(context.Background(), spec)
+		_, _, err := installer.resolveVersion(context.Background(), "latest", []string{"http-text:not-a-url"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing ://")
 	})
@@ -1233,163 +1393,136 @@ func TestInstaller_ResolveHTTPText(t *testing.T) {
 		t.Parallel()
 		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
 
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"http-text:https://example.com/version"},
-		}
-		_, _, err := installer.resolveVersionValue(context.Background(), spec)
+		_, _, err := installer.resolveVersion(context.Background(), "latest", []string{"http-text:https://example.com/version"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "expected http-text:<URL>:<regex>")
 	})
 }
 
-// TestResolveVersionValue tests the resolveVersionValue dispatch logic directly.
-func TestResolveVersionValue(t *testing.T) {
+// TestResolveVersion tests the resolveVersion dispatch logic directly.
+func TestResolveVersion(t *testing.T) {
 	t.Parallel()
 
-	t.Run("no resolveVersion returns spec version as-is", func(t *testing.T) {
-		t.Parallel()
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
+	tests := []struct {
+		name          string
+		version       string
+		cmds          []string
+		captureResult string
+		captureErr    error
+		wantVersion   string
+		wantKind      resource.VersionKind
+		wantErr       bool
+		wantErrMsg    string
+		wantNoCalls   bool
+	}{
+		{
+			name:        "no resolveVersion returns spec version as-is",
+			version:     "1.26.0",
+			cmds:        nil,
+			wantVersion: "1.26.0",
+			wantKind:    resource.VersionExact,
+		},
+		{
+			name:        "no resolveVersion with empty version returns VersionLatest",
+			version:     "",
+			cmds:        nil,
+			wantVersion: "",
+			wantKind:    resource.VersionLatest,
+		},
+		{
+			name:          "exact version skips shell resolver",
+			version:       "1.26.0",
+			cmds:          []string{"echo should-not-run"},
+			captureResult: "should-not-be-called",
+			wantVersion:   "1.26.0",
+			wantKind:      resource.VersionExact,
+			wantNoCalls:   true,
+		},
+		{
+			name:          "v-prefixed exact version skips resolver",
+			version:       "v2.1.4",
+			cmds:          []string{"echo should-not-run"},
+			captureResult: "should-not-be-called",
+			wantVersion:   "v2.1.4",
+			wantKind:      resource.VersionExact,
+			wantNoCalls:   true,
+		},
+		{
+			name:        "exact version skips http-text resolver",
+			version:     "2.6.10",
+			cmds:        []string{"http-text:https://example.com/version:^v(.+)"},
+			wantVersion: "2.6.10",
+			wantKind:    resource.VersionExact,
+		},
+		{
+			name:        "exact version skips github-release resolver",
+			version:     "1.2.21",
+			cmds:        []string{"github-release:oven-sh/bun:bun-v"},
+			wantVersion: "1.2.21",
+			wantKind:    resource.VersionExact,
+		},
+		{
+			name:          "latest triggers shell resolver",
+			version:       "latest",
+			cmds:          []string{"echo 1.26.0"},
+			captureResult: "1.26.0",
+			wantVersion:   "1.26.0",
+			wantKind:      resource.VersionAlias,
+		},
+		{
+			name:          "stable triggers shell resolver",
+			version:       "stable",
+			cmds:          []string{"resolve-stable"},
+			captureResult: "1.83.0",
+			wantVersion:   "1.83.0",
+			wantKind:      resource.VersionAlias,
+		},
+		{
+			name:          "shell resolver returns empty error",
+			version:       "latest",
+			cmds:          []string{"echo ''"},
+			captureResult: "",
+			wantErr:       true,
+			wantErrMsg:    "empty result",
+		},
+		{
+			name:       "shell resolver command fails",
+			version:    "latest",
+			cmds:       []string{"bad-cmd"},
+			captureErr: fmt.Errorf("command not found"),
+			wantErr:    true,
+		},
+	}
 
-		spec := &resource.RuntimeSpec{Version: "1.26.0"}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-		assert.Equal(t, resource.VersionExact, kind)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{
+				captureResult: tt.captureResult,
+				captureErr:    tt.captureErr,
+			}
+			installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
 
-	t.Run("no resolveVersion with empty version returns VersionLatest", func(t *testing.T) {
-		t.Parallel()
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
-
-		spec := &resource.RuntimeSpec{Version: ""}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Empty(t, version)
-		assert.Equal(t, resource.VersionLatest, kind)
-	})
-
-	t.Run("exact version skips shell resolver", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureResult: "should-not-be-called"}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "1.26.0",
-			ResolveVersion: []string{"echo should-not-run"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-		assert.Equal(t, resource.VersionExact, kind)
-		assert.Empty(t, runner.captureCalls, "shell command should not be called for exact version")
-	})
-
-	t.Run("v-prefixed exact version skips resolver", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureResult: "should-not-be-called"}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "v2.1.4",
-			ResolveVersion: []string{"echo should-not-run"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "v2.1.4", version)
-		assert.Equal(t, resource.VersionExact, kind)
-		assert.Empty(t, runner.captureCalls)
-	})
-
-	t.Run("exact version skips http-text resolver", func(t *testing.T) {
-		t.Parallel()
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
-
-		spec := &resource.RuntimeSpec{
-			Version:        "2.6.10",
-			ResolveVersion: []string{"http-text:https://example.com/version:^v(.+)"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "2.6.10", version)
-		assert.Equal(t, resource.VersionExact, kind)
-	})
-
-	t.Run("exact version skips github-release resolver", func(t *testing.T) {
-		t.Parallel()
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), &mockCommandRunner{})
-
-		spec := &resource.RuntimeSpec{
-			Version:        "1.2.21",
-			ResolveVersion: []string{"github-release:oven-sh/bun:bun-v"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.2.21", version)
-		assert.Equal(t, resource.VersionExact, kind)
-	})
-
-	t.Run("latest triggers shell resolver", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureResult: "1.26.0"}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"echo 1.26.0"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.26.0", version)
-		assert.Equal(t, resource.VersionAlias, kind)
-		require.Len(t, runner.captureCalls, 1)
-	})
-
-	t.Run("stable triggers shell resolver", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureResult: "1.83.0"}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "stable",
-			ResolveVersion: []string{"resolve-stable"},
-		}
-		version, kind, err := installer.resolveVersionValue(context.Background(), spec)
-		require.NoError(t, err)
-		assert.Equal(t, "1.83.0", version)
-		assert.Equal(t, resource.VersionAlias, kind)
-	})
-
-	t.Run("shell resolver returns empty error", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureResult: ""}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"echo ''"},
-		}
-		_, _, err := installer.resolveVersionValue(context.Background(), spec)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "empty result")
-	})
-
-	t.Run("shell resolver command fails", func(t *testing.T) {
-		t.Parallel()
-		runner := &mockCommandRunner{captureErr: fmt.Errorf("command not found")}
-		installer := NewInstallerWithRunner(download.NewDownloader(), t.TempDir(), runner)
-
-		spec := &resource.RuntimeSpec{
-			Version:        "latest",
-			ResolveVersion: []string{"bad-cmd"},
-		}
-		_, _, err := installer.resolveVersionValue(context.Background(), spec)
-		require.Error(t, err)
-	})
+			version, kind, err := installer.resolveVersion(context.Background(), tt.version, tt.cmds)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrMsg != "" {
+					assert.Contains(t, err.Error(), tt.wantErrMsg)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantVersion, version)
+			assert.Equal(t, tt.wantKind, kind)
+			if tt.wantNoCalls {
+				assert.Empty(t, runner.captureCalls, "shell command should not be called for exact version")
+			}
+		})
+	}
 }
 
-// TestInstaller_ResolveVersionValue_ExactSkip tests exact version skip via the full Install path.
-func TestInstaller_ResolveVersionValue_ExactSkip(t *testing.T) {
+// TestInstaller_ResolveVersion_ExactSkip tests exact version skip via the full Install path.
+func TestInstaller_ResolveVersion_ExactSkip(t *testing.T) {
 	t.Parallel()
 
 	binContent := []byte("#!/bin/sh\necho 'mock'\n")

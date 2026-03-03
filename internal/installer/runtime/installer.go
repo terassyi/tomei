@@ -101,7 +101,7 @@ func (i *Installer) installDownload(ctx context.Context, spec *resource.RuntimeS
 	}
 
 	// Resolve version if configured
-	resolvedVersion, versionKind, err := i.resolveVersionValue(ctx, spec)
+	resolvedVersion, versionKind, err := i.resolveVersion(ctx, spec.Version, spec.ResolveVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve version: %w", err)
 	}
@@ -291,19 +291,7 @@ func (i *Installer) buildStateResolved(spec *resource.RuntimeSpec, installPath, 
 		toolBinPath = expanded
 	}
 
-	// Expand {{.Version}} templates in env values, then expand ~
-	env := make(map[string]string)
-	for k, v := range spec.Env {
-		expanded, err := expandVersionTemplate(v, resolvedVersion)
-		if err != nil {
-			expanded = v
-		}
-		if pathExpanded, err := path.Expand(expanded); err == nil {
-			env[k] = pathExpanded
-		} else {
-			env[k] = expanded
-		}
-	}
+	env := expandEnv(spec.Env, resolvedVersion)
 
 	return &resource.RuntimeState{
 		Type:           spec.Type,
@@ -322,19 +310,19 @@ func (i *Installer) buildStateResolved(spec *resource.RuntimeSpec, installPath, 
 	}
 }
 
-// resolveVersionValue resolves the runtime version using resolveVersion commands.
-// If resolveVersion is not configured or the version is an exact version number,
-// returns the spec version as-is.
+// resolveVersion resolves the runtime version using the given commands.
+// If cmds is empty or the version is an exact version number,
+// returns the version as-is.
 // Delegates to the shared resolve.Resolver for built-in formats and shell commands.
-func (i *Installer) resolveVersionValue(ctx context.Context, spec *resource.RuntimeSpec) (string, resource.VersionKind, error) {
-	// No resolveVersion configured — use spec version directly
-	if len(spec.ResolveVersion) == 0 {
-		return spec.Version, resource.ClassifyVersion(spec.Version), nil
+func (i *Installer) resolveVersion(ctx context.Context, version string, cmds []string) (string, resource.VersionKind, error) {
+	// No resolveVersion configured — use version directly
+	if len(cmds) == 0 {
+		return version, resource.ClassifyVersion(version), nil
 	}
 
 	// Exact version specified — skip resolution even if resolveVersion is configured
-	if resource.IsExactVersion(spec.Version) {
-		return spec.Version, resource.VersionExact, nil
+	if resource.IsExactVersion(version) {
+		return version, resource.VersionExact, nil
 	}
 
 	// Use shared resolver (falls back to inline resolver if not set)
@@ -343,12 +331,12 @@ func (i *Installer) resolveVersionValue(ctx context.Context, spec *resource.Runt
 		r = resolve.NewResolver(i.cmdExecutor, i.httpClient)
 	}
 
-	version, err := r.Resolve(ctx, spec.ResolveVersion, command.Vars{Version: spec.Version})
+	resolved, err := r.Resolve(ctx, cmds, command.Vars{Version: version})
 	if err != nil {
 		return "", "", err
 	}
 
-	return version, resource.VersionAlias, nil
+	return resolved, resource.VersionAlias, nil
 }
 
 // versionVars holds template variables for version template expansion.
@@ -376,6 +364,23 @@ func expandVersionTemplate(tmpl, version string) (string, error) {
 	return buf.String(), nil
 }
 
+// expandEnv expands {{.Version}} templates and ~ in env values.
+func expandEnv(env map[string]string, version string) map[string]string {
+	out := make(map[string]string, len(env))
+	for k, v := range env {
+		expanded, err := expandVersionTemplate(v, version)
+		if err != nil {
+			expanded = v
+		}
+		if pathExpanded, err := path.Expand(expanded); err == nil {
+			out[k] = pathExpanded
+		} else {
+			out[k] = expanded
+		}
+	}
+	return out
+}
+
 // installDelegation installs a runtime using the delegation pattern.
 func (i *Installer) installDelegation(ctx context.Context, spec *resource.RuntimeSpec, name string) (*resource.RuntimeState, error) {
 	// Validate spec
@@ -386,37 +391,31 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		return nil, fmt.Errorf("bootstrap.install is required for delegation pattern")
 	}
 
-	resolvedVersion := spec.Version
-	versionKind := resource.ClassifyVersion(spec.Version)
-
-	// Resolve version alias if configured
-	if len(spec.Bootstrap.ResolveVersion) > 0 {
-		slog.Debug("resolving version alias", "name", name, "alias", spec.Version)
-		resolved, err := i.cmdExecutor.ExecuteCapture(ctx, spec.Bootstrap.ResolveVersion, command.Vars{Version: spec.Version}, nil)
-		if err != nil {
+	// Resolve version using the shared resolver (supports http-text:, github-release:,
+	// and shell command fallback). When no resolveVersion commands are configured,
+	// resolveVersion returns spec.Version directly.
+	action := executor.ActionFromContext(ctx)
+	resolvedVersion, versionKind, err := i.resolveVersion(ctx, spec.Version, spec.Bootstrap.ResolveVersion)
+	if err != nil {
+		// On first install, the runtime binary may not exist yet, so shell-based
+		// resolvers (e.g. "rustc --version") can fail. Fall back to spec.Version
+		// and let the bootstrap installer handle the alias directly.
+		if action == resource.ActionInstall || action == "" {
+			slog.Debug("resolveVersion failed on install, falling back to spec version",
+				"name", name, "version", spec.Version, "error", err)
+			resolvedVersion = spec.Version
+			versionKind = resource.ClassifyVersion(spec.Version)
+		} else {
 			return nil, fmt.Errorf("failed to resolve version: %w", err)
 		}
-		if resolved != "" {
-			slog.Debug("version resolved", "name", name, "alias", spec.Version, "resolved", resolved)
-			resolvedVersion = resolved
-			versionKind = resource.VersionAlias
-		}
 	}
 
-	// Prepare environment
-	env := make(map[string]string)
-	for k, v := range spec.Env {
-		if expanded, err := path.Expand(v); err == nil {
-			env[k] = expanded
-		} else {
-			env[k] = v
-		}
-	}
+	// Prepare environment: expand {{.Version}} templates, then expand ~
+	env := expandEnv(spec.Env, resolvedVersion)
 
 	// Select bootstrap command: use update if available and action is upgrade/reinstall
 	cmds := spec.Bootstrap.Install
 	errAction := "install"
-	action := executor.ActionFromContext(ctx)
 	if (action == resource.ActionUpgrade || action == resource.ActionReinstall) && len(spec.Bootstrap.Update) > 0 {
 		cmds = spec.Bootstrap.Update
 		errAction = "update"
@@ -442,37 +441,17 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		}
 	}
 
-	// Expand paths
-	toolBinPath := spec.ToolBinPath
-	if expanded, err := path.Expand(toolBinPath); err == nil {
-		toolBinPath = expanded
-	}
-
-	binDir := spec.BinDir
-	if binDir != "" {
-		if expanded, err := path.Expand(binDir); err == nil {
-			binDir = expanded
-		}
-	} else {
-		binDir = toolBinPath
+	binDir, err := i.resolveBinDir(spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve bin directory: %w", err)
 	}
 
 	slog.Debug("runtime installed via delegation", "name", name, "version", resolvedVersion)
 
-	return &resource.RuntimeState{
-		Type:           spec.Type,
-		Version:        resolvedVersion,
-		VersionKind:    versionKind,
-		SpecVersion:    spec.Version,
-		Binaries:       spec.Binaries,
-		BinDir:         binDir,
-		ToolBinPath:    toolBinPath,
-		Commands:       spec.Commands,
-		Env:            env,
-		RemoveCommand:  spec.Bootstrap.Remove,
-		TaintOnUpgrade: spec.TaintOnUpgrade,
-		UpdatedAt:      time.Now(),
-	}, nil
+	state := i.buildStateResolved(spec, "", binDir, resolvedVersion, versionKind)
+	state.Env = env
+	state.RemoveCommand = spec.Bootstrap.Remove
+	return state, nil
 }
 
 // resolveBinDir determines where to create symlinks for runtime binaries.
