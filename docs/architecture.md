@@ -225,17 +225,17 @@ flowchart LR
 
 1. **download/**: Fetches files via HTTP with progress callbacks. Supports `GITHUB_TOKEN` / `GH_TOKEN` for authenticated requests.
 2. **checksum/**: Verifies SHA256 (or MD5) against inline value or remote checksum file.
-3. **extract/**: Handles tar.gz, zip, and raw (single binary) archives.
+3. **extract/**: Handles tar.gz, tar.xz, zip, and raw (single binary) archives.
 4. **place/**: Copies the binary to the install path and creates a symlink in `~/.local/bin/`.
 
 ### Delegation pattern
 
 ```mermaid
 flowchart LR
-    A[Execute install command] --> B[Verify with check command]
+    A[Execute install command] --> B[Verify with check command] --> C[Create symlinks if needed]
 ```
 
-Uses `exec.Command` with explicit arguments (no shell injection). Environment variables from Runtime's `env` field are automatically set.
+Uses `exec.Command` with explicit arguments (no shell injection). Environment variables from Runtime's `env` field are automatically set. When `binaries` and `binDir` are configured, symlinks are created in `~/.local/bin/` after successful installation.
 
 ### Aqua registry integration
 

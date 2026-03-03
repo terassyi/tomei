@@ -191,6 +191,9 @@ Completed:
 - Schema management: init guard, apply confirmation prompt (`--yes`)
 - CUE module ecosystem: `tomei cue init`, OCI registry resolution, `CUE_REGISTRY` in `tomei env`
 - Schema import: presets import schema for single source of truth, `@tag()` for platform injection
+- Taint UI visibility: phase-aware engine events, taint reinstall and removal in TUI and plan
+- Commands pattern: self-managed tools with install/update/check/remove/resolveVersion
+- Cosign signature verification: pre-flight OCI artifact verification via sigstore
 
 ## 10. Roadmap
 

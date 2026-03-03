@@ -95,7 +95,7 @@ spec: {
 |-------|------|----------|-------------|
 | `spec.type` | `"download"` \| `"delegation"` | yes | Installation pattern |
 | `spec.version` | string | yes | Version string (exact, `"stable"`, `"latest"`) |
-| `spec.toolBinPath` | string | yes | Directory where tools installed via this runtime are placed |
+| `spec.toolBinPath` | string | conditional | Directory where tools installed via this runtime are placed. Required when `spec.commands` is defined |
 | `spec.source` | [DownloadSource](#downloadsource) | download only | Download URL and checksum |
 | `spec.bootstrap` | [RuntimeBootstrap](#runtimebootstrap) | delegation only | Install/check/remove commands for the runtime itself |
 | `spec.binaries` | []string | no | Executable names in the runtime (e.g., `["go", "gofmt"]`) |
@@ -284,7 +284,7 @@ spec: {
         url?:         string & =~"^https://"               // checksum file URL
         filePattern?: string                                // glob for matching in checksum file
     }
-    archiveType?: "tar.gz" | "zip" | "raw"
+    archiveType?: "tar.gz" | "tar.xz" | "zip" | "raw"
     asset?:       string                    // GitHub release asset name
 }
 ```
