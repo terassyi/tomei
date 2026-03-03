@@ -394,12 +394,21 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	// Resolve version using the shared resolver (supports http-text:, github-release:,
 	// and shell command fallback). When no resolveVersion commands are configured,
 	// resolveVersion returns spec.Version directly.
+	action := executor.ActionFromContext(ctx)
 	resolvedVersion, versionKind, err := i.resolveVersion(ctx, spec.Version, spec.Bootstrap.ResolveVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve version: %w", err)
+		// On first install, the runtime binary may not exist yet, so shell-based
+		// resolvers (e.g. "rustc --version") can fail. Fall back to spec.Version
+		// and let the bootstrap installer handle the alias directly.
+		if action == resource.ActionInstall || action == "" {
+			slog.Debug("resolveVersion failed on install, falling back to spec version",
+				"name", name, "version", spec.Version, "error", err)
+			resolvedVersion = spec.Version
+			versionKind = resource.ClassifyVersion(spec.Version)
+		} else {
+			return nil, fmt.Errorf("failed to resolve version: %w", err)
+		}
 	}
-
-	action := executor.ActionFromContext(ctx)
 
 	// Prepare environment: expand {{.Version}} templates, then expand ~
 	env := expandEnv(spec.Env, resolvedVersion)

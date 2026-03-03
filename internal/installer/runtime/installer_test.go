@@ -500,6 +500,45 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to resolve version")
 	})
 
+	t.Run("delegation install falls back to spec version when resolve fails", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		binDir := filepath.Join(tmpDir, "bin")
+
+		runner := &mockCommandRunner{
+			captureErr:  fmt.Errorf("command not found"),
+			checkResult: true,
+		}
+		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+
+		rt := &resource.Runtime{
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDelegation,
+				Version:     "stable",
+				ToolBinPath: binDir,
+				Bootstrap: &resource.RuntimeBootstrapSpec{
+					CommandSet: resource.CommandSet{
+						Install: []string{"install-cmd {{.Version}}"},
+						Check:   []string{"check-cmd"},
+					},
+					ResolveVersion: []string{"binary --version"},
+				},
+			},
+		}
+
+		// On first install, resolveVersion failure falls back to spec.Version
+		ctx := executor.WithAction(context.Background(), resource.ActionInstall)
+		state, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		assert.Equal(t, "stable", state.Version)
+		assert.Equal(t, resource.VersionExact, state.VersionKind)
+
+		// install command receives spec version directly
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
+	})
+
 	t.Run("delegation install command fails", func(t *testing.T) {
 		t.Parallel()
 		tmpDir := t.TempDir()
