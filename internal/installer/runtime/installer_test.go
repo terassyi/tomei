@@ -231,31 +231,15 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation basic", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			checkResult: true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "1.0.0",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-						Remove:  []string{"remove-cmd"},
-					},
-				},
-				Commands: &resource.CommandsSpec{
-					Install: []string{"tool-install {{.Name}}"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Commands = &resource.CommandsSpec{
+				Install: []string{"tool-install {{.Name}}"},
+			}
+		})
 
 		state, err := installer.Install(context.Background(), rt, "mock")
 		require.NoError(t, err)
@@ -281,29 +265,15 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation with ResolveVersion", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{captureResult: "1.83.0", checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			captureResult: "1.83.0",
-			checkResult:   true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "stable",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-					},
-					ResolveVersion: []string{"resolve-cmd"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "stable"
+			s.Bootstrap.ResolveVersion = []string{"resolve-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
 		state, err := installer.Install(ctx, rt, "mock")
@@ -328,29 +298,15 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation install calls resolveVersion", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{captureResult: "1.83.0", checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			captureResult: "1.83.0",
-			checkResult:   true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "stable",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-					},
-					ResolveVersion: []string{"resolve-cmd"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "stable"
+			s.Bootstrap.ResolveVersion = []string{"resolve-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		// resolveVersion is called regardless of action (including first install)
 		state, err := installer.Install(context.Background(), rt, "mock")
@@ -371,30 +327,16 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation upgrade calls resolveVersion", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{captureResult: "1.83.0", checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			captureResult: "1.83.0",
-			checkResult:   true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "stable",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-					},
-					Update:         []string{"update-cmd {{.Version}}"},
-					ResolveVersion: []string{"resolve-cmd"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "stable"
+			s.Bootstrap.Update = []string{"update-cmd {{.Version}}"}
+			s.Bootstrap.ResolveVersion = []string{"resolve-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
 		state, err := installer.Install(ctx, rt, "mock")
@@ -410,26 +352,14 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation check fails", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
+		runner := &mockCommandRunner{checkResult: false}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			checkResult: false,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "1.0.0",
-				ToolBinPath: filepath.Join(tmpDir, "bin"),
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd"},
-						Check:   []string{"check-cmd"},
-					},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		_, err := installer.Install(context.Background(), rt, "mock")
 		require.Error(t, err)
@@ -438,27 +368,15 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation check receives Version template variable", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			checkResult: true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "1.22.0",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"myruntime --version | grep {{.Version}}"},
-					},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "1.22.0"
+			s.Bootstrap.Check = []string{"myruntime --version | grep {{.Version}}"}
+			s.Bootstrap.Remove = nil
+		})
 
 		state, err := installer.Install(context.Background(), rt, "mock")
 		require.NoError(t, err)
@@ -472,27 +390,16 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation ResolveVersion fails", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
+		runner := &mockCommandRunner{captureErr: fmt.Errorf("command failed: exit 1")}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			captureErr: fmt.Errorf("command failed: exit 1"),
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "stable",
-				ToolBinPath: filepath.Join(tmpDir, "bin"),
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd"},
-						Check:   []string{"check-cmd"},
-					},
-					ResolveVersion: []string{"resolve-cmd"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "stable"
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.ResolveVersion = []string{"resolve-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
 		_, err := installer.Install(ctx, rt, "mock")
@@ -502,29 +409,15 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation install falls back to spec version when resolve fails", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
+		runner := &mockCommandRunner{captureErr: fmt.Errorf("command not found"), checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			captureErr:  fmt.Errorf("command not found"),
-			checkResult: true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "stable",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-					},
-					ResolveVersion: []string{"binary --version"},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "stable"
+			s.Bootstrap.ResolveVersion = []string{"binary --version"}
+			s.Bootstrap.Remove = nil
+		})
 
 		// On first install, resolveVersion failure falls back to spec.Version
 		ctx := executor.WithAction(context.Background(), resource.ActionInstall)
@@ -541,26 +434,14 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation install command fails", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
+		runner := &mockCommandRunner{executeErr: fmt.Errorf("command failed: install error")}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		runner := &mockCommandRunner{
-			executeErr: fmt.Errorf("command failed: install error"),
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "1.0.0",
-				ToolBinPath: filepath.Join(tmpDir, "bin"),
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd"},
-						Check:   []string{"check-cmd"},
-					},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
 
 		_, err := installer.Install(context.Background(), rt, "mock")
 		require.Error(t, err)
@@ -569,8 +450,6 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation with http-text resolveVersion", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		binDir := filepath.Join(tmpDir, "bin")
 
 		// Start a mock HTTP server that returns a version string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -578,26 +457,16 @@ func TestInstaller_Install(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		runner := &mockCommandRunner{
-			checkResult: true,
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
 		installer.SetHTTPClient(srv.Client())
+		binDir := filepath.Join(runtimesDir, "bin")
 
-		rt := &resource.Runtime{
-			RuntimeSpec: &resource.RuntimeSpec{
-				Type:        resource.InstallTypeDelegation,
-				Version:     "latest",
-				ToolBinPath: binDir,
-				Bootstrap: &resource.RuntimeBootstrapSpec{
-					CommandSet: resource.CommandSet{
-						Install: []string{"install-cmd {{.Version}}"},
-						Check:   []string{"check-cmd"},
-					},
-					ResolveVersion: []string{fmt.Sprintf("http-text:%s:v([0-9.]+)", srv.URL)},
-				},
-			},
-		}
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "latest"
+			s.Bootstrap.ResolveVersion = []string{fmt.Sprintf("http-text:%s:v([0-9.]+)", srv.URL)}
+			s.Bootstrap.Remove = nil
+		})
 
 		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
 		state, err := installer.Install(ctx, rt, "mock")
@@ -617,14 +486,14 @@ func TestInstaller_Install(t *testing.T) {
 
 	t.Run("delegation missing bootstrap", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-		installer := NewInstaller(download.NewDownloader(), tmpDir)
+		installer, runtimesDir := newTestInstaller(t, &mockCommandRunner{})
+		binDir := filepath.Join(runtimesDir, "bin")
 
 		rt := &resource.Runtime{
 			RuntimeSpec: &resource.RuntimeSpec{
 				Type:        resource.InstallTypeDelegation,
 				Version:     "1.0.0",
-				ToolBinPath: filepath.Join(tmpDir, "bin"),
+				ToolBinPath: binDir,
 			},
 		}
 
@@ -697,28 +566,14 @@ func TestInstaller_DelegationUpdateCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tmpDir := t.TempDir()
-			binDir := filepath.Join(tmpDir, "bin")
+			runner := &mockCommandRunner{checkResult: true}
+			installer, runtimesDir := newTestInstaller(t, runner)
+			binDir := filepath.Join(runtimesDir, "bin")
 
-			runner := &mockCommandRunner{
-				checkResult: true,
-			}
-			installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-			rt := &resource.Runtime{
-				RuntimeSpec: &resource.RuntimeSpec{
-					Type:        resource.InstallTypeDelegation,
-					Version:     "1.0.0",
-					ToolBinPath: binDir,
-					Bootstrap: &resource.RuntimeBootstrapSpec{
-						CommandSet: resource.CommandSet{
-							Install: []string{"install-cmd {{.Version}}"},
-							Check:   []string{"check-cmd"},
-						},
-						Update: tt.update,
-					},
-				},
-			}
+			rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+				s.Bootstrap.Update = tt.update
+				s.Bootstrap.Remove = nil
+			})
 
 			ctx := context.Background()
 			if tt.action != "" {
@@ -763,27 +618,15 @@ func TestInstaller_DelegationUpdateCommand_ErrorMessage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			tmpDir := t.TempDir()
+			runner := &mockCommandRunner{executeErr: fmt.Errorf("command failed")}
+			installer, runtimesDir := newTestInstaller(t, runner)
+			binDir := filepath.Join(runtimesDir, "bin")
 
-			runner := &mockCommandRunner{
-				executeErr: fmt.Errorf("command failed"),
-			}
-			installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
-
-			rt := &resource.Runtime{
-				RuntimeSpec: &resource.RuntimeSpec{
-					Type:        resource.InstallTypeDelegation,
-					Version:     "1.0.0",
-					ToolBinPath: filepath.Join(tmpDir, "bin"),
-					Bootstrap: &resource.RuntimeBootstrapSpec{
-						CommandSet: resource.CommandSet{
-							Install: []string{"install-cmd"},
-							Check:   []string{"check-cmd"},
-						},
-						Update: tt.update,
-					},
-				},
-			}
+			rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+				s.Bootstrap.Install = []string{"install-cmd"}
+				s.Bootstrap.Update = tt.update
+				s.Bootstrap.Remove = nil
+			})
 
 			ctx := executor.WithAction(context.Background(), tt.action)
 			_, err := installer.Install(ctx, rt, "mock")
@@ -829,10 +672,8 @@ func TestInstaller_Remove(t *testing.T) {
 
 	t.Run("delegation remove with command", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-
 		runner := &mockCommandRunner{}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+		installer, _ := newTestInstaller(t, runner)
 
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
@@ -851,10 +692,8 @@ func TestInstaller_Remove(t *testing.T) {
 
 	t.Run("delegation remove without command", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-
 		runner := &mockCommandRunner{}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+		installer, _ := newTestInstaller(t, runner)
 
 		st := &resource.RuntimeState{
 			Type:    resource.InstallTypeDelegation,
@@ -868,12 +707,8 @@ func TestInstaller_Remove(t *testing.T) {
 
 	t.Run("delegation remove command fails", func(t *testing.T) {
 		t.Parallel()
-		tmpDir := t.TempDir()
-
-		runner := &mockCommandRunner{
-			executeErr: fmt.Errorf("remove failed"),
-		}
-		installer := NewInstallerWithRunner(download.NewDownloader(), tmpDir, runner)
+		runner := &mockCommandRunner{executeErr: fmt.Errorf("remove failed")}
+		installer, _ := newTestInstaller(t, runner)
 
 		st := &resource.RuntimeState{
 			Type:          resource.InstallTypeDelegation,
@@ -911,6 +746,224 @@ func TestInstaller_Remove(t *testing.T) {
 		// Verify removal of install path
 		assert.NoDirExists(t, installPath)
 	})
+}
+
+func TestInstaller_DelegationSymlinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates symlinks when binaries missing from binDir", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "ext-bin")
+
+		// Create binaries in runtimesDir/mock/1.0.0/bin/ (simulating bootstrap output)
+		binContent := []byte("#!/bin/sh\necho mock\n")
+		installBinDir := filepath.Join(runtimesDir, "mock", "1.0.0", "bin")
+		require.NoError(t, os.MkdirAll(installBinDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(installBinDir, "lua"), binContent, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(installBinDir, "luac"), binContent, 0755))
+
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.ToolBinPath = ""
+			s.BinDir = binDir
+			s.Binaries = []string{"lua", "luac"}
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
+
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+
+		// Verify state has installPath set
+		assert.Equal(t, filepath.Join(runtimesDir, "mock", "1.0.0"), state.InstallPath)
+		assert.Equal(t, binDir, state.BinDir)
+
+		// Verify symlinks were created
+		for _, binary := range []string{"lua", "luac"} {
+			linkPath := filepath.Join(binDir, binary)
+			info, err := os.Lstat(linkPath)
+			require.NoError(t, err)
+			assert.NotZero(t, info.Mode()&os.ModeSymlink, "expected %s to be a symlink", binary)
+
+			target, err := os.Readlink(linkPath)
+			require.NoError(t, err)
+			assert.Equal(t, filepath.Join(installBinDir, binary), target)
+		}
+	})
+
+	t.Run("skips symlinks when binaries already in binDir", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "cargo-bin")
+
+		// Create binaries directly in binDir (Rust pattern: binDir = ~/.cargo/bin/)
+		require.NoError(t, os.MkdirAll(binDir, 0755))
+		binContent := []byte("#!/bin/sh\necho mock\n")
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "rustc"), binContent, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "cargo"), binContent, 0755))
+
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.Version = "1.83.0"
+			s.ToolBinPath = ""
+			s.BinDir = binDir
+			s.Binaries = []string{"rustc", "cargo"}
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
+
+		state, err := installer.Install(context.Background(), rt, "rust")
+		require.NoError(t, err)
+
+		// Verify state has empty installPath (no symlinks created)
+		assert.Empty(t, state.InstallPath)
+
+		// Verify binDir files are still regular files (not symlinks)
+		for _, binary := range []string{"rustc", "cargo"} {
+			info, err := os.Lstat(filepath.Join(binDir, binary))
+			require.NoError(t, err)
+			assert.Zero(t, info.Mode()&os.ModeSymlink, "expected %s to be a regular file", binary)
+		}
+	})
+
+	t.Run("skips symlinks when binaries list is empty", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.ToolBinPath = ""
+			s.BinDir = binDir
+			// Binaries intentionally nil
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
+
+		state, err := installer.Install(context.Background(), rt, "mock")
+		require.NoError(t, err)
+		assert.Empty(t, state.InstallPath)
+	})
+
+	t.Run("fails when binaries missing from both binDir and runtimesDir", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.ToolBinPath = ""
+			s.BinDir = binDir
+			s.Binaries = []string{"lua"}
+			s.Bootstrap.Install = []string{"install-cmd"}
+			s.Bootstrap.Remove = nil
+		})
+
+		_, err := installer.Install(context.Background(), rt, "mock")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not found")
+	})
+}
+
+func TestInstaller_DelegationRemoveSymlinks(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cleans up symlinks", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		// Create a real file to be the symlink target
+		installBinDir := filepath.Join(runtimesDir, "mock", "1.0.0", "bin")
+		require.NoError(t, os.MkdirAll(installBinDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(installBinDir, "lua"), []byte("binary"), 0755))
+
+		// Create symlink in binDir
+		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.Symlink(filepath.Join(installBinDir, "lua"), filepath.Join(binDir, "lua")))
+
+		st := &resource.RuntimeState{
+			Type:          resource.InstallTypeDelegation,
+			Version:       "1.0.0",
+			Binaries:      []string{"lua"},
+			BinDir:        binDir,
+			RemoveCommand: []string{"remove-cmd"},
+		}
+
+		err := installer.Remove(context.Background(), st, "mock")
+		require.NoError(t, err)
+
+		// Verify symlink was removed
+		assert.NoFileExists(t, filepath.Join(binDir, "lua"))
+	})
+
+	t.Run("preserves regular files", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		// Create regular file in binDir (like Rust's ~/.cargo/bin/rustc)
+		require.NoError(t, os.MkdirAll(binDir, 0755))
+		require.NoError(t, os.WriteFile(filepath.Join(binDir, "rustc"), []byte("binary"), 0755))
+
+		st := &resource.RuntimeState{
+			Type:          resource.InstallTypeDelegation,
+			Version:       "1.83.0",
+			Binaries:      []string{"rustc"},
+			BinDir:        binDir,
+			RemoveCommand: []string{"remove-cmd"},
+		}
+
+		err := installer.Remove(context.Background(), st, "rust")
+		require.NoError(t, err)
+
+		// Regular file should still exist (not removed)
+		assert.FileExists(t, filepath.Join(binDir, "rustc"))
+	})
+
+	t.Run("tolerates missing files", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		st := &resource.RuntimeState{
+			Type:          resource.InstallTypeDelegation,
+			Version:       "1.0.0",
+			Binaries:      []string{"missing-binary"},
+			BinDir:        binDir,
+			RemoveCommand: []string{"remove-cmd"},
+		}
+
+		err := installer.Remove(context.Background(), st, "mock")
+		require.NoError(t, err)
+	})
+}
+
+func TestCreateSymlinks_SamePathGuard(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	// Set up installPath such that installPath/bin/binary == binDir/binary
+	binDir := filepath.Join(tmpDir, "bin")
+	installPath := tmpDir
+
+	// Create the binary at installPath/bin/binary (which is the same as binDir/binary)
+	require.NoError(t, os.MkdirAll(binDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "mybin"), []byte("binary"), 0755))
+
+	installer := NewInstaller(download.NewDownloader(), tmpDir)
+
+	err := installer.createSymlinks(installPath, []string{"mybin"}, binDir)
+	require.NoError(t, err)
+
+	// Binary should still be a regular file (not deleted or replaced with symlink)
+	info, err := os.Lstat(filepath.Join(binDir, "mybin"))
+	require.NoError(t, err)
+	assert.Zero(t, info.Mode()&os.ModeSymlink, "expected binary to remain a regular file")
 }
 
 func TestFindExtractedRoot(t *testing.T) {
@@ -1857,6 +1910,38 @@ func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- test helpers for delegation tests ---
+
+// newDelegationSpec creates a base delegation Runtime with functional options for customization.
+// Default spec: Type=Delegation, Version="1.0.0", ToolBinPath=<binDir>,
+// Bootstrap={Install: ["install-cmd {{.Version}}"], Check: ["check-cmd"], Remove: ["remove-cmd"]}.
+func newDelegationSpec(binDir string, opts ...func(*resource.RuntimeSpec)) *resource.Runtime {
+	spec := &resource.RuntimeSpec{
+		Type:        resource.InstallTypeDelegation,
+		Version:     "1.0.0",
+		ToolBinPath: binDir,
+		Bootstrap: &resource.RuntimeBootstrapSpec{
+			CommandSet: resource.CommandSet{
+				Install: []string{"install-cmd {{.Version}}"},
+				Check:   []string{"check-cmd"},
+				Remove:  []string{"remove-cmd"},
+			},
+		},
+	}
+	for _, opt := range opts {
+		opt(spec)
+	}
+	return &resource.Runtime{RuntimeSpec: spec}
+}
+
+// newTestInstaller creates a test Installer with a mockCommandRunner and returns (installer, runtimesDir).
+func newTestInstaller(t *testing.T, runner *mockCommandRunner) (*Installer, string) {
+	t.Helper()
+	runtimesDir := t.TempDir()
+	installer := NewInstallerWithRunner(download.NewDownloader(), runtimesDir, runner)
+	return installer, runtimesDir
 }
 
 // --- mockCommandRunner ---
