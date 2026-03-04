@@ -2,7 +2,6 @@ package cuemod
 
 import (
 	"context"
-	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -136,30 +135,8 @@ func TestRelativePath(t *testing.T) {
 }
 
 func TestResolveLatestVersion(t *testing.T) {
-	// Helper to build a minimal CUE module for the mock registry.
-	buildModuleFS := func(version string) fstest.MapFS {
-		prefix := "tomei.terassyi.net_" + version + "/"
-		return fstest.MapFS{
-			prefix + "cue.mod/module.cue": &fstest.MapFile{
-				Data: []byte("module: \"tomei.terassyi.net@v0\"\nlanguage: version: \"v0.9.0\"\n"),
-			},
-			prefix + "schema/schema.cue": &fstest.MapFile{
-				Data: []byte("package schema\n"),
-			},
-		}
-	}
-
-	// Merge multiple version FSes into one.
-	mergeFS := func(versions ...string) fstest.MapFS {
-		merged := fstest.MapFS{}
-		for _, v := range versions {
-			maps.Copy(merged, buildModuleFS(v))
-		}
-		return merged
-	}
-
 	t.Run("returns latest version from multiple", func(t *testing.T) {
-		reg, err := modregistrytest.New(mergeFS("v0.0.1", "v0.0.2", "v0.0.3"), "")
+		reg, err := modregistrytest.New(mergeMockModuleFS("v0.0.1", "v0.0.2", "v0.0.3"), "")
 		require.NoError(t, err)
 		defer reg.Close()
 
@@ -171,7 +148,7 @@ func TestResolveLatestVersion(t *testing.T) {
 	})
 
 	t.Run("returns single version", func(t *testing.T) {
-		reg, err := modregistrytest.New(buildModuleFS("v0.0.1"), "")
+		reg, err := modregistrytest.New(buildMockModuleFS("v0.0.1"), "")
 		require.NoError(t, err)
 		defer reg.Close()
 
