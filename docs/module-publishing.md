@@ -23,7 +23,7 @@ deps: {
 }
 ```
 
-This pins the exact version for reproducibility. To update to a newer module version, run `cue mod tidy`.
+This pins the exact version for reproducibility. To update to a newer module version, run `tomei cue update`.
 
 ## Publish Flow
 
