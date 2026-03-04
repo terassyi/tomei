@@ -116,7 +116,7 @@ deps: {
 }
 ```
 
-The `deps` version is resolved at `tomei cue init` time by querying the OCI registry (ghcr.io) for the latest published tag. This pins the exact patch version for reproducibility. To update, run `cue mod tidy`.
+The `deps` version is resolved at `tomei cue init` time by querying the OCI registry (ghcr.io) for the latest published tag. This pins the exact patch version for reproducibility. To update, run `tomei cue update`.
 
 **tomei_platform.cue:**
 ```cue
@@ -132,6 +132,20 @@ _headless: bool | *false @tag(headless,type=bool)
 ## CUE Subcommands
 
 `tomei` provides CUE subcommands that integrate with the tomei registry and `@tag()` configuration.
+
+### tomei cue update
+
+Update tomei module dependencies to the latest version:
+
+```bash
+$ tomei cue update
+tomei.terassyi.net@v0: v0.0.1 -> v0.0.3
+
+Updated cue.mod/module.cue
+
+# Preview without writing
+$ tomei cue update --dry-run
+```
 
 ### tomei cue scaffold
 

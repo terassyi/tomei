@@ -10,10 +10,9 @@ import (
 	"cuelang.org/go/mod/module"
 )
 
-// ExtractFirstPartyDeps reads cue.mod/module.cue from the given cue.mod directory
-// and returns the list of first-party (tomei.terassyi.net) module dependencies.
-// Returns nil (no error) if the directory does not exist.
-func ExtractFirstPartyDeps(cueModDir string) ([]module.Version, error) {
+// ParseModuleFile reads and parses the cue.mod/module.cue file from the given cue.mod directory.
+// Returns (nil, nil) if the file does not exist.
+func ParseModuleFile(cueModDir string) (*modfile.File, error) {
 	moduleCuePath := filepath.Join(cueModDir, "module.cue")
 
 	data, err := os.ReadFile(moduleCuePath)
@@ -27,6 +26,21 @@ func ExtractFirstPartyDeps(cueModDir string) ([]module.Version, error) {
 	f, err := modfile.Parse(data, moduleCuePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse module.cue: %w", err)
+	}
+
+	return f, nil
+}
+
+// ExtractFirstPartyDeps reads cue.mod/module.cue from the given cue.mod directory
+// and returns the list of first-party (tomei.terassyi.net) module dependencies.
+// Returns nil (no error) if the directory does not exist.
+func ExtractFirstPartyDeps(cueModDir string) ([]module.Version, error) {
+	f, err := ParseModuleFile(cueModDir)
+	if err != nil {
+		return nil, err
+	}
+	if f == nil {
+		return nil, nil
 	}
 
 	var deps []module.Version

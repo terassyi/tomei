@@ -58,6 +58,31 @@ eval $(tomei env)
 
 See [CUE Ecosystem Integration](cue-ecosystem.md) for details.
 
+## tomei cue update
+
+Update tomei module dependencies in `cue.mod/module.cue` to the latest published version.
+
+```
+tomei cue update [dir] [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Show updates without writing changes |
+
+Scans the `deps` block for first-party `tomei.terassyi.net` dependencies and updates their version to the latest available from the OCI registry.
+
+```bash
+# Update in current directory
+tomei cue update
+
+# Preview changes without writing
+tomei cue update --dry-run
+
+# Update in specified directory
+tomei cue update ./manifests
+```
+
 ## tomei cue scaffold
 
 Generate a CUE manifest scaffold for a resource kind.

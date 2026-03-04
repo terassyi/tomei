@@ -42,6 +42,9 @@ tomei init
 # Set up CUE module
 tomei cue init
 
+# Update module deps to latest (after schema/preset releases)
+tomei cue update
+
 # Write manifests, then apply
 tomei plan .
 tomei apply .

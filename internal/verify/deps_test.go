@@ -10,6 +10,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseModuleFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, dir string)
+		wantNil   bool
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name: "valid module file",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				data := []byte("module: \"manifests.local@v0\"\nlanguage: version: \"v0.9.0\"\n")
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "module.cue"), data, 0644))
+			},
+		},
+		{
+			name:    "file not found returns nil",
+			setup:   func(_ *testing.T, _ string) {},
+			wantNil: true,
+		},
+		{
+			name: "invalid CUE syntax",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "module.cue"), []byte("invalid {{{"), 0644))
+			},
+			wantErr:   true,
+			errSubstr: "failed to parse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			cueModDir := filepath.Join(dir, "cue.mod")
+			tt.setup(t, cueModDir)
+
+			f, err := ParseModuleFile(cueModDir)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSubstr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			if tt.wantNil {
+				assert.Nil(t, f)
+				return
+			}
+
+			require.NotNil(t, f)
+			assert.Equal(t, "manifests.local@v0", f.Module)
+		})
+	}
+}
+
 func TestExtractFirstPartyDeps(t *testing.T) {
 	t.Parallel()
 

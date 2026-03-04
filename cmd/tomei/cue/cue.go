@@ -10,6 +10,7 @@ var Cmd = &cobra.Command{
 
 Subcommands:
   init       Initialize a CUE module for tomei manifests
+  update     Update tomei module dependencies to the latest version
   scaffold   Generate a CUE manifest scaffold for a resource kind
   eval       Evaluate CUE manifests with tomei configuration
   export     Export CUE manifests as JSON with tomei configuration`,
@@ -17,6 +18,7 @@ Subcommands:
 
 func init() {
 	Cmd.AddCommand(initCmd)
+	Cmd.AddCommand(updateCmd)
 	Cmd.AddCommand(scaffoldCmd)
 	Cmd.AddCommand(evalCmd)
 	Cmd.AddCommand(exportCmd)
