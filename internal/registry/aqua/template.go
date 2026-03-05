@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"strings"
 	"text/template"
+	"unicode"
+	"unicode/utf8"
 )
 
 // TemplateVars holds variables for rendering asset name templates.
@@ -18,6 +20,7 @@ type TemplateVars struct {
 }
 
 // templateFuncs defines custom functions available in templates.
+// These are compatible with aqua's Sprig-based template engine.
 var templateFuncs = template.FuncMap{
 	// trimV removes the "v" prefix from a version string.
 	// Example: {{trimV .Version}} with "v2.86.0" returns "2.86.0"
@@ -32,10 +35,30 @@ var templateFuncs = template.FuncMap{
 	// trimSuffix removes a suffix from a string.
 	// Example: {{trimSuffix .Format ".gz"}} with "tar.gz" returns "tar"
 	"trimSuffix": strings.TrimSuffix,
+
+	// title uppercases the first character of a string.
+	// Used by aqua-registry (e.g., goreleaser, porter): {{title .OS}} "linux" → "Linux".
+	// Note: unlike Sprig's title (strings.Title), this only uppercases the first rune,
+	// not each word. Sufficient for aqua-registry where inputs are single-word OS names.
+	"title": func(s string) string {
+		r, size := utf8.DecodeRuneInString(s)
+		if r == utf8.RuneError {
+			return s
+		}
+		return string(unicode.ToUpper(r)) + s[size:]
+	},
+
+	// tolower converts a string to lowercase.
+	// Example: {{tolower .OS}} with "Darwin" returns "darwin"
+	"tolower": strings.ToLower,
+
+	// toupper converts a string to uppercase.
+	// Example: {{toupper .OS}} with "linux" returns "LINUX"
+	"toupper": strings.ToUpper,
 }
 
 // RenderTemplate renders a template string with the given variables.
-// It supports custom functions: trimV, trimPrefix, trimSuffix.
+// It supports custom functions: trimV, trimPrefix, trimSuffix, title, tolower, toupper.
 func RenderTemplate(tmpl string, vars TemplateVars) (string, error) {
 	t, err := template.New("asset").Funcs(templateFuncs).Parse(tmpl)
 	if err != nil {
