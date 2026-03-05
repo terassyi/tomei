@@ -30,6 +30,10 @@ const (
 	// ArchiveTypeRaw represents a raw binary file (no compression).
 	// Use this for direct binary downloads (e.g., jq-linux-amd64).
 	ArchiveTypeRaw ArchiveType = "raw"
+
+	// ArchiveTypePkg represents a macOS flat package (.pkg).
+	// Extracted using pkgutil --expand-full (available on macOS without sudo).
+	ArchiveTypePkg ArchiveType = "pkg"
 )
 
 // NormalizeArchiveType normalizes an archive type string to a canonical ArchiveType constant.
@@ -45,6 +49,8 @@ func NormalizeArchiveType(raw string) ArchiveType {
 		return ArchiveTypeZip
 	case "raw":
 		return ArchiveTypeRaw
+	case "pkg":
+		return ArchiveTypePkg
 	default:
 		return ArchiveType(raw)
 	}
@@ -64,6 +70,9 @@ func DetectArchiveType(urlOrFilename string) ArchiveType {
 	}
 	if hasSuffix(lower, ".zip") {
 		return ArchiveTypeZip
+	}
+	if hasSuffix(lower, ".pkg") {
+		return ArchiveTypePkg
 	}
 	return ""
 }
@@ -95,6 +104,8 @@ func NewExtractor(archiveType ArchiveType) (Extractor, error) {
 		return &zipExtractor{}, nil
 	case ArchiveTypeRaw:
 		return &rawExtractor{}, nil
+	case ArchiveTypePkg:
+		return &pkgExtractor{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported archive type: %s", archiveType)
 	}
@@ -105,6 +116,7 @@ var (
 	_ Extractor = (*tarXzExtractor)(nil)
 	_ Extractor = (*zipExtractor)(nil)
 	_ Extractor = (*rawExtractor)(nil)
+	_ Extractor = (*pkgExtractor)(nil)
 )
 
 // tarGzExtractor implements Extractor for tar.gz archives.

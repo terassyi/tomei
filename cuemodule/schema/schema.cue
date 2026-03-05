@@ -26,7 +26,7 @@ package schema
 #DownloadSource: {
 	url:          #HTTPSURL
 	checksum?:    #Checksum
-	archiveType?: "tar.gz" | "tar.xz" | "zip" | "raw"
+	archiveType?: "tar.gz" | "tar.xz" | "zip" | "raw" | "pkg"
 	asset?:       string
 }
 
