@@ -194,14 +194,17 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 	}
 
 	// 4. Otherwise, use download pattern with explicit source
-	return i.installByDownload(ctx, res, name)
+	return i.installByDownload(ctx, res, name, name, "")
 }
 
 // installByDownload installs a tool using the download pattern.
-func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+// name is the tool name (used for storage directory path).
+// binaryName is the binary name for placement and symlink.
+// srcBinaryName is the name to search for in the archive (empty means use binaryName).
+func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, name, binaryName, srcBinaryName string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
 	cfg := &installer.InstallConfig{
-		BinaryName: name,
+		BinaryName: binaryName,
 	}
 
 	// Validate spec
@@ -217,9 +220,10 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 
 	// Create place target
 	target := place.Target{
-		Name:       name,
-		Version:    spec.Version,
-		BinaryName: cfg.BinaryName,
+		Name:          name,
+		Version:       spec.Version,
+		BinaryName:    cfg.BinaryName,
+		SrcBinaryName: srcBinaryName,
 	}
 
 	// Validate existing installation
@@ -405,8 +409,25 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		},
 	}
 
-	// Use existing download logic
-	state, err := i.installByDownload(ctx, resolvedTool, name)
+	// Extract binary name mapping from resolved files (only first entry supported)
+	binaryName := name
+	var srcBinaryName string
+	if len(resolved.Files) > 0 {
+		f := resolved.Files[0]
+		if f.Name != "" {
+			binaryName = f.Name
+		}
+		if f.Src != "" {
+			srcBinaryName = f.Src
+		}
+		if len(resolved.Files) > 1 {
+			slog.Warn("multiple files in registry entry, using first entry only",
+				"package", spec.Package.String(), "fileCount", len(resolved.Files))
+		}
+	}
+
+	// Use existing download logic (name = resource name for storage path, binaryName = placement name)
+	state, err := i.installByDownload(ctx, resolvedTool, name, binaryName, srcBinaryName)
 	if err != nil {
 		return nil, err
 	}

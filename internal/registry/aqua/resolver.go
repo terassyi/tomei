@@ -229,7 +229,19 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 		}
 	}
 
-	// 10. Set format and files
+	// 10. Render FileSpec.Src templates (e.g., "krew-{{.OS}}_{{.Arch}}" → "krew-linux_arm64")
+	// Note: info is freshly allocated by fetch() on each call, so in-place mutation is safe.
+	for idx := range info.Files {
+		if info.Files[idx].Src != "" {
+			rendered, err := RenderTemplate(info.Files[idx].Src, vars)
+			if err != nil {
+				return nil, fmt.Errorf("failed to render files[].src template: %w", err)
+			}
+			info.Files[idx].Src = rendered
+		}
+	}
+
+	// 11. Set format and files
 	result.Format = extract.NormalizeArchiveType(info.Format)
 	if result.Format == "" && info.Asset != "" {
 		// Auto-detect raw binary format when asset has no archive extension

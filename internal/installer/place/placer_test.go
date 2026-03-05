@@ -153,6 +153,53 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "place binary with SrcBinaryName mapping",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive contains "krew-linux_arm64" but we want to place as "krew"
+				binPath := filepath.Join(srcDir, "krew-linux_arm64")
+				err := os.WriteFile(binPath, []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:          "krew",
+				Version:       "0.4.4",
+				BinaryName:    "krew",
+				SrcBinaryName: "krew-linux_arm64",
+			},
+			wantErr: false,
+		},
+		{
+			name: "place binary with empty SrcBinaryName falls back to BinaryName",
+			setup: func(t *testing.T, srcDir string) {
+				binPath := filepath.Join(srcDir, "tool")
+				err := os.WriteFile(binPath, []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "mytool",
+				Version:    "1.0.0",
+				BinaryName: "tool",
+			},
+			wantErr: false,
+		},
+		{
+			name: "SrcBinaryName not found in archive",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive contains different binary name
+				binPath := filepath.Join(srcDir, "other-binary")
+				err := os.WriteFile(binPath, []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:          "krew",
+				Version:       "0.4.4",
+				BinaryName:    "krew",
+				SrcBinaryName: "krew-linux_arm64",
+			},
+			wantErr:    true,
+			errContain: "not found",
+		},
+		{
 			name: "binary not found",
 			setup: func(t *testing.T, srcDir string) {
 				// Empty directory
