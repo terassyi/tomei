@@ -30,6 +30,7 @@ func TestNormalizeArchiveType(t *testing.T) {
 		{name: "txz", input: "txz", want: ArchiveTypeTarXz},
 		{name: "zip", input: "zip", want: ArchiveTypeZip},
 		{name: "raw", input: "raw", want: ArchiveTypeRaw},
+		{name: "pkg", input: "pkg", want: ArchiveTypePkg},
 		{name: "unknown", input: "unknown", want: ArchiveType("unknown")},
 		{name: "empty", input: "", want: ArchiveType("")},
 	}
@@ -90,6 +91,11 @@ func TestDetectArchiveType(t *testing.T) {
 			expected: ArchiveTypeTarXz,
 		},
 		{
+			name:     "pkg extension",
+			input:    "https://github.com/gohugoio/hugo/releases/download/v0.153.0/hugo_0.153.0_darwin-universal.pkg",
+			expected: ArchiveTypePkg,
+		},
+		{
 			name:     "unknown extension",
 			input:    "https://example.com/tool.exe",
 			expected: "",
@@ -141,6 +147,11 @@ func TestNewExtractor(t *testing.T) {
 		{
 			name:        "raw extractor",
 			archiveType: ArchiveTypeRaw,
+			wantErr:     false,
+		},
+		{
+			name:        "pkg extractor",
+			archiveType: ArchiveTypePkg,
 			wantErr:     false,
 		},
 		{

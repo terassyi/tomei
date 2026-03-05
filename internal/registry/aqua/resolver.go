@@ -319,6 +319,9 @@ func hasArchiveExtension(asset string) bool {
 	lower := strings.ToLower(asset)
 	return strings.HasSuffix(lower, ".tar.gz") ||
 		strings.HasSuffix(lower, ".tgz") ||
+		strings.HasSuffix(lower, ".tar.xz") ||
+		strings.HasSuffix(lower, ".txz") ||
 		strings.HasSuffix(lower, ".zip") ||
+		strings.HasSuffix(lower, ".pkg") ||
 		strings.HasSuffix(lower, ".gz")
 }
