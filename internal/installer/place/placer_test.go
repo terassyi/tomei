@@ -169,20 +169,6 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "place binary with empty SrcBinaryName falls back to BinaryName",
-			setup: func(t *testing.T, srcDir string) {
-				binPath := filepath.Join(srcDir, "tool")
-				err := os.WriteFile(binPath, []byte("binary content"), 0755)
-				require.NoError(t, err)
-			},
-			target: Target{
-				Name:       "mytool",
-				Version:    "1.0.0",
-				BinaryName: "tool",
-			},
-			wantErr: false,
-		},
-		{
 			name: "place binary found by WalkDir in subdirectory (helm pattern)",
 			setup: func(t *testing.T, srcDir string) {
 				// Archive layout: linux-arm64/helm — installer has already extracted path.Base("linux-arm64/helm") = "helm"

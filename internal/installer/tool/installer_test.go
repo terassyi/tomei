@@ -931,3 +931,77 @@ func TestInstallFromRegistry_ChecksumAlgorithmPropagation(t *testing.T) {
 	assert.Equal(t, "sha256", string(dl.lastVerifyChecksum.Algorithm), "algorithm should be propagated from aqua resolver")
 	assert.NotEmpty(t, dl.lastVerifyChecksum.URL, "checksum URL should be set")
 }
+
+func TestExtractBinaryMapping(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		defaultName       string
+		files             []aqua.FileSpec
+		wantBinaryName    string
+		wantSrcBinaryName string
+	}{
+		{
+			name:              "empty files uses default name",
+			defaultName:       "mytool",
+			files:             nil,
+			wantBinaryName:    "mytool",
+			wantSrcBinaryName: "",
+		},
+		{
+			name:        "files[].name overrides binary name",
+			defaultName: "krew",
+			files: []aqua.FileSpec{
+				{Name: "krew", Src: "krew-linux_arm64"},
+			},
+			wantBinaryName:    "krew",
+			wantSrcBinaryName: "krew-linux_arm64",
+		},
+		{
+			name:        "files[].src with path prefix extracts base name",
+			defaultName: "helm",
+			files: []aqua.FileSpec{
+				{Name: "helm", Src: "linux-arm64/helm"},
+			},
+			wantBinaryName:    "helm",
+			wantSrcBinaryName: "helm",
+		},
+		{
+			name:        "files[].src with deep path extracts base name",
+			defaultName: "gh",
+			files: []aqua.FileSpec{
+				{Name: "gh", Src: "gh_2.86.0_linux_amd64/bin/gh"},
+			},
+			wantBinaryName:    "gh",
+			wantSrcBinaryName: "gh",
+		},
+		{
+			name:        "files[].name without src",
+			defaultName: "cli",
+			files: []aqua.FileSpec{
+				{Name: "gh"},
+			},
+			wantBinaryName:    "gh",
+			wantSrcBinaryName: "",
+		},
+		{
+			name:        "multiple files uses first entry only",
+			defaultName: "multi",
+			files: []aqua.FileSpec{
+				{Name: "first", Src: "first-bin"},
+				{Name: "second", Src: "second-bin"},
+			},
+			wantBinaryName:    "first",
+			wantSrcBinaryName: "first-bin",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := extractBinaryMapping(tt.defaultName, tt.files)
+			assert.Equal(t, tt.wantBinaryName, cfg.BinaryName)
+			assert.Equal(t, tt.wantSrcBinaryName, cfg.SrcBinaryName)
+		})
+	}
+}

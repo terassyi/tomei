@@ -5,8 +5,9 @@ type InstallOption func(*InstallConfig)
 
 // InstallConfig holds installation configuration.
 type InstallConfig struct {
-	BinaryName string // Binary name to look for in archive (defaults to tool name)
-	Force      bool   // Replace existing binary even if hash differs
+	BinaryName    string // Binary name for placement and symlink (defaults to tool name)
+	SrcBinaryName string // Binary name to search in archive (e.g., krew-linux_arm64); empty = BinaryName
+	Force         bool   // Replace existing binary even if hash differs
 }
 
 // WithBinaryName sets the binary name to look for in the archive.

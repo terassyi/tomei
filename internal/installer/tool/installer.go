@@ -195,17 +195,18 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 	}
 
 	// 4. Otherwise, use download pattern with explicit source
-	return i.installByDownload(ctx, res, name, name, "")
+	return i.installByDownload(ctx, res, name, nil)
 }
 
 // installByDownload installs a tool using the download pattern.
-// name is the tool name (used for storage directory path).
-// binaryName is the binary name for placement and symlink.
-// srcBinaryName is the name to search for in the archive (empty means use binaryName).
-func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, name, binaryName, srcBinaryName string) (*resource.ToolState, error) {
+// cfg overrides default configuration (binary name mapping, etc.); nil uses defaults.
+func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, name string, cfg *installer.InstallConfig) (*resource.ToolState, error) {
 	spec := res.ToolSpec
-	cfg := &installer.InstallConfig{
-		BinaryName: binaryName,
+	if cfg == nil {
+		cfg = &installer.InstallConfig{}
+	}
+	if cfg.BinaryName == "" {
+		cfg.BinaryName = name
 	}
 
 	// Validate spec
@@ -224,7 +225,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		Name:          name,
 		Version:       spec.Version,
 		BinaryName:    cfg.BinaryName,
-		SrcBinaryName: srcBinaryName,
+		SrcBinaryName: cfg.SrcBinaryName,
 	}
 
 	// Validate existing installation
@@ -410,25 +411,15 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		},
 	}
 
-	// Extract binary name mapping from resolved files (only first entry supported)
-	binaryName := name
-	var srcBinaryName string
-	if len(resolved.Files) > 0 {
-		f := resolved.Files[0]
-		if f.Name != "" {
-			binaryName = f.Name
-		}
-		if f.Src != "" {
-			srcBinaryName = path.Base(f.Src)
-		}
-		if len(resolved.Files) > 1 {
-			slog.Warn("multiple files in registry entry, using first entry only",
-				"package", spec.Package.String(), "fileCount", len(resolved.Files))
-		}
+	// Build install config from resolved files
+	cfg := extractBinaryMapping(name, resolved.Files)
+	if len(resolved.Files) > 1 {
+		slog.Warn("multiple files in registry entry, using first entry only",
+			"package", spec.Package.String(), "fileCount", len(resolved.Files))
 	}
 
-	// Use existing download logic (name = resource name for storage path, binaryName = placement name)
-	state, err := i.installByDownload(ctx, resolvedTool, name, binaryName, srcBinaryName)
+	// Use existing download logic (name = resource name for storage path)
+	state, err := i.installByDownload(ctx, resolvedTool, name, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -439,6 +430,26 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	state.SpecVersion = spec.Version // preserve original spec version (e.g., "" for latest)
 
 	return state, nil
+}
+
+// extractBinaryMapping builds an InstallConfig from aqua registry files metadata.
+// It extracts the binary name (files[].name) and source binary name (path.Base of files[].src)
+// from the first entry. Only the first file entry is used; callers should warn on multiple entries.
+func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.InstallConfig {
+	cfg := &installer.InstallConfig{
+		BinaryName: defaultName,
+	}
+	if len(files) == 0 {
+		return cfg
+	}
+	f := files[0]
+	if f.Name != "" {
+		cfg.BinaryName = f.Name
+	}
+	if f.Src != "" {
+		cfg.SrcBinaryName = path.Base(f.Src)
+	}
+	return cfg
 }
 
 // buildState creates a ToolState from the installation result.
