@@ -13,9 +13,10 @@ import (
 
 // Target contains information about the tool to be placed.
 type Target struct {
-	Name       string // Tool name (e.g., ripgrep)
-	Version    string // Version (e.g., 14.1.1)
-	BinaryName string // Binary name (e.g., rg)
+	Name          string // Tool name (e.g., ripgrep)
+	Version       string // Version (e.g., 14.1.1)
+	BinaryName    string // Binary name for placement and symlink (e.g., rg)
+	SrcBinaryName string // Binary name to search in archive (e.g., krew-linux_arm64); empty = BinaryName
 }
 
 // Result contains information about the placed tool.
@@ -148,11 +149,16 @@ func (p *filePlacer) calculateHash(path string) (string, error) {
 
 // Place finds and places a binary from srcDir to the tools directory.
 func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
+	searchName := target.BinaryName
+	if target.SrcBinaryName != "" {
+		searchName = target.SrcBinaryName
+	}
+
 	destDir := filepath.Join(p.toolsDir, target.Name, target.Version)
-	slog.Debug("placing binary", "src", srcDir, "dest", destDir, "binary", target.BinaryName)
+	slog.Debug("placing binary", "src", srcDir, "dest", destDir, "binary", target.BinaryName, "search", searchName)
 
 	// Find binary in srcDir
-	srcPath, err := findBinary(srcDir, target.BinaryName)
+	srcPath, err := findBinary(srcDir, searchName)
 	if err != nil {
 		return nil, err
 	}

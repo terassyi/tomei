@@ -153,6 +153,72 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "place binary with SrcBinaryName mapping",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive contains "krew-linux_arm64" but we want to place as "krew"
+				binPath := filepath.Join(srcDir, "krew-linux_arm64")
+				err := os.WriteFile(binPath, []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:          "krew",
+				Version:       "0.4.4",
+				BinaryName:    "krew",
+				SrcBinaryName: "krew-linux_arm64",
+			},
+			wantErr: false,
+		},
+		{
+			name: "place binary found by WalkDir in subdirectory (helm pattern)",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive layout: linux-arm64/helm — installer has already extracted path.Base("linux-arm64/helm") = "helm"
+				dir := filepath.Join(srcDir, "linux-arm64")
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				err := os.WriteFile(filepath.Join(dir, "helm"), []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "helm",
+				Version:    "3.16.0",
+				BinaryName: "helm",
+				// SrcBinaryName is empty because installer already applied path.Base
+			},
+			wantErr: false,
+		},
+		{
+			name: "place binary found by WalkDir in deep nested directory (gh pattern)",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive layout: gh_2.86.0_linux_amd64/bin/gh — installer extracts path.Base = "gh"
+				dir := filepath.Join(srcDir, "gh_2.86.0_linux_amd64", "bin")
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				err := os.WriteFile(filepath.Join(dir, "gh"), []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "gh",
+				Version:    "2.86.0",
+				BinaryName: "gh",
+			},
+			wantErr: false,
+		},
+		{
+			name: "SrcBinaryName not found in archive",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive contains different binary name
+				binPath := filepath.Join(srcDir, "other-binary")
+				err := os.WriteFile(binPath, []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:          "krew",
+				Version:       "0.4.4",
+				BinaryName:    "krew",
+				SrcBinaryName: "krew-linux_arm64",
+			},
+			wantErr:    true,
+			errContain: "not found",
+		},
+		{
 			name: "binary not found",
 			setup: func(t *testing.T, srcDir string) {
 				// Empty directory

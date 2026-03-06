@@ -523,6 +523,68 @@ func TestResolver_Resolve_RawFormatAutoDetect(t *testing.T) {
 	assert.Equal(t, extract.ArchiveTypeRaw, result.Format, "should auto-detect raw format when asset has no archive extension")
 }
 
+func TestResolver_Resolve_FilesSrcRendering(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "kubernetes-sigs/krew"
+
+	// krew uses files[].src with template to map archive binary name to tool name
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: kubernetes-sigs
+    repo_name: krew
+    asset: krew-{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    files:
+      - name: krew
+        src: krew-{{.OS}}_{{.Arch}}
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v0.4.4", "linux", "arm64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/kubernetes-sigs/krew/releases/download/v0.4.4/krew-linux_arm64.tar.gz", result.URL)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "krew", result.Files[0].Name)
+	assert.Equal(t, "krew-linux_arm64", result.Files[0].Src, "FileSpec.Src should be rendered")
+}
+
+func TestResolver_Resolve_FilesSrcEmpty(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "cli/cli"
+
+	// Package with files but no src template — src should remain empty
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: cli
+    repo_name: cli
+    asset: gh_{{trimV .Version}}_{{.OS}}_{{.Arch}}.tar.gz
+    format: tar.gz
+    files:
+      - name: gh
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v2.86.0", "linux", "amd64")
+
+	require.NoError(t, err)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "gh", result.Files[0].Name)
+	assert.Empty(t, result.Files[0].Src, "FileSpec.Src should remain empty when not specified")
+}
+
 func TestHasArchiveExtension(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
