@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -418,7 +419,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 			binaryName = f.Name
 		}
 		if f.Src != "" {
-			srcBinaryName = f.Src
+			srcBinaryName = path.Base(f.Src)
 		}
 		if len(resolved.Files) > 1 {
 			slog.Warn("multiple files in registry entry, using first entry only",

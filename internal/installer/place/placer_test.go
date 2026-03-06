@@ -183,6 +183,39 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "place binary found by WalkDir in subdirectory (helm pattern)",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive layout: linux-arm64/helm — installer has already extracted path.Base("linux-arm64/helm") = "helm"
+				dir := filepath.Join(srcDir, "linux-arm64")
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				err := os.WriteFile(filepath.Join(dir, "helm"), []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "helm",
+				Version:    "3.16.0",
+				BinaryName: "helm",
+				// SrcBinaryName is empty because installer already applied path.Base
+			},
+			wantErr: false,
+		},
+		{
+			name: "place binary found by WalkDir in deep nested directory (gh pattern)",
+			setup: func(t *testing.T, srcDir string) {
+				// Archive layout: gh_2.86.0_linux_amd64/bin/gh — installer extracts path.Base = "gh"
+				dir := filepath.Join(srcDir, "gh_2.86.0_linux_amd64", "bin")
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				err := os.WriteFile(filepath.Join(dir, "gh"), []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "gh",
+				Version:    "2.86.0",
+				BinaryName: "gh",
+			},
+			wantErr: false,
+		},
+		{
 			name: "SrcBinaryName not found in archive",
 			setup: func(t *testing.T, srcDir string) {
 				// Archive contains different binary name
