@@ -5,14 +5,17 @@ IMAGE_NAME := tomei-ubuntu:test
 GOOS ?= linux
 GOARCH ?= $(shell go env GOARCH)
 
+# GitHub token: use GITHUB_TOKEN env var, or fall back to `gh auth token`
+GITHUB_TOKEN ?= $(shell gh auth token 2>/dev/null)
+
 .PHONY: build up down test clean help
 
 build: ## Build tomei binary and Docker image
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o tomei ../cmd/tomei
 	docker build -t $(IMAGE_NAME) -f containers/ubuntu/Dockerfile .
 
-up: ## Start the test container
-	docker run -d --name $(CONTAINER_NAME) $(IMAGE_NAME) sleep infinity
+up: ## Start the test container (passes GITHUB_TOKEN for API rate limits)
+	docker run -d --name $(CONTAINER_NAME) -e GITHUB_TOKEN=$(GITHUB_TOKEN) $(IMAGE_NAME) sleep infinity
 
 down: ## Stop and remove the test container
 	-docker rm -f $(CONTAINER_NAME) 2>/dev/null || true
