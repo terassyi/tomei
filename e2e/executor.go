@@ -36,15 +36,9 @@ func ExecApply(e executor, args ...string) (string, error) {
 	output, err := e.Exec("tomei", applyArgs...)
 	if err != nil {
 		fmt.Fprintf(GinkgoWriter, "\n=== tomei apply failed, dumping logs ===\n")
-		logsOutput, logsErr := e.Exec("tomei", "logs", "--list")
-		if logsErr == nil {
-			fmt.Fprintf(GinkgoWriter, "%s\n", logsOutput)
-			lines := strings.Split(strings.TrimSpace(logsOutput), "\n")
-			if len(lines) > 0 && lines[0] != "" {
-				sessionLogs, _ := e.Exec("tomei", "logs", "--session", lines[0])
-				fmt.Fprintf(GinkgoWriter, "%s\n", sessionLogs)
-			}
-		}
+		// `tomei logs` (no args) shows failed resources from the latest session
+		logsOutput, _ := e.Exec("tomei", "logs")
+		fmt.Fprintf(GinkgoWriter, "%s\n", logsOutput)
 		fmt.Fprintf(GinkgoWriter, "=== end of tomei logs ===\n\n")
 	}
 	return output, err
