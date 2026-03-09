@@ -78,7 +78,8 @@ Each resource has `apiVersion`, `kind`, `metadata`, and `spec`. A Tool specifies
 - runtimeRef: Tool → Runtime (tool installed via runtime's commands)
 - installerRef: Tool → Installer (tool installed via installer)
 - commands: Tool (self-managed, no dependencies — first execution layer)
-- toolRef: Installer → Tool (installer depends on a tool binary)
+- toolRef: Installer → Tool (installer depends on a tool binary, PATH injection)
+- dependsOn: Installer → Tool (additional DAG ordering dependencies, no PATH injection)
 - repositoryRef: Tool → InstallerRepository
 
 ### Tool chain example

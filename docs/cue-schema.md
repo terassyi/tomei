@@ -236,8 +236,9 @@ spec: {
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.type` | `"download"` \| `"delegation"` | yes | Installer pattern |
-| `spec.runtimeRef` | string | no | Dependency on a Runtime |
-| `spec.toolRef` | string | no | Dependency on a Tool |
+| `spec.runtimeRef` | string | no | Dependency on a Runtime (mutually exclusive with toolRef) |
+| `spec.toolRef` | string | no | Dependency on a Tool for PATH injection (mutually exclusive with runtimeRef) |
+| `spec.dependsOn` | `[...string]` | no | Additional tool dependencies for DAG ordering only (no PATH injection). Overlap with toolRef is tolerated and deduplicated |
 | `spec.bootstrap` | [CommandSet](#commandset) | no | Self-installation commands |
 | `spec.commands` | [CommandSet](#commandset) | delegation only | Commands for installing tools |
 
