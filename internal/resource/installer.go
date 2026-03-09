@@ -95,9 +95,6 @@ func (s *InstallerSpec) Validate() error {
 		if dep == "" {
 			return fmt.Errorf("dependsOn must not contain empty strings")
 		}
-		if dep == s.ToolRef {
-			return fmt.Errorf("dependsOn must not contain toolRef %q (already a dependency)", dep)
-		}
 		if _, ok := seen[dep]; ok {
 			return fmt.Errorf("dependsOn contains duplicate entry %q", dep)
 		}
@@ -117,6 +114,10 @@ func (s *InstallerSpec) Dependencies() []Ref {
 		deps = append(deps, Ref{Kind: KindTool, Name: s.ToolRef})
 	}
 	for _, dep := range s.DependsOn {
+		// Skip if already covered by toolRef (redundant but tolerated)
+		if dep == s.ToolRef {
+			continue
+		}
 		deps = append(deps, Ref{Kind: KindTool, Name: dep})
 	}
 	return deps

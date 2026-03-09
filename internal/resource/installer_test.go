@@ -102,7 +102,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name: "dependsOn contains toolRef",
+			name: "dependsOn overlaps toolRef (tolerated)",
 			spec: InstallerSpec{
 				Type:      InstallTypeDelegation,
 				ToolRef:   "krew",
@@ -111,7 +111,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 					Install: []string{"krew install {{.Package}}"},
 				},
 			},
-			wantErr: "dependsOn must not contain toolRef",
+			wantErr: "",
 		},
 		{
 			name: "dependsOn has duplicates",
@@ -216,6 +216,18 @@ func TestInstallerSpec_Dependencies(t *testing.T) {
 			want: []Ref{
 				{Kind: KindRuntime, Name: "go"},
 				{Kind: KindTool, Name: "gopls"},
+			},
+		},
+		{
+			name: "dependsOn overlaps toolRef (deduplicated)",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				ToolRef:   "krew",
+				DependsOn: []string{"krew", "kubectl"},
+			},
+			want: []Ref{
+				{Kind: KindTool, Name: "krew"},
+				{Kind: KindTool, Name: "kubectl"},
 			},
 		},
 		{
