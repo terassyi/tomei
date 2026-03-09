@@ -238,6 +238,11 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		cfg.BinaryName = spec.BinaryName
 	}
 
+	// Validate effective binary name (after registry mapping and spec override)
+	if err := validateBinaryName(cfg.BinaryName); err != nil {
+		return nil, err
+	}
+
 	// Validate spec
 	if spec.Source == nil {
 		return nil, fmt.Errorf("source is required for download pattern")
@@ -267,9 +272,12 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	case place.ValidateActionSkip:
 		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
 		// Even if binary exists, ensure symlink points to correct version
-		if _, err := i.placer.Symlink(target); err != nil {
+		linkPath, err := i.placer.Symlink(target)
+		if err != nil {
 			return nil, fmt.Errorf("failed to update symlink: %w", err)
 		}
+		// Clean up old symlink if binaryName changed (e.g., upgrade with same binary but new name)
+		i.cleanupOldSymlink(ctx, linkPath)
 		return i.buildState(spec, target, expectedHash), nil
 
 	case place.ValidateActionReplace:
@@ -606,6 +614,7 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 		VersionKind: versionKind,
 		SpecVersion: spec.Version,
 		Commands:    spec.Commands,
+		BinaryName:  spec.BinaryName,
 		UpdatedAt:   time.Now(),
 	}, nil
 }
