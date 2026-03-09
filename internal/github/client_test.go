@@ -224,6 +224,55 @@ func TestNewHTTPClient_EndToEnd(t *testing.T) {
 	}
 }
 
+func TestWrapTransport(t *testing.T) {
+	t.Parallel()
+
+	t.Run("wraps base transport with token auth", func(t *testing.T) {
+		t.Parallel()
+
+		var gotAuth string
+		base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{StatusCode: 200}, nil
+		})
+
+		wrapped := WrapTransport("my-token", base)
+		req, err := http.NewRequest("GET", "https://api.github.com/repos/foo/bar", nil)
+		require.NoError(t, err)
+
+		_, err = wrapped.RoundTrip(req)
+		require.NoError(t, err)
+		assert.Equal(t, "Bearer my-token", gotAuth)
+	})
+
+	t.Run("preserves base transport for non-GitHub hosts", func(t *testing.T) {
+		t.Parallel()
+
+		var gotAuth string
+		base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return &http.Response{StatusCode: 200}, nil
+		})
+
+		wrapped := WrapTransport("my-token", base)
+		req, err := http.NewRequest("GET", "https://example.com/file.tar.gz", nil)
+		require.NoError(t, err)
+
+		_, err = wrapped.RoundTrip(req)
+		require.NoError(t, err)
+		assert.Empty(t, gotAuth)
+	})
+
+	t.Run("nil base uses http.DefaultTransport", func(t *testing.T) {
+		t.Parallel()
+
+		wrapped := WrapTransport("my-token", nil)
+		tt, ok := wrapped.(*tokenTransport)
+		require.True(t, ok)
+		assert.Equal(t, http.DefaultTransport, tt.base)
+	})
+}
+
 // roundTripFunc is a helper for mocking http.RoundTripper in tests.
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

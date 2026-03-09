@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -625,6 +626,59 @@ func TestDownloader_Verify_BareHashChecksum(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	tr := DefaultTransport()
+	assert.Equal(t, defaultResponseHeaderTimeout, tr.ResponseHeaderTimeout)
+	assert.Equal(t, defaultDialTimeout, tr.TLSHandshakeTimeout)
+}
+
+func TestNewDownloader_DefaultTimeout(t *testing.T) {
+	t.Parallel()
+
+	d := NewDownloader()
+	hd, ok := d.(*httpDownloader)
+	require.True(t, ok)
+	assert.Equal(t, DefaultDownloadTimeout, hd.downloadTimeout, "default download timeout should be 5 minutes")
+}
+
+func TestWithDownloadTimeout(t *testing.T) {
+	t.Parallel()
+
+	d := NewDownloader(WithDownloadTimeout(10 * time.Minute))
+	hd, ok := d.(*httpDownloader)
+	require.True(t, ok)
+	assert.Equal(t, 10*time.Minute, hd.downloadTimeout)
+}
+
+func TestDownloader_Download_Timeout(t *testing.T) {
+	t.Parallel()
+
+	// Verify that downloadTimeout sets a context deadline on the request
+	d := NewDownloaderWithClient(&http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			// Check that the context has a deadline (from downloadTimeout)
+			_, hasDeadline := req.Context().Deadline()
+			if !hasDeadline {
+				return nil, fmt.Errorf("expected context deadline")
+			}
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Body:          io.NopCloser(bytes.NewReader([]byte("ok"))),
+				ContentLength: 2,
+			}, nil
+		}),
+	}, WithDownloadTimeout(30*time.Second))
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "downloaded")
+	path, err := d.Download(context.Background(), "https://example.com/test", destPath)
+
+	require.NoError(t, err)
+	assert.Equal(t, destPath, path)
 }
 
 func TestDownloader_Verify_AlgorithmOverride(t *testing.T) {

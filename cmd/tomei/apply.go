@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fatih/color"
@@ -36,6 +38,7 @@ type applyConfig struct {
 	quiet    bool
 	parallel int
 	yes      bool
+	timeout  time.Duration
 }
 
 var applyCfg applyConfig
@@ -61,6 +64,7 @@ func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
+	applyCmd.Flags().DurationVar(&applyCfg.timeout, "timeout", download.DefaultDownloadTimeout, "Per-download timeout (e.g., 5m, 10m, 1h)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -125,8 +129,15 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to create state store: %w", err)
 	}
 
-	// Create GitHub-aware HTTP client (uses GITHUB_TOKEN/GH_TOKEN if available)
-	ghClient := github.NewHTTPClient(github.TokenFromEnv())
+	// Create GitHub-aware HTTP clients:
+	// - ghClient: API client with Client.Timeout for registry sync, version resolution
+	// - dlClient: download client with transport-level timeouts only (no Client.Timeout)
+	//   to allow large binary downloads to complete at any speed
+	token := github.TokenFromEnv()
+	ghClient := github.NewHTTPClient(token)
+	dlClient := &http.Client{
+		Transport: github.WrapTransport(token, download.DefaultTransport()),
+	}
 
 	// Sync registry if --sync flag is set, or if --update-tools/--update-all
 	// is used (latest tools need latest registry for accurate resolution)
@@ -159,7 +170,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	fmt.Fprintln(w)
 
 	// Create installers
-	downloader := download.NewDownloaderWithClient(ghClient)
+	downloader := download.NewDownloaderWithClient(dlClient, download.WithDownloadTimeout(cfg.timeout))
 	toolsDir := pathConfig.UserDataDir() + "/tools"
 	runtimesDir := pathConfig.UserDataDir() + "/runtimes"
 	binDir := pathConfig.UserBinDir()

@@ -25,11 +25,19 @@ const defaultDialTimeout = 30 * time.Second
 // the time to download large response bodies.
 const defaultResponseHeaderTimeout = 60 * time.Second
 
-// defaultTransport returns an http.Transport with timeouts configured
+// DefaultDownloadTimeout is the per-download timeout applied via context.
+// This is a generous upper bound that allows large binaries to download
+// at any reasonable speed while preventing stuck downloads.
+const DefaultDownloadTimeout = 5 * time.Minute
+
+// DefaultTransport returns an http.Transport with timeouts configured
 // to prevent hangs on network failures. Unlike http.Client.Timeout,
 // transport-level timeouts do not limit body read time, allowing
 // large file downloads to complete at any speed.
-func defaultTransport() *http.Transport {
+//
+// Use this when composing custom transports (e.g., with github.WrapTransport)
+// for download clients.
+func DefaultTransport() *http.Transport {
 	return &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: defaultDialTimeout,
@@ -63,26 +71,48 @@ var _ Downloader = (*httpDownloader)(nil)
 
 // httpDownloader implements Downloader using HTTP.
 type httpDownloader struct {
-	client *http.Client
+	client          *http.Client
+	downloadTimeout time.Duration
+}
+
+// DownloaderOption configures a Downloader.
+type DownloaderOption func(*httpDownloader)
+
+// WithDownloadTimeout sets the per-download timeout applied via context.
+// If zero, no per-download timeout is applied (transport-level timeouts still apply).
+func WithDownloadTimeout(d time.Duration) DownloaderOption {
+	return func(dl *httpDownloader) {
+		dl.downloadTimeout = d
+	}
 }
 
 // NewDownloader creates a new Downloader with a default HTTP client
 // configured with transport-level timeouts to prevent hanging on
 // network failures without limiting large file download time.
-func NewDownloader() Downloader {
-	return &httpDownloader{
-		client: &http.Client{Transport: defaultTransport()},
+func NewDownloader(opts ...DownloaderOption) Downloader {
+	dl := &httpDownloader{
+		client:          &http.Client{Transport: DefaultTransport()},
+		downloadTimeout: DefaultDownloadTimeout,
 	}
+	for _, opt := range opts {
+		opt(dl)
+	}
+	return dl
 }
 
 // NewDownloaderWithClient creates a new Downloader with the given HTTP client.
-func NewDownloaderWithClient(client *http.Client) Downloader {
+func NewDownloaderWithClient(client *http.Client, opts ...DownloaderOption) Downloader {
 	if client == nil {
-		client = &http.Client{Transport: defaultTransport()}
+		client = &http.Client{Transport: DefaultTransport()}
 	}
-	return &httpDownloader{
-		client: client,
+	dl := &httpDownloader{
+		client:          client,
+		downloadTimeout: DefaultDownloadTimeout,
 	}
+	for _, opt := range opts {
+		opt(dl)
+	}
+	return dl
 }
 
 // Download downloads a file from the given URL to destPath.
@@ -117,6 +147,13 @@ func validateDownloadURL(rawURL string) error {
 func (d *httpDownloader) DownloadWithProgress(ctx context.Context, url, destPath string, callback ProgressCallback) (string, error) {
 	if err := validateDownloadURL(url); err != nil {
 		return "", err
+	}
+
+	// Apply per-download timeout if configured
+	if d.downloadTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, d.downloadTimeout)
+		defer cancel()
 	}
 
 	slog.Debug("downloading file", "url", url, "dest", destPath)

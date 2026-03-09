@@ -55,6 +55,19 @@ func NewHTTPClient(token string) *http.Client {
 	}
 }
 
+// WrapTransport wraps the given base transport with GitHub token authentication.
+// This allows composing token auth with custom transports (e.g., download transports
+// with transport-level timeouts). If base is nil, http.DefaultTransport is used.
+func WrapTransport(token string, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &tokenTransport{
+		token: token,
+		base:  base,
+	}
+}
+
 // tokenTransport adds Bearer token to GitHub requests.
 type tokenTransport struct {
 	token string
