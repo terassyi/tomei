@@ -570,8 +570,9 @@ type ToolState struct {
 	// Persisted in state so Remove() and Update can execute without re-reading the manifest.
 	Commands *ToolCommandSet `json:"commands,omitempty"`
 
-	// BinaryName records the effective binary name used for placement/symlink.
-	// Empty string means the tool name was used as-is.
+	// BinaryName records the user-specified binary name override from the spec.
+	// Empty string means no override was provided and the installer used its default
+	// effective name (e.g., tool name, registry files[].name, or delegation output).
 	// Used by the reconciler to detect binaryName changes (both setting and unsetting).
 	BinaryName string `json:"binaryName,omitempty"`
 

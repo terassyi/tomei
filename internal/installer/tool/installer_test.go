@@ -312,6 +312,10 @@ func (m *mockPlacer) Cleanup(_ string) error {
 	return nil
 }
 
+func (m *mockPlacer) ToolsDir() string {
+	return "/tools"
+}
+
 func TestToolInstaller_Install_Args(t *testing.T) {
 	t.Parallel()
 
