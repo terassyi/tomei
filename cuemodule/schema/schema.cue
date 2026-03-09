@@ -110,12 +110,12 @@ package schema
 		type:        "download" | "delegation"
 		runtimeRef?: string
 		// toolRef references the primary tool for PATH injection in delegation commands.
-		toolRef?:    string
+		toolRef?: string
 		// dependsOn declares additional tool dependencies for DAG ordering only.
 		// Unlike toolRef, these tools are NOT added to PATH.
-		dependsOn?:  [...string]
-		bootstrap?:  #CommandSet
-		commands?:   #CommandSet
+		dependsOn?: [...string]
+		bootstrap?: #CommandSet
+		commands?:  #CommandSet
 
 		// Conditional required fields
 		if type == "delegation" {
