@@ -208,6 +208,14 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	if cfg.BinaryName == "" {
 		cfg.BinaryName = name
 	}
+	// User spec binaryName takes highest priority
+	if spec.BinaryName != "" {
+		// Preserve original binary name as SrcBinaryName for archive search
+		if cfg.SrcBinaryName == "" {
+			cfg.SrcBinaryName = cfg.BinaryName
+		}
+		cfg.BinaryName = spec.BinaryName
+	}
 
 	// Validate spec
 	if spec.Source == nil {
@@ -329,6 +337,9 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 	result.LinkPath = linkPath
 
+	// Clean up old symlink if binaryName changed
+	i.cleanupOldSymlink(ctx, linkPath)
+
 	slog.Debug("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
 
 	return i.buildState(spec, target, expectedHash), nil
@@ -408,6 +419,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 			Enabled:      spec.Enabled,
 			Source:       source,
 			Package:      spec.Package,
+			BinaryName:   spec.BinaryName,
 		},
 	}
 
@@ -450,6 +462,17 @@ func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.
 		cfg.SrcBinaryName = path.Base(f.Src)
 	}
 	return cfg
+}
+
+// cleanupOldSymlink removes the old symlink if the binary name has changed.
+// It compares the old BinPath from context with the new link path.
+func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
+	oldBinPath := executor.OldBinPathFromContext(ctx)
+	if oldBinPath == "" || oldBinPath == newLinkPath {
+		return
+	}
+	slog.Debug("cleaning up old symlink", "old", oldBinPath, "new", newLinkPath)
+	_ = i.placer.Cleanup(oldBinPath) // best-effort
 }
 
 // buildState creates a ToolState from the installation result.
@@ -587,11 +610,15 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Build variables for command substitution
+	binName := name
+	if spec.BinaryName != "" {
+		binName = spec.BinaryName
+	}
 	vars := command.Vars{
 		Package: spec.Package.String(),
 		Version: spec.Version,
 		Name:    name,
-		BinPath: filepath.Join(info.ToolBinPath, name),
+		BinPath: filepath.Join(info.ToolBinPath, binName),
 		Args:    strings.Join(spec.Args, " "),
 	}
 

@@ -51,4 +51,5 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Taint On Upgrade", taintOnUpgradeTests)
 	Context("Update Flags", updateFlagsTests)
 	Context("Commands Pattern", commandsPatternTests)
+	Context("BinaryName", binaryNameTests)
 })

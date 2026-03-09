@@ -253,6 +253,12 @@ type ToolSpec struct {
 	// Mutually exclusive with InstallerRef and RuntimeRef.
 	Commands *ToolCommandSet `json:"commands,omitempty"`
 
+	// BinaryName overrides the binary name for placement and symlink.
+	// When set, the installed binary and symlink use this name instead of the tool name
+	// or aqua registry files[].name. This is useful for tools like krew that need
+	// a different binary name (e.g., "kubectl-krew") than the resource name.
+	BinaryName string `json:"binaryName,omitempty"`
+
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
@@ -447,6 +453,7 @@ func (ts *ToolSet) Expand() ([]Resource, error) {
 				Version:       item.Version,
 				Source:        item.Source,
 				Package:       item.Package,
+				BinaryName:    item.BinaryName,
 				Args:          item.Args,
 			},
 		}
@@ -475,6 +482,9 @@ type ToolItem struct {
 	// For delegation-based: { name: "golang.org/x/tools/gopls" }
 	// Mutually exclusive with Source.
 	Package *Package `json:"package,omitempty"`
+
+	// BinaryName overrides the binary name for placement and symlink.
+	BinaryName string `json:"binaryName,omitempty"`
 
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
@@ -569,6 +579,15 @@ type ToolState struct {
 }
 
 func (*ToolState) isState() {}
+
+// GetBinPath returns the symlink path for this tool.
+// Nil-safe: returns empty string if receiver is nil.
+func (t *ToolState) GetBinPath() string {
+	if t == nil {
+		return ""
+	}
+	return t.BinPath
+}
 
 // IsTainted returns true if the tool needs reinstallation.
 func (t *ToolState) IsTainted() bool {

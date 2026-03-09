@@ -1,6 +1,8 @@
 package reconciler
 
 import (
+	"path/filepath"
+
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -31,6 +33,13 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 		}
 		if state.IsTainted() {
 			return true, "tainted: " + string(state.TaintReason)
+		}
+		// Detect binaryName change by comparing with stored BinPath
+		if res.ToolSpec.BinaryName != "" && state.BinPath != "" {
+			currentBinName := filepath.Base(state.BinPath)
+			if currentBinName != res.ToolSpec.BinaryName {
+				return true, "binaryName changed: " + currentBinName + " -> " + res.ToolSpec.BinaryName
+			}
 		}
 		return false, ""
 	}

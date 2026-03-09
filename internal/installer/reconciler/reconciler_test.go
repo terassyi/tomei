@@ -500,6 +500,76 @@ func TestToolComparator_VersionKind(t *testing.T) {
 	}
 }
 
+// --- ToolComparator binaryName change tests ---
+
+func TestToolComparator_BinaryNameChanged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		binaryName string
+		binPath    string
+		wantUpdate bool
+		wantReason string
+	}{
+		{
+			name:       "binaryName changed",
+			binaryName: "kubectl-krew",
+			binPath:    "/home/user/.local/bin/krew",
+			wantUpdate: true,
+			wantReason: "binaryName changed",
+		},
+		{
+			name:       "binaryName matches",
+			binaryName: "kubectl-krew",
+			binPath:    "/home/user/.local/bin/kubectl-krew",
+			wantUpdate: false,
+		},
+		{
+			name:       "binaryName empty - no check",
+			binaryName: "",
+			binPath:    "/home/user/.local/bin/krew",
+			wantUpdate: false,
+		},
+		{
+			name:       "binPath empty - no check",
+			binaryName: "kubectl-krew",
+			binPath:    "",
+			wantUpdate: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			comparator := ToolComparator()
+
+			res := &resource.Tool{
+				BaseResource: resource.BaseResource{
+					Metadata: resource.Metadata{Name: "krew"},
+				},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "aqua",
+					Version:      "0.4.4",
+					BinaryName:   tt.binaryName,
+				},
+			}
+
+			state := &resource.ToolState{
+				Version:     "0.4.4",
+				VersionKind: resource.VersionExact,
+				SpecVersion: "0.4.4",
+				BinPath:     tt.binPath,
+			}
+
+			needsUpdate, reason := comparator(res, state)
+			assert.Equal(t, tt.wantUpdate, needsUpdate)
+			if tt.wantReason != "" {
+				assert.Contains(t, reason, tt.wantReason)
+			}
+		})
+	}
+}
+
 // --- RuntimeComparator tests with VersionKind ---
 
 func TestRuntimeComparator_VersionKind(t *testing.T) {
