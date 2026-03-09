@@ -642,7 +642,7 @@ func TestNewDownloader_DefaultTimeout(t *testing.T) {
 	d := NewDownloader()
 	hd, ok := d.(*httpDownloader)
 	require.True(t, ok)
-	assert.Equal(t, defaultDownloadTimeout, hd.downloadTimeout, "default download timeout should be 5 minutes")
+	assert.Equal(t, DefaultDownloadTimeout, hd.downloadTimeout, "default download timeout should be 5 minutes")
 }
 
 func TestWithDownloadTimeout(t *testing.T) {
@@ -657,7 +657,7 @@ func TestWithDownloadTimeout(t *testing.T) {
 func TestDownloader_Download_Timeout(t *testing.T) {
 	t.Parallel()
 
-	// Use a tiny timeout so the download "expires" immediately
+	// Verify that downloadTimeout sets a context deadline on the request
 	d := NewDownloaderWithClient(&http.Client{
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			// Check that the context has a deadline (from downloadTimeout)

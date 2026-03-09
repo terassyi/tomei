@@ -25,10 +25,10 @@ const defaultDialTimeout = 30 * time.Second
 // the time to download large response bodies.
 const defaultResponseHeaderTimeout = 60 * time.Second
 
-// defaultDownloadTimeout is the per-download timeout applied via context.
+// DefaultDownloadTimeout is the per-download timeout applied via context.
 // This is a generous upper bound that allows large binaries to download
 // at any reasonable speed while preventing stuck downloads.
-const defaultDownloadTimeout = 5 * time.Minute
+const DefaultDownloadTimeout = 5 * time.Minute
 
 // DefaultTransport returns an http.Transport with timeouts configured
 // to prevent hangs on network failures. Unlike http.Client.Timeout,
@@ -92,7 +92,7 @@ func WithDownloadTimeout(d time.Duration) DownloaderOption {
 func NewDownloader(opts ...DownloaderOption) Downloader {
 	dl := &httpDownloader{
 		client:          &http.Client{Transport: DefaultTransport()},
-		downloadTimeout: defaultDownloadTimeout,
+		downloadTimeout: DefaultDownloadTimeout,
 	}
 	for _, opt := range opts {
 		opt(dl)
@@ -107,7 +107,7 @@ func NewDownloaderWithClient(client *http.Client, opts ...DownloaderOption) Down
 	}
 	dl := &httpDownloader{
 		client:          client,
-		downloadTimeout: defaultDownloadTimeout,
+		downloadTimeout: DefaultDownloadTimeout,
 	}
 	for _, opt := range opts {
 		opt(dl)

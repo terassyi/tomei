@@ -32,9 +32,6 @@ import (
 	"github.com/terassyi/tomei/internal/ui"
 )
 
-// defaultDownloadTimeout is the default per-download timeout.
-const defaultDownloadTimeout = 5 * time.Minute
-
 // applyConfig holds configuration for the apply command.
 type applyConfig struct {
 	loadConfig
@@ -67,7 +64,7 @@ func init() {
 	applyCmd.Flags().BoolVar(&applyCfg.quiet, "quiet", false, "Suppress progress output")
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
-	applyCmd.Flags().DurationVar(&applyCfg.timeout, "timeout", defaultDownloadTimeout, "Per-download timeout (e.g., 5m, 10m, 1h)")
+	applyCmd.Flags().DurationVar(&applyCfg.timeout, "timeout", download.DefaultDownloadTimeout, "Per-download timeout (e.g., 5m, 10m, 1h)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
