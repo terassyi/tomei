@@ -530,16 +530,16 @@ func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 	_ = i.placer.Cleanup(oldBinPath) // best-effort
 }
 
-// isUnderDir checks whether path is under (or equal to) dir.
+// isUnderDir checks whether path is strictly under dir (not equal to dir).
 func isUnderDir(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	if err != nil {
 		return false
 	}
+	// rel == "." means path equals dir — reject (must be strictly under).
 	// rel == ".." or starts with "../" means path is outside dir.
-	// rel == "." means path equals dir.
 	// A relative like "..abc" is valid (not traversal), so check for exact ".." or "../" prefix.
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return false
 	}
 	return true
