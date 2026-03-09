@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -33,6 +34,11 @@ type InstallerSpec struct {
 	// Cannot be specified together with RuntimeRef.
 	ToolRef string `json:"toolRef,omitempty"`
 
+	// DependsOn declares additional tool dependencies for DAG ordering only.
+	// Unlike ToolRef, these tools are NOT added to PATH during delegation commands.
+	// Used when an installer requires multiple tools to function (e.g., krew needs both kubectl and krew).
+	DependsOn []string `json:"dependsOn,omitempty"`
+
 	// Bootstrap configures how to install the installer itself (self-installation).
 	// Used for installers that are not provided by a runtime or tool.
 	// Example: Homebrew installs itself via a shell script.
@@ -42,6 +48,23 @@ type InstallerSpec struct {
 	// Required when Pattern is "delegation".
 	// Supports template variables: {{.Package}}, {{.Version}}, {{.Name}}, {{.BinPath}}.
 	Commands *CommandsSpec `json:"commands,omitempty"`
+}
+
+// UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
+// are serialized as bare strings.
+func (s *InstallerSpec) UnmarshalJSON(data []byte) error {
+	type Alias InstallerSpec
+	var raw struct {
+		Alias
+		DependsOn json.RawMessage `json:"dependsOn,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*s = InstallerSpec(raw.Alias)
+	return unmarshalStringFields([]stringField{
+		{"dependsOn", raw.DependsOn, &s.DependsOn},
+	})
 }
 
 // Validate validates the InstallerSpec.
@@ -66,6 +89,18 @@ func (s *InstallerSpec) Validate() error {
 		return fmt.Errorf("commands is required for delegation type")
 	}
 
+	// Validate dependsOn entries
+	seen := make(map[string]struct{}, len(s.DependsOn))
+	for _, dep := range s.DependsOn {
+		if dep == "" {
+			return fmt.Errorf("dependsOn must not contain empty strings")
+		}
+		if _, ok := seen[dep]; ok {
+			return fmt.Errorf("dependsOn contains duplicate entry %q", dep)
+		}
+		seen[dep] = struct{}{}
+	}
+
 	return nil
 }
 
@@ -77,6 +112,13 @@ func (s *InstallerSpec) Dependencies() []Ref {
 	}
 	if s.ToolRef != "" {
 		deps = append(deps, Ref{Kind: KindTool, Name: s.ToolRef})
+	}
+	for _, dep := range s.DependsOn {
+		// Skip if already covered by toolRef (redundant but tolerated)
+		if dep == s.ToolRef {
+			continue
+		}
+		deps = append(deps, Ref{Kind: KindTool, Name: dep})
 	}
 	return deps
 }

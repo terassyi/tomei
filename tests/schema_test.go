@@ -24,6 +24,101 @@ func setupMinimalCueMod(t *testing.T, dir string) {
 	))
 }
 
+// TestSchemaValidation_InstallerDependsOn tests CUE schema validation for dependsOn field.
+func TestSchemaValidation_InstallerDependsOn(t *testing.T) {
+	tests := []struct {
+		name    string
+		cue     string
+		wantErr bool
+	}{
+		{
+			name: "delegation with dependsOn",
+			cue: `package tomei
+
+inst: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "krew-installer"
+	spec: {
+		type: "delegation"
+		toolRef: "krew"
+		dependsOn: ["kubectl"]
+		commands: install: ["krew install {{.Package}}"]
+	}
+}
+`,
+			wantErr: false,
+		},
+		{
+			name: "download with dependsOn",
+			cue: `package tomei
+
+inst: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "custom-installer"
+	spec: {
+		type: "download"
+		dependsOn: ["kubectl"]
+	}
+}
+`,
+			wantErr: false,
+		},
+		{
+			name: "dependsOn single item",
+			cue: `package tomei
+
+inst: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "single-dep"
+	spec: {
+		type: "download"
+		dependsOn: ["single-item"]
+	}
+}
+`,
+			wantErr: false,
+		},
+		{
+			name: "dependsOn invalid type",
+			cue: `package tomei
+
+inst: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "bad-type"
+	spec: {
+		type: "download"
+		dependsOn: 123
+	}
+}
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			setupMinimalCueMod(t, dir)
+			require.NoError(t, os.WriteFile(
+				filepath.Join(dir, "installer.cue"),
+				[]byte(tt.cue), 0644,
+			))
+
+			loader := config.NewLoader(nil)
+			_, err := loader.Load(dir)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // TestSchemaImport_WorksWithoutImport verifies that loading without
 // schema import still validates resources via the internal schema.
 func TestSchemaImport_WorksWithoutImport(t *testing.T) {

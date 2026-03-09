@@ -81,6 +81,57 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			},
 			wantErr: "",
 		},
+		{
+			name: "delegation with dependsOn",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				ToolRef:   "krew",
+				DependsOn: []string{"kubectl"},
+				Commands: &CommandsSpec{
+					Install: []string{"krew install {{.Package}}"},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "download with dependsOn",
+			spec: InstallerSpec{
+				Type:      InstallTypeDownload,
+				DependsOn: []string{"kubectl"},
+			},
+			wantErr: "",
+		},
+		{
+			name: "dependsOn overlaps toolRef (tolerated)",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				ToolRef:   "krew",
+				DependsOn: []string{"krew"},
+				Commands: &CommandsSpec{
+					Install: []string{"krew install {{.Package}}"},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "dependsOn has duplicates",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				DependsOn: []string{"kubectl", "kubectl"},
+				Commands: &CommandsSpec{
+					Install: []string{"some command"},
+				},
+			},
+			wantErr: "dependsOn contains duplicate entry",
+		},
+		{
+			name: "dependsOn has empty string",
+			spec: InstallerSpec{
+				Type:      InstallTypeDownload,
+				DependsOn: []string{""},
+			},
+			wantErr: "dependsOn must not contain empty strings",
+		},
 	}
 
 	for _, tt := range tests {
@@ -131,6 +182,61 @@ func TestInstallerSpec_Dependencies(t *testing.T) {
 				ToolRef: "pnpm",
 			},
 			want: []Ref{{Kind: KindTool, Name: "pnpm"}},
+		},
+		{
+			name: "toolRef and dependsOn",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				ToolRef:   "krew",
+				DependsOn: []string{"kubectl"},
+			},
+			want: []Ref{
+				{Kind: KindTool, Name: "krew"},
+				{Kind: KindTool, Name: "kubectl"},
+			},
+		},
+		{
+			name: "dependsOn only",
+			spec: InstallerSpec{
+				Type:      InstallTypeDownload,
+				DependsOn: []string{"kubectl", "helm"},
+			},
+			want: []Ref{
+				{Kind: KindTool, Name: "kubectl"},
+				{Kind: KindTool, Name: "helm"},
+			},
+		},
+		{
+			name: "runtimeRef and dependsOn",
+			spec: InstallerSpec{
+				Type:       InstallTypeDelegation,
+				RuntimeRef: "go",
+				DependsOn:  []string{"gopls"},
+			},
+			want: []Ref{
+				{Kind: KindRuntime, Name: "go"},
+				{Kind: KindTool, Name: "gopls"},
+			},
+		},
+		{
+			name: "dependsOn overlaps toolRef (deduplicated)",
+			spec: InstallerSpec{
+				Type:      InstallTypeDelegation,
+				ToolRef:   "krew",
+				DependsOn: []string{"krew", "kubectl"},
+			},
+			want: []Ref{
+				{Kind: KindTool, Name: "krew"},
+				{Kind: KindTool, Name: "kubectl"},
+			},
+		},
+		{
+			name: "dependsOn empty list",
+			spec: InstallerSpec{
+				Type:      InstallTypeDownload,
+				DependsOn: []string{},
+			},
+			want: nil,
 		},
 	}
 

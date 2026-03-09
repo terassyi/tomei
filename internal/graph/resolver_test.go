@@ -223,6 +223,126 @@ func TestResolver_Validate_CircularDependency(t *testing.T) {
 	assert.Contains(t, err.Error(), "circular dependency")
 }
 
+func TestResolver_AddResource_InstallerWithDependsOn(t *testing.T) {
+	t.Parallel()
+	resolver := NewResolver()
+
+	installer := &resource.Installer{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindInstaller,
+			Metadata:     resource.Metadata{Name: "krew-installer"},
+		},
+		InstallerSpec: &resource.InstallerSpec{
+			Type:      resource.InstallTypeDelegation,
+			ToolRef:   "krew",
+			DependsOn: []string{"kubectl"},
+			Commands: &resource.CommandsSpec{
+				Install: []string{"krew install {{.Package}}"},
+			},
+		},
+	}
+
+	resolver.AddResource(installer)
+
+	assert.Equal(t, 3, resolver.NodeCount()) // installer + krew + kubectl (auto-added)
+	assert.Equal(t, 2, resolver.EdgeCount()) // installer->krew, installer->kubectl
+}
+
+func TestResolver_Resolve_InstallerDependsOnOrdering(t *testing.T) {
+	t.Parallel()
+	resolver := NewResolver()
+
+	// Setup: krew-installer depends on krew (toolRef) and kubectl (dependsOn)
+	// ctx tool depends on krew-installer
+	kubectl := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindTool,
+			Metadata:     resource.Metadata{Name: "kubectl"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v1.32.0",
+		},
+	}
+
+	krew := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindTool,
+			Metadata:     resource.Metadata{Name: "krew"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v0.4.4",
+		},
+	}
+
+	aquaInstaller := &resource.Installer{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindInstaller,
+			Metadata:     resource.Metadata{Name: "aqua"},
+		},
+		InstallerSpec: &resource.InstallerSpec{
+			Type: resource.InstallTypeDownload,
+		},
+	}
+
+	krewInstaller := &resource.Installer{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindInstaller,
+			Metadata:     resource.Metadata{Name: "krew-installer"},
+		},
+		InstallerSpec: &resource.InstallerSpec{
+			Type:      resource.InstallTypeDelegation,
+			ToolRef:   "krew",
+			DependsOn: []string{"kubectl"},
+			Commands: &resource.CommandsSpec{
+				Install: []string{"krew install {{.Package}}"},
+			},
+		},
+	}
+
+	ctx := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			APIVersion:   resource.GroupVersion,
+			ResourceKind: resource.KindTool,
+			Metadata:     resource.Metadata{Name: "ctx"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "krew-installer",
+			Version:      "v0.9.5",
+		},
+	}
+
+	// Add in random order
+	resolver.AddResource(ctx)
+	resolver.AddResource(krewInstaller)
+	resolver.AddResource(kubectl)
+	resolver.AddResource(krew)
+	resolver.AddResource(aquaInstaller)
+
+	layers, err := resolver.Resolve()
+	require.NoError(t, err)
+
+	// Build layer map
+	nodeLayer := make(map[string]int)
+	for layerIdx, layer := range layers {
+		for _, node := range layer.Nodes {
+			nodeLayer[node.Name] = layerIdx
+		}
+	}
+
+	// kubectl and krew must be before krew-installer
+	assert.Less(t, nodeLayer["kubectl"], nodeLayer["krew-installer"])
+	assert.Less(t, nodeLayer["krew"], nodeLayer["krew-installer"])
+	// krew-installer must be before ctx
+	assert.Less(t, nodeLayer["krew-installer"], nodeLayer["ctx"])
+}
+
 func TestResolver_Resolve_ParallelTools(t *testing.T) {
 	t.Parallel()
 	resolver := NewResolver()

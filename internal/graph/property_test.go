@@ -138,10 +138,14 @@ func manifestGenerator() *rapid.Generator[*testResolver] {
 			}
 		}
 
-		// Generate tools (1-10)
+		// Generate tools (1-10), tracking which installer each tool uses
 		numTools := rapid.IntRange(1, 10).Draw(t, "numTools")
+		toolNames := make([]string, 0, numTools)
+		// toolInstallerRef maps tool name -> installer name it references
+		toolInstallerRef := make(map[string]string)
 		for i := range numTools {
 			name := fmt.Sprintf("tool-%d", i)
+			toolNames = append(toolNames, name)
 
 			// Decide dependency type: installerRef or runtimeRef
 			useRuntime := rapid.Bool().Draw(t, fmt.Sprintf("tool_%d_useRuntime", i))
@@ -151,6 +155,7 @@ func manifestGenerator() *rapid.Generator[*testResolver] {
 			} else if len(installerNames) > 0 {
 				installerIdx := rapid.IntRange(0, len(installerNames)-1).Draw(t, fmt.Sprintf("tool_%d_installerIdx", i))
 				tr.AddResource(createToolWithInstaller(name, installerNames[installerIdx]))
+				toolInstallerRef[name] = installerNames[installerIdx]
 			} else if len(runtimeNames) > 0 {
 				runtimeIdx := rapid.IntRange(0, len(runtimeNames)-1).Draw(t, fmt.Sprintf("tool_%d_fallbackRuntimeIdx", i))
 				tr.AddResource(createToolWithRuntime(name, runtimeNames[runtimeIdx]))
@@ -159,6 +164,43 @@ func manifestGenerator() *rapid.Generator[*testResolver] {
 				installerName := fmt.Sprintf("auto-installer-%d", i)
 				tr.AddResource(createDownloadInstaller(installerName))
 				tr.AddResource(createToolWithInstaller(name, installerName))
+				toolInstallerRef[name] = installerName
+			}
+		}
+
+		// Optionally add dependsOn to some installers (0-2 tool references per installer)
+		// Avoid cycles: only reference tools that use runtimes (not installers)
+		// since runtime-based tools can never create installer→tool→installer cycles
+		for i, instName := range installerNames {
+			// Build list of eligible tools (those using runtimes, not installers)
+			eligible := make([]string, 0, len(toolNames))
+			for _, tn := range toolNames {
+				if _, usesInstaller := toolInstallerRef[tn]; !usesInstaller {
+					eligible = append(eligible, tn)
+				}
+			}
+			if len(eligible) == 0 {
+				continue
+			}
+			if !rapid.Bool().Draw(t, fmt.Sprintf("installer_%d_hasDependsOn", i)) {
+				continue
+			}
+			numDeps := rapid.IntRange(1, min(2, len(eligible))).Draw(t, fmt.Sprintf("installer_%d_numDependsOn", i))
+			deps := make([]string, 0, numDeps)
+			used := make(map[int]bool)
+			for j := range numDeps {
+				idx := rapid.IntRange(0, len(eligible)-1).Draw(t, fmt.Sprintf("installer_%d_dependsOn_%d", i, j))
+				if used[idx] {
+					continue
+				}
+				used[idx] = true
+				deps = append(deps, eligible[idx])
+			}
+			if len(deps) > 0 {
+				// Re-add installer with dependsOn (node already exists, just adds edges)
+				inst := createDownloadInstaller(instName)
+				inst.InstallerSpec.DependsOn = deps
+				tr.AddResource(inst)
 			}
 		}
 
