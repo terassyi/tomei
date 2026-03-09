@@ -505,36 +505,44 @@ func TestToolComparator_VersionKind(t *testing.T) {
 func TestToolComparator_BinaryNameChanged(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name       string
-		binaryName string
-		binPath    string
-		wantUpdate bool
-		wantReason string
+		name            string
+		specBinaryName  string
+		stateBinaryName string
+		wantUpdate      bool
+		wantReason      string
 	}{
 		{
-			name:       "binaryName changed",
-			binaryName: "kubectl-krew",
-			binPath:    "/home/user/.local/bin/krew",
-			wantUpdate: true,
-			wantReason: "binaryName changed",
+			name:            "binaryName set where previously unset",
+			specBinaryName:  "kubectl-krew",
+			stateBinaryName: "",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
 		},
 		{
-			name:       "binaryName matches",
-			binaryName: "kubectl-krew",
-			binPath:    "/home/user/.local/bin/kubectl-krew",
-			wantUpdate: false,
+			name:            "binaryName unchanged",
+			specBinaryName:  "kubectl-krew",
+			stateBinaryName: "kubectl-krew",
+			wantUpdate:      false,
 		},
 		{
-			name:       "binaryName empty - no check",
-			binaryName: "",
-			binPath:    "/home/user/.local/bin/krew",
-			wantUpdate: false,
+			name:            "binaryName unset where previously set",
+			specBinaryName:  "",
+			stateBinaryName: "kubectl-krew",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
 		},
 		{
-			name:       "binPath empty - no check",
-			binaryName: "kubectl-krew",
-			binPath:    "",
-			wantUpdate: false,
+			name:            "both empty - no change",
+			specBinaryName:  "",
+			stateBinaryName: "",
+			wantUpdate:      false,
+		},
+		{
+			name:            "binaryName changed to different value",
+			specBinaryName:  "new-name",
+			stateBinaryName: "old-name",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
 		},
 	}
 
@@ -550,7 +558,7 @@ func TestToolComparator_BinaryNameChanged(t *testing.T) {
 				ToolSpec: &resource.ToolSpec{
 					InstallerRef: "aqua",
 					Version:      "0.4.4",
-					BinaryName:   tt.binaryName,
+					BinaryName:   tt.specBinaryName,
 				},
 			}
 
@@ -558,7 +566,7 @@ func TestToolComparator_BinaryNameChanged(t *testing.T) {
 				Version:     "0.4.4",
 				VersionKind: resource.VersionExact,
 				SpecVersion: "0.4.4",
-				BinPath:     tt.binPath,
+				BinaryName:  tt.stateBinaryName,
 			}
 
 			needsUpdate, reason := comparator(res, state)

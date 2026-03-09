@@ -165,9 +165,28 @@ func (i *Installer) executeCommand(ctx context.Context, cmds []string, vars comm
 	return i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env)
 }
 
+// validateBinaryName checks that binaryName is safe for use in file paths.
+// This is defense-in-depth; the CUE schema also enforces ^[a-zA-Z0-9][a-zA-Z0-9._-]*$.
+func validateBinaryName(name string) error {
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("invalid binaryName %q: must not contain path separators", name)
+	}
+	if name == ".." || strings.HasPrefix(name, "../") || strings.HasSuffix(name, "/..") {
+		return fmt.Errorf("invalid binaryName %q: must not contain path traversal", name)
+	}
+	return nil
+}
+
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
+
+	// Validate binaryName to prevent path traversal (defense-in-depth; CUE schema also enforces this)
+	if spec.BinaryName != "" {
+		if err := validateBinaryName(spec.BinaryName); err != nil {
+			return nil, err
+		}
+	}
 
 	slog.Debug("installing tool", "name", name, "version", spec.Version)
 
@@ -464,7 +483,7 @@ func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.
 	return cfg
 }
 
-// cleanupOldSymlink removes the old symlink if the binary name has changed.
+// cleanupOldSymlink removes the old symlink and its target binary if the binary name has changed.
 // It compares the old BinPath from context with the new link path.
 func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 	oldBinPath := executor.OldBinPathFromContext(ctx)
@@ -472,6 +491,15 @@ func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 		return
 	}
 	slog.Debug("cleaning up old symlink", "old", oldBinPath, "new", newLinkPath)
+
+	// Resolve symlink target before removing the symlink itself,
+	// so we can also clean up the old binary file
+	oldTarget, err := os.Readlink(oldBinPath)
+	if err == nil && oldTarget != "" {
+		slog.Debug("cleaning up old binary target", "path", oldTarget)
+		_ = os.Remove(oldTarget) // best-effort
+	}
+
 	_ = i.placer.Cleanup(oldBinPath) // best-effort
 }
 
@@ -488,6 +516,7 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		Source:       spec.Source,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,
+		BinaryName:   spec.BinaryName,
 		UpdatedAt:    time.Now(),
 	}
 }
@@ -698,6 +727,7 @@ func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string
 		BinPath:      binPath,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,
+		BinaryName:   spec.BinaryName,
 		UpdatedAt:    time.Now(),
 	}
 }

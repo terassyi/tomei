@@ -570,6 +570,11 @@ type ToolState struct {
 	// Persisted in state so Remove() and Update can execute without re-reading the manifest.
 	Commands *ToolCommandSet `json:"commands,omitempty"`
 
+	// BinaryName records the effective binary name used for placement/symlink.
+	// Empty string means the tool name was used as-is.
+	// Used by the reconciler to detect binaryName changes (both setting and unsetting).
+	BinaryName string `json:"binaryName,omitempty"`
+
 	// TaintReason indicates why this tool needs reinstallation.
 	// Empty string means the tool is not tainted.
 	TaintReason TaintReason `json:"taintReason,omitempty"`
