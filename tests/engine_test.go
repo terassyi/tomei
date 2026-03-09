@@ -3572,3 +3572,136 @@ goRuntime: {
 	assert.Equal(t, "~/go/bin", st.Runtimes["go"].BinDir)
 	assert.Equal(t, "~/go/bin", st.Runtimes["go"].ToolBinPath)
 }
+
+// TestEngine_Apply_InstallerDependsOn_ExecutionOrder tests that dependsOn
+// dependencies are respected in execution order.
+func TestEngine_Apply_InstallerDependsOn_ExecutionOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+	configDir := filepath.Join(tmpDir, "config")
+	stateDir := filepath.Join(tmpDir, "state")
+	require.NoError(t, os.MkdirAll(configDir, 0755))
+
+	// CUE config: krewInstaller depends on both krew (toolRef) and kubectl (dependsOn)
+	// ctx tool is installed via krewInstaller
+	cueContent := `package tomei
+
+aquaInstaller: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "aqua"
+	spec: type: "download"
+}
+
+krewInstaller: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Installer"
+	metadata: name: "krew-installer"
+	spec: {
+		type: "delegation"
+		toolRef: "krew"
+		dependsOn: ["kubectl"]
+		commands: install: ["krew install {{.Package}}"]
+	}
+}
+
+kubectl: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "kubectl"
+	spec: {
+		installerRef: "aqua"
+		version: "v1.32.0"
+		source: url: "https://example.com/kubectl"
+	}
+}
+
+krew: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "krew"
+	spec: {
+		installerRef: "aqua"
+		version: "v0.4.4"
+		source: url: "https://example.com/krew"
+	}
+}
+
+ctx: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "ctx"
+	spec: {
+		installerRef: "krew-installer"
+		package: "ctx"
+		version: "v0.9.5"
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+
+	resources := loadResources(t, configDir)
+
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	// Track installation order using a mutex-protected slice
+	var mu sync.Mutex
+	var installOrder []string
+
+	mockTool := newMockToolInstaller()
+	mockTool.installFunc = func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+		mu.Lock()
+		installOrder = append(installOrder, name)
+		mu.Unlock()
+		return &resource.ToolState{
+			InstallerRef: res.ToolSpec.InstallerRef,
+			Version:      res.ToolSpec.Version,
+			BinPath:      filepath.Join("/mock/bin", name),
+		}, nil
+	}
+
+	mockRuntime := newMockRuntimeInstaller()
+	eng := engine.NewEngine(mockTool, mockRuntime, newMockInstallerRepositoryInstaller(), store)
+
+	applyCtx := context.Background()
+
+	// Apply
+	err = eng.Apply(applyCtx, resources)
+	require.NoError(t, err)
+
+	// Verify all tools were installed
+	mu.Lock()
+	order := make([]string, len(installOrder))
+	copy(order, installOrder)
+	mu.Unlock()
+
+	// All 3 tools must be installed
+	assert.Len(t, order, 3)
+
+	// Verify state
+	require.NoError(t, store.Lock())
+	st, err := store.Load()
+	require.NoError(t, err)
+	_ = store.Unlock()
+
+	assert.Contains(t, st.Tools, "kubectl")
+	assert.Contains(t, st.Tools, "krew")
+	assert.Contains(t, st.Tools, "ctx")
+
+	// Verify ordering: kubectl and krew must be installed before ctx
+	kubectlIdx := -1
+	krewIdx := -1
+	ctxIdx := -1
+	for i, entry := range order {
+		switch entry {
+		case "kubectl":
+			kubectlIdx = i
+		case "krew":
+			krewIdx = i
+		case "ctx":
+			ctxIdx = i
+		}
+	}
+	assert.Greater(t, ctxIdx, kubectlIdx, "ctx must be installed after kubectl")
+	assert.Greater(t, ctxIdx, krewIdx, "ctx must be installed after krew")
+}
