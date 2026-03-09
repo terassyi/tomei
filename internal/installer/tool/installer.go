@@ -528,7 +528,13 @@ func isUnderDir(path, dir string) bool {
 	if err != nil {
 		return false
 	}
-	return !strings.HasPrefix(rel, "..")
+	// rel == ".." or starts with "../" means path is outside dir.
+	// rel == "." means path equals dir.
+	// A relative like "..abc" is valid (not traversal), so check for exact ".." or "../" prefix.
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
 }
 
 // buildState creates a ToolState from the installation result.
@@ -706,10 +712,16 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 
 	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
 
-	// Clean up old binary when binaryName changes on upgrade/reinstall
+	// Clean up old binary when binaryName changes on upgrade/reinstall.
+	// Safety: only remove if the old path is within the expected ToolBinPath directory.
 	if oldBinPath := executor.OldBinPathFromContext(ctx); oldBinPath != "" && oldBinPath != vars.BinPath {
-		slog.Debug("cleaning up old runtime binary", "old", oldBinPath, "new", vars.BinPath)
-		_ = os.Remove(oldBinPath) // best-effort
+		if info.ToolBinPath != "" && filepath.Dir(oldBinPath) == info.ToolBinPath {
+			slog.Debug("cleaning up old runtime binary", "old", oldBinPath, "new", vars.BinPath)
+			_ = os.Remove(oldBinPath) // best-effort
+		} else {
+			slog.Warn("skipping old runtime binary cleanup: path is outside expected directory",
+				"old", oldBinPath, "expected_dir", info.ToolBinPath)
+		}
 	}
 
 	return i.buildDelegationState(spec, vars.BinPath), nil
