@@ -186,6 +186,8 @@ func TestGenerate_InstallerBinDir(t *testing.T) {
 	require.NotEmpty(t, pathLine, "PATH export line should exist")
 	goIdx := strings.Index(pathLine, "/opt/go/1.25.6/bin")
 	krewIdx := strings.Index(pathLine, "/home/user/.krew/bin")
+	require.GreaterOrEqual(t, goIdx, 0, "runtime binDir must be present in PATH line")
+	require.GreaterOrEqual(t, krewIdx, 0, "installer binDir must be present in PATH line")
 	assert.Less(t, goIdx, krewIdx, "runtime binDir should come before installer binDir in PATH")
 }
 

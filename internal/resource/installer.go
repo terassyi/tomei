@@ -52,7 +52,7 @@ type InstallerSpec struct {
 
 	// BinDir specifies a directory where delegation installers place their binaries.
 	// Used by `tomei env` to include the directory in PATH.
-	// Must start with "~/" or "/" (absolute path). Only meaningful for delegation type.
+	// Must start with "~/" (home-relative) or "/" (absolute). Only meaningful for delegation type.
 	BinDir string `json:"binDir,omitempty"`
 }
 
@@ -101,7 +101,7 @@ func (s *InstallerSpec) Validate() error {
 			return fmt.Errorf("binDir is not supported for download type")
 		}
 		if !strings.HasPrefix(s.BinDir, "~/") && !strings.HasPrefix(s.BinDir, "/") {
-			return fmt.Errorf("binDir must be an absolute path (start with '~/' or '/'), got %q", s.BinDir)
+			return fmt.Errorf("binDir must start with \"~/\" or \"/\", got %q", s.BinDir)
 		}
 	}
 

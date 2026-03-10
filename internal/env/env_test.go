@@ -248,6 +248,9 @@ func TestGenerate_InstallerBinDirOrdering(t *testing.T) {
 	goIdx := strings.Index(output, "$HOME/go/bin")
 	krewIdx := strings.Index(output, "$HOME/.krew/bin")
 
+	assert.GreaterOrEqual(t, userIdx, 0, "$HOME/.local/bin should be present in PATH")
+	assert.GreaterOrEqual(t, goIdx, 0, "$HOME/go/bin should be present in PATH")
+	assert.GreaterOrEqual(t, krewIdx, 0, "$HOME/.krew/bin should be present in PATH")
 	assert.Greater(t, goIdx, userIdx, "userBinDir should come before runtime BinDir")
 	assert.Greater(t, krewIdx, goIdx, "runtime BinDir should come before installer BinDir")
 }
@@ -268,7 +271,8 @@ func TestGenerate_MultipleInstallersSorted(t *testing.T) {
 
 	aIdx := strings.Index(output, "/opt/a/bin")
 	zIdx := strings.Index(output, "/opt/z/bin")
-	assert.Positive(t, aIdx, "/opt/a/bin should be in output")
+	assert.GreaterOrEqual(t, aIdx, 0, "/opt/a/bin should be in output")
+	assert.GreaterOrEqual(t, zIdx, 0, "/opt/z/bin should be in output")
 	assert.Greater(t, zIdx, aIdx, "/opt/a/bin should come before /opt/z/bin (alphabetical)")
 }
 

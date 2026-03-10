@@ -164,7 +164,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 					Install: []string{"some command"},
 				},
 			},
-			wantErr: "binDir must be an absolute path",
+			wantErr: "binDir must start with",
 		},
 		{
 			name: "binDir on download type rejected",
