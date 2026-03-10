@@ -32,6 +32,10 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 		if state.IsTainted() {
 			return true, "tainted: " + string(state.TaintReason)
 		}
+		// Detect binaryName change (both setting and unsetting)
+		if res.ToolSpec.BinaryName != state.BinaryName {
+			return true, "binaryName changed: " + state.BinaryName + " -> " + res.ToolSpec.BinaryName
+		}
 		return false, ""
 	}
 }

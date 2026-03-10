@@ -42,6 +42,9 @@ type e2eVersions struct {
 
 	// Three-segment package test (e2e/config/three-segment-test/)
 	RegLogcliVersion string // logcli.cue → Tool/logcli
+
+	// BinaryName test (e2e/config/binary-name-test/)
+	BinaryNameKrewVersion string // tool.cue → Tool/krew
 }
 
 // versions is the global version holder, populated in BeforeSuite.
@@ -170,6 +173,15 @@ func loadVersions() (*e2eVersions, error) {
 		return nil, fmt.Errorf("registry tools.cue.old jq: %w", err)
 	} else {
 		v.RegJqVersionOld = ver
+	}
+
+	// BinaryName test
+	binaryNameDir := filepath.Join(e2eDir, "config", "binary-name-test")
+
+	if ver, err := loadVersion(loader, filepath.Join(binaryNameDir, "tool.cue"), resource.KindTool, "krew"); err != nil {
+		return nil, fmt.Errorf("binary-name-test tool.cue: %w", err)
+	} else {
+		v.BinaryNameKrewVersion = ver
 	}
 
 	// Three-segment package test

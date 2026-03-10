@@ -260,6 +260,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy commands-test: %w", err)
 	}
 
+	// Copy binary-name-test configs
+	if err := copyDir(filepath.Join(configDir, "binary-name-test"), filepath.Join(e.testHome, "binary-name-test")); err != nil {
+		return fmt.Errorf("failed to copy binary-name-test: %w", err)
+	}
+
 	return nil
 }
 

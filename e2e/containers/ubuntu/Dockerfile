@@ -60,5 +60,8 @@ COPY --chown=testuser:testuser config/update-flags-test/ /home/testuser/update-f
 # Copy commands-test manifests
 COPY --chown=testuser:testuser config/commands-test/ /home/testuser/commands-test/
 
+# Copy binary-name-test manifests
+COPY --chown=testuser:testuser config/binary-name-test/ /home/testuser/binary-name-test/
+
 # Default command
 CMD ["tomei", "version"]

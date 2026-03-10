@@ -181,6 +181,7 @@ spec: {
 | `spec.enabled` | bool | no | Default `true`. Set `false` to skip |
 | `spec.source` | [DownloadSource](#downloadsource) | no | Explicit download source |
 | `spec.package` | [Package](#package) | no | Package identifier for registry or delegation |
+| `spec.binaryName` | string | no | Override binary name for both the placed binary and the symlink (e.g., `"kubectl-krew"` for krew). Affects `state.installPath` and `state.binPath`. Must match `^[a-zA-Z0-9][a-zA-Z0-9._-]*$` |
 
 \* Exactly one of `installerRef`, `runtimeRef`, or `commands` is required.
 
@@ -208,7 +209,7 @@ spec: {
 | `spec.installerRef` | string | no | Shared installer for all tools |
 | `spec.runtimeRef` | string | no | Shared runtime for all tools |
 | `spec.repositoryRef` | string | no | Shared repository reference |
-| `spec.tools` | map | yes | Tool definitions (same fields as Tool.spec minus installerRef/runtimeRef) |
+| `spec.tools` | map | yes | Tool definitions (same fields as Tool.spec minus installerRef/runtimeRef). Each tool supports `version`, `enabled`, `source`, `package`, `binaryName`, `args` |
 
 ### Installer
 

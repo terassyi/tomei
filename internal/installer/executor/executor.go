@@ -63,6 +63,16 @@ func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R
 	// Propagate action type to installers via context
 	ctx = WithAction(ctx, action.Type)
 
+	// Pass old BinPath for symlink cleanup on upgrade/reinstall.
+	// All resource.State implementations are pointer types, so direct nil comparison works.
+	if action.Type == resource.ActionUpgrade || action.Type == resource.ActionReinstall {
+		if bp, ok := any(action.State).(interface{ GetBinPath() string }); ok {
+			if oldPath := bp.GetBinPath(); oldPath != "" {
+				ctx = WithOldBinPath(ctx, oldPath)
+			}
+		}
+	}
+
 	// Install the resource
 	state, err := e.installer.Install(ctx, action.Resource, action.Name)
 	if err != nil {

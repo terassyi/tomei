@@ -47,3 +47,16 @@ func TestActionContext_NotSet(t *testing.T) {
 	got := ActionFromContext(context.Background())
 	assert.Equal(t, resource.ActionType(""), got)
 }
+
+func TestOldBinPathContext(t *testing.T) {
+	t.Parallel()
+	ctx := WithOldBinPath(context.Background(), "/home/user/.local/bin/old-name")
+	got := OldBinPathFromContext(ctx)
+	assert.Equal(t, "/home/user/.local/bin/old-name", got)
+}
+
+func TestOldBinPathContext_Empty(t *testing.T) {
+	t.Parallel()
+	got := OldBinPathFromContext(context.Background())
+	assert.Empty(t, got)
+}

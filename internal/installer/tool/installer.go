@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -165,9 +166,29 @@ func (i *Installer) executeCommand(ctx context.Context, cmds []string, vars comm
 	return i.cmdExecutor.ExecuteWithEnv(ctx, cmds, vars, env)
 }
 
+// binaryNameRegexp matches the CUE schema constraint: ^[a-zA-Z0-9][a-zA-Z0-9._-]*$
+var binaryNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// validateBinaryName checks that binaryName is safe for use in file paths.
+// Enforces the same regex as the CUE schema (^[a-zA-Z0-9][a-zA-Z0-9._-]*$)
+// as defense-in-depth for inputs that bypass CUE validation (e.g., JSON/YAML).
+func validateBinaryName(name string) error {
+	if !binaryNameRegexp.MatchString(name) {
+		return fmt.Errorf("invalid binaryName %q: must match ^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name)
+	}
+	return nil
+}
+
 // Install installs a tool according to the resource and returns its state.
 func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
 	spec := res.ToolSpec
+
+	// Validate binaryName to prevent path traversal (defense-in-depth; CUE schema also enforces this)
+	if spec.BinaryName != "" {
+		if err := validateBinaryName(spec.BinaryName); err != nil {
+			return nil, err
+		}
+	}
 
 	slog.Debug("installing tool", "name", name, "version", spec.Version)
 
@@ -208,6 +229,19 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	if cfg.BinaryName == "" {
 		cfg.BinaryName = name
 	}
+	// User spec binaryName takes highest priority
+	if spec.BinaryName != "" {
+		// Preserve original binary name as SrcBinaryName for archive search
+		if cfg.SrcBinaryName == "" {
+			cfg.SrcBinaryName = cfg.BinaryName
+		}
+		cfg.BinaryName = spec.BinaryName
+	}
+
+	// Validate effective binary name (after registry mapping and spec override)
+	if err := validateBinaryName(cfg.BinaryName); err != nil {
+		return nil, err
+	}
 
 	// Validate spec
 	if spec.Source == nil {
@@ -238,9 +272,12 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	case place.ValidateActionSkip:
 		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
 		// Even if binary exists, ensure symlink points to correct version
-		if _, err := i.placer.Symlink(target); err != nil {
+		linkPath, err := i.placer.Symlink(target)
+		if err != nil {
 			return nil, fmt.Errorf("failed to update symlink: %w", err)
 		}
+		// Clean up old symlink if binaryName changed (e.g., upgrade with same binary but new name)
+		i.cleanupOldSymlink(ctx, linkPath)
 		return i.buildState(spec, target, expectedHash), nil
 
 	case place.ValidateActionReplace:
@@ -329,6 +366,9 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 	result.LinkPath = linkPath
 
+	// Clean up old symlink if binaryName changed
+	i.cleanupOldSymlink(ctx, linkPath)
+
 	slog.Debug("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
 
 	return i.buildState(spec, target, expectedHash), nil
@@ -408,6 +448,7 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 			Enabled:      spec.Enabled,
 			Source:       source,
 			Package:      spec.Package,
+			BinaryName:   spec.BinaryName,
 		},
 	}
 
@@ -452,6 +493,58 @@ func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.
 	return cfg
 }
 
+// cleanupOldSymlink removes the old symlink and its target binary if the binary name has changed.
+// It compares the old BinPath from context with the new link path.
+// Safety: only removes files within the expected bin and tools directories.
+func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
+	oldBinPath := executor.OldBinPathFromContext(ctx)
+	if oldBinPath == "" || oldBinPath == newLinkPath {
+		return
+	}
+
+	// Safety check: old symlink must be in the same directory as the new one (bin dir)
+	if filepath.Dir(oldBinPath) != filepath.Dir(newLinkPath) {
+		slog.Warn("skipping old symlink cleanup: old bin path is outside expected directory",
+			"old", oldBinPath, "expected_dir", filepath.Dir(newLinkPath))
+		return
+	}
+
+	slog.Debug("cleaning up old symlink", "old", oldBinPath, "new", newLinkPath)
+
+	// Resolve symlink target before removing the symlink itself,
+	// so we can also clean up the old binary file
+	oldTarget, err := os.Readlink(oldBinPath)
+	if err == nil && oldTarget != "" {
+		// Safety check: only remove if the target is under the tools directory
+		toolsDir := i.placer.ToolsDir()
+		cleanTarget := filepath.Clean(oldTarget)
+		if isUnderDir(cleanTarget, toolsDir) {
+			slog.Debug("cleaning up old binary target", "path", cleanTarget)
+			_ = os.Remove(cleanTarget) // best-effort
+		} else {
+			slog.Warn("skipping old binary cleanup: target is outside tools directory",
+				"target", cleanTarget, "tools_dir", toolsDir)
+		}
+	}
+
+	_ = i.placer.Cleanup(oldBinPath) // best-effort
+}
+
+// isUnderDir checks whether path is strictly under dir (not equal to dir).
+func isUnderDir(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	// rel == "." means path equals dir — reject (must be strictly under).
+	// rel == ".." or starts with "../" means path is outside dir.
+	// A relative like "..abc" is valid (not traversal), so check for exact ".." or "../" prefix.
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return false
+	}
+	return true
+}
+
 // buildState creates a ToolState from the installation result.
 func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest checksum.Digest) *resource.ToolState {
 	return &resource.ToolState{
@@ -465,6 +558,7 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		Source:       spec.Source,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,
+		BinaryName:   spec.BinaryName,
 		UpdatedAt:    time.Now(),
 	}
 }
@@ -520,6 +614,7 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 		VersionKind: versionKind,
 		SpecVersion: spec.Version,
 		Commands:    spec.Commands,
+		BinaryName:  spec.BinaryName,
 		UpdatedAt:   time.Now(),
 	}, nil
 }
@@ -587,11 +682,15 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Build variables for command substitution
+	binName := name
+	if spec.BinaryName != "" {
+		binName = spec.BinaryName
+	}
 	vars := command.Vars{
 		Package: spec.Package.String(),
 		Version: spec.Version,
 		Name:    name,
-		BinPath: filepath.Join(info.ToolBinPath, name),
+		BinPath: filepath.Join(info.ToolBinPath, binName),
 		Args:    strings.Join(spec.Args, " "),
 	}
 
@@ -621,6 +720,18 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+
+	// Clean up old binary when binaryName changes on upgrade/reinstall.
+	// Safety: only remove if the old path is within the expected ToolBinPath directory.
+	if oldBinPath := executor.OldBinPathFromContext(ctx); oldBinPath != "" && oldBinPath != vars.BinPath {
+		if info.ToolBinPath != "" && filepath.Dir(oldBinPath) == info.ToolBinPath {
+			slog.Debug("cleaning up old runtime binary", "old", oldBinPath, "new", vars.BinPath)
+			_ = os.Remove(oldBinPath) // best-effort
+		} else {
+			slog.Warn("skipping old runtime binary cleanup: path is outside expected directory",
+				"old", oldBinPath, "expected_dir", info.ToolBinPath)
+		}
+	}
 
 	return i.buildDelegationState(spec, vars.BinPath), nil
 }
@@ -671,6 +782,7 @@ func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string
 		BinPath:      binPath,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,
+		BinaryName:   spec.BinaryName,
 		UpdatedAt:    time.Now(),
 	}
 }

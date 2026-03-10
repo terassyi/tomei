@@ -1013,6 +1013,15 @@ func TestToolItem_UnmarshalJSON(t *testing.T) {
 			},
 		},
 		{
+			name: "with binaryName",
+			json: `{"version":"0.4.4","package":"kubernetes-sigs/krew","binaryName":"kubectl-krew"}`,
+			want: ToolItem{
+				Version:    "0.4.4",
+				Package:    &Package{Owner: "kubernetes-sigs", Repo: "krew"},
+				BinaryName: "kubectl-krew",
+			},
+		},
+		{
 			name:    "invalid JSON",
 			json:    `{bad}`,
 			wantErr: true,
@@ -1032,4 +1041,109 @@ func TestToolItem_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestToolSpec_BinaryName_JSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		json string
+		want ToolSpec
+	}{
+		{
+			name: "binaryName present",
+			json: `{"installerRef":"aqua","version":"0.4.4","package":{"owner":"kubernetes-sigs","repo":"krew"},"binaryName":"kubectl-krew"}`,
+			want: ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "0.4.4",
+				Package:      &Package{Owner: "kubernetes-sigs", Repo: "krew"},
+				BinaryName:   "kubectl-krew",
+			},
+		},
+		{
+			name: "binaryName absent",
+			json: `{"installerRef":"aqua","version":"1.0.0"}`,
+			want: ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var got ToolSpec
+			err := got.UnmarshalJSON([]byte(tt.json))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestToolSpec_BinaryName_MarshalRoundtrip(t *testing.T) {
+	t.Parallel()
+	original := ToolSpec{
+		InstallerRef: "aqua",
+		Version:      "0.4.4",
+		BinaryName:   "kubectl-krew",
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got ToolSpec
+	err = got.UnmarshalJSON(data)
+	require.NoError(t, err)
+	assert.Equal(t, original.BinaryName, got.BinaryName)
+}
+
+func TestToolSet_Expand_BinaryName(t *testing.T) {
+	t.Parallel()
+	ts := &ToolSet{
+		BaseResource: BaseResource{
+			APIVersion:   GroupVersion,
+			ResourceKind: KindToolSet,
+			Metadata:     Metadata{Name: "kube-tools"},
+		},
+		ToolSetSpec: &ToolSetSpec{
+			InstallerRef: "aqua",
+			Tools: map[string]ToolItem{
+				"krew": {
+					Version:    "0.4.4",
+					Package:    &Package{Owner: "kubernetes-sigs", Repo: "krew"},
+					BinaryName: "kubectl-krew",
+				},
+				"rg": {
+					Version: "14.1.1",
+					Package: &Package{Owner: "BurntSushi", Repo: "ripgrep"},
+				},
+			},
+		},
+	}
+
+	resources, err := ts.Expand()
+	require.NoError(t, err)
+	require.Len(t, resources, 2)
+
+	for _, r := range resources {
+		tool := r.(*Tool)
+		switch tool.Name() {
+		case "krew":
+			assert.Equal(t, "kubectl-krew", tool.ToolSpec.BinaryName)
+		case "rg":
+			assert.Empty(t, tool.ToolSpec.BinaryName)
+		default:
+			t.Errorf("unexpected tool: %s", tool.Name())
+		}
+	}
+}
+
+func TestToolState_GetBinPath(t *testing.T) {
+	t.Parallel()
+	state := &ToolState{BinPath: "/home/user/.local/bin/kubectl-krew"}
+	assert.Equal(t, "/home/user/.local/bin/kubectl-krew", state.GetBinPath())
+
+	emptyState := &ToolState{}
+	assert.Empty(t, emptyState.GetBinPath())
 }

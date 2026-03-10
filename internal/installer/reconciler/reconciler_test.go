@@ -500,6 +500,84 @@ func TestToolComparator_VersionKind(t *testing.T) {
 	}
 }
 
+// --- ToolComparator binaryName change tests ---
+
+func TestToolComparator_BinaryNameChanged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		specBinaryName  string
+		stateBinaryName string
+		wantUpdate      bool
+		wantReason      string
+	}{
+		{
+			name:            "binaryName set where previously unset",
+			specBinaryName:  "kubectl-krew",
+			stateBinaryName: "",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
+		},
+		{
+			name:            "binaryName unchanged",
+			specBinaryName:  "kubectl-krew",
+			stateBinaryName: "kubectl-krew",
+			wantUpdate:      false,
+		},
+		{
+			name:            "binaryName unset where previously set",
+			specBinaryName:  "",
+			stateBinaryName: "kubectl-krew",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
+		},
+		{
+			name:            "both empty - no change",
+			specBinaryName:  "",
+			stateBinaryName: "",
+			wantUpdate:      false,
+		},
+		{
+			name:            "binaryName changed to different value",
+			specBinaryName:  "new-name",
+			stateBinaryName: "old-name",
+			wantUpdate:      true,
+			wantReason:      "binaryName changed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			comparator := ToolComparator()
+
+			res := &resource.Tool{
+				BaseResource: resource.BaseResource{
+					Metadata: resource.Metadata{Name: "krew"},
+				},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "aqua",
+					Version:      "0.4.4",
+					BinaryName:   tt.specBinaryName,
+				},
+			}
+
+			state := &resource.ToolState{
+				Version:     "0.4.4",
+				VersionKind: resource.VersionExact,
+				SpecVersion: "0.4.4",
+				BinaryName:  tt.stateBinaryName,
+			}
+
+			needsUpdate, reason := comparator(res, state)
+			assert.Equal(t, tt.wantUpdate, needsUpdate)
+			if tt.wantReason != "" {
+				assert.Contains(t, reason, tt.wantReason)
+			}
+		})
+	}
+}
+
 // --- RuntimeComparator tests with VersionKind ---
 
 func TestRuntimeComparator_VersionKind(t *testing.T) {

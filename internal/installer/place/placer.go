@@ -70,6 +70,9 @@ type Placer interface {
 	// Cleanup removes a file or directory.
 	// Does not return error if path does not exist.
 	Cleanup(path string) error
+
+	// ToolsDir returns the root tools directory path.
+	ToolsDir() string
 }
 
 var _ Placer = (*filePlacer)(nil)
@@ -221,6 +224,11 @@ func (p *filePlacer) Cleanup(path string) error {
 	}
 
 	return nil
+}
+
+// ToolsDir returns the root tools directory path.
+func (p *filePlacer) ToolsDir() string {
+	return p.toolsDir
 }
 
 // findBinary searches for a binary in srcDir and its subdirectories.

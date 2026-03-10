@@ -20,3 +20,18 @@ func ActionFromContext(ctx context.Context) resource.ActionType {
 	}
 	return ""
 }
+
+type oldBinPathKey struct{}
+
+// WithOldBinPath returns a context carrying the old BinPath for symlink cleanup.
+func WithOldBinPath(ctx context.Context, binPath string) context.Context {
+	return context.WithValue(ctx, oldBinPathKey{}, binPath)
+}
+
+// OldBinPathFromContext extracts the old BinPath from context, or empty string.
+func OldBinPathFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(oldBinPathKey{}).(string); ok {
+		return v
+	}
+	return ""
+}

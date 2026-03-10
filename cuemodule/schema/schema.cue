@@ -159,6 +159,7 @@ package schema
 		source?:        #DownloadSource
 		package?:       #Package
 		commands?:      #ToolCommandSet
+		binaryName?:    string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 		args?: [...string]
 	}
 }
@@ -172,10 +173,11 @@ package schema
 		runtimeRef?:    string
 		repositoryRef?: string
 		tools: {[string]: {
-			version?: string
-			enabled?: bool
-			source?:  #DownloadSource
-			package?: #Package
+			version?:    string
+			enabled?:    bool
+			source?:     #DownloadSource
+			package?:    #Package
+			binaryName?: string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 			args?: [...string]
 		}}
 	}
