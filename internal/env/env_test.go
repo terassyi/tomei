@@ -19,6 +19,7 @@ func TestGenerate(t *testing.T) {
 	tests := []struct {
 		name            string
 		runtimes        map[string]*resource.RuntimeState
+		installers      map[string]*resource.InstallerState
 		shell           ShellType
 		wantContains    []string
 		wantNotContains []string
@@ -126,6 +127,100 @@ func TestGenerate(t *testing.T) {
 				`$HOME/go/bin`,
 			},
 		},
+		{
+			name:     "nil installer map",
+			runtimes: map[string]*resource.RuntimeState{},
+			shell:    ShellPosix,
+			wantContains: []string{
+				`export PATH="$HOME/.local/bin:$PATH"`,
+			},
+		},
+		{
+			name:     "installer with binDir - posix",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: home + "/.krew/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`$HOME/.krew/bin`,
+				`export PATH=`,
+			},
+		},
+		{
+			name:     "installer with binDir - fish",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: home + "/.krew/bin"},
+			},
+			shell: ShellFish,
+			wantContains: []string{
+				`$HOME/.krew/bin`,
+				`fish_add_path`,
+			},
+		},
+		{
+			name:     "installer with empty binDir",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: ""},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`export PATH="$HOME/.local/bin:$PATH"`,
+			},
+			wantNotContains: []string{
+				`krew`,
+			},
+		},
+		{
+			name: "installer binDir dedup with runtime",
+			runtimes: map[string]*resource.RuntimeState{
+				"go": {
+					Version: "1.25.6",
+					BinDir:  home + "/go/bin",
+					Env:     map[string]string{},
+				},
+			},
+			installers: map[string]*resource.InstallerState{
+				"go-installer": {BinDir: home + "/go/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`$HOME/go/bin`,
+			},
+		},
+		{
+			name:     "multiple installers sorted",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"zinstaller": {BinDir: "/opt/z/bin"},
+				"ainstaller": {BinDir: "/opt/a/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`/opt/a/bin`,
+				`/opt/z/bin`,
+			},
+		},
+		{
+			name: "installer binDir after runtimes",
+			runtimes: map[string]*resource.RuntimeState{
+				"go": {
+					Version: "1.25.6",
+					BinDir:  home + "/go/bin",
+					Env:     map[string]string{},
+				},
+			},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: home + "/.krew/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`$HOME/go/bin`,
+				`$HOME/.krew/bin`,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -133,7 +228,7 @@ func TestGenerate(t *testing.T) {
 			t.Parallel()
 
 			f := NewFormatter(tt.shell)
-			lines := Generate(tt.runtimes, userBinDir, f)
+			lines := Generate(tt.runtimes, tt.installers, userBinDir, f)
 			output := joinLines(lines)
 
 			for _, want := range tt.wantContains {

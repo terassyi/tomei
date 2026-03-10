@@ -62,7 +62,7 @@ func TestEnv_GenerateFromState(t *testing.T) {
 
 	t.Run("posix", func(t *testing.T) {
 		f := env.NewFormatter(env.ShellPosix)
-		lines := env.Generate(loaded.Runtimes, userBinDir, f)
+		lines := env.Generate(loaded.Runtimes, loaded.Installers, userBinDir, f)
 		assert.NotEmpty(t, lines)
 
 		output := joinLines(lines)
@@ -73,7 +73,7 @@ func TestEnv_GenerateFromState(t *testing.T) {
 
 	t.Run("fish", func(t *testing.T) {
 		f := env.NewFormatter(env.ShellFish)
-		lines := env.Generate(loaded.Runtimes, userBinDir, f)
+		lines := env.Generate(loaded.Runtimes, loaded.Installers, userBinDir, f)
 		assert.NotEmpty(t, lines)
 
 		output := joinLines(lines)
@@ -108,7 +108,7 @@ func TestGenerate_MultipleRuntimes(t *testing.T) {
 
 	userBinDir := "/home/user/.local/bin"
 	f := env.NewFormatter(env.ShellPosix)
-	lines := env.Generate(runtimes, userBinDir, f)
+	lines := env.Generate(runtimes, nil, userBinDir, f)
 	assert.NotEmpty(t, lines)
 
 	output := joinLines(lines)
@@ -126,7 +126,7 @@ func TestGenerate_MultipleRuntimes(t *testing.T) {
 	assert.Contains(t, output, "export RUSTUP_HOME=")
 
 	// Verify deterministic ordering: run twice and compare
-	lines2 := env.Generate(runtimes, userBinDir, f)
+	lines2 := env.Generate(runtimes, nil, userBinDir, f)
 	assert.Equal(t, lines, lines2, "output should be deterministic across calls")
 
 	// Verify "go" env vars come before "rust" env vars (sorted by runtime name)
@@ -145,12 +145,56 @@ func TestGenerate_MultipleRuntimes(t *testing.T) {
 	}
 }
 
+func TestGenerate_InstallerBinDir(t *testing.T) {
+	runtimes := map[string]*resource.RuntimeState{
+		"go": {
+			Type:        resource.InstallTypeDownload,
+			Version:     "1.25.6",
+			InstallPath: "/opt/go/1.25.6",
+			BinDir:      "/opt/go/1.25.6/bin",
+			ToolBinPath: "/home/user/go/bin",
+			Env: map[string]string{
+				"GOROOT": "/opt/go/1.25.6",
+			},
+		},
+	}
+	installers := map[string]*resource.InstallerState{
+		"krew": {BinDir: "/home/user/.krew/bin"},
+	}
+
+	userBinDir := "/home/user/.local/bin"
+	f := env.NewFormatter(env.ShellPosix)
+	lines := env.Generate(runtimes, installers, userBinDir, f)
+	assert.NotEmpty(t, lines)
+
+	output := joinLines(lines)
+
+	// Verify installer binDir appears in PATH
+	assert.Contains(t, output, "/home/user/.krew/bin")
+	// Verify runtime dirs still present
+	assert.Contains(t, output, "/opt/go/1.25.6/bin")
+	assert.Contains(t, output, "/home/user/go/bin")
+
+	// Verify PATH ordering: runtime dirs before installer dirs
+	pathLine := ""
+	for _, l := range lines {
+		if strings.Contains(l, "export PATH=") {
+			pathLine = l
+			break
+		}
+	}
+	require.NotEmpty(t, pathLine, "PATH export line should exist")
+	goIdx := strings.Index(pathLine, "/opt/go/1.25.6/bin")
+	krewIdx := strings.Index(pathLine, "/home/user/.krew/bin")
+	assert.Less(t, goIdx, krewIdx, "runtime binDir should come before installer binDir in PATH")
+}
+
 func TestGenerate_EmptyRuntimes(t *testing.T) {
 	runtimes := map[string]*resource.RuntimeState{}
 
 	userBinDir := "/home/user/.local/bin"
 	f := env.NewFormatter(env.ShellPosix)
-	lines := env.Generate(runtimes, userBinDir, f)
+	lines := env.Generate(runtimes, nil, userBinDir, f)
 
 	// Should only contain the PATH entry with userBinDir
 	require.Len(t, lines, 1, "should only contain the PATH export")
@@ -159,9 +203,10 @@ func TestGenerate_EmptyRuntimes(t *testing.T) {
 }
 
 func joinLines(lines []string) string {
-	result := ""
+	var b strings.Builder
 	for _, l := range lines {
-		result += l + "\n"
+		b.WriteString(l)
+		b.WriteByte('\n')
 	}
-	return result
+	return b.String()
 }

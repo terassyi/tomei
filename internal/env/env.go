@@ -9,10 +9,11 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-// Generate produces environment variable statements for the given runtimes.
+// Generate produces environment variable statements for the given runtimes and installers.
 // It collects env vars from each runtime and builds a PATH statement
-// with BinDir, ToolBinPath from runtimes plus the user bin directory.
-func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f Formatter) []string {
+// with BinDir, ToolBinPath from runtimes, BinDir from installers, plus the user bin directory.
+// PATH ordering: userBinDir > runtime BinDir/ToolBinPath > installer BinDir > $PATH.
+func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]*resource.InstallerState, userBinDir string, f Formatter) []string {
 	var lines []string
 	var pathDirs []string
 
@@ -47,6 +48,20 @@ func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f F
 		}
 		if rs.ToolBinPath != "" && rs.ToolBinPath != rs.BinDir {
 			pathDirs = append(pathDirs, toShellPath(rs.ToolBinPath))
+		}
+	}
+
+	// Add installer BinDir entries (after runtimes, before $PATH)
+	instNames := make([]string, 0, len(installers))
+	for name := range installers {
+		instNames = append(instNames, name)
+	}
+	sort.Strings(instNames)
+
+	for _, name := range instNames {
+		is := installers[name]
+		if is != nil && is.BinDir != "" {
+			pathDirs = append(pathDirs, toShellPath(is.BinDir))
 		}
 	}
 

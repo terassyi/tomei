@@ -83,7 +83,7 @@ func runEnv(cmd *cobra.Command, _ []string) error {
 
 	// Generate env output
 	formatter := env.NewFormatter(shellType)
-	lines := env.Generate(userState.Runtimes, paths.UserBinDir(), formatter)
+	lines := env.Generate(userState.Runtimes, userState.Installers, paths.UserBinDir(), formatter)
 
 	// Add CUE_REGISTRY if cue.mod/ exists and CUE_REGISTRY is not already set.
 	// Respecting an existing CUE_REGISTRY avoids overwriting user-configured

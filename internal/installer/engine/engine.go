@@ -18,6 +18,7 @@ import (
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/reconciler"
 	"github.com/terassyi/tomei/internal/installer/tool"
+	tomeipth "github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 	"golang.org/x/sync/semaphore"
@@ -288,12 +289,17 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				ToolRef:  inst.InstallerSpec.ToolRef,
 				Commands: inst.InstallerSpec.Commands,
 			})
-			// Persist installer state (including ToolRef) for removal lookup
+			// Persist installer state (including ToolRef and BinDir) for removal lookup and env
 			if st.Installers == nil {
 				st.Installers = make(map[string]*resource.InstallerState)
 			}
+			expandedBinDir, err := tomeipth.Expand(inst.InstallerSpec.BinDir)
+			if err != nil {
+				return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
+			}
 			st.Installers[inst.Name()] = &resource.InstallerState{
 				ToolRef:   inst.InstallerSpec.ToolRef,
+				BinDir:    expandedBinDir,
 				UpdatedAt: time.Now(),
 			}
 		}
