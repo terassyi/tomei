@@ -100,7 +100,7 @@ type Event struct {
 	// EventLayerStart fields
 	Layer         int        // current layer index (0-based)
 	TotalLayers   int        // total number of layers
-	LayerNodes    []string   // node names in the current layer (Installer/InstallerRepository excluded)
+	LayerNodes    []string   // node names in the current layer
 	AllLayerNodes [][]string // node names for all layers (for rendering pending layer headers)
 
 	// EventComplete fields
@@ -284,6 +284,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Register installers for delegation type and save to state
 	for _, res := range resources {
 		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
+			if err := inst.InstallerSpec.Validate(); err != nil {
+				return fmt.Errorf("invalid installer %q: %w", inst.Name(), err)
+			}
 			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
 				Type:     inst.InstallerSpec.Type,
 				ToolRef:  inst.InstallerSpec.ToolRef,
@@ -293,15 +296,25 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 			if st.Installers == nil {
 				st.Installers = make(map[string]*resource.InstallerState)
 			}
-			expandedBinDir, err := tomeipth.Expand(inst.InstallerSpec.BinDir)
-			if err != nil {
-				return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
+			var expandedBinDir string
+			if inst.InstallerSpec.BinDir != "" {
+				var err error
+				expandedBinDir, err = tomeipth.Expand(inst.InstallerSpec.BinDir)
+				if err != nil {
+					return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
+				}
 			}
-			st.Installers[inst.Name()] = &resource.InstallerState{
+			// Preserve existing state fields (e.g., Version) that are not set here
+			existing := st.Installers[inst.Name()]
+			newState := &resource.InstallerState{
 				ToolRef:   inst.InstallerSpec.ToolRef,
 				BinDir:    expandedBinDir,
 				UpdatedAt: time.Now(),
 			}
+			if existing != nil {
+				newState.Version = existing.Version
+			}
+			st.Installers[inst.Name()] = newState
 		}
 	}
 	if err := e.store.Save(st); err != nil {

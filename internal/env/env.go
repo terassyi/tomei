@@ -22,11 +22,11 @@ func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]
 	pathDirs = append(pathDirs, toShellPath(userBinDir))
 
 	// Process each runtime in sorted order (deterministic output)
-	for _, name := range sortedKeys(runtimes) {
+	for _, name := range slices.Sorted(maps.Keys(runtimes)) {
 		rs := runtimes[name]
 
 		// Export env vars in sorted key order
-		for _, key := range sortedKeys(rs.Env) {
+		for _, key := range slices.Sorted(maps.Keys(rs.Env)) {
 			lines = append(lines, f.ExportVar(key, toShellPath(rs.Env[key])))
 		}
 
@@ -40,9 +40,9 @@ func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]
 	}
 
 	// Add installer BinDir entries (after runtimes, before $PATH)
-	for _, name := range sortedKeys(installers) {
-		if installers[name].BinDir != "" {
-			pathDirs = append(pathDirs, toShellPath(installers[name].BinDir))
+	for _, name := range slices.Sorted(maps.Keys(installers)) {
+		if inst := installers[name]; inst.BinDir != "" {
+			pathDirs = append(pathDirs, toShellPath(inst.BinDir))
 		}
 	}
 
@@ -77,13 +77,6 @@ func toShellPath(p string) string {
 		return shellHome
 	}
 	return p
-}
-
-// sortedKeys returns the keys of a map sorted alphabetically.
-func sortedKeys[V any](m map[string]V) []string {
-	keys := slices.Collect(maps.Keys(m))
-	slices.Sort(keys)
-	return keys
 }
 
 // dedupStrings removes duplicate strings while preserving order.
