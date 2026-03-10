@@ -315,13 +315,10 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	updatedRuntimes := make(map[string]bool)
 	totalActions := 0
 
-	// Build filtered node names for all layers (exclude Installer/InstallerRepository)
+	// Build node names for all layers
 	allLayerNodes := make([][]string, len(layers))
 	for i, layer := range layers {
 		for _, node := range layer.Nodes {
-			if node.Kind == resource.KindInstaller || node.Kind == resource.KindInstallerRepository {
-				continue
-			}
 			allLayerNodes[i] = append(allLayerNodes[i], node.ID.String())
 		}
 	}
