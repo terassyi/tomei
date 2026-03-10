@@ -18,6 +18,7 @@ import (
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/reconciler"
 	"github.com/terassyi/tomei/internal/installer/tool"
+	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 	"golang.org/x/sync/semaphore"
@@ -99,7 +100,7 @@ type Event struct {
 	// EventLayerStart fields
 	Layer         int        // current layer index (0-based)
 	TotalLayers   int        // total number of layers
-	LayerNodes    []string   // node names in the current layer (Installer/InstallerRepository excluded)
+	LayerNodes    []string   // node names in the current layer
 	AllLayerNodes [][]string // node names for all layers (for rendering pending layer headers)
 
 	// EventComplete fields
@@ -283,19 +284,37 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Register installers for delegation type and save to state
 	for _, res := range resources {
 		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
+			if err := inst.InstallerSpec.Validate(); err != nil {
+				return fmt.Errorf("invalid installer %q: %w", inst.Name(), err)
+			}
 			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
 				Type:     inst.InstallerSpec.Type,
 				ToolRef:  inst.InstallerSpec.ToolRef,
 				Commands: inst.InstallerSpec.Commands,
 			})
-			// Persist installer state (including ToolRef) for removal lookup
+			// Persist installer state (including ToolRef and BinDir) for removal lookup and env
 			if st.Installers == nil {
 				st.Installers = make(map[string]*resource.InstallerState)
 			}
-			st.Installers[inst.Name()] = &resource.InstallerState{
+			var expandedBinDir string
+			if inst.InstallerSpec.BinDir != "" {
+				var err error
+				expandedBinDir, err = path.Expand(inst.InstallerSpec.BinDir)
+				if err != nil {
+					return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
+				}
+			}
+			// Preserve existing state fields (e.g., Version) that are not set here
+			existing := st.Installers[inst.Name()]
+			newState := &resource.InstallerState{
 				ToolRef:   inst.InstallerSpec.ToolRef,
+				BinDir:    expandedBinDir,
 				UpdatedAt: time.Now(),
 			}
+			if existing != nil {
+				newState.Version = existing.Version
+			}
+			st.Installers[inst.Name()] = newState
 		}
 	}
 	if err := e.store.Save(st); err != nil {
@@ -309,13 +328,10 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	updatedRuntimes := make(map[string]bool)
 	totalActions := 0
 
-	// Build filtered node names for all layers (exclude Installer/InstallerRepository)
+	// Build node names for all layers
 	allLayerNodes := make([][]string, len(layers))
 	for i, layer := range layers {
 		for _, node := range layer.Nodes {
-			if node.Kind == resource.KindInstaller || node.Kind == resource.KindInstallerRepository {
-				continue
-			}
 			allLayerNodes[i] = append(allLayerNodes[i], node.ID.String())
 		}
 	}

@@ -3,6 +3,7 @@ package resource
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -48,6 +49,11 @@ type InstallerSpec struct {
 	// Required when Pattern is "delegation".
 	// Supports template variables: {{.Package}}, {{.Version}}, {{.Name}}, {{.BinPath}}.
 	Commands *CommandsSpec `json:"commands,omitempty"`
+
+	// BinDir specifies a directory where delegation installers place their binaries.
+	// Used by `tomei env` to include the directory in PATH.
+	// Must start with "~/" (home-relative) or "/" (absolute). Only meaningful for delegation type.
+	BinDir string `json:"binDir,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -87,6 +93,16 @@ func (s *InstallerSpec) Validate() error {
 	// Delegation type requires Commands
 	if s.Type.IsDelegation() && s.Commands == nil {
 		return fmt.Errorf("commands is required for delegation type")
+	}
+
+	// BinDir is only meaningful for delegation type
+	if s.BinDir != "" {
+		if s.Type.IsDownload() {
+			return fmt.Errorf("binDir is not supported for download type")
+		}
+		if !strings.HasPrefix(s.BinDir, "~/") && !strings.HasPrefix(s.BinDir, "/") {
+			return fmt.Errorf("binDir must start with \"~/\" or \"/\", got %q", s.BinDir)
+		}
 	}
 
 	// Validate dependsOn entries
@@ -165,6 +181,10 @@ type InstallerState struct {
 	// ToolRef is the tool this installer delegates to (if any).
 	// Used to resolve tool binary paths for delegation commands during removal.
 	ToolRef string `json:"toolRef,omitempty"`
+
+	// BinDir is the expanded absolute path where this installer places binaries.
+	// Used by `tomei env` to include the directory in PATH.
+	BinDir string `json:"binDir,omitempty"`
 
 	// UpdatedAt is the timestamp when this installer was last configured.
 	UpdatedAt time.Time `json:"updatedAt"`

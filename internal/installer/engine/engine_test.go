@@ -3577,26 +3577,6 @@ tool: {
 	// Verify AllLayerNodes is populated and matches TotalLayers
 	assert.Len(t, first.AllLayerNodes, first.TotalLayers)
 
-	// Verify Installer/InstallerRepository nodes are excluded from LayerNodes
-	for _, le := range layerEvents {
-		for _, nodeName := range le.LayerNodes {
-			assert.False(t, strings.HasPrefix(nodeName, "Installer/"),
-				"Installer nodes should be excluded from LayerNodes, got: %s", nodeName)
-			assert.False(t, strings.HasPrefix(nodeName, "InstallerRepository/"),
-				"InstallerRepository nodes should be excluded from LayerNodes, got: %s", nodeName)
-		}
-	}
-
-	// Verify AllLayerNodes also excludes Installer/InstallerRepository
-	for _, layerNodes := range first.AllLayerNodes {
-		for _, nodeName := range layerNodes {
-			assert.False(t, strings.HasPrefix(nodeName, "Installer/"),
-				"Installer nodes should be excluded from AllLayerNodes, got: %s", nodeName)
-			assert.False(t, strings.HasPrefix(nodeName, "InstallerRepository/"),
-				"InstallerRepository nodes should be excluded from AllLayerNodes, got: %s", nodeName)
-		}
-	}
-
 	// Verify that Runtime/go appears in some layer and Tool/gopls in a later layer
 	foundRuntime := false
 	foundTool := false

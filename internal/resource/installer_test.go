@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -132,6 +133,47 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			},
 			wantErr: "dependsOn must not contain empty strings",
 		},
+		{
+			name: "valid delegation with binDir tilde",
+			spec: InstallerSpec{
+				Type:   InstallTypeDelegation,
+				BinDir: "~/.krew/bin",
+				Commands: &CommandsSpec{
+					Install: []string{"krew install {{.Package}}"},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "valid delegation with binDir absolute",
+			spec: InstallerSpec{
+				Type:   InstallTypeDelegation,
+				BinDir: "/opt/bin",
+				Commands: &CommandsSpec{
+					Install: []string{"some command"},
+				},
+			},
+			wantErr: "",
+		},
+		{
+			name: "binDir with relative path",
+			spec: InstallerSpec{
+				Type:   InstallTypeDelegation,
+				BinDir: "relative/path",
+				Commands: &CommandsSpec{
+					Install: []string{"some command"},
+				},
+			},
+			wantErr: "binDir must start with",
+		},
+		{
+			name: "binDir on download type rejected",
+			spec: InstallerSpec{
+				Type:   InstallTypeDownload,
+				BinDir: "~/.some/bin",
+			},
+			wantErr: "binDir is not supported for download type",
+		},
 	}
 
 	for _, tt := range tests {
@@ -145,7 +187,7 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			} else {
 				if err == nil {
 					t.Errorf("Validate() expected error containing %q, got nil", tt.wantErr)
-				} else if !containsString(err.Error(), tt.wantErr) {
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("Validate() error = %q, want containing %q", err.Error(), tt.wantErr)
 				}
 			}
@@ -255,18 +297,4 @@ func TestInstallerSpec_Dependencies(t *testing.T) {
 			}
 		})
 	}
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

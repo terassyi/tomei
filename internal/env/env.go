@@ -1,43 +1,32 @@
 package env
 
 import (
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-// Generate produces environment variable statements for the given runtimes.
+// Generate produces environment variable statements for the given runtimes and installers.
 // It collects env vars from each runtime and builds a PATH statement
-// with BinDir, ToolBinPath from runtimes plus the user bin directory.
-func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f Formatter) []string {
+// with BinDir, ToolBinPath from runtimes, BinDir from installers, plus the user bin directory.
+// PATH ordering: userBinDir > runtime BinDir/ToolBinPath > installer BinDir > $PATH.
+func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]*resource.InstallerState, userBinDir string, f Formatter) []string {
 	var lines []string
 	var pathDirs []string
 
 	// Add user bin dir first (highest priority in PATH)
 	pathDirs = append(pathDirs, toShellPath(userBinDir))
 
-	// Sort runtime names for deterministic output
-	names := make([]string, 0, len(runtimes))
-	for name := range runtimes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	// Process each runtime in sorted order
-	for _, name := range names {
+	// Process each runtime in sorted order (deterministic output)
+	for _, name := range slices.Sorted(maps.Keys(runtimes)) {
 		rs := runtimes[name]
 
-		// Sort env keys for deterministic output
-		keys := make([]string, 0, len(rs.Env))
-		for key := range rs.Env {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-
-		for _, key := range keys {
+		// Export env vars in sorted key order
+		for _, key := range slices.Sorted(maps.Keys(rs.Env)) {
 			lines = append(lines, f.ExportVar(key, toShellPath(rs.Env[key])))
 		}
 
@@ -47,6 +36,13 @@ func Generate(runtimes map[string]*resource.RuntimeState, userBinDir string, f F
 		}
 		if rs.ToolBinPath != "" && rs.ToolBinPath != rs.BinDir {
 			pathDirs = append(pathDirs, toShellPath(rs.ToolBinPath))
+		}
+	}
+
+	// Add installer BinDir entries (after runtimes, before $PATH)
+	for _, name := range slices.Sorted(maps.Keys(installers)) {
+		if inst := installers[name]; inst.BinDir != "" {
+			pathDirs = append(pathDirs, toShellPath(inst.BinDir))
 		}
 	}
 

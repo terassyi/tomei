@@ -120,6 +120,7 @@ package schema
 		// Conditional required fields
 		if type == "delegation" {
 			commands: #CommandSet
+			binDir?:  string & =~"^(~/|/)"
 		}
 	}
 }

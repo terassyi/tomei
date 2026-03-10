@@ -19,6 +19,7 @@ func TestGenerate(t *testing.T) {
 	tests := []struct {
 		name            string
 		runtimes        map[string]*resource.RuntimeState
+		installers      map[string]*resource.InstallerState
 		shell           ShellType
 		wantContains    []string
 		wantNotContains []string
@@ -126,6 +127,61 @@ func TestGenerate(t *testing.T) {
 				`$HOME/go/bin`,
 			},
 		},
+		{
+			name:     "installer with binDir - posix",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: home + "/.krew/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`$HOME/.krew/bin`,
+				`export PATH=`,
+			},
+		},
+		{
+			name:     "installer with binDir - fish",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: home + "/.krew/bin"},
+			},
+			shell: ShellFish,
+			wantContains: []string{
+				`$HOME/.krew/bin`,
+				`fish_add_path`,
+			},
+		},
+		{
+			name:     "installer with empty binDir",
+			runtimes: map[string]*resource.RuntimeState{},
+			installers: map[string]*resource.InstallerState{
+				"krew": {BinDir: ""},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`export PATH="$HOME/.local/bin:$PATH"`,
+			},
+			wantNotContains: []string{
+				`krew`,
+			},
+		},
+		{
+			name: "installer binDir dedup with runtime",
+			runtimes: map[string]*resource.RuntimeState{
+				"go": {
+					Version: "1.25.6",
+					BinDir:  home + "/go/bin",
+					Env:     map[string]string{},
+				},
+			},
+			installers: map[string]*resource.InstallerState{
+				"go-installer": {BinDir: home + "/go/bin"},
+			},
+			shell: ShellPosix,
+			wantContains: []string{
+				`$HOME/go/bin`,
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -133,7 +189,7 @@ func TestGenerate(t *testing.T) {
 			t.Parallel()
 
 			f := NewFormatter(tt.shell)
-			lines := Generate(tt.runtimes, userBinDir, f)
+			lines := Generate(tt.runtimes, tt.installers, userBinDir, f)
 			output := joinLines(lines)
 
 			for _, want := range tt.wantContains {
@@ -144,6 +200,80 @@ func TestGenerate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerate_InstallerBinDirDedup(t *testing.T) {
+	t.Parallel()
+
+	home, _ := os.UserHomeDir()
+	userBinDir := home + "/.local/bin"
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{
+			"go": {Version: "1.25.6", BinDir: home + "/go/bin", Env: map[string]string{}},
+		},
+		map[string]*resource.InstallerState{
+			"go-installer": {BinDir: home + "/go/bin"},
+		},
+		userBinDir, f,
+	)
+	output := joinLines(lines)
+
+	// $HOME/go/bin should appear exactly once in the PATH line (deduplicated)
+	assert.Equal(t, 1, strings.Count(output, "$HOME/go/bin"),
+		"duplicated runtime/installer BinDir should appear only once")
+}
+
+func TestGenerate_InstallerBinDirOrdering(t *testing.T) {
+	t.Parallel()
+
+	home, _ := os.UserHomeDir()
+	userBinDir := home + "/.local/bin"
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{
+			"go": {Version: "1.25.6", BinDir: home + "/go/bin", Env: map[string]string{}},
+		},
+		map[string]*resource.InstallerState{
+			"krew": {BinDir: home + "/.krew/bin"},
+		},
+		userBinDir, f,
+	)
+	output := joinLines(lines)
+
+	// Verify PATH ordering: userBinDir > runtime BinDir > installer BinDir
+	userIdx := strings.Index(output, "$HOME/.local/bin")
+	goIdx := strings.Index(output, "$HOME/go/bin")
+	krewIdx := strings.Index(output, "$HOME/.krew/bin")
+
+	assert.GreaterOrEqual(t, userIdx, 0, "$HOME/.local/bin should be present in PATH")
+	assert.GreaterOrEqual(t, goIdx, 0, "$HOME/go/bin should be present in PATH")
+	assert.GreaterOrEqual(t, krewIdx, 0, "$HOME/.krew/bin should be present in PATH")
+	assert.Greater(t, goIdx, userIdx, "userBinDir should come before runtime BinDir")
+	assert.Greater(t, krewIdx, goIdx, "runtime BinDir should come before installer BinDir")
+}
+
+func TestGenerate_MultipleInstallersSorted(t *testing.T) {
+	t.Parallel()
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{},
+		map[string]*resource.InstallerState{
+			"zinstaller": {BinDir: "/opt/z/bin"},
+			"ainstaller": {BinDir: "/opt/a/bin"},
+		},
+		"/home/user/.local/bin", f,
+	)
+	output := joinLines(lines)
+
+	aIdx := strings.Index(output, "/opt/a/bin")
+	zIdx := strings.Index(output, "/opt/z/bin")
+	assert.GreaterOrEqual(t, aIdx, 0, "/opt/a/bin should be in output")
+	assert.GreaterOrEqual(t, zIdx, 0, "/opt/z/bin should be in output")
+	assert.Greater(t, zIdx, aIdx, "/opt/a/bin should come before /opt/z/bin (alphabetical)")
 }
 
 func TestToShellPath(t *testing.T) {
