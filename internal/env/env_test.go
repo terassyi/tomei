@@ -128,14 +128,6 @@ func TestGenerate(t *testing.T) {
 			},
 		},
 		{
-			name:     "nil installer map",
-			runtimes: map[string]*resource.RuntimeState{},
-			shell:    ShellPosix,
-			wantContains: []string{
-				`export PATH="$HOME/.local/bin:$PATH"`,
-			},
-		},
-		{
 			name:     "installer with binDir - posix",
 			runtimes: map[string]*resource.RuntimeState{},
 			installers: map[string]*resource.InstallerState{
@@ -190,37 +182,6 @@ func TestGenerate(t *testing.T) {
 				`$HOME/go/bin`,
 			},
 		},
-		{
-			name:     "multiple installers sorted",
-			runtimes: map[string]*resource.RuntimeState{},
-			installers: map[string]*resource.InstallerState{
-				"zinstaller": {BinDir: "/opt/z/bin"},
-				"ainstaller": {BinDir: "/opt/a/bin"},
-			},
-			shell: ShellPosix,
-			wantContains: []string{
-				`/opt/a/bin`,
-				`/opt/z/bin`,
-			},
-		},
-		{
-			name: "installer binDir after runtimes",
-			runtimes: map[string]*resource.RuntimeState{
-				"go": {
-					Version: "1.25.6",
-					BinDir:  home + "/go/bin",
-					Env:     map[string]string{},
-				},
-			},
-			installers: map[string]*resource.InstallerState{
-				"krew": {BinDir: home + "/.krew/bin"},
-			},
-			shell: ShellPosix,
-			wantContains: []string{
-				`$HOME/go/bin`,
-				`$HOME/.krew/bin`,
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -239,6 +200,76 @@ func TestGenerate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerate_InstallerBinDirDedup(t *testing.T) {
+	t.Parallel()
+
+	home, _ := os.UserHomeDir()
+	userBinDir := home + "/.local/bin"
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{
+			"go": {Version: "1.25.6", BinDir: home + "/go/bin", Env: map[string]string{}},
+		},
+		map[string]*resource.InstallerState{
+			"go-installer": {BinDir: home + "/go/bin"},
+		},
+		userBinDir, f,
+	)
+	output := joinLines(lines)
+
+	// $HOME/go/bin should appear exactly once in the PATH line (deduplicated)
+	assert.Equal(t, 1, strings.Count(output, "$HOME/go/bin"),
+		"duplicated runtime/installer BinDir should appear only once")
+}
+
+func TestGenerate_InstallerBinDirOrdering(t *testing.T) {
+	t.Parallel()
+
+	home, _ := os.UserHomeDir()
+	userBinDir := home + "/.local/bin"
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{
+			"go": {Version: "1.25.6", BinDir: home + "/go/bin", Env: map[string]string{}},
+		},
+		map[string]*resource.InstallerState{
+			"krew": {BinDir: home + "/.krew/bin"},
+		},
+		userBinDir, f,
+	)
+	output := joinLines(lines)
+
+	// Verify PATH ordering: userBinDir > runtime BinDir > installer BinDir
+	userIdx := strings.Index(output, "$HOME/.local/bin")
+	goIdx := strings.Index(output, "$HOME/go/bin")
+	krewIdx := strings.Index(output, "$HOME/.krew/bin")
+
+	assert.Greater(t, goIdx, userIdx, "userBinDir should come before runtime BinDir")
+	assert.Greater(t, krewIdx, goIdx, "runtime BinDir should come before installer BinDir")
+}
+
+func TestGenerate_MultipleInstallersSorted(t *testing.T) {
+	t.Parallel()
+
+	f := NewFormatter(ShellPosix)
+	lines := Generate(
+		map[string]*resource.RuntimeState{},
+		map[string]*resource.InstallerState{
+			"zinstaller": {BinDir: "/opt/z/bin"},
+			"ainstaller": {BinDir: "/opt/a/bin"},
+		},
+		"/home/user/.local/bin", f,
+	)
+	output := joinLines(lines)
+
+	aIdx := strings.Index(output, "/opt/a/bin")
+	zIdx := strings.Index(output, "/opt/z/bin")
+	assert.Positive(t, aIdx, "/opt/a/bin should be in output")
+	assert.Greater(t, zIdx, aIdx, "/opt/a/bin should come before /opt/z/bin (alphabetical)")
 }
 
 func TestToShellPath(t *testing.T) {

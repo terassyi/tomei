@@ -1,8 +1,9 @@
 package env
 
 import (
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/terassyi/tomei/internal/config"
@@ -20,25 +21,12 @@ func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]
 	// Add user bin dir first (highest priority in PATH)
 	pathDirs = append(pathDirs, toShellPath(userBinDir))
 
-	// Sort runtime names for deterministic output
-	names := make([]string, 0, len(runtimes))
-	for name := range runtimes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	// Process each runtime in sorted order
-	for _, name := range names {
+	// Process each runtime in sorted order (deterministic output)
+	for _, name := range sortedKeys(runtimes) {
 		rs := runtimes[name]
 
-		// Sort env keys for deterministic output
-		keys := make([]string, 0, len(rs.Env))
-		for key := range rs.Env {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-
-		for _, key := range keys {
+		// Export env vars in sorted key order
+		for _, key := range sortedKeys(rs.Env) {
 			lines = append(lines, f.ExportVar(key, toShellPath(rs.Env[key])))
 		}
 
@@ -52,16 +40,9 @@ func Generate(runtimes map[string]*resource.RuntimeState, installers map[string]
 	}
 
 	// Add installer BinDir entries (after runtimes, before $PATH)
-	instNames := make([]string, 0, len(installers))
-	for name := range installers {
-		instNames = append(instNames, name)
-	}
-	sort.Strings(instNames)
-
-	for _, name := range instNames {
-		is := installers[name]
-		if is != nil && is.BinDir != "" {
-			pathDirs = append(pathDirs, toShellPath(is.BinDir))
+	for _, name := range sortedKeys(installers) {
+		if installers[name].BinDir != "" {
+			pathDirs = append(pathDirs, toShellPath(installers[name].BinDir))
 		}
 	}
 
@@ -96,6 +77,13 @@ func toShellPath(p string) string {
 		return shellHome
 	}
 	return p
+}
+
+// sortedKeys returns the keys of a map sorted alphabetically.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := slices.Collect(maps.Keys(m))
+	slices.Sort(keys)
+	return keys
 }
 
 // dedupStrings removes duplicate strings while preserving order.

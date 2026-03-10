@@ -166,6 +166,14 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			},
 			wantErr: "binDir must be an absolute path",
 		},
+		{
+			name: "binDir on download type rejected",
+			spec: InstallerSpec{
+				Type:   InstallTypeDownload,
+				BinDir: "~/.some/bin",
+			},
+			wantErr: "binDir is not supported for download type",
+		},
 	}
 
 	for _, tt := range tests {

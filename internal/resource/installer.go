@@ -95,9 +95,14 @@ func (s *InstallerSpec) Validate() error {
 		return fmt.Errorf("commands is required for delegation type")
 	}
 
-	// BinDir must start with ~/ or / if specified
-	if s.BinDir != "" && !strings.HasPrefix(s.BinDir, "~/") && !strings.HasPrefix(s.BinDir, "/") {
-		return fmt.Errorf("binDir must be an absolute path (start with '~/' or '/'), got %q", s.BinDir)
+	// BinDir is only meaningful for delegation type
+	if s.BinDir != "" {
+		if s.Type.IsDownload() {
+			return fmt.Errorf("binDir is not supported for download type")
+		}
+		if !strings.HasPrefix(s.BinDir, "~/") && !strings.HasPrefix(s.BinDir, "/") {
+			return fmt.Errorf("binDir must be an absolute path (start with '~/' or '/'), got %q", s.BinDir)
+		}
 	}
 
 	// Validate dependsOn entries
