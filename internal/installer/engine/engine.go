@@ -18,7 +18,7 @@ import (
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/installer/reconciler"
 	"github.com/terassyi/tomei/internal/installer/tool"
-	tomeipth "github.com/terassyi/tomei/internal/path"
+	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 	"golang.org/x/sync/semaphore"
@@ -299,7 +299,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 			var expandedBinDir string
 			if inst.InstallerSpec.BinDir != "" {
 				var err error
-				expandedBinDir, err = tomeipth.Expand(inst.InstallerSpec.BinDir)
+				expandedBinDir, err = path.Expand(inst.InstallerSpec.BinDir)
 				if err != nil {
 					return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
 				}
