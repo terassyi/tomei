@@ -36,18 +36,6 @@ changelog:
       - "^ci:"
       - "^chore:"
 
-git:
-  ignore_tags:
-    - tomei-cue-v0.0.1
-    - tomei-cue-v0.1.0
-    - tomei-cue-v0.1.1
-    - tomei-cue-v0.1.2
-    - tomei-cue-v0.1.3
-    - tomei-cue-v0.1.4
-    - tomei-cue-v0.1.5
-    - tomei-cue-v0.1.6
-    - tomei-cue-v0.1.7
-
 release:
   github:
     owner: terassyi
