@@ -482,3 +482,15 @@ func TestUpdate_PhaseRemove_LayerStart(t *testing.T) {
 	require.Len(t, m.completedLayers, 1)
 	assert.Equal(t, engine.PhaseDAG, m.completedLayers[0].phase)
 }
+
+func TestUpdate_KeyCtrlC_SetsInterruptedAndQuits(t *testing.T) {
+	t.Parallel()
+	results := &ApplyResults{}
+	m := NewApplyModel(results)
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	model := updated.(*ApplyModel)
+
+	assert.True(t, model.Interrupted(), "Interrupted() should be true after Ctrl+C")
+	assert.NotNil(t, cmd, "should return a quit command")
+}
