@@ -64,8 +64,8 @@ When releasing both the binary and the CUE module, tag the CUE module first so t
 
 ```bash
 # 1. CUE module
-git tag tomei-cue-v0.1.0
-git push origin tomei-cue-v0.1.0
+git tag cuemodule/v0.1.0
+git push origin cuemodule/v0.1.0
 # Then trigger workflow_dispatch on "Publish CUE Module" workflow
 
 # 2. Binary

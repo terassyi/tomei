@@ -28,9 +28,25 @@ checksum:
   algorithm: sha256
 
 changelog:
-  # Use GitHub's native release notes generation to avoid previous_tag
-  # misdetection caused by CUE module tags (tomei-cue-v*).
-  use: github-native
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+git:
+  ignore_tags:
+    - tomei-cue-v0.0.1
+    - tomei-cue-v0.1.0
+    - tomei-cue-v0.1.1
+    - tomei-cue-v0.1.2
+    - tomei-cue-v0.1.3
+    - tomei-cue-v0.1.4
+    - tomei-cue-v0.1.5
+    - tomei-cue-v0.1.6
+    - tomei-cue-v0.1.7
 
 release:
   github:
