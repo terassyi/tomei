@@ -18,19 +18,28 @@ var (
 )
 
 func main() {
+	if err := run(); err != nil {
+		if stderrors.Is(err, context.Canceled) {
+			os.Exit(130)
+		}
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		// Context canceled due to a termination signal.
-		// Print a generic message and exit 130 with no formatter output.
 		if stderrors.Is(err, context.Canceled) {
 			fmt.Fprintln(os.Stderr, "Interrupted.")
-			os.Exit(130)
+			return err
 		}
 		formatter := errors.NewFormatter(os.Stderr, false)
 		output := formatter.Format(err)
 		os.Stderr.WriteString(output)
-		os.Exit(1)
+		return err
 	}
+	return nil
 }
