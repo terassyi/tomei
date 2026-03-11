@@ -7,7 +7,7 @@ The CUE module `tomei.terassyi.net@v0` is published to `ghcr.io/terassyi` as an 
 The module version is **independent of the tomei binary version**. Module versions follow semver and are tracked via git tags with the `cuemodule/` prefix (following Go multi-module convention, matching the `cuemodule/` directory):
 
 ```
-cuemodule/v0.0.1   # CUE module version
+cuemodule/v0.1.0   # CUE module version
 v0.1.0             # tomei binary version (separate)
 ```
 
@@ -19,7 +19,7 @@ While in `@v0`, breaking changes are permitted.
 
 ```cue
 deps: {
-    "tomei.terassyi.net@v0": v: "v0.0.1"
+    "tomei.terassyi.net@v0": v: "v0.1.0"
 }
 ```
 
@@ -38,11 +38,11 @@ This pins the exact version for reproducibility. To update to a newer module ver
 
 1. Create and push a tag:
    ```bash
-   git tag cuemodule/v0.0.1
-   git push origin cuemodule/v0.0.1
+   git tag cuemodule/v0.1.0
+   git push origin cuemodule/v0.1.0
    ```
 2. CI runs dry-run validation automatically (formatting + schema validation)
-3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow, selecting the `cuemodule/v0.0.1` tag
+3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow, selecting the `cuemodule/v0.1.0` tag
 
 ### Validation
 
@@ -61,7 +61,11 @@ cuemodule/
 ├── schema/schema.cue           # Resource schema (#Tool, #Runtime, etc.)
 ├── presets/
 │   ├── aqua/aqua.cue           # Aqua toolset preset
+│   ├── bun/bun.cue             # Bun runtime preset
+│   ├── deno/deno.cue           # Deno runtime preset
 │   ├── go/go.cue               # Go runtime preset
+│   ├── node/node.cue           # Node.js runtime preset
+│   ├── python/python.cue       # Python runtime preset
 │   └── rust/rust.cue           # Rust runtime preset
 ├── embed.go                    # go:embed for SchemaCUE (schema unit tests)
 ├── embed_presets.go            # go:embed for PresetsFS (integration test mock registry)

@@ -242,6 +242,7 @@ spec: {
 | `spec.dependsOn` | `[...string]` | no | Additional tool dependencies for DAG ordering only (no PATH injection). Overlap with toolRef is tolerated and deduplicated |
 | `spec.bootstrap` | [CommandSet](#commandset) | no | Self-installation commands |
 | `spec.commands` | [CommandSet](#commandset) | delegation only | Commands for installing tools |
+| `spec.binDir` | string | no | Directory where delegation installers place binaries. Used by `tomei env` to include in PATH. Must start with `~/` or `/`. Only meaningful for delegation type |
 
 ### InstallerRepository
 
@@ -499,7 +500,7 @@ Use `tomei cue init` to create the module structure, or manually create `cue.mod
 module: "manifests.local@v0"
 language: version: "v0.9.0"
 deps: {
-    "tomei.terassyi.net@v0": v: "v0.0.1"
+    "tomei.terassyi.net@v0": v: "v0.1.0"
 }
 ```
 

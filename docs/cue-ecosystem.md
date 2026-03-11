@@ -139,7 +139,7 @@ Update tomei module dependencies to the latest version:
 
 ```bash
 $ tomei cue update
-tomei.terassyi.net@v0: v0.0.1 -> v0.0.3
+tomei.terassyi.net@v0: v0.1.0 -> v0.1.1
 
 Updated cue.mod/module.cue
 
