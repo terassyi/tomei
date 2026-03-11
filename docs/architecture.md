@@ -328,7 +328,7 @@ The `tomei` binary version follows semver and is tracked via `v*` git tags (e.g.
 
 ### CUE module versioning
 
-The CUE module (`tomei.terassyi.net@v0`) version is **independent of the binary version**. Module versions follow semver and are tracked via `tomei-cue-v*` git tags (e.g., `tomei-cue-v0.0.1`).
+The CUE module (`tomei.terassyi.net@v0`) version is **independent of the binary version**. Module versions follow semver and are tracked via `cuemodule/v*` git tags (e.g., `cuemodule/v0.0.1`).
 
 This separation allows schema and presets to evolve on their own cadence without forcing a tomei binary release. While in `@v0`, breaking changes to the module are permitted.
 
@@ -360,6 +360,6 @@ See [Releasing](releasing.md) for the release process.
 
 ### publish-module.yaml
 
-Triggered on `tomei-cue-v*` tag push (dry run) or manual `workflow_dispatch` (publish).
+Triggered on `cuemodule/v*` tag push (dry run) or manual `workflow_dispatch` (publish).
 
 See [Module Publishing](module-publishing.md) for details.

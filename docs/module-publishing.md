@@ -4,11 +4,11 @@ The CUE module `tomei.terassyi.net@v0` is published to `ghcr.io/terassyi` as an 
 
 ## Versioning
 
-The module version is **independent of the tomei binary version**. Module versions follow semver and are tracked via git tags with the `tomei-cue-` prefix:
+The module version is **independent of the tomei binary version**. Module versions follow semver and are tracked via git tags with the `cuemodule/` prefix (following Go multi-module convention, matching the `cuemodule/` directory):
 
 ```
-tomei-cue-v0.0.1   # CUE module version
-v0.1.0              # tomei binary version (separate)
+cuemodule/v0.0.1   # CUE module version
+v0.1.0             # tomei binary version (separate)
 ```
 
 While in `@v0`, breaking changes are permitted.
@@ -31,18 +31,18 @@ This pins the exact version for reproducibility. To update to a newer module ver
 
 | Trigger | Action |
 |---------|--------|
-| `git push` tag `tomei-cue-v*` | Dry run only (`cue fmt --check` + `cue vet`) |
-| `workflow_dispatch` on tag `tomei-cue-v*` | Verify tag exists, then publish to ghcr.io |
+| `git push` tag `cuemodule/v*` | Dry run only (`cue fmt --check` + `cue vet`) |
+| `workflow_dispatch` on tag `cuemodule/v*` | Verify tag exists, then publish to ghcr.io |
 
 ### Steps
 
 1. Create and push a tag:
    ```bash
-   git tag tomei-cue-v0.0.1
-   git push origin tomei-cue-v0.0.1
+   git tag cuemodule/v0.0.1
+   git push origin cuemodule/v0.0.1
    ```
 2. CI runs dry-run validation automatically (formatting + schema validation)
-3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow, selecting the `tomei-cue-v0.0.1` tag
+3. Trigger `workflow_dispatch` on `Publish CUE Module` workflow, selecting the `cuemodule/v0.0.1` tag
 
 ### Validation
 

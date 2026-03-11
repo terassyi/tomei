@@ -3,7 +3,7 @@ name: Publish CUE Module
 on:
   push:
     tags:
-      - "tomei-cue-v*"
+      - "cuemodule/v*"
   workflow_dispatch:
 
 permissions:
@@ -22,14 +22,14 @@ jobs:
         id: version
         uses: ./.github/actions/determine-version
         with:
-          tag-prefix: "tomei-cue-"
+          tag-prefix: "cuemodule/"
 
       - name: Verify git tag exists
         if: github.event_name == 'workflow_dispatch'
         uses: ./.github/actions/verify-tag
         with:
           version: ${{ steps.version.outputs.version }}
-          tag-prefix: "tomei-cue-"
+          tag-prefix: "cuemodule/"
 
       - name: Validate CUE module
         uses: ./.github/actions/cue-validate
