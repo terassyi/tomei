@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,10 +22,10 @@ func main() {
 	defer stop()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		// Context canceled due to a termination signal: already printed
-		// "Interrupted." to stdout; exit with status 130 and no extra
-		// stderr output.
+		// Context canceled due to a termination signal.
+		// Print a generic message and exit 130 with no formatter output.
 		if stderrors.Is(err, context.Canceled) {
+			fmt.Fprintln(os.Stderr, "Interrupted.")
 			os.Exit(130)
 		}
 		formatter := errors.NewFormatter(os.Stderr, false)

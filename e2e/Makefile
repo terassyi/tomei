@@ -24,7 +24,7 @@ test: ## Run E2E tests with Ginkgo (container mode)
 	TOMEI_E2E_CONTAINER=$(CONTAINER_NAME) go test -tags=e2e -v -timeout 15m ./... -ginkgo.v
 
 test-native: ## Run E2E tests natively (requires TOMEI_E2E_BINARY)
-	TOMEI_E2E_NATIVE=true go test -tags=e2e -v ./... -ginkgo.v
+	TOMEI_E2E_NATIVE=true go test -tags=e2e -v -timeout 15m ./... -ginkgo.v
 
 exec: ## Exec into the test container
 	docker exec -it $(CONTAINER_NAME) bash

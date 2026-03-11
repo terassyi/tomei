@@ -259,8 +259,8 @@ func runApplyWithTUI(
 	}()
 
 	// Run Bubble Tea in AltScreen (blocks until quit).
-	// Note: Bubble Tea's Send() is safe to call after Run() returns —
-	// it uses select on p.ctx.Done() and becomes a no-op (bubbletea v1.3.10).
+	// Note: Bubble Tea guarantees that Send() is safe to call after Run() returns —
+	// once the program has terminated, Send() becomes a no-op.
 	interrupted := false
 	var tuiErr error
 	if _, err := p.Run(); err != nil {
@@ -344,7 +344,6 @@ func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore
 
 	if applyErr != nil {
 		if errors.Is(applyErr, context.Canceled) {
-			fmt.Fprintln(w, "\nInterrupted.")
 			return context.Canceled
 		}
 		if logStore != nil && !cfg.quiet {

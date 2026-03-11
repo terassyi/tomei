@@ -225,6 +225,11 @@ type InstallerRepositoryAction = reconciler.Action[*resource.InstallerRepository
 
 // Apply reconciles resources with state and executes actions using DAG-based ordering.
 func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
+	// Short-circuit if context is already canceled (e.g., signal received)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Expand set resources (ToolSet, etc.) into individual resources
 	var err error
 	resources, err = resource.ExpandSets(resources)
