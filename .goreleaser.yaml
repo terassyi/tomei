@@ -28,13 +28,9 @@ checksum:
   algorithm: sha256
 
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^chore:"
+  # Use GitHub's native release notes generation to avoid previous_tag
+  # misdetection caused by CUE module tags (tomei-cue-v*).
+  use: github-native
 
 release:
   github:
