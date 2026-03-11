@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	stderrors "errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,6 +21,11 @@ func main() {
 	defer stop()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		// Signal interruption: already printed "Interrupted." to stdout;
+		// exit 130 (128+SIGINT) with no extra stderr output.
+		if stderrors.Is(err, context.Canceled) {
+			os.Exit(130)
+		}
 		formatter := errors.NewFormatter(os.Stderr, false)
 		output := formatter.Format(err)
 		os.Stderr.WriteString(output)

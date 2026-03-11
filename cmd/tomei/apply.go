@@ -230,7 +230,7 @@ func runApplyWithTUI(
 	cfg *applyConfig,
 ) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel() // ensures engine stops when TUI exits
+	defer cancel()
 
 	model := ui.NewApplyModel(results)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(w))
@@ -250,26 +250,40 @@ func runApplyWithTUI(
 		}
 	})
 
-	// Run engine in background goroutine
+	// Run engine in background goroutine; signal completion via channel
+	engineDone := make(chan struct{})
 	go func() {
+		defer close(engineDone)
 		applyErr := eng.Apply(ctx, resources)
 		reporter.Done(applyErr)
 	}()
 
 	// Run Bubble Tea in AltScreen (blocks until quit)
+	interrupted := false
 	if _, err := p.Run(); err != nil {
-		// Bubble Tea returns ErrInterrupted on Ctrl+C in non-raw mode;
-		// in raw mode, KeyCtrlC is handled in Update and this is not reached.
-		if !errors.Is(err, tea.ErrInterrupted) {
+		if errors.Is(err, tea.ErrInterrupted) {
+			interrupted = true
+		} else {
+			cancel()
+			<-engineDone
 			return fmt.Errorf("TUI error: %w", err)
 		}
+	}
+	if model.Interrupted() {
+		interrupted = true
+	}
+
+	// Cancel engine context and wait for the goroutine to finish
+	// before printing the summary or flushing logs.
+	if interrupted {
+		cancel()
+		<-engineDone
 	}
 
 	// AltScreen clears on exit, so reprint the final frame to scrollback
 	fmt.Fprintln(w, model.FinalView())
 
-	// If user pressed Ctrl+C, treat as cancellation
-	if model.Interrupted() {
+	if interrupted {
 		return finishApply(w, context.Canceled, results, logStore, cfg)
 	}
 
@@ -327,7 +341,7 @@ func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore
 	if applyErr != nil {
 		if errors.Is(applyErr, context.Canceled) {
 			fmt.Fprintln(w, "\nInterrupted.")
-			return errors.New("interrupted")
+			return context.Canceled
 		}
 		if logStore != nil && !cfg.quiet {
 			ui.PrintFailureLogs(w, logStore.FailedResources())
