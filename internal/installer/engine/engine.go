@@ -226,6 +226,11 @@ type InstallerRepositoryAction = reconciler.Action[*resource.InstallerRepository
 
 // Apply reconciles resources with state and executes actions using DAG-based ordering.
 func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error {
+	// Short-circuit if context is already canceled (e.g., signal received)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Expand set resources (ToolSet, etc.) into individual resources
 	var err error
 	resources, err = resource.ExpandSets(resources)
@@ -338,6 +343,10 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	// Execute layer by layer
 	for i, layer := range layers {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		slog.Debug("executing layer", "layer", i, "nodes", len(layer.Nodes))
 
 		// Emit layer start event for progress UI
@@ -377,6 +386,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	}
 
 	// Handle taint logic for dependent tools
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if len(updatedRuntimes) > 0 {
 		if err := e.handleTaintedTools(ctx, resources, updatedRuntimes, &totalActions); err != nil {
 			return err
@@ -384,6 +396,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	}
 
 	// Handle removals: resources in state but not in config
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err := e.handleRemovals(ctx, resources, &totalActions); err != nil {
 		return err
 	}

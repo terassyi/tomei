@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -228,6 +229,9 @@ func runApplyWithTUI(
 	w io.Writer,
 	cfg *applyConfig,
 ) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	model := ui.NewApplyModel(results)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(w))
 
@@ -246,19 +250,46 @@ func runApplyWithTUI(
 		}
 	})
 
-	// Run engine in background goroutine
+	// Run engine in background goroutine; signal completion via channel
+	engineDone := make(chan struct{})
 	go func() {
+		defer close(engineDone)
 		applyErr := eng.Apply(ctx, resources)
 		reporter.Done(applyErr)
 	}()
 
-	// Run Bubble Tea in AltScreen (blocks until quit)
+	// Run Bubble Tea in AltScreen (blocks until quit).
+	// Note: Bubble Tea guarantees that Send() is safe to call after Run() returns —
+	// once the program has terminated, Send() becomes a no-op.
+	interrupted := false
+	var tuiErr error
 	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("TUI error: %w", err)
+		if errors.Is(err, tea.ErrInterrupted) {
+			interrupted = true
+		} else {
+			tuiErr = err
+		}
+	}
+	if model.Interrupted() {
+		interrupted = true
+	}
+
+	// Always cancel the engine context and wait for the goroutine to finish
+	// before printing the summary or flushing logs. This ensures no concurrent
+	// event emission during cleanup.
+	cancel()
+	<-engineDone
+
+	if tuiErr != nil {
+		return fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
 	// AltScreen clears on exit, so reprint the final frame to scrollback
 	fmt.Fprintln(w, model.FinalView())
+
+	if interrupted {
+		return finishApply(w, context.Canceled, results, logStore, cfg)
+	}
 
 	// Post-run: flush logs, print failures, print summary
 	return finishApply(w, model.Err(), results, logStore, cfg)
@@ -312,6 +343,9 @@ func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore
 	}
 
 	if applyErr != nil {
+		if errors.Is(applyErr, context.Canceled) {
+			return context.Canceled
+		}
 		if logStore != nil && !cfg.quiet {
 			ui.PrintFailureLogs(w, logStore.FailedResources())
 		}
