@@ -10,7 +10,7 @@ When `tomei apply`, `tomei plan`, or `tomei validate` loads CUE manifests that i
 
 1. Reads `cue.mod/module.cue` to extract module dependencies
 2. Filters for first-party modules (`tomei.terassyi.net` prefix)
-3. Resolves each dependency to its OCI reference (e.g. `ghcr.io/terassyi/tomei.terassyi.net:v0.0.3`)
+3. Resolves each dependency to its OCI reference (e.g. `ghcr.io/terassyi/tomei.terassyi.net:v0.1.0`)
 4. Fetches and verifies the cosign signature for each OCI artifact
 5. Proceeds with CUE evaluation only if verification passes
 

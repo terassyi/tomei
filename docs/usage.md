@@ -209,6 +209,7 @@ tomei apply <files or directories...> [flags]
 | `--update-runtimes` | Update runtimes with non-exact versions (latest + alias) to latest. Delegation runtimes with `bootstrap.update` use the lightweight update command instead of re-running the full bootstrap installer |
 | `--update-all` | Update all tools and runtimes with non-exact versions. Same lightweight update behavior as `--update-runtimes` for delegation runtimes |
 | `--parallel <n>` | Max parallel installations, 1–20 (default 5) |
+| `--timeout` | Per-download timeout (e.g., `5m`, `10m`, `1h`; default `5m`) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
 | `--ignore-cosign` | Skip cosign signature verification for CUE module dependencies (global flag) |
