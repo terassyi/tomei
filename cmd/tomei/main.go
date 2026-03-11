@@ -21,8 +21,9 @@ func main() {
 	defer stop()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		// Signal interruption: already printed "Interrupted." to stdout;
-		// exit 130 (128+SIGINT) with no extra stderr output.
+		// Context canceled due to a termination signal: already printed
+		// "Interrupted." to stdout; exit with status 130 and no extra
+		// stderr output.
 		if stderrors.Is(err, context.Canceled) {
 			os.Exit(130)
 		}

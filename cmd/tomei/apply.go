@@ -258,26 +258,30 @@ func runApplyWithTUI(
 		reporter.Done(applyErr)
 	}()
 
-	// Run Bubble Tea in AltScreen (blocks until quit)
+	// Run Bubble Tea in AltScreen (blocks until quit).
+	// Note: Bubble Tea's Send() is safe to call after Run() returns —
+	// it uses select on p.ctx.Done() and becomes a no-op (bubbletea v1.3.10).
 	interrupted := false
+	var tuiErr error
 	if _, err := p.Run(); err != nil {
 		if errors.Is(err, tea.ErrInterrupted) {
 			interrupted = true
 		} else {
-			cancel()
-			<-engineDone
-			return fmt.Errorf("TUI error: %w", err)
+			tuiErr = err
 		}
 	}
 	if model.Interrupted() {
 		interrupted = true
 	}
 
-	// Cancel engine context and wait for the goroutine to finish
-	// before printing the summary or flushing logs.
-	if interrupted {
-		cancel()
-		<-engineDone
+	// Always cancel the engine context and wait for the goroutine to finish
+	// before printing the summary or flushing logs. This ensures no concurrent
+	// event emission during cleanup.
+	cancel()
+	<-engineDone
+
+	if tuiErr != nil {
+		return fmt.Errorf("TUI error: %w", tuiErr)
 	}
 
 	// AltScreen clears on exit, so reprint the final frame to scrollback
