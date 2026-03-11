@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -228,6 +229,9 @@ func runApplyWithTUI(
 	w io.Writer,
 	cfg *applyConfig,
 ) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // ensures engine stops when TUI exits
+
 	model := ui.NewApplyModel(results)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithOutput(w))
 
@@ -312,6 +316,10 @@ func finishApply(w io.Writer, applyErr error, results *ui.ApplyResults, logStore
 	}
 
 	if applyErr != nil {
+		if errors.Is(applyErr, context.Canceled) {
+			fmt.Fprintln(w, "\nInterrupted.")
+			return errors.New("interrupted")
+		}
 		if logStore != nil && !cfg.quiet {
 			ui.PrintFailureLogs(w, logStore.FailedResources())
 		}

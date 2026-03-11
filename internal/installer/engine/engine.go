@@ -322,6 +322,10 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	// Execute layer by layer
 	for i, layer := range layers {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		slog.Debug("executing layer", "layer", i, "nodes", len(layer.Nodes))
 
 		// Emit layer start event for progress UI
@@ -361,6 +365,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	}
 
 	// Handle taint logic for dependent tools
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if len(updatedRuntimes) > 0 {
 		if err := e.handleTaintedTools(ctx, resources, updatedRuntimes, &totalActions); err != nil {
 			return err
@@ -368,6 +375,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	}
 
 	// Handle removals: resources in state but not in config
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err := e.handleRemovals(ctx, resources, &totalActions); err != nil {
 		return err
 	}

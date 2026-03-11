@@ -4839,3 +4839,158 @@ func TestEngine_Apply_UpdateTools_CommandsPattern(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "1.1.0", st.Tools["claude"].Version)
 }
+
+func TestEngine_Apply_ContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "tools.cue")
+	cueContent := `package tomei
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "test-tool"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		source: {
+			url: "https://example.com/test-tool.tar.gz"
+			checksum: {
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			}
+			archiveType: "tar.gz"
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	var installCalled atomic.Bool
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			installCalled.Store(true)
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	// Cancel context before Apply
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err = eng.Apply(ctx, resources)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.False(t, installCalled.Load(), "install should not be called when context is already canceled")
+}
+
+func TestEngine_Apply_ContextCancelledBetweenLayers(t *testing.T) {
+	t.Parallel()
+
+	// Two tools with a dependency: runtime → tool (two layers)
+	configDir := t.TempDir()
+	cueFile := filepath.Join(configDir, "resources.cue")
+	cueContent := `package tomei
+
+runtime: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Runtime"
+	metadata: name: "go"
+	spec: {
+		type: "go"
+		version: "1.21.0"
+		binaries: ["go", "gofmt"]
+		source: {
+			url: "https://example.com/go.tar.gz"
+			checksum: {
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			}
+			archiveType: "tar.gz"
+		}
+	}
+}
+
+tool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "test-tool"
+	spec: {
+		installerRef: "download"
+		version: "1.0.0"
+		toolRef: "go"
+		source: {
+			url: "https://example.com/test-tool.tar.gz"
+			checksum: {
+				value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			}
+			archiveType: "tar.gz"
+		}
+	}
+}
+`
+	err := os.WriteFile(cueFile, []byte(cueContent), 0644)
+	require.NoError(t, err)
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var runtimeInstalled atomic.Bool
+	var toolInstalled atomic.Bool
+
+	runtimeMock := &mockRuntimeInstaller{
+		installFunc: func(ctx context.Context, res *resource.Runtime, name string) (*resource.RuntimeState, error) {
+			runtimeInstalled.Store(true)
+			// Cancel context after runtime (layer 0) completes
+			cancel()
+			return &resource.RuntimeState{
+				Type:        res.RuntimeSpec.Type,
+				Version:     res.RuntimeSpec.Version,
+				InstallPath: "/runtimes/" + name + "/" + res.RuntimeSpec.Version,
+				Binaries:    res.RuntimeSpec.Binaries,
+			}, nil
+		},
+	}
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			toolInstalled.Store(true)
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	err = eng.Apply(ctx, resources)
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.True(t, runtimeInstalled.Load(), "runtime (layer 0) should have been installed")
+	assert.False(t, toolInstalled.Load(), "tool (layer 1) should not be installed after cancellation")
+}
