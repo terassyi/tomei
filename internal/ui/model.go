@@ -89,9 +89,10 @@ type ApplyModel struct {
 	slogLines []slogLine
 
 	// State
-	done  bool
-	err   error
-	width int
+	done        bool
+	interrupted bool
+	err         error
+	width       int
 }
 
 // NewApplyModel creates a new ApplyModel.
@@ -111,6 +112,11 @@ func (m *ApplyModel) Init() tea.Cmd {
 // Err returns the error from apply, if any.
 func (m *ApplyModel) Err() error {
 	return m.err
+}
+
+// Interrupted returns true if the user pressed Ctrl+C.
+func (m *ApplyModel) Interrupted() bool {
+	return m.interrupted
 }
 
 // FinalView returns the final rendered output for printing after AltScreen exits.

@@ -258,11 +258,20 @@ func runApplyWithTUI(
 
 	// Run Bubble Tea in AltScreen (blocks until quit)
 	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("TUI error: %w", err)
+		// Bubble Tea returns ErrInterrupted on Ctrl+C in non-raw mode;
+		// in raw mode, KeyCtrlC is handled in Update and this is not reached.
+		if !errors.Is(err, tea.ErrInterrupted) {
+			return fmt.Errorf("TUI error: %w", err)
+		}
 	}
 
 	// AltScreen clears on exit, so reprint the final frame to scrollback
 	fmt.Fprintln(w, model.FinalView())
+
+	// If user pressed Ctrl+C, treat as cancellation
+	if model.Interrupted() {
+		return finishApply(w, context.Canceled, results, logStore, cfg)
+	}
 
 	// Post-run: flush logs, print failures, print summary
 	return finishApply(w, model.Err(), results, logStore, cfg)
