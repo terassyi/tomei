@@ -140,6 +140,13 @@ type Expandable interface {
 	Expand() ([]Resource, error)
 }
 
+// Enableable is a resource whose inclusion can be toggled via an enabled flag.
+// Resources implementing this interface with IsEnabled() returning false
+// are excluded from processing by ExpandSets.
+type Enableable interface {
+	IsEnabled() bool
+}
+
 // Metadata holds resource identification information.
 type Metadata struct {
 	Name        string            `json:"name"`

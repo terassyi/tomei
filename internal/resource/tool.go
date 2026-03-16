@@ -359,6 +359,15 @@ func (*Tool) Kind() Kind { return KindTool }
 func (t *Tool) Spec() Spec { return t.ToolSpec }
 
 // IsEnabled returns whether the tool is enabled.
+// Implements the Enableable interface.
+func (t *Tool) IsEnabled() bool {
+	if t.ToolSpec == nil {
+		return true
+	}
+	return t.ToolSpec.IsEnabled()
+}
+
+// IsEnabled returns whether the tool spec is enabled.
 func (t *ToolSpec) IsEnabled() bool {
 	if t.Enabled == nil {
 		return true
