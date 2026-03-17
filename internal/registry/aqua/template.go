@@ -11,12 +11,34 @@ import (
 
 // TemplateVars holds variables for rendering asset name templates.
 type TemplateVars struct {
-	Version string // Package version (e.g., "v2.86.0")
-	SemVer  string // Version with version_prefix stripped (e.g., "v2.86.0" when prefix is "kustomize/")
-	OS      string // OS name after replacements (e.g., "darwin", "linux")
-	Arch    string // Architecture after replacements (e.g., "amd64", "x86_64")
-	Format  string // Archive format (e.g., "tar.gz", "zip")
-	Asset   string // Rendered asset name (used for checksum templates like "{{.Asset}}.sha256")
+	Version         string // Package version (e.g., "v2.86.0")
+	SemVer          string // Version with version_prefix stripped (e.g., "v2.86.0" when prefix is "kustomize/")
+	OS              string // OS name after replacements (e.g., "darwin", "linux")
+	Arch            string // Architecture after replacements (e.g., "amd64", "x86_64")
+	Format          string // Archive format (e.g., "tar.gz", "zip")
+	Asset           string // Rendered asset name (used for checksum templates like "{{.Asset}}.sha256")
+	AssetWithoutExt string // Asset with archive extension stripped (e.g., "fd-v10.3.0-x86_64-unknown-linux-gnu")
+}
+
+// archiveExtensions lists known archive extensions, ordered so that compound
+// extensions (.tar.gz, .tar.xz) are checked before their single suffixes (.gz).
+// This list is for template variable derivation (AssetWithoutExt); for extraction
+// format detection, see internal/installer/extract.DetectArchiveType.
+var archiveExtensions = []string{
+	".tar.gz", ".tgz", ".tar.xz", ".txz", ".zip", ".pkg", ".gz",
+}
+
+// TrimArchiveExtension removes a known archive extension from the asset name.
+// If no known extension is found, the original string is returned unchanged.
+// Matching is case-insensitive.
+func TrimArchiveExtension(asset string) string {
+	lower := strings.ToLower(asset)
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return asset[:len(asset)-len(ext)]
+		}
+	}
+	return asset
 }
 
 // templateFuncs defines custom functions available in templates.

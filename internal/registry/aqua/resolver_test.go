@@ -585,6 +585,102 @@ func TestResolver_Resolve_FilesSrcEmpty(t *testing.T) {
 	assert.Empty(t, result.Files[0].Src, "FileSpec.Src should remain empty when not specified")
 }
 
+func TestResolver_Resolve_AssetWithoutExt(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "sharkdp/fd"
+
+	// sharkdp/fd uses {{.AssetWithoutExt}} in files[].src
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: sharkdp
+    repo_name: fd
+    asset: fd-{{.Version}}-{{.Arch}}-{{.OS}}.tar.gz
+    format: tar.gz
+    replacements:
+      amd64: x86_64
+      linux: unknown-linux-gnu
+      darwin: apple-darwin
+    files:
+      - name: fd
+        src: "{{.AssetWithoutExt}}"
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v10.3.0", "linux", "amd64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz", result.URL)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "fd", result.Files[0].Name)
+	assert.Equal(t, "fd-v10.3.0-x86_64-unknown-linux-gnu", result.Files[0].Src, "AssetWithoutExt should strip .tar.gz from rendered asset")
+}
+
+func TestResolver_Resolve_AssetWithoutExt_RawBinary(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "mikefarah/yq"
+
+	// Raw binary (no archive extension) — AssetWithoutExt should equal Asset
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: mikefarah
+    repo_name: yq
+    asset: yq_{{.OS}}_{{.Arch}}
+    files:
+      - name: yq
+        src: "{{.AssetWithoutExt}}"
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v4.44.1", "linux", "amd64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64", result.URL)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "yq_linux_amd64", result.Files[0].Src, "AssetWithoutExt should equal Asset for raw binaries")
+}
+
+func TestResolver_Resolve_AssetWithoutExt_Zip(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "example/tool"
+
+	// .zip extension — AssetWithoutExt should strip .zip
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: tool
+    asset: tool-{{.Version}}-{{.OS}}-{{.Arch}}.zip
+    format: zip
+    files:
+      - name: tool
+        src: "{{.AssetWithoutExt}}/tool"
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
+
+	require.NoError(t, err)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "tool-v1.0.0-linux-amd64/tool", result.Files[0].Src, "AssetWithoutExt should strip .zip from rendered asset")
+}
+
 func TestHasArchiveExtension(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

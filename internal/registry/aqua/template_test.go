@@ -204,6 +204,12 @@ func TestRenderTemplate(t *testing.T) {
 			want: "porter_v1.0.0_Linux_x86_64.zip",
 		},
 		{
+			name:     "AssetWithoutExt variable",
+			template: "{{.AssetWithoutExt}}",
+			vars:     TemplateVars{AssetWithoutExt: "fd-v10.3.0-x86_64-unknown-linux-gnu"},
+			want:     "fd-v10.3.0-x86_64-unknown-linux-gnu",
+		},
+		{
 			name:     "invalid template syntax",
 			template: "{{.Invalid",
 			vars:     TemplateVars{},
@@ -226,6 +232,40 @@ func TestRenderTemplate(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestTrimArchiveExtension(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"tar.gz", "fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz", "fd-v10.3.0-x86_64-unknown-linux-gnu"},
+		{"tar.xz", "tool.tar.xz", "tool"},
+		{"zip", "tool.zip", "tool"},
+		{"tgz", "tool.tgz", "tool"},
+		{"txz", "tool.txz", "tool"},
+		{"pkg", "tool.pkg", "tool"},
+		{"gz", "tool.gz", "tool"},
+		{"case insensitive", "Tool.TAR.GZ", "Tool"},
+		{"no extension", "yq_linux_amd64", "yq_linux_amd64"},
+		{"empty", "", ""},
+		{"non-archive suffix", "tool.tar.gz.sig", "tool.tar.gz.sig"},
+		{"tar.bz2 not recognized", "tool.tar.bz2", "tool.tar.bz2"},
+		{"extension only", ".tar.gz", ""},
+		{"extension only zip", ".zip", ""},
+		{"dot prefix with extension", "..tar.gz", "."},
+		{"double tar.gz strips trailing only", "tool.tar.gz.tar.gz", "tool.tar.gz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := TrimArchiveExtension(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
 	}
