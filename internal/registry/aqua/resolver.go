@@ -205,6 +205,7 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 			return nil, fmt.Errorf("failed to render asset template: %w", err)
 		}
 		vars.Asset = renderedAsset
+		vars.AssetWithoutExt = TrimArchiveExtension(renderedAsset)
 	}
 
 	// 8. Build download URL from template
@@ -328,12 +329,5 @@ func isSupportedEnv(supportedEnvs []string, goos, goarch string) bool {
 
 // hasArchiveExtension checks if an asset template suggests an archive file.
 func hasArchiveExtension(asset string) bool {
-	lower := strings.ToLower(asset)
-	return strings.HasSuffix(lower, ".tar.gz") ||
-		strings.HasSuffix(lower, ".tgz") ||
-		strings.HasSuffix(lower, ".tar.xz") ||
-		strings.HasSuffix(lower, ".txz") ||
-		strings.HasSuffix(lower, ".zip") ||
-		strings.HasSuffix(lower, ".pkg") ||
-		strings.HasSuffix(lower, ".gz")
+	return TrimArchiveExtension(asset) != asset
 }
