@@ -1,8 +1,21 @@
 package resource
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
 
-// ExpandSets expands all Expandable resources into individual resources.
+// isEnabled reports whether a resource should be included in processing.
+// Resources that do not implement Enableable are always enabled.
+func isEnabled(res Resource) bool {
+	if e, ok := res.(Enableable); ok {
+		return e.IsEnabled()
+	}
+	return true
+}
+
+// ExpandSets expands all Expandable resources into individual resources
+// and filters out disabled resources (those implementing Enableable with IsEnabled() == false).
 // Expandable resources are removed from the output; expanded resources are added.
 // Returns an error if expanded resource names conflict with existing resources
 // or with resources from other Expandable sets.
@@ -11,8 +24,12 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	// Value is the source description.
 	names := make(map[string]string)
 
-	// Register non-expandable resource names first
+	// Register non-expandable resource names first.
+	// Disabled resources are excluded so they do not cause spurious conflicts.
 	for _, res := range resources {
+		if !isEnabled(res) {
+			continue
+		}
 		if _, ok := res.(Expandable); !ok {
 			key := string(res.Kind()) + "/" + res.Name()
 			names[key] = fmt.Sprintf("standalone %s", res.Kind())
@@ -22,6 +39,11 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	var result []Resource
 
 	for _, res := range resources {
+		if !isEnabled(res) {
+			slog.Debug("skipping disabled resource", "kind", res.Kind(), "name", res.Name())
+			continue
+		}
+
 		exp, ok := res.(Expandable)
 		if !ok {
 			result = append(result, res)

@@ -181,6 +181,96 @@ func TestExpandSets(t *testing.T) {
 			wantNames: []string{"bat", "fd", "rg"},
 		},
 		{
+			name: "standalone tool with enabled false",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(false)},
+				},
+			},
+			wantNames: nil,
+		},
+		{
+			name: "standalone tool with enabled true",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(true)},
+				},
+			},
+			wantNames: []string{"rg"},
+		},
+		{
+			name: "standalone tool with enabled nil",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1"},
+				},
+			},
+			wantNames: []string{"rg"},
+		},
+		{
+			name: "mixed enabled and disabled standalone tools",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(false)},
+				},
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "bat"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "0.24.0", Enabled: new(true)},
+				},
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "fd"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "9.0.0"},
+				},
+			},
+			wantNames: []string{"bat", "fd"},
+		},
+		{
+			name: "disabled standalone tool does not conflict with toolset expansion",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "fd"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "9.0.0", Enabled: new(false)},
+				},
+				&ToolSet{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "cli-tools"}},
+					ToolSetSpec: &ToolSetSpec{
+						InstallerRef: "aqua",
+						Tools: map[string]ToolItem{
+							"fd": {Version: "10.0.0"},
+						},
+					},
+				},
+			},
+			wantNames: []string{"fd"},
+		},
+		{
+			name: "disabled standalone tool does not conflict with another standalone tool",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.0.0", Enabled: new(false)},
+				},
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1"},
+				},
+			},
+			wantNames: []string{"rg"},
+		},
+		{
+			name: "tool with nil spec is enabled by default",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+				},
+			},
+			wantNames: []string{"rg"},
+		},
+		{
 			name: "toolitem with package field",
 			resources: []Resource{
 				&ToolSet{
@@ -303,4 +393,8 @@ func TestExpandSets_InheritedFields(t *testing.T) {
 		tool := got[0].(*Tool)
 		assert.Equal(t, src, tool.ToolSpec.Source)
 	})
+}
+
+func TestToolImplementsEnableable(t *testing.T) {
+	var _ Enableable = (*Tool)(nil)
 }
