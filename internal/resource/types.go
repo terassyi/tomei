@@ -142,7 +142,8 @@ type Expandable interface {
 
 // Enableable is a resource whose inclusion can be toggled via an enabled flag.
 // Resources implementing this interface with IsEnabled() returning false
-// are excluded from processing by ExpandSets.
+// are excluded from processing by ExpandSets, regardless of whether they
+// are standalone or Expandable.
 type Enableable interface {
 	IsEnabled() bool
 }

@@ -27,10 +27,10 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	// Register non-expandable resource names first.
 	// Disabled resources are excluded so they do not cause spurious conflicts.
 	for _, res := range resources {
+		if !isEnabled(res) {
+			continue
+		}
 		if _, ok := res.(Expandable); !ok {
-			if !isEnabled(res) {
-				continue
-			}
 			key := string(res.Kind()) + "/" + res.Name()
 			names[key] = fmt.Sprintf("standalone %s", res.Kind())
 		}
@@ -39,12 +39,13 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	var result []Resource
 
 	for _, res := range resources {
+		if !isEnabled(res) {
+			slog.Debug("skipping disabled resource", "kind", res.Kind(), "name", res.Name())
+			continue
+		}
+
 		exp, ok := res.(Expandable)
 		if !ok {
-			if !isEnabled(res) {
-				slog.Debug("skipping disabled resource", "kind", res.Kind(), "name", res.Name())
-				continue
-			}
 			result = append(result, res)
 			continue
 		}
