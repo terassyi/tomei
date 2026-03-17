@@ -1,8 +1,10 @@
 package graph
 
 import (
+	"cmp"
 	"encoding/json"
 	"io"
+	"slices"
 
 	"github.com/goccy/go-yaml"
 
@@ -41,6 +43,7 @@ type PlanSummary struct {
 	Reinstall int `json:"reinstall" yaml:"reinstall"`
 	Remove    int `json:"remove" yaml:"remove"`
 	NoChange  int `json:"noChange" yaml:"noChange"`
+	Skip      int `json:"skip" yaml:"skip"`
 }
 
 // Exporter exports plan data in various formats.
@@ -98,6 +101,32 @@ func (e *Exporter) BuildOutput() PlanOutput {
 		output.Layers = append(output.Layers, planLayer)
 	}
 
+	// Collect ActionSkip resources that are not part of any layer.
+	// Build sorted slice first for deterministic JSON/YAML output.
+	emitted := make(map[NodeID]bool)
+	for _, res := range output.Resources {
+		emitted[NewNodeID(res.Kind, res.Name)] = true
+	}
+	var skipResources []PlanResource
+	for nodeID, info := range e.resourceInfo {
+		if info.Action == resource.ActionSkip && !emitted[nodeID] {
+			skipResources = append(skipResources, PlanResource{
+				Kind:    info.Kind,
+				Name:    info.Name,
+				Version: info.Version,
+				Action:  resource.ActionSkip,
+				Layer:   0,
+			})
+		}
+	}
+	slices.SortFunc(skipResources, func(a, b PlanResource) int {
+		if c := cmp.Compare(string(a.Kind), string(b.Kind)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	output.Resources = append(output.Resources, skipResources...)
+
 	// Build summary
 	summary := PlanSummary{
 		Total:  len(output.Resources),
@@ -115,6 +144,8 @@ func (e *Exporter) BuildOutput() PlanOutput {
 			summary.Remove++
 		case resource.ActionNone:
 			summary.NoChange++
+		case resource.ActionSkip:
+			summary.Skip++
 		}
 	}
 	output.Summary = summary

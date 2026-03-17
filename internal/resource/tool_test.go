@@ -1147,3 +1147,37 @@ func TestToolState_GetBinPath(t *testing.T) {
 	emptyState := &ToolState{}
 	assert.Empty(t, emptyState.GetBinPath())
 }
+
+func TestBuildToolFromSetItem(t *testing.T) {
+	t.Parallel()
+
+	ts := &ToolSet{
+		BaseResource: BaseResource{Metadata: Metadata{Name: "go-tools"}},
+		ToolSetSpec: &ToolSetSpec{
+			InstallerRef:  "aqua",
+			RepositoryRef: "custom-repo",
+			RuntimeRef:    "go",
+			Tools:         map[string]ToolItem{},
+		},
+	}
+
+	item := ToolItem{
+		Version:    "v0.21.0",
+		Package:    &Package{Name: "golang.org/x/tools/gopls"},
+		BinaryName: "gopls-bin",
+		Args:       []string{"--flag"},
+	}
+
+	tool := buildToolFromSetItem(ts, "gopls", item)
+
+	assert.Equal(t, KindTool, tool.Kind())
+	assert.Equal(t, "gopls", tool.Name())
+	assert.Equal(t, GroupVersion, tool.APIVersion)
+	assert.Equal(t, "aqua", tool.ToolSpec.InstallerRef)
+	assert.Equal(t, "custom-repo", tool.ToolSpec.RepositoryRef)
+	assert.Equal(t, "go", tool.ToolSpec.RuntimeRef)
+	assert.Equal(t, "v0.21.0", tool.ToolSpec.Version)
+	assert.Equal(t, "golang.org/x/tools/gopls", tool.ToolSpec.Package.Name)
+	assert.Equal(t, "gopls-bin", tool.ToolSpec.BinaryName)
+	assert.Equal(t, []string{"--flag"}, tool.ToolSpec.Args)
+}

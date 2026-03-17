@@ -395,6 +395,163 @@ func TestExpandSets_InheritedFields(t *testing.T) {
 	})
 }
 
+func TestCollectDisabled(t *testing.T) {
+	t.Parallel()
+
+	boolPtr := func(b bool) *bool { return &b }
+
+	tests := []struct {
+		name      string
+		resources []Resource
+		wantNames []string // expected disabled Tool names (sorted)
+	}{
+		{
+			name:      "no resources",
+			resources: nil,
+			wantNames: nil,
+		},
+		{
+			name: "standalone disabled Tool is collected",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(false)},
+				},
+			},
+			wantNames: []string{"rg"},
+		},
+		{
+			name: "standalone enabled Tool is not collected",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(true)},
+				},
+			},
+			wantNames: nil,
+		},
+		{
+			name: "standalone Tool with nil enabled is not collected",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1"},
+				},
+			},
+			wantNames: nil,
+		},
+		{
+			name: "ToolSet disabled items are collected as Tools",
+			resources: []Resource{
+				&ToolSet{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "cli-tools"}},
+					ToolSetSpec: &ToolSetSpec{
+						InstallerRef: "aqua",
+						Tools: map[string]ToolItem{
+							"fd":  {Version: "9.0.0"},
+							"bat": {Version: "0.24.0", Enabled: boolPtr(false)},
+						},
+					},
+				},
+			},
+			wantNames: []string{"bat"},
+		},
+		{
+			name: "ToolSet enabled items are not collected",
+			resources: []Resource{
+				&ToolSet{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "cli-tools"}},
+					ToolSetSpec: &ToolSetSpec{
+						InstallerRef: "aqua",
+						Tools: map[string]ToolItem{
+							"fd":  {Version: "9.0.0"},
+							"bat": {Version: "0.24.0"},
+						},
+					},
+				},
+			},
+			wantNames: nil,
+		},
+		{
+			name: "mixed standalone and ToolSet disabled",
+			resources: []Resource{
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(false)},
+				},
+				&Tool{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "jq"}},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "1.7.1"},
+				},
+				&ToolSet{
+					BaseResource: BaseResource{Metadata: Metadata{Name: "cli-tools"}},
+					ToolSetSpec: &ToolSetSpec{
+						InstallerRef: "aqua",
+						Tools: map[string]ToolItem{
+							"fd":  {Version: "9.0.0", Enabled: boolPtr(false)},
+							"bat": {Version: "0.24.0"},
+						},
+					},
+				},
+			},
+			wantNames: []string{"fd", "rg"},
+		},
+		{
+			name: "non-enableable resources are not collected",
+			resources: []Resource{
+				&Installer{
+					BaseResource:  BaseResource{Metadata: Metadata{Name: "aqua"}},
+					InstallerSpec: &InstallerSpec{Type: InstallTypeDownload},
+				},
+			},
+			wantNames: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := CollectDisabled(tt.resources)
+
+			var names []string
+			for _, r := range got {
+				names = append(names, r.Name())
+			}
+			sort.Strings(tt.wantNames)
+			assert.Equal(t, tt.wantNames, names)
+		})
+	}
+}
+
+func TestCollectDisabled_InheritedFields(t *testing.T) {
+	t.Parallel()
+
+	boolPtr := func(b bool) *bool { return &b }
+
+	resources := []Resource{
+		&ToolSet{
+			BaseResource: BaseResource{Metadata: Metadata{Name: "go-tools"}},
+			ToolSetSpec: &ToolSetSpec{
+				RuntimeRef:    "go",
+				RepositoryRef: "custom-repo",
+				Tools: map[string]ToolItem{
+					"gopls": {Package: &Package{Name: "golang.org/x/tools/gopls"}, Version: "v0.21.0", Enabled: boolPtr(false)},
+				},
+			},
+		},
+	}
+
+	got := CollectDisabled(resources)
+	require.Len(t, got, 1)
+
+	tool := got[0].(*Tool)
+	assert.Equal(t, "gopls", tool.Name())
+	assert.Equal(t, "go", tool.ToolSpec.RuntimeRef)
+	assert.Equal(t, "custom-repo", tool.ToolSpec.RepositoryRef)
+	assert.Equal(t, "v0.21.0", tool.ToolSpec.Version)
+	assert.Equal(t, "golang.org/x/tools/gopls", tool.ToolSpec.Package.Name)
+}
+
 func TestToolImplementsEnableable(t *testing.T) {
 	var _ Enableable = (*Tool)(nil)
 }

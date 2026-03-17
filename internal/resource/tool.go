@@ -449,26 +449,30 @@ func (ts *ToolSet) Expand() ([]Resource, error) {
 		if !item.IsEnabled() {
 			continue
 		}
-		tool := &Tool{
-			BaseResource: BaseResource{
-				APIVersion:   GroupVersion,
-				ResourceKind: KindTool,
-				Metadata:     Metadata{Name: name},
-			},
-			ToolSpec: &ToolSpec{
-				InstallerRef:  ts.ToolSetSpec.InstallerRef,
-				RepositoryRef: ts.ToolSetSpec.RepositoryRef,
-				RuntimeRef:    ts.ToolSetSpec.RuntimeRef,
-				Version:       item.Version,
-				Source:        item.Source,
-				Package:       item.Package,
-				BinaryName:    item.BinaryName,
-				Args:          item.Args,
-			},
-		}
-		tools = append(tools, tool)
+		tools = append(tools, buildToolFromSetItem(ts, name, item))
 	}
 	return tools, nil
+}
+
+// buildToolFromSetItem creates a Tool resource from a ToolSet item.
+func buildToolFromSetItem(ts *ToolSet, name string, item ToolItem) *Tool {
+	return &Tool{
+		BaseResource: BaseResource{
+			APIVersion:   GroupVersion,
+			ResourceKind: KindTool,
+			Metadata:     Metadata{Name: name},
+		},
+		ToolSpec: &ToolSpec{
+			InstallerRef:  ts.ToolSetSpec.InstallerRef,
+			RepositoryRef: ts.ToolSetSpec.RepositoryRef,
+			RuntimeRef:    ts.ToolSetSpec.RuntimeRef,
+			Version:       item.Version,
+			Source:        item.Source,
+			Package:       item.Package,
+			BinaryName:    item.BinaryName,
+			Args:          item.Args,
+		},
+	}
 }
 
 // ToolItem represents a tool within a ToolSet.
