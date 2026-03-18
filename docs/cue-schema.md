@@ -433,6 +433,63 @@ gh: {
 }
 ```
 
+### File-level platform branching (`@if()`)
+
+CUE's `@if()` file-level attribute allows you to include or exclude entire files based on boolean tags. This is useful for separating platform-specific resources into dedicated files:
+
+```cue
+@if(darwin)
+
+package tomei
+
+// This file is only loaded on macOS.
+brewTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "brew-tool"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+        source: url: "https://example.com/tool_darwin.tar.gz"
+    }
+}
+```
+
+#### Available boolean tags
+
+| Tag | Included when |
+|-----|---------------|
+| `darwin` | Running on macOS |
+| `linux` | Running on Linux |
+| `amd64` | Running on x86_64 |
+| `arm64` | Running on ARM64 |
+| `headless` | Running in a headless environment |
+
+#### Syntax
+
+- `@if(darwin)` — include on macOS only
+- `@if(!darwin)` — include on everything except macOS
+- `@if(darwin && arm64)` — include on Apple Silicon only
+- `@if(linux || darwin)` — include on Linux or macOS
+
+> **Note:** Use `&&` for AND and `||` for OR. Do not use commas — `@if(darwin, arm64)` is not AND.
+
+#### `@tag()` vs `@if()`
+
+| Feature | `@tag()` | `@if()` |
+|---------|----------|---------|
+| Scope | Field-level value injection | File-level inclusion/exclusion |
+| Use case | String interpolation (`\(_os)`) | Separate platform files |
+| Propagation | Works in imported packages | Does **not** propagate to imports |
+
+Both can be used together in the same project. Use `@tag()` for URL interpolation and `@if()` for file-level branching.
+
+#### Limitations
+
+- `@if()` must appear before the `package` declaration
+- `@if()` does **not** propagate to imported packages — presets continue to use the parameter-passing pattern
+- When using `cue eval` directly, boolean tags must be passed manually: `cue eval -t darwin manifests/`
+
 ### Using presets (recommended)
 
 Presets that need platform information accept explicit `platform` parameters from the user manifest. The user declares `@tag()` variables and passes them to the preset:

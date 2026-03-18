@@ -5,3 +5,13 @@ package tomei
 _os:       string @tag(os)
 _arch:     string @tag(arch)
 _headless: bool | *false @tag(headless,type=bool)
+
+// Boolean tags for @if() file-level platform branching:
+//   @if(darwin)   - include file only on macOS
+//   @if(linux)    - include file only on Linux
+//   @if(amd64)    - include file only on amd64
+//   @if(arm64)    - include file only on arm64
+//   @if(headless) - include file only in headless environments
+// Use && for AND, || for OR, ! for NOT:
+//   @if(darwin && arm64)
+//   @if(!headless)

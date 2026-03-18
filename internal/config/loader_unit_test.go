@@ -118,6 +118,102 @@ _arch: string @tag(arch)
 	}
 }
 
+func TestScanIfTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		sources []string
+		want    map[string]bool
+	}{
+		{
+			name:    "no sources",
+			sources: nil,
+			want:    map[string]bool{},
+		},
+		{
+			name: "@if(darwin)",
+			sources: []string{`@if(darwin)
+package tomei
+`},
+			want: map[string]bool{"darwin": true},
+		},
+		{
+			name: "@if(!darwin) still references darwin",
+			sources: []string{`@if(!darwin)
+package tomei
+`},
+			want: map[string]bool{"darwin": true},
+		},
+		{
+			name: "@if(darwin && arm64)",
+			sources: []string{`@if(darwin && arm64)
+package tomei
+`},
+			want: map[string]bool{"darwin": true, "arm64": true},
+		},
+		{
+			name: "@if(linux || darwin)",
+			sources: []string{`@if(linux || darwin)
+package tomei
+`},
+			want: map[string]bool{"linux": true, "darwin": true},
+		},
+		{
+			name: "@if(headless)",
+			sources: []string{`@if(headless)
+package tomei
+`},
+			want: map[string]bool{"headless": true},
+		},
+		{
+			name: "no @if() attribute",
+			sources: []string{`package tomei
+_os: string @tag(os)
+`},
+			want: map[string]bool{},
+		},
+		{
+			name:    "malformed CUE graceful skip",
+			sources: []string{`this is not valid CUE {{{{`},
+			want:    map[string]bool{},
+		},
+		{
+			name: "multiple sources union",
+			sources: []string{
+				`@if(darwin)
+package tomei
+`,
+				`@if(arm64)
+package tomei
+`,
+			},
+			want: map[string]bool{"darwin": true, "arm64": true},
+		},
+		{
+			name:    "@if() with empty body",
+			sources: []string{"@if()\npackage tomei\n"},
+			want:    map[string]bool{},
+		},
+		{
+			name: "@if with nested parens",
+			sources: []string{`@if((darwin && arm64) || linux)
+package tomei
+`},
+			want: map[string]bool{"darwin": true, "arm64": true, "linux": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := scanIfTags(tt.sources...)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDetectPackageName(t *testing.T) {
 	t.Parallel()
 
@@ -238,6 +334,66 @@ _arch:     string @tag(arch)
 _headless: bool   @tag(headless,type=bool)
 `},
 			want: []string{"os=darwin", "arch=arm64", "headless=true"},
+		},
+		{
+			name: "@if(darwin) with env.OS=darwin adds boolean tag",
+			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			sources: []string{`@if(darwin)
+package tomei
+tool: { apiVersion: "v1" }
+`},
+			want: []string{"darwin"},
+		},
+		{
+			name: "@if(darwin) with env.OS=linux no boolean tag",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			sources: []string{`@if(darwin)
+package tomei
+tool: { apiVersion: "v1" }
+`},
+			want: nil,
+		},
+		{
+			name: "@if(darwin && arm64) with matching env",
+			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			sources: []string{`@if(darwin && arm64)
+package tomei
+tool: { apiVersion: "v1" }
+`},
+			want: []string{"darwin", "arm64"},
+		},
+		{
+			name: "@tag(os) and @if(darwin) coexist",
+			env:  &Env{OS: "darwin", Arch: "arm64", Headless: false},
+			sources: []string{`@if(darwin)
+package tomei
+_os: string @tag(os)
+`},
+			want: []string{"os=darwin", "darwin"},
+		},
+		{
+			name: "@if(headless) with headless=true",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: true},
+			sources: []string{`@if(headless)
+package tomei
+`},
+			want: []string{"headless"},
+		},
+		{
+			name: "@if(headless) with headless=false no boolean tag",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			sources: []string{`@if(headless)
+package tomei
+`},
+			want: nil,
+		},
+		{
+			name: "@if(windows) unknown platform ignored",
+			env:  &Env{OS: "linux", Arch: "amd64", Headless: false},
+			sources: []string{`@if(windows)
+package tomei
+`},
+			want: nil,
 		},
 	}
 
