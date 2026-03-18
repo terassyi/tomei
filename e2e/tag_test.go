@@ -3,6 +3,9 @@
 package e2e
 
 import (
+	"os"
+	"runtime"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -124,9 +127,19 @@ EOF`)
 			Expect(output).To(ContainSubstring("if-common-tool"))
 			Expect(output).To(ContainSubstring("Validation successful"))
 
-			// E2E container is linux — linux-tool should be present, darwin-tool should not
-			Expect(output).To(ContainSubstring("if-linux-tool"))
-			Expect(output).NotTo(ContainSubstring("if-darwin-tool"))
+			// Determine the target OS: container mode always runs linux,
+			// native mode uses the host OS.
+			targetOS := runtime.GOOS
+			if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+				targetOS = "linux"
+			}
+			if targetOS == "darwin" {
+				Expect(output).To(ContainSubstring("if-darwin-tool"))
+				Expect(output).NotTo(ContainSubstring("if-linux-tool"))
+			} else {
+				Expect(output).To(ContainSubstring("if-linux-tool"))
+				Expect(output).NotTo(ContainSubstring("if-darwin-tool"))
+			}
 		})
 	})
 
