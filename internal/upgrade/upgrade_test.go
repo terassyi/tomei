@@ -174,33 +174,51 @@ func TestCheckPlatformSupport(t *testing.T) {
 }
 
 func TestReplaceBinary(t *testing.T) {
-	tmpDir := t.TempDir()
+	t.Run("basic replace", func(t *testing.T) {
+		tmpDir := t.TempDir()
 
-	// Create "current" binary
-	currentPath := filepath.Join(tmpDir, "tomei")
-	require.NoError(t, os.WriteFile(currentPath, []byte("old-binary"), 0755))
+		// Create "current" binary
+		currentPath := filepath.Join(tmpDir, "tomei")
+		require.NoError(t, os.WriteFile(currentPath, []byte("old-binary"), 0755))
 
-	// Create "new" binary
-	newPath := filepath.Join(tmpDir, "tomei-new")
-	require.NoError(t, os.WriteFile(newPath, []byte("new-binary"), 0755))
+		// Create "new" binary
+		newPath := filepath.Join(tmpDir, "tomei-new")
+		require.NoError(t, os.WriteFile(newPath, []byte("new-binary"), 0755))
 
-	// Replace
-	err := replaceBinary(currentPath, newPath)
-	require.NoError(t, err)
+		// Replace
+		err := replaceBinary(currentPath, newPath)
+		require.NoError(t, err)
 
-	// Verify content
-	content, err := os.ReadFile(currentPath)
-	require.NoError(t, err)
-	assert.Equal(t, "new-binary", string(content))
+		// Verify content
+		content, err := os.ReadFile(currentPath)
+		require.NoError(t, err)
+		assert.Equal(t, "new-binary", string(content))
 
-	// Verify permissions
-	info, err := os.Stat(currentPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+		// Verify permissions preserved
+		info, err := os.Stat(currentPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+	})
 
-	// Verify backup was cleaned up
-	_, err = os.Stat(currentPath + ".bak")
-	assert.True(t, os.IsNotExist(err))
+	t.Run("preserves original permissions", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create "current" binary with 0700
+		currentPath := filepath.Join(tmpDir, "tomei")
+		require.NoError(t, os.WriteFile(currentPath, []byte("old-binary"), 0700))
+
+		// Create "new" binary
+		newPath := filepath.Join(tmpDir, "tomei-new")
+		require.NoError(t, os.WriteFile(newPath, []byte("new-binary"), 0755))
+
+		err := replaceBinary(currentPath, newPath)
+		require.NoError(t, err)
+
+		// Verify original 0700 is preserved, not overwritten with 0755
+		info, err := os.Stat(currentPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0700), info.Mode().Perm())
+	})
 }
 
 func TestFindBinary(t *testing.T) {

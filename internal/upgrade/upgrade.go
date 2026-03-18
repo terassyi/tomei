@@ -344,14 +344,30 @@ func archiveName(version, goos, goarch string) string {
 
 // releaseAssetURL constructs the URL for a release asset.
 func releaseAssetURL(baseURL, version, filename string) string {
-	return fmt.Sprintf("%s/terassyi/tomei/releases/download/v%s/%s", baseURL, version, filename)
+	return fmt.Sprintf("%s/%s/%s/releases/download/v%s/%s", baseURL, repoOwner, repoName, version, filename)
 }
 
 // replaceBinary atomically replaces the current binary with a new one.
-// It creates a backup, copies the new binary, and does an atomic rename.
-// If interrupted, the backup is restored via defer.
+// It creates a backup, copies the new binary via a temp file, and does an atomic rename.
+// The original file's permissions are preserved. If interrupted, the backup is restored via defer.
 func replaceBinary(currentPath, newBinaryPath string) error {
-	backupPath := currentPath + ".bak"
+	// Preserve original permissions
+	origInfo, err := os.Stat(currentPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat current binary: %w", err)
+	}
+	origMode := origInfo.Mode().Perm()
+
+	dir := filepath.Dir(currentPath)
+
+	// Create backup with O_EXCL to avoid clobbering
+	backupFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".bak.*")
+	if err != nil {
+		return fmt.Errorf("failed to create backup file: %w", err)
+	}
+	backupPath := backupFile.Name()
+	backupFile.Close()
+	os.Remove(backupPath) // remove so Rename can use this path
 
 	var backupCreated, upgraded bool
 	defer func() {
@@ -372,10 +388,16 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	}
 	backupCreated = true
 
-	// Copy new binary to staging path
-	stagingPath := currentPath + ".new"
+	// Copy new binary to a temp staging file (O_EXCL via CreateTemp)
+	stagingFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".new.*")
+	if err != nil {
+		return fmt.Errorf("failed to create staging file: %w", err)
+	}
+	stagingPath := stagingFile.Name()
+	stagingFile.Close()
+
 	if err := copyFile(newBinaryPath, stagingPath); err != nil {
-		os.Remove(stagingPath) // clean up partial staging file
+		os.Remove(stagingPath)
 		return fmt.Errorf("failed to copy new binary: %w", err)
 	}
 
@@ -385,8 +407,8 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
-	// Set executable permission
-	if err := os.Chmod(currentPath, 0755); err != nil {
+	// Restore original permissions
+	if err := os.Chmod(currentPath, origMode); err != nil {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
 
