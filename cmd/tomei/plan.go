@@ -1,11 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -30,6 +32,7 @@ Displays what actions would be taken:
   - upgrade: Resources to upgrade
   - reinstall: Resources to reinstall (due to taint)
   - remove: Resources to remove
+  - skip: Resources disabled via enabled: false
 
 Resources are shown in dependency order as a tree.
 Use --output to change the output format (text, json, yaml).`,
@@ -82,6 +85,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Collect disabled resources before expansion (for plan display)
+	disabledResources := resource.CollectDisabled(resources)
+
 	// Expand set resources (ToolSet, etc.) into individual resources
 	resources, err = resource.ExpandSets(resources)
 	if err != nil {
@@ -97,6 +103,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Inject disabled resource info into the plan
+	addDisabledResourceInfo(result.resourceInfo, disabledResources)
 
 	// Output based on format
 	switch planCfg.outputFormat {
@@ -268,6 +277,12 @@ func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resou
 	// Print execution layers
 	printer.PrintLayers(result.filteredLayers, result.resourceInfo)
 
+	// Print disabled resources
+	disabledInfos := collectSkipInfos(result.resourceInfo)
+	if len(disabledInfos) > 0 {
+		printer.PrintDisabled(disabledInfos)
+	}
+
 	// Print summary
 	printer.PrintSummary(result.resourceInfo)
 
@@ -351,6 +366,44 @@ func planForResources(w io.Writer, resources []resource.Resource, disableColor b
 	printer.PrintSummary(result.resourceInfo)
 
 	return hasChanges, nil
+}
+
+// addDisabledResourceInfo injects disabled resources into the resource info map.
+// Resources that already have an entry (e.g., ActionRemove for previously installed) are not overwritten.
+func addDisabledResourceInfo(info map[graph.NodeID]graph.ResourceInfo, disabled []resource.Resource) {
+	for _, res := range disabled {
+		nodeID := graph.NewNodeID(res.Kind(), res.Name())
+		// Do not overwrite existing entries (e.g., ActionRemove)
+		if _, exists := info[nodeID]; exists {
+			continue
+		}
+		ri := graph.ResourceInfo{
+			Kind:   res.Kind(),
+			Name:   res.Name(),
+			Action: resource.ActionSkip,
+		}
+		if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
+			ri.Version = tool.ToolSpec.Version
+		}
+		info[nodeID] = ri
+	}
+}
+
+// collectSkipInfos extracts ActionSkip entries from resourceInfo, sorted by kind then name.
+func collectSkipInfos(resourceInfo map[graph.NodeID]graph.ResourceInfo) []graph.ResourceInfo {
+	var infos []graph.ResourceInfo
+	for _, info := range resourceInfo {
+		if info.Action == resource.ActionSkip {
+			infos = append(infos, info)
+		}
+	}
+	slices.SortFunc(infos, func(a, b graph.ResourceInfo) int {
+		if c := cmp.Compare(string(a.Kind), string(b.Kind)); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Name, b.Name)
+	})
+	return infos
 }
 
 // syncRegistryForPlan creates a store and syncs the aqua registry.

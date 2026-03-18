@@ -10,6 +10,7 @@ const (
 	ActionDowngrade ActionType = "downgrade" // Version downgrade
 	ActionReinstall ActionType = "reinstall" // Reinstall due to taint
 	ActionRemove    ActionType = "remove"    // Remove (spec deleted)
+	ActionSkip      ActionType = "skip"      // Disabled via enabled: false
 )
 
 // Action represents a planned operation during the diff phase.
@@ -21,5 +22,5 @@ type Action struct {
 
 // NeedsExecution returns true if this action requires work.
 func (a *Action) NeedsExecution() bool {
-	return a.ActionType != ActionNone
+	return a.ActionType != ActionNone && a.ActionType != ActionSkip
 }

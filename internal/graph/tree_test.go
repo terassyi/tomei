@@ -65,6 +65,15 @@ func TestPrintSummary(t *testing.T) {
 			},
 			wantLine: "\nSummary: 0 to install, 0 to upgrade, 0 to reinstall, 0 to remove\n",
 		},
+		{
+			name: "with skip count",
+			info: map[NodeID]ResourceInfo{
+				NewNodeID(resource.KindTool, "fd"):  {Kind: resource.KindTool, Name: "fd", Action: resource.ActionInstall},
+				NewNodeID(resource.KindTool, "bat"): {Kind: resource.KindTool, Name: "bat", Action: resource.ActionSkip},
+				NewNodeID(resource.KindTool, "rg"):  {Kind: resource.KindTool, Name: "rg", Action: resource.ActionSkip},
+			},
+			wantLine: "\nSummary: 1 to install, 0 to upgrade, 0 to reinstall, 0 to remove, 2 disabled\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,6 +83,51 @@ func TestPrintSummary(t *testing.T) {
 			var buf bytes.Buffer
 			printer := NewTreePrinter(&buf, true)
 			printer.PrintSummary(tt.info)
+
+			assert.Equal(t, tt.wantLine, buf.String())
+		})
+	}
+}
+
+func TestPrintDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		infos    []ResourceInfo
+		wantLine string
+	}{
+		{
+			name: "single disabled tool",
+			infos: []ResourceInfo{
+				{Kind: resource.KindTool, Name: "bat", Version: "0.24.0", Action: resource.ActionSkip},
+			},
+			wantLine: "\nDisabled Resources:\n  Tool/bat (0.24.0) [⊘ skip]\n",
+		},
+		{
+			name: "multiple disabled tools",
+			infos: []ResourceInfo{
+				{Kind: resource.KindTool, Name: "bat", Version: "0.24.0", Action: resource.ActionSkip},
+				{Kind: resource.KindTool, Name: "rg", Version: "14.1.1", Action: resource.ActionSkip},
+			},
+			wantLine: "\nDisabled Resources:\n  Tool/bat (0.24.0) [⊘ skip]\n  Tool/rg (14.1.1) [⊘ skip]\n",
+		},
+		{
+			name: "disabled tool without version",
+			infos: []ResourceInfo{
+				{Kind: resource.KindTool, Name: "bat", Action: resource.ActionSkip},
+			},
+			wantLine: "\nDisabled Resources:\n  Tool/bat [⊘ skip]\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			printer := NewTreePrinter(&buf, true)
+			printer.PrintDisabled(tt.infos)
 
 			assert.Equal(t, tt.wantLine, buf.String())
 		})

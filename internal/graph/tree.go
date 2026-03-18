@@ -30,6 +30,7 @@ type TreePrinter struct {
 	reinstallColor *color.Color
 	removeColor    *color.Color
 	noChangeColor  *color.Color
+	skipColor      *color.Color
 	kindColors     map[resource.Kind]*color.Color
 }
 
@@ -52,6 +53,7 @@ func NewTreePrinter(w io.Writer, noColor bool) *TreePrinter {
 		reinstallColor: newColor(noColor, color.FgCyan),
 		removeColor:    newColor(noColor, color.FgRed),
 		noChangeColor:  newColor(noColor, color.FgWhite),
+		skipColor:      newColor(noColor, color.FgHiBlack),
 		kindColors: map[resource.Kind]*color.Color{
 			resource.KindRuntime:             newColor(noColor, color.FgBlue),
 			resource.KindInstaller:           newColor(noColor, color.FgYellow),
@@ -168,6 +170,9 @@ func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool)
 		case resource.ActionRemove:
 			actionStr = " [- remove]"
 			actionColor = p.removeColor
+		case resource.ActionSkip:
+			actionStr = " [⊘ skip]"
+			actionColor = p.skipColor
 		case resource.ActionNone:
 			actionColor = p.noChangeColor
 		}
@@ -203,6 +208,7 @@ func (p *TreePrinter) PrintSummary(resourceInfo map[NodeID]ResourceInfo) {
 		resource.ActionUpgrade:   0,
 		resource.ActionReinstall: 0,
 		resource.ActionRemove:    0,
+		resource.ActionSkip:      0,
 	}
 
 	for _, info := range resourceInfo {
@@ -211,10 +217,24 @@ func (p *TreePrinter) PrintSummary(resourceInfo map[NodeID]ResourceInfo) {
 		}
 	}
 
-	fmt.Fprintf(p.writer, "\nSummary: %s to install, %s to upgrade, %s to reinstall, %s to remove\n",
+	summary := fmt.Sprintf("\nSummary: %s to install, %s to upgrade, %s to reinstall, %s to remove",
 		p.installColor.Sprintf("%d", counts[resource.ActionInstall]),
 		p.upgradeColor.Sprintf("%d", counts[resource.ActionUpgrade]),
 		p.reinstallColor.Sprintf("%d", counts[resource.ActionReinstall]),
 		p.removeColor.Sprintf("%d", counts[resource.ActionRemove]),
 	)
+	if counts[resource.ActionSkip] > 0 {
+		summary += fmt.Sprintf(", %s disabled", p.skipColor.Sprintf("%d", counts[resource.ActionSkip]))
+	}
+	fmt.Fprintln(p.writer, summary)
+}
+
+// PrintDisabled prints disabled resources section.
+func (p *TreePrinter) PrintDisabled(infos []ResourceInfo) {
+	fmt.Fprintln(p.writer, "\nDisabled Resources:")
+	for _, info := range infos {
+		nodeID := NewNodeID(info.Kind, info.Name)
+		line := p.formatNode(nodeID, info, true)
+		fmt.Fprintf(p.writer, "  %s\n", line)
+	}
 }

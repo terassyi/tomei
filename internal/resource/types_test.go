@@ -94,6 +94,7 @@ func TestAction_NeedsExecution(t *testing.T) {
 		{"downgrade", ActionDowngrade, true},
 		{"reinstall", ActionReinstall, true},
 		{"remove", ActionRemove, true},
+		{"skip", ActionSkip, false},
 	}
 
 	for _, tt := range tests {
