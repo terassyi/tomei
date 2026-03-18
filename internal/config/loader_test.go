@@ -1459,6 +1459,139 @@ spec: {
 	_ = callCount
 }
 
+func TestLoader_Tag_IfDirective(t *testing.T) {
+	t.Parallel()
+
+	commonCue := `package tomei
+
+common: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "common-tool"
+	spec: {
+		installerRef: "download"
+		version:      "1.0.0"
+		source: url: "https://example.com/common.tar.gz"
+	}
+}
+`
+	darwinOnlyCue := `@if(darwin)
+
+package tomei
+
+darwinTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "darwin-tool"
+	spec: {
+		installerRef: "download"
+		version:      "1.0.0"
+		source: url: "https://example.com/darwin.tar.gz"
+	}
+}
+`
+	linuxOnlyCue := `@if(linux)
+
+package tomei
+
+linuxTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "linux-tool"
+	spec: {
+		installerRef: "download"
+		version:      "1.0.0"
+		source: url: "https://example.com/linux.tar.gz"
+	}
+}
+`
+	notLinuxCue := `@if(!linux)
+
+package tomei
+
+notLinuxTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "not-linux-tool"
+	spec: {
+		installerRef: "download"
+		version:      "1.0.0"
+		source: url: "https://example.com/not-linux.tar.gz"
+	}
+}
+`
+
+	tests := []struct {
+		name      string
+		env       *Env
+		files     map[string]string
+		wantNames []string
+	}{
+		{
+			name: "darwin includes common and darwin-only",
+			env:  &Env{OS: "darwin", Arch: "arm64"},
+			files: map[string]string{
+				"common.cue":      commonCue,
+				"darwin_only.cue": darwinOnlyCue,
+				"linux_only.cue":  linuxOnlyCue,
+			},
+			wantNames: []string{"common-tool", "darwin-tool"},
+		},
+		{
+			name: "linux includes common and linux-only",
+			env:  &Env{OS: "linux", Arch: "amd64"},
+			files: map[string]string{
+				"common.cue":      commonCue,
+				"darwin_only.cue": darwinOnlyCue,
+				"linux_only.cue":  linuxOnlyCue,
+			},
+			wantNames: []string{"common-tool", "linux-tool"},
+		},
+		{
+			name: "negation @if(!linux) excluded on linux",
+			env:  &Env{OS: "linux", Arch: "amd64"},
+			files: map[string]string{
+				"common.cue":     commonCue,
+				"not_linux.cue":  notLinuxCue,
+				"linux_only.cue": linuxOnlyCue,
+			},
+			wantNames: []string{"common-tool", "linux-tool"},
+		},
+		{
+			name: "negation @if(!linux) included on darwin",
+			env:  &Env{OS: "darwin", Arch: "arm64"},
+			files: map[string]string{
+				"common.cue":    commonCue,
+				"not_linux.cue": notLinuxCue,
+			},
+			wantNames: []string{"common-tool", "not-linux-tool"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			setupMinimalCueMod(t, dir)
+
+			for name, content := range tt.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0644))
+			}
+
+			loader := NewLoader(tt.env)
+			resources, err := loader.Load(dir)
+			require.NoError(t, err)
+
+			var names []string
+			for _, r := range resources {
+				names = append(names, r.Name())
+			}
+			assert.ElementsMatch(t, tt.wantNames, names)
+		})
+	}
+}
+
 // countingMockVerifier counts how many times Verify is called.
 type countingMockVerifier struct {
 	callCount int

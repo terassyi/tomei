@@ -3,6 +3,9 @@
 package e2e
 
 import (
+	"os"
+	"runtime"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -53,6 +56,90 @@ EOF`)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("tag-test-tool"))
 			Expect(output).To(ContainSubstring("Validation successful"))
+		})
+	})
+
+	Context("@if() File-Level Platform Branching", func() {
+		BeforeEach(func() {
+			// Clean up any previous @if() test files
+			_, _ = testExec.ExecBash("rm -f ~/tag-test/if-*.cue ~/tag-test/common.cue")
+		})
+
+		It("includes only the current platform file via @if()", func() {
+			By("Writing common manifest")
+			_, err := testExec.ExecBash(`cat > ~/tag-test/common.cue << 'EOF'
+package tomei
+
+commonTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "if-common-tool"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+        source: url: "https://example.com/common.tar.gz"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Writing @if(darwin) manifest")
+			_, err = testExec.ExecBash(`cat > ~/tag-test/if-darwin.cue << 'EOF'
+@if(darwin)
+
+package tomei
+
+darwinTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "if-darwin-tool"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+        source: url: "https://example.com/darwin.tar.gz"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Writing @if(linux) manifest")
+			_, err = testExec.ExecBash(`cat > ~/tag-test/if-linux.cue << 'EOF'
+@if(linux)
+
+package tomei
+
+linuxTool: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "if-linux-tool"
+    spec: {
+        installerRef: "download"
+        version:      "1.0.0"
+        source: url: "https://example.com/linux.tar.gz"
+    }
+}
+EOF`)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Running tomei validate — only current platform resources should load")
+			output, err := testExec.Exec("tomei", "validate", "~/tag-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("if-common-tool"))
+			Expect(output).To(ContainSubstring("Validation successful"))
+
+			// Determine the target OS: container mode always runs linux,
+			// native mode uses the host OS.
+			targetOS := runtime.GOOS
+			if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+				targetOS = "linux"
+			}
+			if targetOS == "darwin" {
+				Expect(output).To(ContainSubstring("if-darwin-tool"))
+				Expect(output).NotTo(ContainSubstring("if-linux-tool"))
+			} else {
+				Expect(output).To(ContainSubstring("if-linux-tool"))
+				Expect(output).NotTo(ContainSubstring("if-darwin-tool"))
+			}
 		})
 	})
 

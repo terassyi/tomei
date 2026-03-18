@@ -98,34 +98,85 @@ func buildRegistry() (modconfig.Registry, error) {
 	})
 }
 
-// envTagsForSources scans CUE source texts for @tag() declarations via AST and returns
-// only the Tags entries that have matching declarations. This avoids the CUE loader
-// error "no tag for X" that occurs when Tags contains entries without corresponding
-// @tag() declarations in the loaded files.
+// envTagsForSources returns CUE tag entries for the current environment.
+// It scans source texts for @tag() field declarations and adds key=value tags,
+// and scans @if() file-level attributes to add boolean tags for platform branching.
 func (l *Loader) envTagsForSources(sources ...string) []string {
-	declared := scanDeclaredTags(sources...)
+	scan := scanTags(sources...)
 	var tags []string
-	if declared["os"] {
+	// String tags for @tag() field injection (require declaration)
+	if scan.declaredTags["os"] {
 		tags = append(tags, "os="+string(l.env.OS))
 	}
-	if declared["arch"] {
+	if scan.declaredTags["arch"] {
 		tags = append(tags, "arch="+string(l.env.Arch))
 	}
-	if declared["headless"] {
+	if scan.declaredTags["headless"] {
 		tags = append(tags, fmt.Sprintf("headless=%t", l.env.Headless))
+	}
+	// Boolean tags for @if() file-level directives (require @if() reference).
+	// CUE @if() evaluates tag *presence* (not value), so we inject a bare tag
+	// only when the condition is true for the current environment.
+	// NOTE: This relies on Env.OS/Env.Arch string values matching the CUE @if()
+	// identifiers exactly (e.g., OS="darwin" matches @if(darwin)).
+	if scan.ifTags[string(l.env.OS)] {
+		tags = append(tags, string(l.env.OS))
+	}
+	if scan.ifTags[string(l.env.Arch)] {
+		tags = append(tags, string(l.env.Arch))
+	}
+	// headless is only injected when true — absence means non-headless,
+	// so @if(!headless) correctly evaluates to true in non-headless environments.
+	if l.env.Headless && scan.ifTags["headless"] {
+		tags = append(tags, "headless")
 	}
 	return tags
 }
 
-// scanDeclaredTags parses CUE sources and returns the set of tag names
-// declared via @tag() attributes on fields.
-func scanDeclaredTags(sources ...string) map[string]bool {
-	tags := make(map[string]bool)
+// tagScanResult holds the results of scanning CUE sources for tag references.
+type tagScanResult struct {
+	declaredTags map[string]bool // @tag() field-level declarations
+	ifTags       map[string]bool // @if() file-level attribute references
+}
+
+// scanTags parses CUE sources once and collects both @tag() field declarations
+// and @if() file-level attribute references.
+func scanTags(sources ...string) tagScanResult {
+	result := tagScanResult{
+		declaredTags: make(map[string]bool),
+		ifTags:       make(map[string]bool),
+	}
 	for _, src := range sources {
 		f, err := parser.ParseFile("", src)
 		if err != nil {
 			continue
 		}
+		// Collect @if() from top-level attributes (before package declaration,
+		// matching CUE's buildattr.getBuildAttr behavior).
+		for _, d := range f.Decls {
+			if _, ok := d.(*ast.Package); ok {
+				break // @if() is only valid before package declaration
+			}
+			attr, ok := d.(*ast.Attribute)
+			if !ok {
+				continue
+			}
+			key, body := attr.Split()
+			if key != "if" {
+				continue
+			}
+			expr, err := parser.ParseExpr("", body)
+			if err != nil {
+				continue
+			}
+			ast.Walk(expr, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok {
+					result.ifTags[id.Name] = true
+				}
+				return true
+			}, nil)
+		}
+		// Collect @tag() from fields (full AST walk)
 		ast.Walk(f, func(n ast.Node) bool {
 			field, ok := n.(*ast.Field)
 			if !ok {
@@ -135,13 +186,25 @@ func scanDeclaredTags(sources ...string) map[string]bool {
 				key, body := a.Split()
 				if key == "tag" {
 					name, _, _ := strings.Cut(body, ",")
-					tags[name] = true
+					result.declaredTags[name] = true
 				}
 			}
 			return true
 		}, nil)
 	}
-	return tags
+	return result
+}
+
+// scanDeclaredTags parses CUE sources and returns the set of tag names
+// declared via @tag() attributes on fields.
+func scanDeclaredTags(sources ...string) map[string]bool {
+	return scanTags(sources...).declaredTags
+}
+
+// scanIfTags parses CUE sources and returns the set of identifiers
+// referenced in @if() file-level attributes.
+func scanIfTags(sources ...string) map[string]bool {
+	return scanTags(sources...).ifTags
 }
 
 // detectPackageName extracts the package name from CUE source code.
