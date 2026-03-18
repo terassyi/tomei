@@ -398,8 +398,6 @@ func TestExpandSets_InheritedFields(t *testing.T) {
 func TestCollectDisabled(t *testing.T) {
 	t.Parallel()
 
-	boolPtr := func(b bool) *bool { return &b }
-
 	tests := []struct {
 		name      string
 		resources []Resource
@@ -415,7 +413,7 @@ func TestCollectDisabled(t *testing.T) {
 			resources: []Resource{
 				&Tool{
 					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
-					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(false)},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(false)},
 				},
 			},
 			wantNames: []string{"rg"},
@@ -425,7 +423,7 @@ func TestCollectDisabled(t *testing.T) {
 			resources: []Resource{
 				&Tool{
 					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
-					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(true)},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(true)},
 				},
 			},
 			wantNames: nil,
@@ -449,7 +447,7 @@ func TestCollectDisabled(t *testing.T) {
 						InstallerRef: "aqua",
 						Tools: map[string]ToolItem{
 							"fd":  {Version: "9.0.0"},
-							"bat": {Version: "0.24.0", Enabled: boolPtr(false)},
+							"bat": {Version: "0.24.0", Enabled: new(false)},
 						},
 					},
 				},
@@ -477,7 +475,7 @@ func TestCollectDisabled(t *testing.T) {
 			resources: []Resource{
 				&Tool{
 					BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
-					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: boolPtr(false)},
+					ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1", Enabled: new(false)},
 				},
 				&Tool{
 					BaseResource: BaseResource{Metadata: Metadata{Name: "jq"}},
@@ -488,7 +486,7 @@ func TestCollectDisabled(t *testing.T) {
 					ToolSetSpec: &ToolSetSpec{
 						InstallerRef: "aqua",
 						Tools: map[string]ToolItem{
-							"fd":  {Version: "9.0.0", Enabled: boolPtr(false)},
+							"fd":  {Version: "9.0.0", Enabled: new(false)},
 							"bat": {Version: "0.24.0"},
 						},
 					},
@@ -526,8 +524,6 @@ func TestCollectDisabled(t *testing.T) {
 func TestCollectDisabled_InheritedFields(t *testing.T) {
 	t.Parallel()
 
-	boolPtr := func(b bool) *bool { return &b }
-
 	resources := []Resource{
 		&ToolSet{
 			BaseResource: BaseResource{Metadata: Metadata{Name: "go-tools"}},
@@ -535,7 +531,7 @@ func TestCollectDisabled_InheritedFields(t *testing.T) {
 				RuntimeRef:    "go",
 				RepositoryRef: "custom-repo",
 				Tools: map[string]ToolItem{
-					"gopls": {Package: &Package{Name: "golang.org/x/tools/gopls"}, Version: "v0.21.0", Enabled: boolPtr(false)},
+					"gopls": {Package: &Package{Name: "golang.org/x/tools/gopls"}, Version: "v0.21.0", Enabled: new(false)},
 				},
 			},
 		},

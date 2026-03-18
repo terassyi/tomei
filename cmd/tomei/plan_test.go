@@ -59,15 +59,13 @@ func TestCollectSkipInfos(t *testing.T) {
 func TestAddDisabledResourceInfo(t *testing.T) {
 	t.Parallel()
 
-	boolPtr := func(b bool) *bool { return &b }
-
 	t.Run("disabled tool not in state gets ActionSkip", func(t *testing.T) {
 		t.Parallel()
 		info := make(map[graph.NodeID]graph.ResourceInfo)
 		disabled := []resource.Resource{
 			&resource.Tool{
 				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "bat"}},
-				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "0.24.0", Enabled: boolPtr(false)},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "0.24.0", Enabled: new(false)},
 			},
 		}
 
@@ -95,7 +93,7 @@ func TestAddDisabledResourceInfo(t *testing.T) {
 		disabled := []resource.Resource{
 			&resource.Tool{
 				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "bat"}},
-				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "0.24.0", Enabled: boolPtr(false)},
+				ToolSpec:     &resource.ToolSpec{InstallerRef: "aqua", Version: "0.24.0", Enabled: new(false)},
 			},
 		}
 
