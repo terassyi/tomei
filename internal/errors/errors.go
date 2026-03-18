@@ -16,6 +16,7 @@ const (
 	CategoryState      Category = "state"
 	CategoryRegistry   Category = "registry"
 	CategoryNetwork    Category = "network"
+	CategoryUpgrade    Category = "upgrade"
 )
 
 // Code represents a machine-readable error code.
@@ -44,6 +45,10 @@ const (
 
 	// Registry errors (E6xx)
 	CodeRegistryError Code = "E601"
+
+	// Upgrade errors (E7xx)
+	CodeUpgradeFailed  Code = "E701"
+	CodeUpgradeBlocked Code = "E702"
 )
 
 // Error is the base error type for tomei.
