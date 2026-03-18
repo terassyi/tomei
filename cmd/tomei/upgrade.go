@@ -15,7 +15,10 @@ import (
 
 const upgradeTimeout = 5 * time.Minute
 
-var upgradeCfg upgrade.Config
+var (
+	upgradeCfg upgrade.Config
+	upgradeDry bool
+)
 
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
@@ -25,7 +28,7 @@ var upgradeCmd = &cobra.Command{
 }
 
 func init() {
-	upgradeCmd.Flags().BoolVar(&upgradeCfg.DryRun, "dry-run", false, "Check for updates without installing")
+	upgradeCmd.Flags().BoolVar(&upgradeDry, "dry-run", false, "Check for updates without installing")
 	upgradeCmd.Flags().BoolVar(&upgradeCfg.Force, "force", false, "Allow upgrade from development builds")
 	upgradeCmd.Flags().StringVar(&upgradeCfg.TargetVersion, "version", "", "Install a specific version (e.g., 0.1.3)")
 }
@@ -61,10 +64,17 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Dry run
-	if upgradeCfg.DryRun {
+	if upgradeDry {
 		cmd.Println()
 		cmd.Printf("Update available: v%s → v%s\n", check.CurrentVersion, check.LatestVersion)
-		cmd.Println("To upgrade, run: tomei upgrade")
+		hint := "tomei upgrade"
+		if upgradeCfg.TargetVersion != "" {
+			hint += " --version " + upgradeCfg.TargetVersion
+		}
+		if upgradeCfg.Force {
+			hint += " --force"
+		}
+		cmd.Printf("To upgrade, run: %s\n", hint)
 		return nil
 	}
 
@@ -73,7 +83,7 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	// Perform upgrade
 	// pendingOK tracks whether the previous inline stage needs an "ok" before the next stage.
 	pendingOK := false
-	err = u.Upgrade(ctx, check, upgradeCfg, func(stage, detail string) {
+	err = u.Upgrade(ctx, check, func(stage, detail string) {
 		if pendingOK {
 			cmd.Println("ok")
 			pendingOK = false

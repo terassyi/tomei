@@ -224,7 +224,7 @@ func TestCheckWritable(t *testing.T) {
 	})
 
 	t.Run("non-existent directory", func(t *testing.T) {
-		assert.Error(t, checkWritable("/non/existent/path"))
+		assert.Error(t, checkWritable(filepath.Join(t.TempDir(), "missing")))
 	})
 }
 

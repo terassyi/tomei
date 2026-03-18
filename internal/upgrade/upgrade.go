@@ -71,9 +71,8 @@ type CheckResult struct {
 	UpToDate       bool
 }
 
-// Config holds flags for the upgrade operation.
+// Config holds flags for the upgrade check operation.
 type Config struct {
-	DryRun        bool
 	Force         bool
 	TargetVersion string // empty = latest
 }
@@ -153,7 +152,7 @@ func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 }
 
 // Upgrade downloads and installs the target version.
-func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, cfg Config, progress ProgressFunc) error {
+func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress ProgressFunc) error {
 	if progress == nil {
 		progress = func(_, _ string) {}
 	}
@@ -364,6 +363,7 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	// Copy new binary to staging path
 	stagingPath := currentPath + ".new"
 	if err := copyFile(newBinaryPath, stagingPath); err != nil {
+		os.Remove(stagingPath) // clean up partial staging file
 		return fmt.Errorf("failed to copy new binary: %w", err)
 	}
 
@@ -386,9 +386,9 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 // confirms the reported version matches the expected version.
 func verifyBinary(ctx context.Context, binaryPath, expectedVersion string) error {
 	cmd := exec.CommandContext(ctx, binaryPath, "version", "--output", "json")
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to run version check: %w", err)
+		return fmt.Errorf("failed to run version check: %w\noutput: %s", err, out)
 	}
 
 	var info struct {
@@ -435,13 +435,16 @@ func findBinary(extractDir, name string) (string, error) {
 
 // checkWritable tests whether the directory is writable by creating and removing a temp file.
 func checkWritable(dir string) error {
-	testFile := filepath.Join(dir, ".tomei-upgrade-test")
-	f, err := os.Create(testFile)
+	f, err := os.CreateTemp(dir, ".tomei-upgrade-*")
 	if err != nil {
 		return err
 	}
-	f.Close()
-	return os.Remove(testFile)
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(name)
+		return err
+	}
+	return os.Remove(name)
 }
 
 // warnIfPackageManaged logs a warning if the binary appears to be managed by a package manager.
@@ -474,7 +477,7 @@ func validateURL(rawURL string) error {
 	}
 	if u.Scheme == "http" {
 		host := u.Hostname()
-		if host == "localhost" || host == "127.0.0.1" {
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
 	}
@@ -498,7 +501,7 @@ func downloadFile(ctx context.Context, client *http.Client, url, destPath string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed with status %d", resp.StatusCode)
+		return fmt.Errorf("download failed: %s returned status %d", url, resp.StatusCode)
 	}
 
 	f, err := os.Create(destPath)
@@ -531,7 +534,7 @@ func fetchBody(ctx context.Context, client *http.Client, url string) ([]byte, er
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("fetch failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("fetch failed: %s returned status %d", url, resp.StatusCode)
 	}
 
 	return io.ReadAll(resp.Body)
