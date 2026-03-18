@@ -138,6 +138,41 @@ func TestCheck_TargetVersion(t *testing.T) {
 	assert.False(t, result.UpToDate) // version comparison skipped with explicit --version
 }
 
+func TestCheck_InvalidTargetVersion(t *testing.T) {
+	u := NewUpdater(http.DefaultClient, http.DefaultClient, "0.1.0")
+	_, err := u.Check(context.Background(), Config{TargetVersion: "not-a-version"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid version")
+}
+
+func TestCheckPlatformSupport(t *testing.T) {
+	tests := []struct {
+		name    string
+		goos    string
+		goarch  string
+		wantErr bool
+	}{
+		{name: "linux amd64", goos: "linux", goarch: "amd64"},
+		{name: "linux arm64", goos: "linux", goarch: "arm64"},
+		{name: "darwin arm64", goos: "darwin", goarch: "arm64"},
+		{name: "darwin amd64 unsupported", goos: "darwin", goarch: "amd64", wantErr: true},
+		{name: "windows amd64 unsupported", goos: "windows", goarch: "amd64", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkPlatformSupport(tt.goos, tt.goarch)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported platform")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestReplaceBinary(t *testing.T) {
 	tmpDir := t.TempDir()
 

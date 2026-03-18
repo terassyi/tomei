@@ -109,6 +109,13 @@ func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 	var targetVersion string
 	if cfg.TargetVersion != "" {
 		targetVersion = strings.TrimPrefix(cfg.TargetVersion, "v")
+		if _, err := semver.NewVersion(targetVersion); err != nil {
+			return nil, (&errors.Error{
+				Category: errors.CategoryUpgrade,
+				Code:     errors.CodeUpgradeBlocked,
+				Message:  fmt.Sprintf("invalid version %q: not a valid semver", cfg.TargetVersion),
+			}).WithHint("Use a valid semver version (e.g., 0.1.3).")
+		}
 	} else {
 		// Fetch latest release
 		slog.Debug("fetching latest release", "api_base", u.apiBaseURL)
@@ -155,6 +162,11 @@ func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress ProgressFunc) error {
 	if progress == nil {
 		progress = func(_, _ string) {}
+	}
+
+	// Platform support check
+	if err := checkPlatformSupport(runtime.GOOS, runtime.GOARCH); err != nil {
+		return err
 	}
 
 	// Resolve binary path
@@ -445,6 +457,26 @@ func checkWritable(dir string) error {
 		return err
 	}
 	return os.Remove(name)
+}
+
+// supportedPlatforms lists the GOOS/GOARCH combinations that have release builds.
+var supportedPlatforms = map[string]bool{
+	"linux/amd64":  true,
+	"linux/arm64":  true,
+	"darwin/arm64": true,
+}
+
+// checkPlatformSupport returns an error if the current platform has no release builds.
+func checkPlatformSupport(goos, goarch string) error {
+	platform := goos + "/" + goarch
+	if supportedPlatforms[platform] {
+		return nil
+	}
+	return (&errors.Error{
+		Category: errors.CategoryUpgrade,
+		Code:     errors.CodeUpgradeBlocked,
+		Message:  fmt.Sprintf("unsupported platform: %s", platform),
+	}).WithHint("Supported platforms: linux/amd64, linux/arm64, darwin/arm64.")
 }
 
 // warnIfPackageManaged logs a warning if the binary appears to be managed by a package manager.
