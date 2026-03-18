@@ -18,10 +18,10 @@ const upgradeTimeout = 5 * time.Minute
 var upgradeCfg upgrade.Config
 
 var upgradeCmd = &cobra.Command{
-	Use:     "upgrade",
-	Short:   "Upgrade tomei to the latest version",
-	Args:    cobra.NoArgs,
-	RunE:    runUpgrade,
+	Use:   "upgrade",
+	Short: "Upgrade tomei to the latest version",
+	Args:  cobra.NoArgs,
+	RunE:  runUpgrade,
 }
 
 func init() {
