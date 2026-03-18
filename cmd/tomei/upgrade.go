@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	semver "github.com/Masterminds/semver/v3"
 	"github.com/spf13/cobra"
 
 	"github.com/terassyi/tomei/internal/github"
@@ -33,6 +35,15 @@ func init() {
 	upgradeCmd.Flags().StringVar(&upgradeCfg.TargetVersion, "version", "", "Install a specific version (e.g., 0.1.3)")
 }
 
+// formatVersion returns "v1.2.3" for semver strings and the raw string for non-semver (e.g., "dev").
+func formatVersion(v string) string {
+	v = strings.TrimPrefix(v, "v")
+	if _, err := semver.NewVersion(v); err == nil {
+		return "v" + v
+	}
+	return v
+}
+
 func runUpgrade(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), upgradeTimeout)
 	defer cancel()
@@ -53,20 +64,22 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Print version info
-	cmd.Printf("  Current: v%s\n", check.CurrentVersion)
-	cmd.Printf("  Latest:  v%s\n", check.LatestVersion)
+	cur := formatVersion(check.CurrentVersion)
+	lat := formatVersion(check.LatestVersion)
+	cmd.Printf("  Current: %s\n", cur)
+	cmd.Printf("  Latest:  %s\n", lat)
 
 	// Already up to date
 	if check.UpToDate {
 		cmd.Println()
-		cmd.Printf("tomei v%s is already up to date.\n", check.CurrentVersion)
+		cmd.Printf("tomei %s is already up to date.\n", cur)
 		return nil
 	}
 
 	// Dry run
 	if upgradeDry {
 		cmd.Println()
-		cmd.Printf("Update available: v%s → v%s\n", check.CurrentVersion, check.LatestVersion)
+		cmd.Printf("Update available: %s → %s\n", cur, lat)
 		hint := "tomei upgrade"
 		if upgradeCfg.TargetVersion != "" {
 			hint += " --version " + upgradeCfg.TargetVersion
@@ -118,6 +131,6 @@ func runUpgrade(cmd *cobra.Command, _ []string) error {
 	}
 
 	cmd.Println()
-	cmd.Printf("Successfully upgraded tomei: v%s → v%s\n", check.CurrentVersion, check.LatestVersion)
+	cmd.Printf("Successfully upgraded tomei: %s → %s\n", cur, lat)
 	return nil
 }

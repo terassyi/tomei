@@ -329,6 +329,33 @@ func TestFetchBody(t *testing.T) {
 	assert.Equal(t, content, string(got))
 }
 
+func TestValidateURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "https allowed", url: "https://github.com/terassyi/tomei/releases/download/v0.1.0/archive.tar.gz"},
+		{name: "http localhost allowed", url: "http://localhost:8080/file"},
+		{name: "http 127.0.0.1 allowed", url: "http://127.0.0.1:9999/file"},
+		{name: "http ipv6 loopback allowed", url: "http://[::1]:8080/file"},
+		{name: "http remote rejected", url: "http://example.com/file", wantErr: true},
+		{name: "ftp rejected", url: "ftp://example.com/file", wantErr: true},
+		{name: "empty scheme rejected", url: "://missing", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateURL(tt.url)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestCopyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 

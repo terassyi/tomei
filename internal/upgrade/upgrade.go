@@ -160,6 +160,13 @@ func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 
 // Upgrade downloads and installs the target version.
 func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress ProgressFunc) error {
+	if check == nil {
+		return &errors.Error{
+			Category: errors.CategoryUpgrade,
+			Code:     errors.CodeUpgradeFailed,
+			Message:  "check result is nil; call Check before Upgrade",
+		}
+	}
 	if progress == nil {
 		progress = func(_, _ string) {}
 	}
@@ -349,7 +356,8 @@ func releaseAssetURL(baseURL, version, filename string) string {
 
 // replaceBinary atomically replaces the current binary with a new one.
 // It creates a backup, copies the new binary via a temp file, and does an atomic rename.
-// The original file's permissions are preserved. If interrupted, the backup is restored via defer.
+// The original file's permissions are preserved. On function error or panic, the backup
+// is restored via defer. Note: this does not protect against SIGKILL or power loss.
 func replaceBinary(currentPath, newBinaryPath string) error {
 	// Preserve original permissions
 	origInfo, err := os.Stat(currentPath)
@@ -360,14 +368,14 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 
 	dir := filepath.Dir(currentPath)
 
-	// Create backup with O_EXCL to avoid clobbering
+	// Reserve a unique backup path via CreateTemp (O_EXCL).
+	// The temp file is kept so the path stays reserved; Rename overwrites it atomically on Unix.
 	backupFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".bak.*")
 	if err != nil {
 		return fmt.Errorf("failed to create backup file: %w", err)
 	}
 	backupPath := backupFile.Name()
 	backupFile.Close()
-	os.Remove(backupPath) // remove so Rename can use this path
 
 	var backupCreated, upgraded bool
 	defer func() {
