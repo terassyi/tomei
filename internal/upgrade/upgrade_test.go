@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// copyFile copies src to dst, preserving permissions.
+// This is a test helper; production code uses copyToWriter instead.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	return os.Chmod(dst, info.Mode())
+}
 
 func TestIsDevBuild(t *testing.T) {
 	tests := []struct {
@@ -186,8 +216,9 @@ func TestReplaceBinary(t *testing.T) {
 		require.NoError(t, os.WriteFile(newPath, []byte("new-binary"), 0755))
 
 		// Replace
-		err := replaceBinary(currentPath, newPath)
+		backupPath, err := replaceBinary(currentPath, newPath)
 		require.NoError(t, err)
+		defer cleanupBackup(backupPath)
 
 		// Verify content
 		content, err := os.ReadFile(currentPath)
@@ -198,6 +229,9 @@ func TestReplaceBinary(t *testing.T) {
 		info, err := os.Stat(currentPath)
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0755), info.Mode().Perm())
+
+		// Verify backup exists until cleanup
+		assert.FileExists(t, backupPath)
 	})
 
 	t.Run("preserves original permissions", func(t *testing.T) {
@@ -211,8 +245,9 @@ func TestReplaceBinary(t *testing.T) {
 		newPath := filepath.Join(tmpDir, "tomei-new")
 		require.NoError(t, os.WriteFile(newPath, []byte("new-binary"), 0755))
 
-		err := replaceBinary(currentPath, newPath)
+		backupPath, err := replaceBinary(currentPath, newPath)
 		require.NoError(t, err)
+		defer cleanupBackup(backupPath)
 
 		// Verify original 0700 is preserved, not overwritten with 0755
 		info, err := os.Stat(currentPath)
@@ -228,7 +263,7 @@ func TestReplaceBinary(t *testing.T) {
 		require.NoError(t, os.WriteFile(currentPath, []byte("original"), 0755))
 
 		// Pass a non-existent source to force copy failure after backup
-		err := replaceBinary(currentPath, filepath.Join(tmpDir, "does-not-exist"))
+		_, err := replaceBinary(currentPath, filepath.Join(tmpDir, "does-not-exist"))
 		require.Error(t, err)
 
 		// Verify original binary was restored

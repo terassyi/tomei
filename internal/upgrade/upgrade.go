@@ -289,7 +289,8 @@ func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress Prog
 
 	// Replace binary
 	progress(StageReplacing, "")
-	if err := replaceBinary(binaryPath, newBinaryPath); err != nil {
+	backupPath, err := replaceBinary(binaryPath, newBinaryPath)
+	if err != nil {
 		return &errors.Error{
 			Category: errors.CategoryUpgrade,
 			Code:     errors.CodeUpgradeFailed,
@@ -298,17 +299,20 @@ func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress Prog
 		}
 	}
 
-	// Verify installation
+	// Verify installation — keep backup until verification passes so we can rollback.
 	progress(StageVerifying, "")
 	if err := verifyBinary(ctx, binaryPath, ver); err != nil {
+		if rerr := restoreBackup(backupPath, binaryPath); rerr != nil {
+			slog.Error("failed to restore backup after verification failure", "error", rerr)
+		}
 		return &errors.Error{
 			Category: errors.CategoryUpgrade,
 			Code:     errors.CodeUpgradeFailed,
-			Message:  "verification of new binary failed",
+			Message:  "verification of new binary failed; restored previous version",
 			Cause:    err,
-			Hint:     "The binary was replaced but version verification failed. You may need to reinstall.",
 		}
 	}
+	cleanupBackup(backupPath)
 
 	return nil
 }
@@ -357,13 +361,15 @@ func releaseAssetURL(baseURL, version, filename string) string {
 
 // replaceBinary atomically replaces the current binary with a new one.
 // It creates a backup, copies the new binary via a temp file, and does an atomic rename.
-// The original file's permissions are preserved. On function error or panic, the backup
-// is restored via defer. Note: this does not protect against SIGKILL or power loss.
-func replaceBinary(currentPath, newBinaryPath string) error {
+// The original file's permissions are preserved. On error, the backup is restored via defer.
+// On success, it returns the backup path so the caller can keep the backup until further
+// verification passes (e.g., verifyBinary), then clean it up via cleanupBackup.
+// Note: this does not protect against SIGKILL or power loss.
+func replaceBinary(currentPath, newBinaryPath string) (backupPath string, err error) {
 	// Preserve original permissions
 	origInfo, err := os.Stat(currentPath)
 	if err != nil {
-		return fmt.Errorf("failed to stat current binary: %w", err)
+		return "", fmt.Errorf("failed to stat current binary: %w", err)
 	}
 	origMode := origInfo.Mode().Perm()
 
@@ -373,31 +379,31 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	// The temp file is kept so the path stays reserved; Rename overwrites it atomically on Unix.
 	backupFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".bak.*")
 	if err != nil {
-		return fmt.Errorf("failed to create backup file: %w", err)
+		return "", fmt.Errorf("failed to create backup file: %w", err)
 	}
-	backupPath := backupFile.Name()
+	backupPath = backupFile.Name()
 	if err := backupFile.Close(); err != nil {
 		os.Remove(backupPath)
-		return fmt.Errorf("failed to close backup file: %w", err)
+		return "", fmt.Errorf("failed to close backup file: %w", err)
 	}
 
-	var backupCreated, upgraded bool
+	// Capture backup path in a local variable for the defer, since the named return
+	// backupPath is set to "" on error returns before the defer runs.
+	savedBackupPath := backupPath
+	var backupCreated bool
 	defer func() {
-		if backupCreated && !upgraded {
-			slog.Debug("restoring from backup", "backup", backupPath, "target", currentPath)
-			if err := os.Rename(backupPath, currentPath); err != nil {
-				slog.Error("failed to restore from backup", "error", err)
+		if backupCreated && err != nil {
+			slog.Debug("restoring from backup", "backup", savedBackupPath, "target", currentPath)
+			if rerr := os.Rename(savedBackupPath, currentPath); rerr != nil {
+				slog.Error("failed to restore from backup", "error", rerr)
 			}
-		}
-		if upgraded {
-			os.Remove(backupPath)
 		}
 	}()
 
 	// Move current binary to backup
 	if err := os.Rename(currentPath, backupPath); err != nil {
 		os.Remove(backupPath) // clean up reserved backup file
-		return fmt.Errorf("failed to create backup: %w", err)
+		return "", fmt.Errorf("failed to create backup: %w", err)
 	}
 	backupCreated = true
 
@@ -405,33 +411,43 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	// Write directly into the fd returned by CreateTemp to avoid TOCTOU.
 	stagingFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".new.*")
 	if err != nil {
-		return fmt.Errorf("failed to create staging file: %w", err)
+		return "", fmt.Errorf("failed to create staging file: %w", err)
 	}
 	stagingPath := stagingFile.Name()
 
 	if err := copyToWriter(newBinaryPath, stagingFile); err != nil {
 		stagingFile.Close()
 		os.Remove(stagingPath)
-		return fmt.Errorf("failed to copy new binary: %w", err)
+		return "", fmt.Errorf("failed to copy new binary: %w", err)
 	}
 	if err := stagingFile.Close(); err != nil {
 		os.Remove(stagingPath)
-		return fmt.Errorf("failed to close staging file: %w", err)
+		return "", fmt.Errorf("failed to close staging file: %w", err)
 	}
 
 	// Atomic rename into place
 	if err := os.Rename(stagingPath, currentPath); err != nil {
 		os.Remove(stagingPath)
-		return fmt.Errorf("failed to install new binary: %w", err)
+		return "", fmt.Errorf("failed to install new binary: %w", err)
 	}
 
 	// Restore original permissions
 	if err := os.Chmod(currentPath, origMode); err != nil {
-		return fmt.Errorf("failed to set permissions: %w", err)
+		return "", fmt.Errorf("failed to set permissions: %w", err)
 	}
 
-	upgraded = true
-	return nil
+	return backupPath, nil
+}
+
+// restoreBackup restores the original binary from a backup file.
+func restoreBackup(backupPath, currentPath string) error {
+	slog.Debug("restoring from backup after verification failure", "backup", backupPath, "target", currentPath)
+	return os.Rename(backupPath, currentPath)
+}
+
+// cleanupBackup removes the backup file after a successful upgrade.
+func cleanupBackup(backupPath string) {
+	os.Remove(backupPath)
 }
 
 // verifyBinary executes the installed binary with "version --output json" and
@@ -622,33 +638,4 @@ func copyToWriter(srcPath string, w io.Writer) error {
 	defer in.Close()
 	_, err = io.Copy(w, in)
 	return err
-}
-
-// copyFile copies src to dst, preserving permissions.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-
-	// Preserve source permissions
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	return os.Chmod(dst, info.Mode())
 }
