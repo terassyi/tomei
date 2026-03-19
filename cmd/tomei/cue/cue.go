@@ -24,8 +24,8 @@ Writing manifests:
   (see "tomei cue scaffold --help" for the full list of supported kinds)
 
   Versions: Use a pinned version ("1.26.0") for reproducibility, or
-  "latest" for automatic resolution. "tomei apply --update-tools" re-resolves
-  latest versions.
+  "latest" for automatic resolution. Use --update-tools, --update-runtimes,
+  or --update-all with "tomei apply" to re-resolve non-exact versions.
 
   Available presets (import via "tomei.terassyi.net/presets/<name>"):
     go      #GoRuntime, #GoTool, #GoToolSet

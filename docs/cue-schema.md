@@ -479,10 +479,10 @@ brewTool: {
 
 | Tag | Injected when |
 |-----|---------------|
-| `darwin` | `runtime.GOOS == "darwin"` |
-| `linux` | `runtime.GOOS == "linux"` |
-| `amd64` | `runtime.GOARCH == "amd64"` |
-| `arm64` | `runtime.GOARCH == "arm64"` |
+| `darwin` | OS is macOS (`runtime.GOOS == "darwin"`) |
+| `linux` | OS is not macOS (non-darwin platforms fall back to `linux`) |
+| `amd64` | Architecture is not arm64 (non-arm64 platforms fall back to `amd64`) |
+| `arm64` | Architecture is arm64 (`runtime.GOARCH == "arm64"`) |
 | `headless` | Headless environment detected (container, no display, SSH, CI) |
 
 Other identifiers (e.g., `@if(windows)`) are ignored — the tag is never injected, so the file is always excluded.
