@@ -122,13 +122,13 @@ func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
 		slog.Debug("fetching latest release", "api_base", u.apiBaseURL)
 		ver, err := github.GetLatestReleaseWithBase(ctx, u.apiClient, repoOwner, repoName, "v", u.apiBaseURL)
 		if err != nil {
-			if isRateLimitError(err) {
+			if isForbiddenError(err) {
 				return nil, (&errors.Error{
 					Category: errors.CategoryUpgrade,
 					Code:     errors.CodeUpgradeBlocked,
-					Message:  "GitHub API rate limit exceeded",
+					Message:  "GitHub API returned 403 Forbidden (likely rate limit exceeded)",
 					Cause:    err,
-				}).WithHint("Set GITHUB_TOKEN or GH_TOKEN to increase the rate limit.")
+				}).WithHint("Set GITHUB_TOKEN or GH_TOKEN to authenticate and increase the rate limit.")
 			}
 			return nil, &errors.Error{
 				Category: errors.CategoryUpgrade,
@@ -304,6 +304,12 @@ func (u *Updater) Upgrade(ctx context.Context, check *CheckResult, progress Prog
 	if err := verifyBinary(ctx, binaryPath, ver); err != nil {
 		if rerr := restoreBackup(backupPath, binaryPath); rerr != nil {
 			slog.Error("failed to restore backup after verification failure", "error", rerr)
+			return (&errors.Error{
+				Category: errors.CategoryUpgrade,
+				Code:     errors.CodeUpgradeFailed,
+				Message:  "verification failed and rollback also failed",
+				Cause:    err,
+			}).WithHint(fmt.Sprintf("Backup is at %s — restore it manually.", backupPath))
 		}
 		return &errors.Error{
 			Category: errors.CategoryUpgrade,
@@ -546,11 +552,9 @@ func warnIfPackageManaged(binaryPath string) {
 	}
 }
 
-// isRateLimitError detects if an error is due to GitHub API rate limiting.
-// This is a heuristic based on HTTP 403 from github.GetLatestReleaseWithBase;
-// 403 can also mean other access issues, but rate limiting is the most common cause
-// for public repositories.
-func isRateLimitError(err error) bool {
+// isForbiddenError detects if an error is due to an HTTP 403 from GitHub.
+// This can indicate rate limiting, bad credentials, org policy, or abuse detection.
+func isForbiddenError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "status 403")
 }
 

@@ -338,7 +338,7 @@ func TestReleaseAssetURL(t *testing.T) {
 	assert.Equal(t, "https://github.com/terassyi/tomei/releases/download/v0.1.3/tomei_v0.1.3_darwin_arm64.tar.gz", got)
 }
 
-func TestCheck_RateLimit(t *testing.T) {
+func TestCheck_Forbidden(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
@@ -348,7 +348,7 @@ func TestCheck_RateLimit(t *testing.T) {
 	_, err := u.Check(context.Background(), Config{})
 
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rate limit")
+	assert.Contains(t, err.Error(), "403 Forbidden")
 }
 
 func TestDownloadFile(t *testing.T) {
