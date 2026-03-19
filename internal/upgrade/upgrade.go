@@ -97,13 +97,14 @@ func NewUpdater(apiClient, dlClient *http.Client, version string, opts ...Option
 
 // Check queries GitHub for the latest release and compares with the current version.
 func (u *Updater) Check(ctx context.Context, cfg Config) (*CheckResult, error) {
-	// Dev build guard
+	// Dev build guard: --version bypasses this because the user explicitly
+	// specifies the target, so no version comparison is needed.
 	if isDevBuild(u.version) && !cfg.Force && cfg.TargetVersion == "" {
 		return nil, (&errors.Error{
 			Category: errors.CategoryUpgrade,
 			Code:     errors.CodeUpgradeBlocked,
 			Message:  fmt.Sprintf("cannot upgrade from development build (version: %s)", u.version),
-		}).WithHint("Use --force to override, or install a release build.")
+		}).WithHint("Use --force to override, --version to target a specific release, or install a release build.")
 	}
 
 	var targetVersion string
@@ -375,7 +376,10 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 		return fmt.Errorf("failed to create backup file: %w", err)
 	}
 	backupPath := backupFile.Name()
-	backupFile.Close()
+	if err := backupFile.Close(); err != nil {
+		os.Remove(backupPath)
+		return fmt.Errorf("failed to close backup file: %w", err)
+	}
 
 	var backupCreated, upgraded bool
 	defer func() {
@@ -392,6 +396,7 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 
 	// Move current binary to backup
 	if err := os.Rename(currentPath, backupPath); err != nil {
+		os.Remove(backupPath) // clean up reserved backup file
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 	backupCreated = true
@@ -547,6 +552,7 @@ func validateURL(rawURL string) error {
 		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
 			return nil
 		}
+		return fmt.Errorf("HTTP is only allowed for localhost/loopback; use HTTPS for remote hosts: %s", rawURL)
 	}
 	return fmt.Errorf("URL scheme %q is not allowed; use HTTPS: %s", u.Scheme, rawURL)
 }

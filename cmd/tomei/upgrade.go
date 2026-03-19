@@ -31,7 +31,7 @@ var upgradeCmd = &cobra.Command{
 
 func init() {
 	upgradeCmd.Flags().BoolVar(&upgradeDry, "dry-run", false, "Check for updates without installing")
-	upgradeCmd.Flags().BoolVar(&upgradeCfg.Force, "force", false, "Allow upgrade from development builds")
+	upgradeCmd.Flags().BoolVar(&upgradeCfg.Force, "force", false, "Allow upgrade from development builds (not needed with --version)")
 	upgradeCmd.Flags().StringVar(&upgradeCfg.TargetVersion, "version", "", "Install a specific version (e.g., 0.1.3)")
 }
 

@@ -219,6 +219,23 @@ func TestReplaceBinary(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0700), info.Mode().Perm())
 	})
+
+	t.Run("rollback on copy failure", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		// Create "current" binary
+		currentPath := filepath.Join(tmpDir, "tomei")
+		require.NoError(t, os.WriteFile(currentPath, []byte("original"), 0755))
+
+		// Pass a non-existent source to force copy failure after backup
+		err := replaceBinary(currentPath, filepath.Join(tmpDir, "does-not-exist"))
+		require.Error(t, err)
+
+		// Verify original binary was restored
+		content, err := os.ReadFile(currentPath)
+		require.NoError(t, err)
+		assert.Equal(t, "original", string(content))
+	})
 }
 
 func TestFindBinary(t *testing.T) {
