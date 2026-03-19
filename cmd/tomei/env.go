@@ -24,12 +24,18 @@ var envCmd = &cobra.Command{
 	Short: "Output environment variables for shell configuration",
 	Long: `Output environment variable statements for installed runtimes.
 
+Sets up:
+  - PATH entries for runtime bin directories (~/go/bin, ~/.cargo/bin, etc.)
+  - Runtime environment variables (GOROOT, CARGO_HOME, etc.)
+  - CUE_REGISTRY for CUE module resolution (when cue.mod/ is present)
+
 Stdout mode (default):
-  eval "$(tomei env)"
+  eval "$(tomei env)"              # bash / zsh
+  tomei env --shell fish | source  # fish
 
 File export mode:
   tomei env --export
-  source ~/.config/toto/env.sh
+  source ~/.config/tomei/env.sh
 
 Shell types:
   --shell posix   POSIX-compatible (bash, zsh) [default]

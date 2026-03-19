@@ -25,8 +25,20 @@ var (
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade tomei to the latest version",
-	Args:  cobra.NoArgs,
-	RunE:  runUpgrade,
+	Long: `Upgrade tomei itself to the latest version (or a specific version).
+
+Downloads the new binary from GitHub Releases, verifies its SHA-256
+checksum, atomically replaces the current binary, and verifies the
+installation by running "tomei version".
+
+Uses GITHUB_TOKEN or GH_TOKEN if available for API rate limit mitigation.
+
+Examples:
+  tomei upgrade                   Upgrade to the latest release
+  tomei upgrade --dry-run         Check for updates without installing
+  tomei upgrade --version 0.1.3   Install a specific version`,
+	Args: cobra.NoArgs,
+	RunE: runUpgrade,
 }
 
 func init() {

@@ -49,10 +49,18 @@ var applyCmd = &cobra.Command{
 	Short: "Apply the configuration",
 	Long: `Apply the configuration to install, upgrade, or remove resources.
 
+Tomei compares the desired state (CUE manifests) with the current state
+(~/.local/share/tomei/state.json) and performs the minimal set of actions
+to reconcile the difference. Running apply twice with unchanged manifests
+produces no changes (idempotent).
+
+For manifest writing guides (presets, platform tags, resource types),
+see "tomei cue --help".
+
 For user-level resources (Runtime, Tool, ToolSet):
   tomei apply .
   tomei apply tools.cue runtime.cue
-  tomei apply ~/.config/toto/
+  tomei apply ~/.config/tomei/
 
 For system-level resources (SystemPackageRepository, SystemPackageSet):
   sudo tomei apply --system .`,

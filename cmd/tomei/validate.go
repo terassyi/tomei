@@ -17,12 +17,12 @@ var validateNoColor bool
 var validateCmd = &cobra.Command{
 	Use:   "validate <files or directories...>",
 	Short: "Validate the configuration",
-	Long: `Validate the CUE configuration files.
+	Long: `Validate CUE manifests without applying changes.
 
 Checks for:
-  - CUE syntax errors
-  - Schema validation
-  - Circular dependency detection`,
+  - CUE syntax errors and schema conformance (types, required fields)
+  - Spec-level validation (HTTPS-only URLs, valid references)
+  - Circular dependency detection in the resource DAG`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runValidate,
 }

@@ -27,15 +27,19 @@ var planCmd = &cobra.Command{
 	Short: "Show the execution plan",
 	Long: `Show the execution plan without applying changes.
 
-Displays what actions would be taken:
+Compares CUE manifests (desired state) with the current state and shows
+what actions would be taken by "tomei apply":
   - install: New resources to install
-  - upgrade: Resources to upgrade
-  - reinstall: Resources to reinstall (due to taint)
-  - remove: Resources to remove
+  - upgrade: Resources with version changes
+  - reinstall: Resources to reinstall (tainted by runtime upgrade)
+  - remove: Resources in state but not in manifests
   - skip: Resources disabled via enabled: false
 
-Resources are shown in dependency order as a tree.
-Use --output to change the output format (text, json, yaml).`,
+Resources are shown in dependency order as a tree. Execution layers
+show which resources run in parallel.
+
+Use --output json or --output yaml for machine-readable output
+(suitable for scripting and programmatic consumption).`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runPlan,
 }
