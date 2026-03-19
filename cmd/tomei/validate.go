@@ -21,7 +21,7 @@ var validateCmd = &cobra.Command{
 
 Checks for:
   - CUE syntax errors and schema conformance (types, required fields)
-  - Spec-level validation (HTTPS-only URLs, valid references)
+  - Spec-level validation (required fields, mutual exclusivity, basic structure)
   - Circular dependency detection in the resource DAG`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runValidate,
