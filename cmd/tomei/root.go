@@ -120,5 +120,6 @@ func init() {
 		completionCmd,
 		cuecmd.Cmd,
 		statecmd.Cmd,
+		upgradeCmd,
 	)
 }
