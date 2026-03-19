@@ -87,6 +87,21 @@ var rootCmd = &cobra.Command{
 It manages tools, language runtimes, and system packages
 using a Kubernetes-like Spec/State reconciliation pattern.
 
+Write the desired state in CUE manifests, run "tomei apply", and tomei
+reconciles the difference — installing, upgrading, or removing resources
+to reach the declared state idempotently.
+
+Quick start:
+  1. tomei init                  Initialize directories and state
+  2. tomei cue init              Set up CUE module (enables imports & presets)
+  3. tomei cue scaffold tool     Generate an editable manifest template
+  4. tomei plan .                Preview what will change
+  5. tomei apply .               Apply changes
+  6. eval "$(tomei env)"         Load runtime env vars into your shell
+
+For manifest writing guides (presets, platform tags, resource types),
+see "tomei cue --help".
+
 Commands are separated by privilege level:
   tomei apply              Apply user-level resources (Runtime, Tool)
   sudo tomei apply --system  Apply system-level resources (SystemPackage)`,

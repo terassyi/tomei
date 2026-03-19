@@ -468,6 +468,40 @@ tomei completion fish | source
 tomei completion powershell | Out-String | Invoke-Expression
 ```
 
+## tomei upgrade
+
+Upgrade tomei itself to the latest version (or a specific version) from GitHub Releases.
+
+```
+tomei upgrade [flags]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Check for updates without installing |
+| `--force` | Allow upgrade from development builds (not needed with `--version`) |
+| `--version` | Install a specific version (e.g., `0.1.3`) |
+
+```bash
+# Check for available updates
+tomei upgrade --dry-run
+
+# Upgrade to the latest release
+tomei upgrade
+
+# Install a specific version
+tomei upgrade --version 0.1.3
+
+# Upgrade from a dev build
+tomei upgrade --force
+```
+
+The upgrade process downloads the new binary from GitHub Releases, verifies its SHA-256 checksum, replaces the current binary, and verifies the installation.
+
+Supported platforms: `linux/amd64`, `linux/arm64`, `darwin/arm64`. Running on an unsupported platform will produce an error.
+
+Uses `GITHUB_TOKEN` / `GH_TOKEN` if available for API rate limit mitigation.
+
 ## tomei version
 
 Print version information.

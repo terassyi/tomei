@@ -320,6 +320,24 @@ package: {name: "golang.org/x/tools/gopls"}
 
 Commands support Go template variables: `{{.Package}}`, `{{.Version}}`, `{{.Name}}`, `{{.BinPath}}`.
 
+### Aqua Template Variables
+
+Aqua registry tools use Go templates for `source.url`, `source.asset`, `source.checksum.url`, and `files[].src`. The following variables are available:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{.Version}}` | Package version (raw tag) | `v10.3.0` |
+| `{{.SemVer}}` | Version with `version_prefix` stripped | `10.3.0` (when prefix is `v`) |
+| `{{.OS}}` | OS name (after aqua replacements) | `linux`, `darwin` |
+| `{{.Arch}}` | Architecture (after aqua replacements) | `amd64`, `x86_64` |
+| `{{.Format}}` | Archive format | `tar.gz`, `zip` |
+| `{{.Asset}}` | Rendered asset name | `fd-v10.3.0-x86_64-unknown-linux-gnu.tar.gz` |
+| `{{.AssetWithoutExt}}` | Asset with archive extension stripped (`.tar.gz`, `.tar.xz`, `.zip`, etc.) | `fd-v10.3.0-x86_64-unknown-linux-gnu` |
+
+Custom template functions: `trimV` (remove `v` prefix), `trimPrefix`, `trimSuffix`, `title` (capitalize first letter), `tolower`, `toupper`.
+
+`{{.AssetWithoutExt}}` is useful in `files[].src` to reference paths inside archives, e.g., `{{.AssetWithoutExt}}/binary`.
+
 ### RuntimeBootstrap
 
 Extends CommandSet with version resolution support.
@@ -435,7 +453,7 @@ gh: {
 
 ### File-level platform branching (`@if()`)
 
-CUE's `@if()` file-level attribute allows you to include or exclude entire files based on boolean tags. This is useful for separating platform-specific resources into dedicated files:
+CUE's `@if()` file-level attribute allows you to include or exclude entire files based on boolean tags. `tomei` automatically detects `@if()` references in your manifest files and injects the matching boolean tags for the current platform — no manual `-t` flags are needed. This is useful for separating platform-specific resources into dedicated files:
 
 ```cue
 @if(darwin)
@@ -457,13 +475,17 @@ brewTool: {
 
 #### Available boolean tags
 
-| Tag | Included when |
+`tomei` recognizes the following identifiers in `@if()` attributes. When the condition matches the current environment, the tag is injected automatically by `tomei apply`, `tomei plan`, `tomei validate`, and `tomei cue eval/export`. Tags that do not match are **not** injected, so `@if(darwin)` files are silently excluded on Linux, and `@if(!headless)` files are included when `headless` is absent.
+
+| Tag | Injected when |
 |-----|---------------|
-| `darwin` | Running on macOS |
-| `linux` | Running on Linux |
-| `amd64` | Running on x86_64 |
-| `arm64` | Running on ARM64 |
-| `headless` | Running in a headless environment |
+| `darwin` | OS is macOS (`runtime.GOOS == "darwin"`) |
+| `linux` | OS is not macOS (non-darwin platforms fall back to `linux`) |
+| `amd64` | Architecture is not arm64 (non-arm64 platforms fall back to `amd64`) |
+| `arm64` | Architecture is arm64 (`runtime.GOARCH == "arm64"`) |
+| `headless` | Headless environment detected (container, no display, SSH, CI) |
+
+Other identifiers (e.g., `@if(windows)`) are ignored — the tag is never injected, so the file is always excluded.
 
 #### Syntax
 
@@ -488,7 +510,7 @@ Both can be used together in the same project. Use `@tag()` for URL interpolatio
 
 - `@if()` must appear before the `package` declaration
 - `@if()` does **not** propagate to imported packages — presets continue to use the parameter-passing pattern
-- When using `cue eval` directly, boolean tags must be passed manually: `cue eval -t darwin manifests/`
+- When using `cue eval` directly (not via `tomei cue eval`), boolean tags must be passed manually: `cue eval -t darwin manifests/`. `tomei` commands handle this automatically
 
 ### Using presets (recommended)
 

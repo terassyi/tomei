@@ -23,14 +23,18 @@ var initCmd = &cobra.Command{
 
 Creates:
   cue.mod/module.cue    - CUE module declaration with tomei dependency
-  tomei_platform.cue    - Platform @tag() declarations for tomei apply
+  tomei_platform.cue    - Platform @tag() declarations (_os, _arch, _headless)
 
 The generated module enables:
+  - Importing presets (e.g., "tomei.terassyi.net/presets/go")
   - CUE LSP and cue eval to resolve tomei imports
   - tomei apply to resolve imports via OCI registry
-  - Standard CUE module ecosystem integration
+  - Platform-aware manifests via @tag(os), @tag(arch), @if(darwin), etc.
 
-Usage:
+After initialization, run 'eval "$(tomei env)"' to set CUE_REGISTRY for
+CUE tooling (cue eval, LSP).
+
+Examples:
   tomei cue init              Initialize in current directory
   tomei cue init ./manifests  Initialize in specified directory`,
 	Args: cobra.MaximumNArgs(1),

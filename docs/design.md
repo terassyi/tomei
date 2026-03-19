@@ -195,6 +195,10 @@ Completed:
 - Taint UI visibility: phase-aware engine events, taint reinstall and removal in TUI and plan
 - Commands pattern: self-managed tools with install/update/check/remove/resolveVersion
 - Cosign signature verification: pre-flight OCI artifact verification via sigstore
+- Self-update: `tomei upgrade` command (GitHub Releases download, checksum verify, binary replace)
+- CUE `@if()` boolean platform tags: `@if(darwin)`, `@if(arm64)`, `@if(headless)` for file-level branching
+- Disabled resource filtering: `enabled: false` resources excluded from ExpandSets and shown as "skip" in `tomei plan`
+- Aqua template variable `AssetWithoutExt` for `files[].src` path references
 
 ## 10. Roadmap
 
