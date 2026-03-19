@@ -29,7 +29,7 @@ var upgradeCmd = &cobra.Command{
 
 Downloads the new binary from GitHub Releases, verifies its SHA-256
 checksum, atomically replaces the current binary, and verifies the
-installation by running "tomei version".
+new binary runs correctly.
 
 Uses GITHUB_TOKEN or GH_TOKEN if available for API rate limit mitigation.
 

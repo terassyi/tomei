@@ -20,10 +20,10 @@ var uninitCmd = &cobra.Command{
 	Short: "Remove tomei directories and state",
 	Long: `Remove tomei directories, state files, and managed symlinks.
 
-This command removes:
-  - Config directory (~/.config/tomei/)
-  - Data directory (~/.local/share/tomei/)
-  - Symlinks in bin directory (~/.local/bin/) that point to tomei-managed tools
+This command removes (paths are configurable via config.cue):
+  - Config directory (default: ~/.config/tomei/)
+  - Data directory (default: ~/.local/share/tomei/)
+  - Symlinks in bin directory (default: ~/.local/bin/) pointing to tomei-managed tools
 
 The bin directory itself is preserved as it may contain non-tomei files.
 

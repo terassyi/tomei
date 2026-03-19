@@ -498,6 +498,8 @@ tomei upgrade --force
 
 The upgrade process downloads the new binary from GitHub Releases, verifies its SHA-256 checksum, replaces the current binary, and verifies the installation.
 
+Supported platforms: `linux/amd64`, `linux/arm64`, `darwin/arm64`. Running on an unsupported platform will produce an error.
+
 Uses `GITHUB_TOKEN` / `GH_TOKEN` if available for API rate limit mitigation.
 
 ## tomei version

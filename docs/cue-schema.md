@@ -326,8 +326,8 @@ Aqua registry tools use Go templates for `source.url`, `source.asset`, `source.c
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `{{.Version}}` | Package version | `v10.3.0` |
-| `{{.SemVer}}` | Version with `version_prefix` stripped | `v10.3.0` |
+| `{{.Version}}` | Package version (raw tag) | `v10.3.0` |
+| `{{.SemVer}}` | Version with `version_prefix` stripped | `10.3.0` (when prefix is `v`) |
 | `{{.OS}}` | OS name (after aqua replacements) | `linux`, `darwin` |
 | `{{.Arch}}` | Architecture (after aqua replacements) | `amd64`, `x86_64` |
 | `{{.Format}}` | Archive format | `tar.gz`, `zip` |
