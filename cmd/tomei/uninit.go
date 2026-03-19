@@ -21,11 +21,11 @@ var uninitCmd = &cobra.Command{
 	Long: `Remove tomei directories, state files, and managed symlinks.
 
 This command removes:
-  - Config directory (~/.config/toto/)
+  - Config directory (~/.config/tomei/)
   - Data directory (~/.local/share/tomei/)
   - Symlinks in bin directory (~/.local/bin/) that point to tomei-managed tools
 
-The bin directory itself is preserved as it may contain non-toto files.
+The bin directory itself is preserved as it may contain non-tomei files.
 
 Use --keep-config to preserve the config directory.
 Use --dry-run to see what would be removed without actually removing.`,
@@ -106,7 +106,7 @@ func newUninitContext(cmd *cobra.Command) (*uninitContext, error) {
 		return nil, fmt.Errorf("failed to get paths: %w", err)
 	}
 
-	// Check if toto is initialized
+	// Check if tomei is initialized
 	if _, err := os.Stat(paths.UserStateFile()); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -147,9 +147,9 @@ func newUninitContext(cmd *cobra.Command) (*uninitContext, error) {
 
 func (c *uninitContext) printHeader() {
 	if c.dryRun {
-		fmt.Fprintln(c.w, "Uninitializing toto... (dry-run)")
+		fmt.Fprintln(c.w, "Uninitializing tomei... (dry-run)")
 	} else {
-		fmt.Fprintln(c.w, "Uninitializing toto...")
+		fmt.Fprintln(c.w, "Uninitializing tomei...")
 	}
 	fmt.Fprintln(c.w)
 }
