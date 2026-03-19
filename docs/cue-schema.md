@@ -612,6 +612,77 @@ cue eval -t os=linux -t arch=amd64 tools.cue
 
 Presets that need platform information (e.g., Go) accept explicit `platform` parameters. The user's manifest declares `@tag()` variables and passes them to the preset. This approach works consistently in both modes — `@tag()` values are resolved at the top-level manifest, and platform information flows via explicit parameters rather than environment injection.
 
+## Brew Preset
+
+The `brew` preset provides Homebrew integration via the delegation pattern. Import it with `import "tomei.terassyi.net/presets/brew"`.
+
+### Architecture
+
+```
+#Homebrew (Tool, commands pattern)     ← brew itself, self-managed
+    ↓ toolRef: "homebrew"
+#BrewInstaller (Installer, delegation) ← provides "brew install" command
+    ↓ installerRef: "brew"
+#Formula / #FormulaSet (Tool/ToolSet)  ← individual packages
+```
+
+### Definitions
+
+| Definition | Kind | Description |
+|-----------|------|-------------|
+| `#Homebrew` | Tool | Homebrew package manager (commands pattern, self-installing) |
+| `#BrewInstaller` | Installer | Delegation installer using `brew install` |
+| `#Formula` | Tool | Single Homebrew formula |
+| `#FormulaSet` | ToolSet | Set of Homebrew formulae |
+
+Both `#Homebrew` and `#BrewInstaller` require a `platform` parameter to compute the correct brew prefix path (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel Mac, `/home/linuxbrew/.linuxbrew` on Linux).
+
+### Usage
+
+Use `@if(darwin)` to limit brew resources to macOS (recommended):
+
+```cue
+@if(darwin)
+
+package tomei
+
+import "tomei.terassyi.net/presets/brew"
+
+homebrew: brew.#Homebrew & {
+    platform: {os: _os, arch: _arch}
+}
+
+brewInstaller: brew.#BrewInstaller & {
+    platform: {os: _os, arch: _arch}
+}
+
+brewFormulae: brew.#FormulaSet & {
+    metadata: {
+        name:        "brew-formulae"
+        description: "Common Homebrew formulae"
+    }
+    spec: tools: {
+        tree: {package: "tree"}
+        wget: {package: "wget"}
+    }
+}
+```
+
+Single formula:
+
+```cue
+jq: brew.#Formula & {
+    metadata: name: "jq"
+    spec: package: "jq"
+}
+```
+
+### Notes
+
+- **Version is informational**: `brew install` does not support universal version pinning. The `version` field is recorded in state but not enforced.
+- **Cask is out of scope**: Only formulae are supported. Cask support may be added in the future.
+- **Remove is no-op for formulae**: Removing a formula from the manifest removes it from state, but `brew uninstall` is not called (same limitation as binstall).
+
 ## Validation
 
 `tomei validate <path>` checks manifests without applying. When manifests use presets or explicitly import the schema, CUE-native type constraints are enforced at load time.

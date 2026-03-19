@@ -35,6 +35,7 @@ Writing manifests:
     python  #UvRuntime
     deno    #DenoRuntime
     bun     #BunRuntime
+    brew    #Homebrew, #BrewInstaller, #Formula, #FormulaSet
 
   Example (Go runtime with aqua tools):
     import gopreset "tomei.terassyi.net/presets/go"
