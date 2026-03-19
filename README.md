@@ -157,6 +157,31 @@ tomei cue scaffold runtime   # Runtime template
 
 For raw CUE examples without presets, see [`examples/minimal/`](examples/minimal/). For a full multi-runtime setup, see [`examples/real-world/`](examples/real-world/).
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `tomei init` | Initialize directories and state |
+| `tomei cue init` | Set up CUE module for manifest imports |
+| `tomei cue update` | Update module dependencies to latest |
+| `tomei cue scaffold` | Generate manifest templates |
+| `tomei cue eval` | Evaluate manifests with platform tags |
+| `tomei cue export` | Export manifests as JSON |
+| `tomei validate` | Validate manifests and detect cycles |
+| `tomei plan` | Preview execution plan |
+| `tomei apply` | Install, upgrade, or remove resources |
+| `tomei get` | List installed resources |
+| `tomei env` | Output runtime environment variables |
+| `tomei doctor` | Diagnose environment issues |
+| `tomei logs` | Inspect installation logs |
+| `tomei state diff` | Compare state before/after apply |
+| `tomei upgrade` | Self-update to latest release |
+| `tomei uninit` | Remove tomei directories and state |
+| `tomei completion` | Generate shell completions |
+| `tomei version` | Print version information |
+
+See [Usage](docs/usage.md) for full flag reference.
+
 ## Shell Integration
 
 Add to your shell profile to set up runtime environment variables:
