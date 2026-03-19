@@ -396,17 +396,22 @@ func replaceBinary(currentPath, newBinaryPath string) error {
 	}
 	backupCreated = true
 
-	// Copy new binary to a temp staging file (O_EXCL via CreateTemp)
+	// Copy new binary to a temp staging file.
+	// Write directly into the fd returned by CreateTemp to avoid TOCTOU.
 	stagingFile, err := os.CreateTemp(dir, filepath.Base(currentPath)+".new.*")
 	if err != nil {
 		return fmt.Errorf("failed to create staging file: %w", err)
 	}
 	stagingPath := stagingFile.Name()
-	stagingFile.Close()
 
-	if err := copyFile(newBinaryPath, stagingPath); err != nil {
+	if err := copyToWriter(newBinaryPath, stagingFile); err != nil {
+		stagingFile.Close()
 		os.Remove(stagingPath)
 		return fmt.Errorf("failed to copy new binary: %w", err)
+	}
+	if err := stagingFile.Close(); err != nil {
+		os.Remove(stagingPath)
+		return fmt.Errorf("failed to close staging file: %w", err)
 	}
 
 	// Atomic rename into place
@@ -600,6 +605,17 @@ func fetchBody(ctx context.Context, client *http.Client, url string) ([]byte, er
 	}
 
 	return io.ReadAll(resp.Body)
+}
+
+// copyToWriter copies the contents of srcPath into an already-open writer.
+func copyToWriter(srcPath string, w io.Writer) error {
+	in, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	_, err = io.Copy(w, in)
+	return err
 }
 
 // copyFile copies src to dst, preserving permissions.
