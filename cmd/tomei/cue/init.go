@@ -31,7 +31,7 @@ The generated module enables:
   - tomei apply to resolve imports via OCI registry
   - Platform-aware manifests via @tag(os), @tag(arch), @if(darwin), etc.
 
-After initialization, run "eval $(tomei env)" to set CUE_REGISTRY for
+After initialization, run 'eval "$(tomei env)"' to set CUE_REGISTRY for
 CUE tooling (cue eval, LSP).
 
 Examples:

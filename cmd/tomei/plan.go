@@ -31,7 +31,7 @@ Compares CUE manifests (desired state) with the current state and shows
 what actions would be taken by "tomei apply":
   - install: New resources to install
   - upgrade: Resources with version changes
-  - reinstall: Resources to reinstall (tainted by runtime upgrade)
+  - reinstall: Tainted resources to reinstall (e.g., runtime upgrade, update flags)
   - remove: Resources in state but not in manifests
   - skip: Resources disabled via enabled: false
 
