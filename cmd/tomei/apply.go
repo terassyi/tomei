@@ -50,7 +50,7 @@ var applyCmd = &cobra.Command{
 	Long: `Apply the configuration to install, upgrade, or remove resources.
 
 Tomei compares the desired state (CUE manifests) with the current state
-(~/.local/share/tomei/state.json) and performs the minimal set of actions
+(state.json in the data directory, default ~/.local/share/tomei/) and performs the minimal set of actions
 to reconcile the difference. Running apply twice with unchanged manifests
 produces no changes (idempotent).
 

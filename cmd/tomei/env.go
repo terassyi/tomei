@@ -33,9 +33,10 @@ Stdout mode (default):
   eval "$(tomei env)"              # bash / zsh
   tomei env --shell fish | source  # fish
 
-File export mode:
+File export mode (writes to config directory, extension matches --shell):
   tomei env --export
-  source ~/.config/tomei/env.sh
+  source ~/.config/tomei/env.sh   # posix (default)
+  source ~/.config/tomei/env.fish  # fish
 
 Shell types:
   --shell posix   POSIX-compatible (bash, zsh) [default]
