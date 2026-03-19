@@ -4,13 +4,9 @@ package tomei
 
 import "tomei.terassyi.net/presets/brew"
 
-homebrew: brew.#Homebrew & {
-	platform: {os: _os, arch: _arch}
-}
+homebrew: brew.#Homebrew
 
-brewInstaller: brew.#BrewInstaller & {
-	platform: {os: _os, arch: _arch}
-}
+brewInstaller: brew.#BrewInstaller
 
 brewTools: brew.#FormulaSet & {
 	metadata: {

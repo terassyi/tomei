@@ -635,7 +635,7 @@ The `brew` preset provides Homebrew integration via the delegation pattern. Impo
 | `#Formula` | Tool | Single Homebrew formula |
 | `#FormulaSet` | ToolSet | Set of Homebrew formulae |
 
-Both `#Homebrew` and `#BrewInstaller` require a `platform` parameter to compute the correct brew prefix path (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel Mac, `/home/linuxbrew/.linuxbrew` on Linux).
+The preset targets macOS (darwin) only. Brew prefix is hardcoded to `/usr/local`. Use `@if(darwin)` to exclude brew resources on non-macOS platforms.
 
 ### Usage
 
@@ -648,15 +648,11 @@ package tomei
 
 import "tomei.terassyi.net/presets/brew"
 
-homebrew: brew.#Homebrew & {
-    platform: {os: _os, arch: _arch}
-}
+homebrew: brew.#Homebrew
 
-brewInstaller: brew.#BrewInstaller & {
-    platform: {os: _os, arch: _arch}
-}
+brewInstaller: brew.#BrewInstaller
 
-brewFormulae: brew.#FormulaSet & {
+brewTools: brew.#FormulaSet & {
     metadata: {
         name:        "brew-formulae"
         description: "Common Homebrew formulae"

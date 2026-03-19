@@ -2,25 +2,16 @@ package brew
 
 import "tomei.terassyi.net/schema"
 
-// Package-level shared prefix map (hidden, not exported)
-_brewPrefixMap: {
-	darwin: {arm64: "/opt/homebrew", amd64: "/usr/local"}
-	linux: {arm64: "/home/linuxbrew/.linuxbrew", amd64: "/home/linuxbrew/.linuxbrew"}
-}
+// Homebrew prefix for macOS (Intel).
+_brewPrefix: "/usr/local"
+_brew:       _brewPrefix + "/bin/brew"
 
 // #Homebrew declares brew as a self-managed tool (commands pattern).
-// Requires platform to compute the correct brew prefix.
+// Darwin only — guarded by @if(darwin) in the manifest file.
 //
 // Usage:
-//   homebrew: brew.#Homebrew & { platform: {os: _os, arch: _arch} }
+//   homebrew: brew.#Homebrew
 #Homebrew: schema.#Tool & {
-	platform: {
-		os:   "darwin" | "linux"
-		arch: "amd64" | "arm64"
-	}
-	let _prefix = _brewPrefixMap[platform.os][platform.arch]
-	let _brew = _prefix + "/bin/brew"
-
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Tool"
 	metadata: {
@@ -39,18 +30,11 @@ _brewPrefixMap: {
 
 // #BrewInstaller declares the brew delegation installer.
 // Depends on #Homebrew being present (toolRef: "homebrew").
-// Uses full path to brew binary — no PATH injection needed.
+// binDir ensures brew is on PATH; installer commands use bare "brew".
 //
 // Usage:
-//   brewInstaller: brew.#BrewInstaller & { platform: {os: _os, arch: _arch} }
+//   brewInstaller: brew.#BrewInstaller
 #BrewInstaller: schema.#Installer & {
-	platform: {
-		os:   "darwin" | "linux"
-		arch: "amd64" | "arm64"
-	}
-	let _prefix = _brewPrefixMap[platform.os][platform.arch]
-	let _brew = _prefix + "/bin/brew"
-
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Installer"
 	metadata: {
@@ -61,11 +45,11 @@ _brewPrefixMap: {
 		type:    "delegation"
 		toolRef: "homebrew"
 		commands: {
-			install: [_brew + " install {{.Package}}"]
-			remove: [_brew + " uninstall {{.Package}}"]
-			check: [_brew + " list --formula {{.Package}} >/dev/null 2>&1"]
+			install: ["brew install {{.Package}}"]
+			remove: ["brew uninstall {{.Package}}"]
+			check: ["brew list --formula {{.Package}} >/dev/null 2>&1"]
 		}
-		binDir: _prefix + "/bin"
+		binDir: _brewPrefix + "/bin"
 	}
 }
 
