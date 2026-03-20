@@ -635,7 +635,7 @@ The `brew` preset provides Homebrew integration via the delegation pattern. Impo
 | `#Formula` | Tool | Single Homebrew formula |
 | `#FormulaSet` | ToolSet | Set of Homebrew formulae |
 
-The preset targets macOS (darwin) only. Brew prefix is hardcoded to `/usr/local`. Use `@if(darwin)` to exclude brew resources on non-macOS platforms.
+The preset targets macOS (darwin/arm64) only. Brew prefix is `/opt/homebrew`. Use `@if(darwin)` to exclude brew resources on non-macOS platforms.
 
 ### Usage
 

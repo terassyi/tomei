@@ -2,12 +2,12 @@ package brew
 
 import "tomei.terassyi.net/schema"
 
-// Homebrew prefix for macOS (Intel).
-_brewPrefix: "/usr/local"
+// Homebrew prefix for macOS (Apple Silicon).
+_brewPrefix: "/opt/homebrew"
 _brew:       _brewPrefix + "/bin/brew"
 
 // #Homebrew declares brew as a self-managed tool (commands pattern).
-// Darwin only — guarded by @if(darwin) in the manifest file.
+// Darwin/arm64 only — guarded by @if(darwin) in the manifest file.
 //
 // Usage:
 //   homebrew: brew.#Homebrew
@@ -30,7 +30,8 @@ _brew:       _brewPrefix + "/bin/brew"
 
 // #BrewInstaller declares the brew delegation installer.
 // Depends on #Homebrew being present (toolRef: "homebrew").
-// binDir ensures brew is on PATH; installer commands use bare "brew".
+// Homebrew's install script adds brew to PATH, so installer commands
+// use bare "brew". binDir is set for tomei env PATH inclusion.
 //
 // Usage:
 //   brewInstaller: brew.#BrewInstaller
