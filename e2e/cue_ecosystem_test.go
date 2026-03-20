@@ -111,7 +111,7 @@ func cueEcosystemTests() {
 			Expect(err).NotTo(HaveOccurred())
 			// The version should be a real semver from the registry, not the hardcoded default.
 			// At minimum v0.0.1 is published, but the registry may have newer versions.
-			Expect(content).To(MatchRegexp(`v: "v0\.\d+\.\d+"`))
+			Expect(content).To(MatchRegexp(`v: "v0\.\d+\.\d+(-[a-zA-Z0-9.]+)?"`))
 			Expect(content).To(ContainSubstring(`"tomei.terassyi.net@v0"`))
 		})
 	})
