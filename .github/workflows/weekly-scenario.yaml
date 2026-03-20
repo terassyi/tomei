@@ -94,6 +94,14 @@ jobs:
           # bun tools
           biome --version
 
+      - name: Verify brew tools (macOS only)
+        if: matrix.os == 'darwin'
+        run: |
+          eval "$(tomei env)"
+          brew --version
+          tree --version
+          wget --version
+
       - name: Upgrade runtimes to latest
         run: |
           cat > examples/real-world/runtimes.cue << 'CUEEOF'

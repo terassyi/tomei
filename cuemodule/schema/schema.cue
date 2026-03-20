@@ -106,6 +106,10 @@ package schema
 	apiVersion: #APIVersion
 	kind:       "Installer"
 	metadata:   #Metadata
+	platform?: {
+		os:   string
+		arch: string
+	}
 	spec: {
 		type:        "download" | "delegation"
 		runtimeRef?: string
@@ -151,6 +155,10 @@ package schema
 	apiVersion: #APIVersion
 	kind:       "Tool"
 	metadata:   #Metadata
+	platform?: {
+		os:   string
+		arch: string
+	}
 	spec: {
 		installerRef?:  string
 		runtimeRef?:    string
