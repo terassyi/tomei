@@ -55,9 +55,30 @@ func GenerateModuleCUE(moduleName, moduleVersion string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ResolveOption configures the behavior of ResolveLatestVersion.
+type ResolveOption func(*resolveConfig)
+
+type resolveConfig struct {
+	includePre bool
+}
+
+// WithPreRelease includes pre-release versions (e.g. v0.1.0-rc.1) in resolution.
+// By default, pre-release versions are excluded per semver convention.
+func WithPreRelease() ResolveOption {
+	return func(c *resolveConfig) {
+		c.includePre = true
+	}
+}
+
 // ResolveLatestVersion queries the OCI registry for the latest published
 // version of the tomei module (tomei.terassyi.net).
-func ResolveLatestVersion(ctx context.Context) (string, error) {
+// By default, pre-release versions are excluded. Use WithPreRelease() to include them.
+func ResolveLatestVersion(ctx context.Context, opts ...ResolveOption) (string, error) {
+	var cfg resolveConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	cueRegistry := os.Getenv(config.EnvCUERegistry)
 	if cueRegistry == "" {
 		cueRegistry = config.DefaultCUERegistry
@@ -75,6 +96,13 @@ func ResolveLatestVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to query module versions: %w", err)
 	}
+
+	if !cfg.includePre {
+		versions = slices.DeleteFunc(versions, func(v string) bool {
+			return semver.Prerelease(v) != ""
+		})
+	}
+
 	if len(versions) == 0 {
 		return "", fmt.Errorf("no published versions found for tomei.terassyi.net")
 	}

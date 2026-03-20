@@ -692,6 +692,61 @@ func TestCueEcosystem_MockRegistry_ResolveLatestVersion(t *testing.T) {
 	}
 }
 
+// TestCueEcosystem_MockRegistry_ResolveLatestVersion_PreRelease verifies
+// pre-release filtering behavior in ResolveLatestVersion.
+func TestCueEcosystem_MockRegistry_ResolveLatestVersion_PreRelease(t *testing.T) {
+	tests := []struct {
+		name       string
+		versions   []string
+		wantStable string
+		wantPre    string
+		stableErr  bool
+	}{
+		{
+			name:       "skips pre-release picks stable",
+			versions:   []string{"v0.0.1", "v0.0.2", "v0.0.3-rc.1"},
+			wantStable: "v0.0.2",
+			wantPre:    "v0.0.3-rc.1",
+		},
+		{
+			name:       "multiple pre-releases picks highest",
+			versions:   []string{"v0.0.1", "v0.1.0-alpha.1", "v0.1.0-rc.1"},
+			wantStable: "v0.0.1",
+			wantPre:    "v0.1.0-rc.1",
+		},
+		{
+			name:      "only pre-releases returns error for stable",
+			versions:  []string{"v0.0.1-alpha.1", "v0.0.1-beta.1"},
+			stableErr: true,
+			wantPre:   "v0.0.1-beta.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, err := modregistrytest.New(mergeModuleFS(t, tt.versions...), "")
+			require.NoError(t, err)
+			defer reg.Close()
+
+			t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
+
+			// Test stable (default) resolution
+			got, err := cuemod.ResolveLatestVersion(context.Background())
+			if tt.stableErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.wantStable, got)
+			}
+
+			// Test pre-release-inclusive resolution
+			got, err = cuemod.ResolveLatestVersion(context.Background(), cuemod.WithPreRelease())
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantPre, got)
+		})
+	}
+}
+
 // TestCueEcosystem_MockRegistry_ResolveLatestVersion_UsedInGenerateModuleCUE
 // verifies the end-to-end flow: resolve latest version from registry, generate
 // module.cue with it, and confirm the loader can load the result.

@@ -14,6 +14,7 @@ import (
 var (
 	initModuleName string
 	initForce      bool
+	initPre        bool
 )
 
 var initCmd = &cobra.Command{
@@ -44,6 +45,7 @@ Examples:
 func init() {
 	initCmd.Flags().StringVar(&initModuleName, "module-name", cuemod.DefaultModuleName, "CUE module name")
 	initCmd.Flags().BoolVar(&initForce, "force", false, "Overwrite existing files")
+	initCmd.Flags().BoolVar(&initPre, "pre", false, "Include pre-release versions")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -66,7 +68,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	moduleVersion, err := cuemod.ResolveLatestVersion(ctx)
+	var resolveOpts []cuemod.ResolveOption
+	if initPre {
+		resolveOpts = append(resolveOpts, cuemod.WithPreRelease())
+	}
+	moduleVersion, err := cuemod.ResolveLatestVersion(ctx, resolveOpts...)
 	if err != nil {
 		slog.Warn("failed to resolve latest module version, using default", "error", err, "default", cuemod.DefaultModuleVer)
 		moduleVersion = cuemod.DefaultModuleVer

@@ -134,42 +134,85 @@ func TestRelativePath(t *testing.T) {
 	}
 }
 
+func setupMockRegistry(t *testing.T, versions ...string) *modregistrytest.Registry {
+	t.Helper()
+	var fs fstest.MapFS
+	if len(versions) == 0 {
+		fs = fstest.MapFS{}
+	} else {
+		fs = mergeMockModuleFS(versions...)
+	}
+	reg, err := modregistrytest.New(fs, "")
+	require.NoError(t, err)
+	t.Cleanup(reg.Close)
+	t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
+	return reg
+}
+
 func TestResolveLatestVersion(t *testing.T) {
-	t.Run("returns latest version from multiple", func(t *testing.T) {
-		reg, err := modregistrytest.New(mergeMockModuleFS("v0.0.1", "v0.0.2", "v0.0.3"), "")
-		require.NoError(t, err)
-		defer reg.Close()
+	tests := []struct {
+		name        string
+		versions    []string
+		opts        []ResolveOption
+		want        string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:     "returns latest version from multiple",
+			versions: []string{"v0.0.1", "v0.0.2", "v0.0.3"},
+			want:     "v0.0.3",
+		},
+		{
+			name:     "returns single version",
+			versions: []string{"v0.0.1"},
+			want:     "v0.0.1",
+		},
+		{
+			name:    "error when no versions published",
+			wantErr: true,
+		},
+		{
+			name:     "skips pre-release versions",
+			versions: []string{"v0.0.1", "v0.0.2", "v0.0.3-rc.1"},
+			want:     "v0.0.2",
+		},
+		{
+			name:     "includes pre-release when requested",
+			versions: []string{"v0.0.1", "v0.0.2", "v0.0.3-rc.1"},
+			opts:     []ResolveOption{WithPreRelease()},
+			want:     "v0.0.3-rc.1",
+		},
+		{
+			name:        "error when only pre-release versions exist",
+			versions:    []string{"v0.0.1-alpha.1"},
+			wantErr:     true,
+			errContains: "no published versions found",
+		},
+		{
+			name:     "returns pre-release when only pre-release and opted in",
+			versions: []string{"v0.0.1-alpha.1"},
+			opts:     []ResolveOption{WithPreRelease()},
+			want:     "v0.0.1-alpha.1",
+		},
+	}
 
-		t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupMockRegistry(t, tt.versions...)
 
-		version, err := ResolveLatestVersion(context.Background())
-		require.NoError(t, err)
-		assert.Equal(t, "v0.0.3", version)
-	})
-
-	t.Run("returns single version", func(t *testing.T) {
-		reg, err := modregistrytest.New(buildMockModuleFS("v0.0.1"), "")
-		require.NoError(t, err)
-		defer reg.Close()
-
-		t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
-
-		version, err := ResolveLatestVersion(context.Background())
-		require.NoError(t, err)
-		assert.Equal(t, "v0.0.1", version)
-	})
-
-	t.Run("error when no versions published", func(t *testing.T) {
-		// Empty registry — no modules at all.
-		reg, err := modregistrytest.New(fstest.MapFS{}, "")
-		require.NoError(t, err)
-		defer reg.Close()
-
-		t.Setenv(config.EnvCUERegistry, reg.Host()+"+insecure")
-
-		_, err = ResolveLatestVersion(context.Background())
-		assert.Error(t, err)
-	})
+			version, err := ResolveLatestVersion(context.Background(), tt.opts...)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, version)
+		})
+	}
 }
 
 func TestWriteFileIfAllowed(t *testing.T) {
