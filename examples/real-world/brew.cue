@@ -1,4 +1,4 @@
-@if(darwin)
+@if(darwin && arm64)
 
 package tomei
 

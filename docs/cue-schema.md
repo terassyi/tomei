@@ -456,7 +456,7 @@ gh: {
 CUE's `@if()` file-level attribute allows you to include or exclude entire files based on boolean tags. `tomei` automatically detects `@if()` references in your manifest files and injects the matching boolean tags for the current platform — no manual `-t` flags are needed. This is useful for separating platform-specific resources into dedicated files:
 
 ```cue
-@if(darwin)
+@if(darwin && arm64)
 
 package tomei
 
@@ -475,7 +475,7 @@ brewTool: {
 
 #### Available boolean tags
 
-`tomei` recognizes the following identifiers in `@if()` attributes. When the condition matches the current environment, the tag is injected automatically by `tomei apply`, `tomei plan`, `tomei validate`, and `tomei cue eval/export`. Tags that do not match are **not** injected, so `@if(darwin)` files are silently excluded on Linux, and `@if(!headless)` files are included when `headless` is absent.
+`tomei` recognizes the following identifiers in `@if()` attributes. When the condition matches the current environment, the tag is injected automatically by `tomei apply`, `tomei plan`, `tomei validate`, and `tomei cue eval/export`. Tags that do not match are **not** injected, so `@if(darwin && arm64)` files are silently excluded on Linux, and `@if(!headless)` files are included when `headless` is absent.
 
 | Tag | Injected when |
 |-----|---------------|
@@ -489,7 +489,7 @@ Other identifiers (e.g., `@if(windows)`) are ignored — the tag is never inject
 
 #### Syntax
 
-- `@if(darwin)` — include on macOS only
+- `@if(darwin && arm64)` — include on macOS only
 - `@if(!darwin)` — include on everything except macOS
 - `@if(darwin && arm64)` — include on Apple Silicon only
 - `@if(linux || darwin)` — include on Linux or macOS
@@ -635,14 +635,14 @@ The `brew` preset provides Homebrew integration via the delegation pattern. Impo
 | `#Formula` | Tool | Single Homebrew formula |
 | `#FormulaSet` | ToolSet | Set of Homebrew formulae |
 
-The preset targets macOS (darwin/arm64) only. Brew prefix is `/opt/homebrew`. Use `@if(darwin)` to exclude brew resources on non-macOS platforms.
+The preset targets macOS (darwin/arm64) only. Brew prefix is `/opt/homebrew`. Use `@if(darwin && arm64)` to exclude brew resources on unsupported platforms.
 
 ### Usage
 
-Use `@if(darwin)` to limit brew resources to macOS (recommended):
+Use `@if(darwin && arm64)` to limit brew resources to macOS (recommended):
 
 ```cue
-@if(darwin)
+@if(darwin && arm64)
 
 package tomei
 

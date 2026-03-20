@@ -7,7 +7,7 @@ _brewPrefix: "/opt/homebrew"
 _brew:       _brewPrefix + "/bin/brew"
 
 // #Homebrew declares brew as a self-managed tool (commands pattern).
-// Darwin/arm64 only — guarded by @if(darwin) in the manifest file.
+// Darwin/arm64 only — guard with @if(darwin && arm64) in the manifest file.
 //
 // Usage:
 //   homebrew: brew.#Homebrew
