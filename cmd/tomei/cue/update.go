@@ -9,7 +9,10 @@ import (
 	"github.com/terassyi/tomei/internal/cuemod"
 )
 
-var updateDryRun bool
+var (
+	updateDryRun bool
+	updatePre    bool
+)
 
 var updateCmd = &cobra.Command{
 	Use:   "update [dir]",
@@ -30,6 +33,7 @@ Usage:
 
 func init() {
 	updateCmd.Flags().BoolVar(&updateDryRun, "dry-run", false, "Show updates without writing changes")
+	updateCmd.Flags().BoolVar(&updatePre, "pre", false, "Include pre-release versions")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
@@ -56,7 +60,11 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	latestVersion, err := cuemod.ResolveLatestVersion(ctx)
+	var resolveOpts []cuemod.ResolveOption
+	if updatePre {
+		resolveOpts = append(resolveOpts, cuemod.WithPreRelease())
+	}
+	latestVersion, err := cuemod.ResolveLatestVersion(ctx, resolveOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to resolve latest module version: %w", err)
 	}
