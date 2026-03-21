@@ -28,7 +28,7 @@ func TestGenerateModuleCUE_TableDriven(t *testing.T) {
 			wantContains: []string{
 				`module: "manifests.local@v0"`,
 				`language: version: "v0.9.0"`,
-				`"tomei.terassyi.net@v0": v: "v0.1.4"`,
+				`"tomei.terassyi.net@v0": v: "v0.1.9"`,
 			},
 		},
 		{
