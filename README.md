@@ -69,10 +69,11 @@ Presets provide ready-made definitions for common runtimes and tools. Available 
 | `tomei.terassyi.net/presets/go` | `#GoRuntime`, `#GoTool`, `#GoToolSet` |
 | `tomei.terassyi.net/presets/rust` | `#RustRuntime`, `#CargoBinstall`, `#BinstallInstaller`, `#BinstallToolSet` |
 | `tomei.terassyi.net/presets/aqua` | `#AquaTool`, `#AquaToolSet` |
-| `tomei.terassyi.net/presets/node` | `#PnpmRuntime` |
-| `tomei.terassyi.net/presets/python` | `#UvRuntime` |
-| `tomei.terassyi.net/presets/deno` | `#DenoRuntime` |
-| `tomei.terassyi.net/presets/bun` | `#BunRuntime` |
+| `tomei.terassyi.net/presets/node` | `#PnpmRuntime`, `#PnpmTool`, `#PnpmToolSet` |
+| `tomei.terassyi.net/presets/python` | `#UvRuntime`, `#UvTool`, `#UvToolSet` |
+| `tomei.terassyi.net/presets/deno` | `#DenoRuntime`, `#DenoTool`, `#DenoToolSet` |
+| `tomei.terassyi.net/presets/bun` | `#BunRuntime`, `#BunTool`, `#BunToolSet` |
+| `tomei.terassyi.net/presets/brew` | `#Homebrew`, `#BrewInstaller`, `#Formula`, `#FormulaSet` |
 
 **Runtimes:**
 
@@ -140,6 +141,24 @@ _os:       string @tag(os)
 _arch:     string @tag(arch)
 _headless: bool | *false @tag(headless,type=bool)
 ```
+
+#### `@if()` File-Level Directives
+
+Boolean platform tags (`darwin`, `linux`, `amd64`, `arm64`, `headless`) can be used with CUE's `@if()` attribute to conditionally include entire files:
+
+```cue
+@if(darwin && arm64)
+
+package tomei
+
+import "tomei.terassyi.net/presets/brew"
+
+homebrew: brew.#Homebrew
+
+brewInstaller: brew.#BrewInstaller
+```
+
+The file is only loaded when the current platform matches the condition. Supports `&&`, `||`, and `!` operators (e.g., `@if(!headless)`, `@if(linux || darwin)`).
 
 ### Version
 
@@ -214,6 +233,7 @@ tomei completion fish | source
 - [CUE Schema Reference](docs/cue-schema.md)
 - [CUE Ecosystem Integration](docs/cue-ecosystem.md)
 - [Module Publishing](docs/module-publishing.md)
+- [Cosign Verification](docs/cosign.md)
 - [Releasing](docs/releasing.md)
 - [Usage](docs/usage.md)
 - [Examples](examples/)
