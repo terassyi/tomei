@@ -24,7 +24,7 @@ import "tomei.terassyi.net/schema"
 			install: ["curl -LsSf https://astral.sh/uv/{{.Version}}/install.sh | sh"]
 			update: ["\(_uv) self update{{if ne .Version \"latest\"}} {{.Version}}{{end}}"]
 			check: ["\(_uv) --version"]
-			remove: ["\(_uv) self uninstall"]
+			remove: ["rm -f \(_binDir)/uv \(_binDir)/uvx"]
 			resolveVersion: ["\(_uv) --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]
 		}
 		binaries: ["uv", "uvx"]
