@@ -12,9 +12,13 @@ import (
 
 	"cuelang.org/go/mod/modconfig"
 	"cuelang.org/go/mod/modregistry"
+	"cuelang.org/go/mod/module"
 	"github.com/terassyi/tomei/internal/config"
 	"golang.org/x/mod/semver"
 )
+
+// ErrRegistryDisabled is returned when CUE_REGISTRY is set to "none".
+var ErrRegistryDisabled = fmt.Errorf("registry access disabled: CUE_REGISTRY is set to %q", "none")
 
 //go:embed templates/module.cue.tmpl
 var moduleTmpl string
@@ -70,16 +74,13 @@ func WithPreRelease() ResolveOption {
 	}
 }
 
-// ResolveLatestVersion queries the OCI registry for the latest published
-// version of the tomei module (tomei.terassyi.net).
-// By default, pre-release versions are excluded. Use WithPreRelease() to include them.
-func ResolveLatestVersion(ctx context.Context, opts ...ResolveOption) (string, error) {
-	var cfg resolveConfig
-	for _, o := range opts {
-		o(&cfg)
-	}
-
+// newRegistryClient creates a modregistry.Client configured from CUE_REGISTRY.
+// Returns ErrRegistryDisabled when CUE_REGISTRY is "none" (vendor mode).
+func newRegistryClient() (*modregistry.Client, error) {
 	cueRegistry := os.Getenv(config.EnvCUERegistry)
+	if cueRegistry == "none" {
+		return nil, ErrRegistryDisabled
+	}
 	if cueRegistry == "" {
 		cueRegistry = config.DefaultCUERegistry
 	}
@@ -88,10 +89,35 @@ func ResolveLatestVersion(ctx context.Context, opts ...ResolveOption) (string, e
 		CUERegistry: cueRegistry,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to create registry resolver: %w", err)
+		return nil, fmt.Errorf("failed to create registry resolver: %w", err)
 	}
 
-	client := modregistry.NewClientWithResolver(resolver)
+	return modregistry.NewClientWithResolver(resolver), nil
+}
+
+// newModuleVersion creates a module.Version for the tomei module with the given version string.
+func newModuleVersion(version string) (module.Version, error) {
+	return module.NewVersion(config.TomeiModulePath, version)
+}
+
+// ResolveLatestVersion queries the OCI registry for the latest published
+// version of the tomei module (tomei.terassyi.net).
+// By default, pre-release versions are excluded. Use WithPreRelease() to include them.
+func ResolveLatestVersion(ctx context.Context, opts ...ResolveOption) (string, error) {
+	client, err := newRegistryClient()
+	if err != nil {
+		return "", err
+	}
+	return resolveLatestVersionWithClient(ctx, client, opts...)
+}
+
+// resolveLatestVersionWithClient is the shared implementation that accepts a pre-built client.
+func resolveLatestVersionWithClient(ctx context.Context, client *modregistry.Client, opts ...ResolveOption) (string, error) {
+	var cfg resolveConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
+
 	versions, err := client.ModuleVersions(ctx, "tomei.terassyi.net")
 	if err != nil {
 		return "", fmt.Errorf("failed to query module versions: %w", err)

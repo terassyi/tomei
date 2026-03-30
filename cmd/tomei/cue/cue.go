@@ -14,6 +14,7 @@ Subcommands:
   scaffold   Generate a CUE manifest scaffold for a resource kind
   eval       Evaluate CUE manifests with tomei configuration
   export     Export CUE manifests as JSON with tomei configuration
+  presets    List available preset manifests from the OCI registry
 
 Writing manifests:
   Manifests are CUE files in "package tomei". Each resource has apiVersion,
@@ -77,4 +78,5 @@ func init() {
 	Cmd.AddCommand(scaffoldCmd)
 	Cmd.AddCommand(evalCmd)
 	Cmd.AddCommand(exportCmd)
+	Cmd.AddCommand(presetsCmd)
 }
