@@ -171,6 +171,127 @@ func TestExtractPresetsFromZip(t *testing.T) {
 	}
 }
 
+func TestExtractDefinition(t *testing.T) {
+	t.Parallel()
+
+	source := `package gopreset
+
+#GoRuntime: {
+	kind: "Runtime"
+	spec: {
+		version: "1.22"
+	}
+}
+
+#GoTool: {
+	kind: "Tool"
+}
+
+#GoVersion: string
+`
+
+	tests := []struct {
+		name    string
+		source  string
+		defName string
+		want    string
+		wantErr bool
+	}{
+		{
+			name:    "extracts multi-line definition",
+			source:  source,
+			defName: "#GoRuntime",
+			want: `#GoRuntime: {
+	kind: "Runtime"
+	spec: {
+		version: "1.22"
+	}
+}`,
+		},
+		{
+			name:    "extracts simple definition",
+			source:  source,
+			defName: "#GoTool",
+			want: `#GoTool: {
+	kind: "Tool"
+}`,
+		},
+		{
+			name:    "extracts single-line definition",
+			source:  source,
+			defName: "#GoVersion",
+			want:    `#GoVersion: string`,
+		},
+		{
+			name:    "definition not found",
+			source:  source,
+			defName: "#NotExist",
+			wantErr: true,
+		},
+		{
+			name:    "empty source",
+			source:  "",
+			defName: "#Foo",
+			wantErr: true,
+		},
+		{
+			name:    "definition at end of file without trailing newline",
+			source:  "#Foo: {\n\tfield: true\n}",
+			defName: "#Foo",
+			want:    "#Foo: {\n\tfield: true\n}",
+		},
+		{
+			name:    "consecutive definitions without blank lines",
+			source:  "#A: {\n\tx: 1\n}\n#B: {\n\ty: 2\n}",
+			defName: "#A",
+			want:    "#A: {\n\tx: 1\n}",
+		},
+		{
+			name:    "consecutive definitions extracts second",
+			source:  "#A: {\n\tx: 1\n}\n#B: {\n\ty: 2\n}",
+			defName: "#B",
+			want:    "#B: {\n\ty: 2\n}",
+		},
+		{
+			name:    "prefix name does not match longer name",
+			source:  "#GoRuntime: {\n\tkind: \"Runtime\"\n}\n#Go: string",
+			defName: "#Go",
+			want:    "#Go: string",
+		},
+		{
+			name:    "braces inside string literal are ignored",
+			source:  "#Foo: {\n\tmsg: \"hello {world}\"\n}",
+			defName: "#Foo",
+			want:    "#Foo: {\n\tmsg: \"hello {world}\"\n}",
+		},
+		{
+			name:    "braces inside comment are ignored",
+			source:  "#Foo: {\n\t// TODO: handle {edge case}\n\tx: 1\n}",
+			defName: "#Foo",
+			want:    "#Foo: {\n\t// TODO: handle {edge case}\n\tx: 1\n}",
+		},
+		{
+			name:    "unbalanced braces returns error",
+			source:  "#Foo: {\n\tx: 1\n",
+			defName: "#Foo",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := ExtractDefinition(tt.source, tt.defName)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // createTestZip creates a zip archive in memory from the given file map.
 func createTestZip(t *testing.T, files map[string]string) []byte {
 	t.Helper()

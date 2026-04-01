@@ -34,10 +34,91 @@ type PresetInfo struct {
 	Source      string   `json:"source,omitempty"`
 }
 
+// KnownPresetNames returns the list of well-known preset package names.
+// Used for shell completion; the canonical source is the OCI registry,
+// but a network fetch at completion time is too slow.
+func KnownPresetNames() []string {
+	return []string{"aqua", "brew", "bun", "deno", "go", "node", "python", "rust", "zig"}
+}
+
 // definitionRe matches top-level CUE definitions (e.g. "#GoRuntime:").
 // Only #-prefixed identifiers at column 0 are matched; hidden definitions (_#Name)
 // and indented definitions are intentionally excluded.
 var definitionRe = regexp.MustCompile(`(?m)^(#\w+):`)
+
+// ExtractDefinition extracts a single top-level definition block from CUE source.
+// defName should include the "#" prefix (e.g. "#GoRuntime").
+// Returns the full definition text including the name and braces.
+//
+// The parser is aware of line comments (//) and quoted strings so that braces
+// inside comments or string literals do not affect depth tracking.
+func ExtractDefinition(source, defName string) (string, error) {
+	lines := strings.Split(source, "\n")
+	prefix := defName + ":"
+
+	startIdx := -1
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			startIdx = i
+			break
+		}
+	}
+	if startIdx < 0 {
+		return "", fmt.Errorf("definition %s not found", defName)
+	}
+
+	// Count braces to find the end of the definition block.
+	// Skip braces inside // comments and "..." string literals.
+	depth := 0
+	endIdx := startIdx
+	for i := startIdx; i < len(lines); i++ {
+		countBraces(lines[i], &depth)
+		endIdx = i
+		if depth == 0 && i > startIdx {
+			break
+		}
+		// Single-line definition without braces (e.g. "#Foo: string").
+		if depth == 0 && i == startIdx && !strings.Contains(lines[i], "{") {
+			break
+		}
+	}
+
+	if depth != 0 {
+		return "", fmt.Errorf("unbalanced braces in definition %s (depth %d)", defName, depth)
+	}
+
+	return strings.Join(lines[startIdx:endIdx+1], "\n"), nil
+}
+
+// countBraces counts unquoted, uncommented braces in a single line,
+// updating *depth in place.
+func countBraces(line string, depth *int) {
+	inString := false
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if inString {
+			switch ch {
+			case '\\':
+				i++ // skip escaped character
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '/':
+			if i+1 < len(line) && line[i+1] == '/' {
+				return // rest of line is a comment
+			}
+		case '"':
+			inString = true
+		case '{':
+			*depth++
+		case '}':
+			*depth--
+		}
+	}
+}
 
 // FetchPresets fetches the module zip from the OCI registry and extracts preset info.
 // If version is empty, resolves to the latest version.
