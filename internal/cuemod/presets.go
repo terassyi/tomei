@@ -23,6 +23,10 @@ const maxModuleZipSize = 50 << 20
 // maxCUEFileSize is the upper bound for a single CUE file in the zip (1 MB).
 const maxCUEFileSize = 1 << 20
 
+// maxTotalExtractedSize is the upper bound for total extracted content from the zip (100 MB).
+// This limits zip bomb impact where many small compressed entries expand to large sizes.
+const maxTotalExtractedSize = 100 << 20
+
 // fetchPresetsTimeout is the default timeout for FetchPresets network operations.
 const fetchPresetsTimeout = 30 * time.Second
 
@@ -108,15 +112,26 @@ func ExtractDefinition(source, defName string) (string, error) {
 }
 
 // hasBodyContent returns true if line contains meaningful content
-// (not just whitespace or comments).
+// (not just whitespace, line comments, or self-contained block comments).
 func hasBodyContent(line string) bool {
+	inBlock := false
 	for i := 0; i < len(line); i++ {
 		ch := line[i]
+		if inBlock {
+			if ch == '*' && i+1 < len(line) && line[i+1] == '/' {
+				inBlock = false
+				i++ // skip '/'
+			}
+			continue
+		}
 		switch {
 		case ch == ' ' || ch == '\t' || ch == '\r':
 			continue
 		case ch == '/' && i+1 < len(line) && line[i+1] == '/':
 			return false // line comment — no body content
+		case ch == '/' && i+1 < len(line) && line[i+1] == '*':
+			inBlock = true
+			i++ // skip '*'
 		default:
 			return true
 		}
@@ -166,6 +181,9 @@ func countBraces(line string, depth *int, inBlockComment bool) bool {
 			*depth++
 		case '}':
 			*depth--
+			if *depth < 0 {
+				return inBlockComment // unmatched closing brace
+			}
 		}
 	}
 	return inBlockComment
@@ -237,6 +255,7 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 
 	// Map preset name to collected info.
 	presetMap := make(map[string]*PresetInfo)
+	var totalExtracted int64
 
 	for _, f := range zr.File {
 		// Zip entries are bare relative paths: presets/go/go.cue
@@ -280,6 +299,10 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 		}
 		if int64(len(content)) > maxCUEFileSize {
 			return nil, fmt.Errorf("CUE file %s exceeds size limit of %d bytes", f.Name, maxCUEFileSize)
+		}
+		totalExtracted += int64(len(content))
+		if totalExtracted > maxTotalExtractedSize {
+			return nil, fmt.Errorf("total extracted content exceeds size limit of %d bytes", maxTotalExtractedSize)
 		}
 
 		info, ok := presetMap[pkgName]
