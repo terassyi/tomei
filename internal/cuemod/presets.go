@@ -74,11 +74,13 @@ func ExtractDefinition(source, defName string) (string, error) {
 	for i := startIdx; i < len(lines); i++ {
 		countBraces(lines[i], &depth)
 		endIdx = i
-		if depth == 0 && i > startIdx {
+		// Single-line definitions should stop immediately once the starting line
+		// has been processed and brace depth has returned to zero, including
+		// braced forms like `#Foo: { x: 1 }`.
+		if depth == 0 && i == startIdx {
 			break
 		}
-		// Single-line definition without braces (e.g. "#Foo: string").
-		if depth == 0 && i == startIdx && !strings.Contains(lines[i], "{") {
+		if depth == 0 && i > startIdx {
 			break
 		}
 	}
@@ -216,7 +218,7 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to open %s in zip: %w", f.Name, err)
 		}
-		content, err := io.ReadAll(io.LimitReader(rc, maxCUEFileSize))
+		content, err := io.ReadAll(io.LimitReader(rc, maxCUEFileSize+1))
 		closeErr := rc.Close()
 		if err != nil {
 			if closeErr != nil {
@@ -226,6 +228,9 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 		}
 		if closeErr != nil {
 			return nil, fmt.Errorf("failed to close %s in zip: %w", f.Name, closeErr)
+		}
+		if int64(len(content)) > maxCUEFileSize {
+			return nil, fmt.Errorf("CUE file %s exceeds size limit of %d bytes", f.Name, maxCUEFileSize)
 		}
 
 		info, ok := presetMap[pkgName]

@@ -271,6 +271,12 @@ func TestExtractDefinition(t *testing.T) {
 			want:    "#Foo: {\n\t// TODO: handle {edge case}\n\tx: 1\n}",
 		},
 		{
+			name:    "single-line braced definition",
+			source:  "#Foo: { x: 1 }\n#Bar: {\n\ty: 2\n}",
+			defName: "#Foo",
+			want:    "#Foo: { x: 1 }",
+		},
+		{
 			name:    "unbalanced braces returns error",
 			source:  "#Foo: {\n\tx: 1\n",
 			defName: "#Foo",
