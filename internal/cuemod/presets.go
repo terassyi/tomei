@@ -50,8 +50,9 @@ var definitionRe = regexp.MustCompile(`(?m)^(#\w+):`)
 // defName should include the "#" prefix (e.g. "#GoRuntime").
 // Returns the full definition text including the name and braces.
 //
-// The parser is aware of line comments (//) and quoted strings so that braces
-// inside comments or string literals do not affect depth tracking.
+// The parser is aware of line comments (//), block comments (/* */),
+// and quoted strings so that braces inside comments or string literals
+// do not affect depth tracking.
 func ExtractDefinition(source, defName string) (string, error) {
 	lines := strings.Split(source, "\n")
 	prefix := defName + ":"
@@ -68,19 +69,33 @@ func ExtractDefinition(source, defName string) (string, error) {
 	}
 
 	// Count braces to find the end of the definition block.
-	// Skip braces inside // comments and "..." string literals.
+	// Skip braces inside comments and string literals.
 	depth := 0
 	endIdx := startIdx
+	inBlock := false // tracks block comment state across lines
+	seenBody := false
 	for i := startIdx; i < len(lines); i++ {
-		countBraces(lines[i], &depth)
-		endIdx = i
-		// Single-line definitions should stop immediately once the starting line
-		// has been processed and brace depth has returned to zero, including
-		// braced forms like `#Foo: { x: 1 }`.
-		if depth == 0 && i == startIdx {
-			break
+		line := lines[i]
+		// Check if body content exists on or after the definition line.
+		if i == startIdx {
+			if hasBodyContent(line[len(prefix):]) {
+				seenBody = true
+			}
+		} else if hasBodyContent(line) {
+			seenBody = true
 		}
-		if depth == 0 && i > startIdx {
+
+		inBlock = countBraces(line, &depth, inBlock)
+		endIdx = i
+
+		// Only stop once we've actually seen definition body content.
+		// This preserves single-line forms like `#Foo: 1` and `#Foo: { x: 1 }`,
+		// while allowing valid multiline formatting such as:
+		//   #Foo:
+		//   {
+		//     x: 1
+		//   }
+		if depth == 0 && seenBody {
 			break
 		}
 	}
@@ -92,12 +107,38 @@ func ExtractDefinition(source, defName string) (string, error) {
 	return strings.Join(lines[startIdx:endIdx+1], "\n"), nil
 }
 
+// hasBodyContent returns true if line contains meaningful content
+// (not just whitespace or comments).
+func hasBodyContent(line string) bool {
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		switch {
+		case ch == ' ' || ch == '\t' || ch == '\r':
+			continue
+		case ch == '/' && i+1 < len(line) && line[i+1] == '/':
+			return false // line comment — no body content
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 // countBraces counts unquoted, uncommented braces in a single line,
-// updating *depth in place.
-func countBraces(line string, depth *int) {
+// updating *depth in place. inBlockComment tracks block comment state
+// across lines and is returned for the caller to pass to the next line.
+func countBraces(line string, depth *int, inBlockComment bool) bool {
 	inString := false
 	for i := 0; i < len(line); i++ {
 		ch := line[i]
+		// Inside block comment — look for closing */
+		if inBlockComment {
+			if ch == '*' && i+1 < len(line) && line[i+1] == '/' {
+				inBlockComment = false
+				i++ // skip '/'
+			}
+			continue
+		}
 		if inString {
 			switch ch {
 			case '\\':
@@ -109,8 +150,15 @@ func countBraces(line string, depth *int) {
 		}
 		switch ch {
 		case '/':
-			if i+1 < len(line) && line[i+1] == '/' {
-				return // rest of line is a comment
+			if i+1 < len(line) {
+				switch line[i+1] {
+				case '/':
+					return inBlockComment // rest of line is a line comment
+				case '*':
+					inBlockComment = true
+					i++ // skip '*'
+					continue
+				}
 			}
 		case '"':
 			inString = true
@@ -120,6 +168,7 @@ func countBraces(line string, depth *int) {
 			*depth--
 		}
 	}
+	return inBlockComment
 }
 
 // FetchPresets fetches the module zip from the OCI registry and extracts preset info.

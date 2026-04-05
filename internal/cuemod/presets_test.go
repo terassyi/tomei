@@ -277,6 +277,24 @@ func TestExtractDefinition(t *testing.T) {
 			want:    "#Foo: { x: 1 }",
 		},
 		{
+			name:    "multiline definition with body on next line",
+			source:  "#Foo:\n{\n\tx: 1\n}\n#Bar: string",
+			defName: "#Foo",
+			want:    "#Foo:\n{\n\tx: 1\n}",
+		},
+		{
+			name:    "braces inside block comment are ignored",
+			source:  "#Foo: {\n\t/* { nested } */\n\tx: 1\n}",
+			defName: "#Foo",
+			want:    "#Foo: {\n\t/* { nested } */\n\tx: 1\n}",
+		},
+		{
+			name:    "multiline block comment spanning lines",
+			source:  "#Foo: {\n\t/*\n\t{ nested }\n\t*/\n\tx: 1\n}",
+			defName: "#Foo",
+			want:    "#Foo: {\n\t/*\n\t{ nested }\n\t*/\n\tx: 1\n}",
+		},
+		{
 			name:    "unbalanced braces returns error",
 			source:  "#Foo: {\n\tx: 1\n",
 			defName: "#Foo",

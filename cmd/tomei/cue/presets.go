@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/cuemod"
 )
 
@@ -31,7 +32,9 @@ Use --definition (-d) to further narrow to a single definition.
 Output formats:
   table  Tabular summary with preset name, import path, and definitions (default)
   json   JSON array of preset objects
-  cue    Raw CUE source of each preset, separated by "---"`,
+  cue    Raw CUE source of each preset, separated by "---"
+         When --definition is used, only the definition snippet is shown
+         (without the package clause or imports).`,
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completePresetNames,
 	RunE:              runPresets,
@@ -115,7 +118,7 @@ func runPresets(cmd *cobra.Command, args []string) error {
 
 	switch presetsOutput {
 	case "table":
-		fmt.Fprintf(out, "Presets from tomei.terassyi.net@v0 (%s)\n\n", version)
+		fmt.Fprintf(out, "Presets from %s (%s)\n\n", config.TomeiModulePath, version)
 		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "PRESET\tIMPORT_PATH\tDEFINITIONS")
 		for _, p := range presets {
