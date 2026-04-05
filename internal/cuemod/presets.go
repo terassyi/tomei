@@ -220,7 +220,7 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 		closeErr := rc.Close()
 		if err != nil {
 			if closeErr != nil {
-				return nil, fmt.Errorf("failed to read %s in zip: %v (and failed to close: %w)", f.Name, err, closeErr)
+				return nil, fmt.Errorf("failed to read %s in zip: %w (and failed to close: %w)", f.Name, err, closeErr)
 			}
 			return nil, fmt.Errorf("failed to read %s in zip: %w", f.Name, err)
 		}
