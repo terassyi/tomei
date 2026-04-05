@@ -121,7 +121,9 @@ func runPresets(cmd *cobra.Command, args []string) error {
 		for _, p := range presets {
 			fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, p.ImportPath, strings.Join(p.Definitions, ", "))
 		}
-		w.Flush()
+		if err := w.Flush(); err != nil {
+			return fmt.Errorf("failed to flush output: %w", err)
+		}
 
 	case "json":
 		enc := json.NewEncoder(out)

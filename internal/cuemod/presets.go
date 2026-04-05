@@ -160,9 +160,12 @@ func FetchPresets(ctx context.Context, version string, opts ...ResolveOption) (p
 		}
 	}()
 
-	zipData, err := io.ReadAll(io.LimitReader(zipReader, maxModuleZipSize))
+	zipData, err := io.ReadAll(io.LimitReader(zipReader, maxModuleZipSize+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to read module zip: %w", err)
+	}
+	if int64(len(zipData)) > maxModuleZipSize {
+		return nil, "", fmt.Errorf("module zip exceeds size limit of %d bytes", maxModuleZipSize)
 	}
 
 	presets, err = extractPresetsFromZip(bytes.NewReader(zipData), int64(len(zipData)))
@@ -214,9 +217,15 @@ func extractPresetsFromZip(r io.ReaderAt, size int64) ([]PresetInfo, error) {
 			return nil, fmt.Errorf("failed to open %s in zip: %w", f.Name, err)
 		}
 		content, err := io.ReadAll(io.LimitReader(rc, maxCUEFileSize))
-		rc.Close()
+		closeErr := rc.Close()
 		if err != nil {
+			if closeErr != nil {
+				return nil, fmt.Errorf("failed to read %s in zip: %v (and failed to close: %w)", f.Name, err, closeErr)
+			}
 			return nil, fmt.Errorf("failed to read %s in zip: %w", f.Name, err)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("failed to close %s in zip: %w", f.Name, closeErr)
 		}
 
 		info, ok := presetMap[pkgName]
