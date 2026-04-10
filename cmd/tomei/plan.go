@@ -103,7 +103,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,
 		UpdateRuntimes: planCfg.updateRuntimes || planCfg.updateAll,
 	}
-	result, err := resolvePlan(resources, updateCfg)
+	result, err := resolvePlan(resources, updateCfg, systemMode)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig, system bool) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Load config and state
@@ -201,6 +201,11 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 				// Installers don't have versions in state typically
 				resInfo.Action = resource.ActionNone
 			}
+		}
+
+		// Mark privileged tools as skip when --system is not set
+		if !system && resource.IsPrivileged(res) {
+			resInfo.Action = resource.ActionSkip
 		}
 
 		info[nodeID] = resInfo
@@ -303,7 +308,7 @@ type planResult struct {
 
 // resolvePlan builds the dependency graph, resolves execution layers, and
 // computes resource actions from the current state.
-func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (*planResult, error) {
+func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, system bool) (*planResult, error) {
 	definedResources := make(map[string]struct{})
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -336,7 +341,7 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (
 		}
 	}
 
-	resourceInfo := buildResourceInfo(resources, updateCfg)
+	resourceInfo := buildResourceInfo(resources, updateCfg, system)
 
 	return &planResult{
 		resolver:       resolver,
@@ -349,8 +354,8 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (
 // planForResources runs the plan logic on already-loaded resources and
 // writes the text plan to w. It returns true if there are any changes
 // (install, upgrade, reinstall, or remove).
-func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig) (bool, error) {
-	result, err := resolvePlan(resources, updateCfg)
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig, system bool) (bool, error) {
+	result, err := resolvePlan(resources, updateCfg, system)
 	if err != nil {
 		return false, err
 	}

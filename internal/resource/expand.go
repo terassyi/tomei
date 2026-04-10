@@ -73,6 +73,33 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	return result, nil
 }
 
+// IsPrivileged reports whether a resource requires privileged (sudo) execution.
+// Only Tool resources can be privileged; all other kinds return false.
+func IsPrivileged(res Resource) bool {
+	if t, ok := res.(*Tool); ok {
+		return t.IsPrivileged()
+	}
+	return false
+}
+
+// FilterPrivileged partitions resources into non-privileged and privileged groups.
+// Non-privileged resources are returned first, privileged second.
+func FilterPrivileged(resources []Resource) (normal, privileged []Resource) {
+	for _, res := range resources {
+		if IsPrivileged(res) {
+			privileged = append(privileged, res)
+		} else {
+			normal = append(normal, res)
+		}
+	}
+	return normal, privileged
+}
+
+// HasPrivileged reports whether any resource in the slice requires privileged execution.
+func HasPrivileged(resources []Resource) bool {
+	return slices.ContainsFunc(resources, IsPrivileged)
+}
+
 // CollectDisabled returns disabled resources for plan display.
 // Standalone disabled resources are returned as-is.
 // For ToolSet, each disabled ToolItem is returned as an individual Tool.

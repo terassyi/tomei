@@ -373,6 +373,11 @@ func (t *Tool) IsEnabled() bool {
 	return t.ToolSpec.IsEnabled()
 }
 
+// IsPrivileged returns true if this tool requires elevated privileges for installation.
+func (t *Tool) IsPrivileged() bool {
+	return t.ToolSpec != nil && t.ToolSpec.Privileged
+}
+
 // IsEnabled returns whether the tool spec is enabled.
 func (t *ToolSpec) IsEnabled() bool {
 	if t.Enabled == nil {
@@ -599,6 +604,11 @@ type ToolState struct {
 	// effective name (e.g., tool name, registry files[].name, or delegation output).
 	// Used by the reconciler to detect binaryName changes (both setting and unsetting).
 	BinaryName string `json:"binaryName,omitempty"`
+
+	// Privileged indicates this tool was installed with elevated privileges (sudo).
+	// Persisted so removal and reconciliation can determine if sudo is needed,
+	// even when the manifest is no longer present.
+	Privileged bool `json:"privileged,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
 	// Empty string means the tool is not tainted.

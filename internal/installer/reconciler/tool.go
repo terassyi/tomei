@@ -36,6 +36,10 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 		if res.ToolSpec.BinaryName != state.BinaryName {
 			return true, "binaryName changed: " + state.BinaryName + " -> " + res.ToolSpec.BinaryName
 		}
+		// Detect privileged change (requires reinstall to switch execution mode)
+		if res.ToolSpec.Privileged != state.Privileged {
+			return true, "privileged changed"
+		}
 		return false, ""
 	}
 }

@@ -6,10 +6,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     file \
     gcc \
-    libc6-dev
+    libc6-dev \
+    sudo
 
-# Create test user
-RUN useradd -m -s /bin/bash testuser
+# Create test user with passwordless sudo for privileged tool tests
+RUN useradd -m -s /bin/bash testuser && \
+    echo "testuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/testuser
 
 # Copy tomei binary
 COPY tomei /usr/local/bin/tomei
@@ -62,6 +64,9 @@ COPY --chown=testuser:testuser config/commands-test/ /home/testuser/commands-tes
 
 # Copy binary-name-test manifests
 COPY --chown=testuser:testuser config/binary-name-test/ /home/testuser/binary-name-test/
+
+# Copy privileged-test manifests
+COPY --chown=testuser:testuser config/privileged-test/ /home/testuser/privileged-test/
 
 # Default command
 CMD ["tomei", "version"]

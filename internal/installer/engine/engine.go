@@ -53,6 +53,18 @@ type InstallerRepositoryInstaller interface {
 // This allows resolver setup to happen after the lock is acquired and state is read.
 type ResolverConfigurer func(st *state.UserState) error
 
+// PrivilegeHandler manages the sudo session lifecycle for privileged tool execution.
+// When set on the engine, Apply() calls Acquire before execution and Release in a defer.
+type PrivilegeHandler interface {
+	// Acquire validates sudo credentials and starts a keepalive goroutine.
+	// It should prompt the user for a password if needed (interactive).
+	Acquire(ctx context.Context) error
+
+	// Release invalidates the sudo timestamp and stops the keepalive goroutine.
+	// Safe to call multiple times (idempotent via sync.Once).
+	Release() error
+}
+
 // Phase represents the execution phase of the engine.
 type Phase int
 
@@ -135,9 +147,11 @@ type Engine struct {
 	installerRepoReconciler *reconciler.Reconciler[*resource.InstallerRepository, *resource.InstallerRepositoryState]
 	installerRepoExecutor   *executor.Executor[*resource.InstallerRepository, *resource.InstallerRepositoryState]
 	resolverConfigurer      ResolverConfigurer
+	privilegeHandler        PrivilegeHandler
 	eventHandler            EventHandler
 	parallelism             int
 	updateCfg               UpdateConfig
+	skippedPrivileged       int // count of privileged removals skipped (no --system)
 }
 
 // UpdateConfig holds update-related flags for apply and plan commands.
@@ -206,6 +220,18 @@ func (e *Engine) SetEventHandler(handler EventHandler) {
 // SetUpdateConfig sets the update configuration (sync, update-tools, update-runtimes flags).
 func (e *Engine) SetUpdateConfig(cfg UpdateConfig) {
 	e.updateCfg = cfg
+}
+
+// SetPrivilegeHandler sets the handler for managing sudo session lifecycle.
+// When set, Apply() will call Acquire before execution and Release in a defer.
+func (e *Engine) SetPrivilegeHandler(handler PrivilegeHandler) {
+	e.privilegeHandler = handler
+}
+
+// SkippedPrivileged returns the number of privileged tool removals that were
+// skipped because --system was not used. Call after Apply() completes.
+func (e *Engine) SkippedPrivileged() int {
+	return e.skippedPrivileged
 }
 
 // emitEvent emits an event to the handler if set.
@@ -1218,6 +1244,21 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	toolActions := e.toolReconciler.Reconcile(tools, st.Tools)
 	repoActions := e.installerRepoReconciler.Reconcile(repos, st.InstallerRepositories)
 	runtimeActions := e.runtimeReconciler.Reconcile(runtimes, st.Runtimes)
+
+	// Skip removal of privileged tools when no PrivilegeHandler is set (--system not used).
+	// Privileged tools require sudo for removal; without --system, warn and skip.
+	if e.privilegeHandler == nil {
+		filtered := make([]ToolAction, 0, len(toolActions))
+		for _, action := range toolActions {
+			if action.Type == resource.ActionRemove && action.State != nil && action.State.Privileged {
+				slog.Warn("skipping removal of privileged tool (use --system)", "name", action.Name)
+				e.skippedPrivileged++
+				continue
+			}
+			filtered = append(filtered, action)
+		}
+		toolActions = filtered
+	}
 
 	// Validate no remaining tools depend on runtimes being removed
 	var runtimeRemovals []string
