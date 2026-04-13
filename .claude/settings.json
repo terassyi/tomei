@@ -1,40 +1,56 @@
 {
   "permissions": {
     "allow": [
-      "Bash(make build)",
-      "Bash(make test)",
-      "Bash(make lint)",
-      "Bash(make test-e2e)",
-      "Bash(make help)",
-      "Bash(make docker-build)",
-      "Bash(make docker-run)",
+      "Bash(make *)",
       "Bash(go test *)",
       "Bash(go build *)",
       "Bash(go mod *)",
+      "Bash(go vet *)",
+      "Bash(go run *)",
+      "Bash(gofmt *)",
       "Bash(golangci-lint *)",
-      "Bash(docker rm -f tomei-e2e-ubuntu*)",
+      "Bash(cue *)",
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(git diff *)",
-      "Bash(git status *)",
+      "Bash(git status*)",
       "Bash(git log *)",
       "Bash(git branch *)",
       "Bash(git checkout *)",
       "Bash(git stash *)",
       "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git describe *)",
+      "Bash(docker ps*)",
+      "Bash(docker images*)",
+      "Bash(docker logs *)",
+      "Bash(docker rm -f tomei-*)",
       "Bash(bin/tomei validate *)",
-      "Bash(bin/tomei plan *)"
+      "Bash(bin/tomei plan *)",
+      "Bash(bin/tomei cue *)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr status*)",
+      "Bash(gh issue list*)",
+      "Bash(gh issue view *)",
+      "Bash(gh api *)",
+      "Bash(gh run view *)",
+      "Bash(gh run watch *)"
     ],
     "deny": [
       "Bash(git push*)",
       "Bash(git pull*)",
       "Bash(git merge*)",
       "Bash(git rebase*)",
+      "Bash(git reset --hard*)",
       "Bash(*tomei apply*)",
-      "Bash(*tomei init*)"
+      "Bash(*tomei init*)",
+      "Bash(*chezmoi apply*)",
+      "Bash(*chezmoi init*)",
+      "Bash(make module-publish*)",
+      "Bash(cue mod publish*)",
+      "Bash(sudo *)",
+      "Bash(docker push*)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   }
 }

@@ -148,4 +148,3 @@ func TestGetLatestRelease_HTMLErrorPage(t *testing.T) {
 	// HTML is not valid JSON, so json.Decoder.Decode should fail
 	assert.Contains(t, err.Error(), "failed to decode response")
 }
-

@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"cuelang.org/go/mod/module"
 	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/registry"
 	ociv1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
@@ -17,8 +19,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/static"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/google/go-containerregistry/pkg/registry"
-	"cuelang.org/go/mod/module"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -111,9 +111,9 @@ func TestFetchCosignSignatures_WithSignature(t *testing.T) {
 	sigImg, err = mutate.Append(sigImg.(ociv1.Image), mutate.Addendum{
 		Layer: sigLayer,
 		Annotations: map[string]string{
-			"dev.cosignproject.cosign/signature":  "dGVzdC1zaWduYXR1cmU=",
-			"dev.sigstore.cosign/certificate":     dummyCertPEM,
-			"dev.sigstore.cosign/bundle":           rekorJSON,
+			"dev.cosignproject.cosign/signature": "dGVzdC1zaWduYXR1cmU=",
+			"dev.sigstore.cosign/certificate":    dummyCertPEM,
+			"dev.sigstore.cosign/bundle":         rekorJSON,
 		},
 	})
 	require.NoError(t, err)
@@ -145,4 +145,3 @@ func TestFetchCosignSignatures_WithSignature(t *testing.T) {
 	// Should NOT say "no cosign signature found" — it found one but verification failed
 	assert.NotEqual(t, "no cosign signature found (unsigned module)", results[0].SkipReason)
 }
-

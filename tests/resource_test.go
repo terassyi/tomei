@@ -626,9 +626,9 @@ spec: {
 // does not enforce all mutual exclusivity rules).
 func TestSchemaValidation_RejectsInvalid(t *testing.T) {
 	tests := []struct {
-		name        string
-		content     string
-		wantErrMsg  string
+		name       string
+		content    string
+		wantErrMsg string
 	}{
 		{
 			name: "Tool with commands and installerRef (mutual exclusivity)",
