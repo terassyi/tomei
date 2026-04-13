@@ -79,7 +79,8 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 // delegation) ignore it. All other kinds return false.
 func IsPrivileged(res Resource) bool {
 	if t, ok := res.(*Tool); ok {
-		return t.IsPrivileged() && t.ToolSpec != nil && t.ToolSpec.Commands != nil
+		// t.IsPrivileged() already implies t.ToolSpec != nil.
+		return t.IsPrivileged() && t.ToolSpec.Commands != nil
 	}
 	return false
 }

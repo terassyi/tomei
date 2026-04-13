@@ -261,6 +261,11 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 		return ctx.Err()
 	}
 
+	// Reset per-run counters so the values reported by accessors like
+	// SkippedPrivileged() reflect only this Apply invocation, not prior runs
+	// when the Engine instance is reused (e.g., in tests or orchestration).
+	e.skippedPrivileged = 0
+
 	// Expand set resources (ToolSet, etc.) into individual resources
 	var err error
 	resources, err = resource.ExpandSets(resources)
