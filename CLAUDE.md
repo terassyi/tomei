@@ -42,6 +42,6 @@ make fmt                # Format code
 
 ## CI
 
-- `ci.yaml`: build -> test -> lint -> shellcheck -> CUE validate -> integration -> E2E (multi-platform)
+- `ci.yaml`: build -> {unit-test, lint, cue-validate} (parallel) + shellcheck (independent) -> integration -> build-e2e -> E2E (multi-platform)
 - `release.yaml`: GoReleaser
 - `publish-module.yaml`: CUE module to OCI registry

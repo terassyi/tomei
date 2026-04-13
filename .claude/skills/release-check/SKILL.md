@@ -30,7 +30,7 @@ Verify everything is ready for a release. This skill is READ-ONLY.
 git describe --tags --always 2>/dev/null
 ```
 ```!
-git tag --sort=-v:refname | head -10
+git tag --list --sort=-v:refname | head -10
 ```
 ```!
 git tag --list 'cuemodule/*' --sort=-v:refname | head -5

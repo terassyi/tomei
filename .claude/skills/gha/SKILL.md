@@ -21,6 +21,7 @@ allowed-tools:
   - Bash(git status*)
   - Bash(git log *)
   - Bash(git rev-parse *)
+  - Bash(git branch *)
   - Read
   - Grep
   - Glob

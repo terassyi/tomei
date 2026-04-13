@@ -7,6 +7,7 @@ allowed-tools:
   - Bash(make lint)
   - Bash(cue fmt *)
   - Bash(cue vet *)
+  - Bash(cd cuemodule && cue vet *)
   - Bash(bin/tomei validate *)
   - Bash(bin/tomei plan *)
   - Bash(git diff *)
