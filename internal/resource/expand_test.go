@@ -560,9 +560,14 @@ func TestIsPrivileged(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "privileged tool",
-			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true}},
+			name: "privileged commands-based tool",
+			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}}},
 			want: true,
+		},
+		{
+			name: "privileged tool without commands (non-commands pattern ignores privileged)",
+			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true}},
+			want: false,
 		},
 		{
 			name: "non-privileged tool",
@@ -593,7 +598,7 @@ func TestFilterPrivileged(t *testing.T) {
 	resources := []Resource{
 		&Tool{
 			BaseResource: BaseResource{Metadata: Metadata{Name: "homebrew"}},
-			ToolSpec:     &ToolSpec{Privileged: true},
+			ToolSpec:     &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}},
 		},
 		&Tool{
 			BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
@@ -619,7 +624,7 @@ func TestHasPrivileged(t *testing.T) {
 	t.Run("has privileged", func(t *testing.T) {
 		t.Parallel()
 		resources := []Resource{
-			&Tool{ToolSpec: &ToolSpec{Privileged: true}},
+			&Tool{ToolSpec: &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}}},
 			&Tool{ToolSpec: &ToolSpec{}},
 		}
 		assert.True(t, HasPrivileged(resources))

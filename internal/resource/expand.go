@@ -74,10 +74,12 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 }
 
 // IsPrivileged reports whether a resource requires privileged (sudo) execution.
-// Only Tool resources can be privileged; all other kinds return false.
+// Only Tool resources using the commands pattern (spec.commands set) actually
+// honor the privileged flag — other install patterns (download, registry,
+// delegation) ignore it. All other kinds return false.
 func IsPrivileged(res Resource) bool {
 	if t, ok := res.(*Tool); ok {
-		return t.IsPrivileged()
+		return t.IsPrivileged() && t.ToolSpec != nil && t.ToolSpec.Commands != nil
 	}
 	return false
 }

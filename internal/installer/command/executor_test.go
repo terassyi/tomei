@@ -102,7 +102,7 @@ func TestExecutor_BuildCommand_Privileged(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		cmd := e.buildCommand(ctx, "echo hello", nil)
-		assert.Equal(t, "sh", cmd.Path[len(cmd.Path)-2:])
+		assert.Equal(t, "sh", filepath.Base(cmd.Path))
 		assert.Equal(t, []string{"sh", "-c", "echo hello"}, cmd.Args)
 	})
 
