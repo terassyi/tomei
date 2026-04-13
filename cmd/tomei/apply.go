@@ -441,18 +441,29 @@ type sudoHandler struct {
 
 // Acquire validates sudo credentials and starts a keepalive goroutine.
 func (h *sudoHandler) Acquire(ctx context.Context) error {
-	// Interactive sudo -v (prompts for password if needed)
-	cmd := exec.CommandContext(ctx, "sudo", "-v")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("sudo authentication failed: %w", err)
-	}
-
-	// Probe: verify that sudo -n works (catches tty_tickets mismatch, restrictive sudoers)
+	// Probe first: if cached credentials or passwordless sudo already work,
+	// avoid an unnecessary interactive prompt. This keeps CI / non-TTY flows
+	// working when sudoers is configured for NOPASSWD.
 	if err := exec.CommandContext(ctx, "sudo", "-n", "true").Run(); err != nil {
-		return fmt.Errorf("sudo -n failed after sudo -v; your system may have tty_tickets enabled or a restrictive sudoers policy: %w", err)
+		stdinFD := os.Stdin.Fd()
+		if !isatty.IsTerminal(stdinFD) && !isatty.IsCygwinTerminal(stdinFD) {
+			return fmt.Errorf("sudo requires interactive authentication, but stdin is not a TTY; rerun interactively or configure passwordless sudo for --system mode: %w", err)
+		}
+
+		// Interactive sudo -v (prompts for password if needed).
+		cmd := exec.CommandContext(ctx, "sudo", "-v")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("sudo authentication failed: %w", err)
+		}
+
+		// Verify that non-interactive sudo now works as required by the
+		// keepalive loop and later privileged commands.
+		if err := exec.CommandContext(ctx, "sudo", "-n", "true").Run(); err != nil {
+			return fmt.Errorf("sudo -n failed after sudo -v; your system may have tty_tickets enabled or a restrictive sudoers policy: %w", err)
+		}
 	}
 
 	// Background keepalive: refresh sudo timestamp every 45 seconds.
