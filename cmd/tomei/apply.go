@@ -110,6 +110,13 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	// System-privilege resource kinds (SystemInstaller, SystemPackage*) are not
+	// yet implemented by the engine and would otherwise be silently ignored.
+	// Fail fast with a clear error so users know these manifests have no effect.
+	if err := rejectUnsupportedSystemKinds(resources); err != nil {
+		return err
+	}
+
 	// Filter out privileged resources when --system is not set
 	if !system {
 		normal, privileged := resource.FilterPrivileged(resources)
@@ -493,4 +500,20 @@ func (h *sudoHandler) Release() error {
 		err = exec.CommandContext(releaseCtx, "sudo", "-k").Run()
 	})
 	return err
+}
+
+// rejectUnsupportedSystemKinds returns an error if the resources include any
+// system-privilege kind. The engine does not yet execute SystemInstaller or
+// SystemPackage* resources, so we fail fast rather than silently ignoring them.
+func rejectUnsupportedSystemKinds(resources []resource.Resource) error {
+	var names []string
+	for _, r := range resources {
+		if resource.IsSystemKind(r.Kind()) {
+			names = append(names, fmt.Sprintf("%s/%s", r.Kind(), r.Name()))
+		}
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("system-privilege resources are not yet supported: %s", strings.Join(names, ", "))
+	}
+	return nil
 }

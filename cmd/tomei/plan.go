@@ -98,6 +98,11 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	// Reject unsupported system-privilege resource kinds (see apply.go for rationale).
+	if err := rejectUnsupportedSystemKinds(resources); err != nil {
+		return err
+	}
+
 	updateCfg := engine.UpdateConfig{
 		SyncMode:       planCfg.syncRegistry,
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,

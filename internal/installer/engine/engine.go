@@ -223,8 +223,11 @@ func (e *Engine) SetUpdateConfig(cfg UpdateConfig) {
 	e.updateCfg = cfg
 }
 
-// SetPrivilegeHandler sets the handler for managing sudo session lifecycle.
-// When set, Apply() will call Acquire before execution and Release in a defer.
+// SetPrivilegeHandler sets the handler used to indicate that privileged
+// operations are allowed. Engine.Apply does not call Acquire or Release;
+// the privilege lifecycle is managed by the caller (cmd layer). Presence
+// of a handler signals the engine that privileged install/removal actions
+// may proceed.
 func (e *Engine) SetPrivilegeHandler(handler PrivilegeHandler) {
 	e.privilegeHandler = handler
 }
