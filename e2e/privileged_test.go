@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -80,10 +82,16 @@ func privilegedTests() {
 		})
 
 		It("creates privileged tool marker via sudo", func() {
-			// The marker file is created via sudo sh -c, so it should be owned by root
+			// Verify the marker exists and is owned by root (uid 0). Writing
+			// to /tmp would succeed even unprivileged, so ownership is the
+			// distinguishing signal that sudo was actually used.
 			output, err := testExec.ExecBash("cat /tmp/tomei-privileged-test/marker")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("installed"))
+
+			ownerUID, err := testExec.ExecBash("stat -c '%u' /tmp/tomei-privileged-test/marker")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(ownerUID)).To(Equal("0"), "privileged tool marker should be owned by root")
 		})
 
 		It("creates normal tool marker without sudo", func() {

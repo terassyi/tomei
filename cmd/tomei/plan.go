@@ -370,10 +370,15 @@ func planForResources(w io.Writer, resources []resource.Resource, disableColor b
 		return false, err
 	}
 
+	// Count only real change actions; ActionNone and ActionSkip don't run
+	// anything, so they shouldn't trigger a confirmation prompt in apply.
 	hasChanges := false
 	for _, info := range result.resourceInfo {
-		if info.Action != resource.ActionNone {
+		switch info.Action {
+		case resource.ActionInstall, resource.ActionUpgrade, resource.ActionReinstall, resource.ActionRemove:
 			hasChanges = true
+		}
+		if hasChanges {
 			break
 		}
 	}
