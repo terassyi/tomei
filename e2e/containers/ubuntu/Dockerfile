@@ -11,7 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create test user with passwordless sudo for privileged tool tests
 RUN useradd -m -s /bin/bash testuser && \
-    echo "testuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/testuser
+    echo "testuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/testuser && \
+    chown root:root /etc/sudoers.d/testuser && \
+    chmod 0440 /etc/sudoers.d/testuser
 
 # Copy tomei binary
 COPY tomei /usr/local/bin/tomei

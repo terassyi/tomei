@@ -78,7 +78,7 @@ func (e *Executor) buildCommand(ctx context.Context, expanded string, env map[st
 	name := "sh"
 	args := []string{"-c", expanded}
 	if executor.PrivilegedFromContext(ctx) {
-		slog.Debug("executing privileged command", "command", expanded)
+		slog.Debug("executing privileged command")
 		name = "sudo"
 		args = []string{"-n", "sh", "-c", expanded}
 	}
