@@ -265,8 +265,9 @@ type ToolSpec struct {
 	Args []string `json:"args,omitempty"`
 
 	// Privileged indicates this tool requires elevated privileges for installation.
-	// When true, the tool will be installed to a system-wide location (e.g., /usr/local/bin)
-	// and installation commands will be executed with sudo.
+	// When true, installation, removal, or update commands are executed with elevated
+	// privileges (for example, via sudo). Depending on the installer or commands used,
+	// this may result in a system-wide installation location.
 	// Default is false.
 	Privileged bool `json:"privileged,omitempty"`
 }

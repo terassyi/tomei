@@ -235,8 +235,10 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return nil
 	})
 
-	// Acquire sudo credentials for privileged tools (before TUI to allow interactive prompt)
-	if system && resource.HasPrivileged(resources) {
+	// Acquire sudo credentials when --system is set (before TUI to allow interactive prompt).
+	// We always acquire when --system is given, not only when the manifest contains
+	// privileged tools, because privileged tools may exist only in state (removal case).
+	if system {
 		handler := &sudoHandler{}
 		if err := handler.Acquire(ctx); err != nil {
 			return err

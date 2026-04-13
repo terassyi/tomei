@@ -54,7 +54,8 @@ type InstallerRepositoryInstaller interface {
 type ResolverConfigurer func(st *state.UserState) error
 
 // PrivilegeHandler manages the sudo session lifecycle for privileged tool execution.
-// When set on the engine, Apply() calls Acquire before execution and Release in a defer.
+// The caller (cmd layer) is responsible for calling Acquire/Release and setting
+// the handler on the engine via SetPrivilegeHandler before Apply.
 type PrivilegeHandler interface {
 	// Acquire validates sudo credentials and starts a keepalive goroutine.
 	// It should prompt the user for a password if needed (interactive).

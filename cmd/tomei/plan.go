@@ -227,11 +227,16 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		for name, tool := range userState.Tools {
 			nodeID := graph.NewNodeID(resource.KindTool, name)
 			if _, exists := info[nodeID]; !exists {
+				action := resource.ActionRemove
+				// Privileged tool removals require --system; without it, skip.
+				if !system && tool.Privileged {
+					action = resource.ActionSkip
+				}
 				info[nodeID] = graph.ResourceInfo{
 					Kind:    resource.KindTool,
 					Name:    name,
 					Version: tool.Version,
-					Action:  resource.ActionRemove,
+					Action:  action,
 				}
 			}
 		}
