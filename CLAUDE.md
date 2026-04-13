@@ -38,7 +38,7 @@ make fmt                # Format code
 - Go: follow `.golangci.yml`
 - CUE: `cue fmt`
 - CUE / JSON / YAML: 2-space indent
-- Unit tests: standard `testing`. E2E / integration: Ginkgo + Gomega
+- Unit tests: standard `testing`. Integration: `testing` + `testify`. E2E: Ginkgo + Gomega
 
 ## CI
 

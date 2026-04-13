@@ -44,6 +44,8 @@
       "Bash(*tomei init*)",
       "Bash(*chezmoi apply*)",
       "Bash(*chezmoi init*)",
+      "Bash(make module-publish*)",
+      "Bash(cue mod publish*)",
       "Bash(sudo *)",
       "Bash(docker push*)"
     ]
