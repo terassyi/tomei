@@ -67,8 +67,9 @@ For user-level resources (Runtime, Tool, ToolSet):
 For privileged resources (tools with privileged: true):
   tomei apply --system .
 
-Privileged tools (e.g., Homebrew) require sudo for installation.
-Without --system, privileged tools are skipped with a warning.
+Privileged tools (e.g., Homebrew) require sudo for install, upgrade,
+reinstall, and remove operations.
+Without --system, privileged operations are skipped with a warning.
 With --system, tomei prompts for sudo credentials once and uses
 them for privileged tool commands only.`,
 	Args: cobra.MinimumNArgs(1),
@@ -267,9 +268,12 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		applyErr = runApplyWithProgressManager(ctx, eng, resources, results, logStore, w, cfg)
 	}
 
-	// Report privileged removal skips after apply completes
+	// Report privileged action skips after apply completes.
+	// When privileged manifest resources are excluded without --system, they
+	// can otherwise be misrepresented here as removals (they're absent from
+	// the desired resource list but still intended to be installed).
 	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
-		fmt.Fprintf(w, "\n%d privileged resource removal(s) skipped. Use 'tomei apply --system' to remove.\n", n)
+		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped. Use 'tomei apply --system' to manage privileged resources.\n", n)
 	}
 
 	return applyErr

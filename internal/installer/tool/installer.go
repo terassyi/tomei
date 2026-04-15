@@ -580,8 +580,10 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 
 	vars := command.Vars{Name: name, Version: spec.Version}
 
-	// Use privileged context for install/update commands (sudo -n sh -c).
-	// Check and resolveVersion are read-only and always run unprivileged.
+	// Use privileged context for install/upgrade/reinstall commands
+	// (sudo -n sh -c). cmdToRun above is Update for upgrade/reinstall when set,
+	// otherwise Install. Check and resolveVersion are read-only and always
+	// run unprivileged.
 	installCtx := ctx
 	if spec.Privileged {
 		installCtx = executor.WithPrivileged(ctx)
