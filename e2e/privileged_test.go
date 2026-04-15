@@ -89,7 +89,10 @@ func privilegedTests() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("installed"))
 
-			ownerUID, err := testExec.ExecBash("stat -c '%u' /tmp/tomei-privileged-test/marker")
+			// Portable across GNU coreutils (Linux) and BSD (macOS): ls -n prints
+			// the numeric owner UID as the 3rd column. `stat -c` is GNU-only and
+			// `stat -f` is BSD-only, so parsing `ls -n` avoids OS branching.
+			ownerUID, err := testExec.ExecBash("ls -lan /tmp/tomei-privileged-test/marker | awk '{print $3}'")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(strings.TrimSpace(ownerUID)).To(Equal("0"), "privileged tool marker should be owned by root")
 		})
