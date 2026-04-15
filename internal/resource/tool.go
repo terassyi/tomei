@@ -374,9 +374,13 @@ func (t *Tool) IsEnabled() bool {
 	return t.ToolSpec.IsEnabled()
 }
 
-// IsPrivileged returns true if this tool requires elevated privileges for installation.
+// IsPrivileged returns true if this tool requires elevated privileges for
+// installation. Privileged execution is only meaningful for command-based
+// tools (spec.commands set); other install patterns (download, registry,
+// delegation) ignore the privileged flag, so this method returns false for
+// them even when spec.privileged is true.
 func (t *Tool) IsPrivileged() bool {
-	return t.ToolSpec != nil && t.ToolSpec.Privileged
+	return t.ToolSpec != nil && t.ToolSpec.Commands != nil && t.ToolSpec.Privileged
 }
 
 // IsEnabled returns whether the tool spec is enabled.
