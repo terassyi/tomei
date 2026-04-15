@@ -98,12 +98,17 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	// Reject unsupported system-privilege resource kinds (see apply.go for rationale).
+	if err := rejectUnsupportedSystemKinds(resources); err != nil {
+		return err
+	}
+
 	updateCfg := engine.UpdateConfig{
 		SyncMode:       planCfg.syncRegistry,
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,
 		UpdateRuntimes: planCfg.updateRuntimes || planCfg.updateAll,
 	}
-	result, err := resolvePlan(resources, updateCfg)
+	result, err := resolvePlan(resources, updateCfg, systemMode)
 	if err != nil {
 		return err
 	}
@@ -126,7 +131,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig, system bool) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Load config and state
@@ -203,6 +208,11 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			}
 		}
 
+		// Mark privileged tools as skip when --system is not set
+		if !system && resource.IsPrivileged(res) {
+			resInfo.Action = resource.ActionSkip
+		}
+
 		info[nodeID] = resInfo
 	}
 
@@ -222,11 +232,16 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		for name, tool := range userState.Tools {
 			nodeID := graph.NewNodeID(resource.KindTool, name)
 			if _, exists := info[nodeID]; !exists {
+				action := resource.ActionRemove
+				// Privileged tool removals require --system; without it, skip.
+				if !system && tool.Privileged {
+					action = resource.ActionSkip
+				}
 				info[nodeID] = graph.ResourceInfo{
 					Kind:    resource.KindTool,
 					Name:    name,
 					Version: tool.Version,
-					Action:  resource.ActionRemove,
+					Action:  action,
 				}
 			}
 		}
@@ -303,7 +318,7 @@ type planResult struct {
 
 // resolvePlan builds the dependency graph, resolves execution layers, and
 // computes resource actions from the current state.
-func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (*planResult, error) {
+func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, system bool) (*planResult, error) {
 	definedResources := make(map[string]struct{})
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -336,7 +351,7 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (
 		}
 	}
 
-	resourceInfo := buildResourceInfo(resources, updateCfg)
+	resourceInfo := buildResourceInfo(resources, updateCfg, system)
 
 	return &planResult{
 		resolver:       resolver,
@@ -349,16 +364,21 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig) (
 // planForResources runs the plan logic on already-loaded resources and
 // writes the text plan to w. It returns true if there are any changes
 // (install, upgrade, reinstall, or remove).
-func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig) (bool, error) {
-	result, err := resolvePlan(resources, updateCfg)
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig, system bool) (bool, error) {
+	result, err := resolvePlan(resources, updateCfg, system)
 	if err != nil {
 		return false, err
 	}
 
+	// Count only real change actions; ActionNone and ActionSkip don't run
+	// anything, so they shouldn't trigger a confirmation prompt in apply.
 	hasChanges := false
 	for _, info := range result.resourceInfo {
-		if info.Action != resource.ActionNone {
+		switch info.Action {
+		case resource.ActionInstall, resource.ActionUpgrade, resource.ActionReinstall, resource.ActionRemove:
 			hasChanges = true
+		}
+		if hasChanges {
 			break
 		}
 	}

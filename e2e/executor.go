@@ -265,6 +265,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy binary-name-test: %w", err)
 	}
 
+	// Copy privileged-test configs
+	if err := copyDir(filepath.Join(configDir, "privileged-test"), filepath.Join(e.testHome, "privileged-test")); err != nil {
+		return fmt.Errorf("failed to copy privileged-test: %w", err)
+	}
+
 	return nil
 }
 

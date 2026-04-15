@@ -18,13 +18,16 @@ _brew:       _brewPrefix + "/bin/brew"
 		name:        "homebrew"
 		description: string | *"Homebrew package manager"
 	}
-	spec: commands: {
-		install: [
-			"NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
-		]
-		check: [_brew + " --version"]
-		remove: ["NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""]
-		resolveVersion: [_brew + " --version 2>/dev/null | head -1 | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo ''"]
+	spec: {
+		privileged: true
+		commands: {
+			install: [
+				"NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
+			]
+			check: [_brew + " --version"]
+			remove: ["NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""]
+			resolveVersion: [_brew + " --version 2>/dev/null | head -1 | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo ''"]
+		}
 	}
 }
 

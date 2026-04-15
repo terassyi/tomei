@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -62,8 +64,14 @@ For user-level resources (Runtime, Tool, ToolSet):
   tomei apply tools.cue runtime.cue
   tomei apply ~/.config/tomei/
 
-For system-level resources (SystemPackageRepository, SystemPackageSet):
-  sudo tomei apply --system .`,
+For privileged resources (tools with privileged: true):
+  tomei apply --system .
+
+Privileged tools (e.g., Homebrew) require sudo for install, upgrade,
+reinstall, and remove operations.
+Without --system, privileged operations are skipped with a warning.
+With --system, tomei prompts for sudo credentials once and uses
+them for privileged tool commands only.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }
@@ -82,17 +90,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	if systemMode {
-		cmd.Printf("Applying system-level resources from %v\n", args)
-		// TODO: implement system apply in Phase 4
-		cmd.Println("System apply not yet implemented")
-		return nil
+		cmd.Printf("Applying resources (including privileged) from %v\n", args)
+	} else {
+		cmd.Printf("Applying user-level resources from %v\n", args)
 	}
-
-	cmd.Printf("Applying user-level resources from %v\n", args)
-	return runUserApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg)
+	return runUserApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg, systemMode)
 }
 
-func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig) error {
+func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig, system bool) error {
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil, cfg.verifierOpts()...)
 	resources, err := loader.LoadPaths(paths)
@@ -104,6 +109,25 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	resources, err = resource.ExpandSets(resources)
 	if err != nil {
 		return fmt.Errorf("failed to expand sets: %w", err)
+	}
+
+	// System-privilege resource kinds (SystemInstaller, SystemPackage*) are not
+	// yet implemented by the engine and would otherwise be silently ignored.
+	// Fail fast with a clear error so users know these manifests have no effect.
+	if err := rejectUnsupportedSystemKinds(resources); err != nil {
+		return err
+	}
+
+	// Filter out privileged resources when --system is not set
+	if !system {
+		normal, privileged := resource.FilterPrivileged(resources)
+		if len(privileged) > 0 {
+			for _, r := range privileged {
+				slog.Info("skipping privileged resource (use --system)", "kind", r.Kind(), "name", r.Name())
+			}
+			fmt.Fprintf(w, "%d privileged resource(s) skipped. Use 'tomei apply --system' to install.\n\n", len(privileged))
+		}
+		resources = normal
 	}
 
 	// Load config from fixed path (~/.config/tomei/config.cue)
@@ -162,7 +186,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		UpdateTools:    cfg.updateTools || cfg.updateAll,
 		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
 	}
-	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg)
+	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg, system)
 	if err != nil {
 		return fmt.Errorf("failed to plan: %w", err)
 	}
@@ -219,12 +243,40 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return nil
 	})
 
+	// Acquire sudo credentials when --system is set (before TUI to allow interactive prompt).
+	// We always acquire when --system is given, not only when the manifest contains
+	// privileged tools, because privileged tools may exist only in state (removal case).
+	if system {
+		handler := &sudoHandler{}
+		if err := handler.Acquire(ctx); err != nil {
+			return err
+		}
+		defer func() {
+			if err := handler.Release(); err != nil {
+				slog.Warn("failed to invalidate sudo timestamp", "error", err)
+			}
+		}()
+		eng.SetPrivilegeHandler(handler)
+	}
+
 	// Choose TUI or ProgressManager based on TTY
 	isTTY := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
+	var applyErr error
 	if isTTY && !cfg.quiet {
-		return runApplyWithTUI(ctx, eng, resources, results, logStore, w, cfg)
+		applyErr = runApplyWithTUI(ctx, eng, resources, results, logStore, w, cfg)
+	} else {
+		applyErr = runApplyWithProgressManager(ctx, eng, resources, results, logStore, w, cfg)
 	}
-	return runApplyWithProgressManager(ctx, eng, resources, results, logStore, w, cfg)
+
+	// Report privileged action skips after apply completes.
+	// When privileged manifest resources are excluded without --system, they
+	// can otherwise be misrepresented here as removals (they're absent from
+	// the desired resource list but still intended to be installed).
+	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
+		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped. Use 'tomei apply --system' to manage privileged resources.\n", n)
+	}
+
+	return applyErr
 }
 
 // runApplyWithTUI runs apply with Bubble Tea TUI (for TTY mode).
@@ -381,4 +433,102 @@ func handleLogEvent(logStore *tomeilog.Store, event engine.Event) {
 	case engine.EventComplete:
 		logStore.RecordComplete(event.Kind, event.Name)
 	}
+}
+
+// sudoHandler implements engine.PrivilegeHandler for managing sudo session lifecycle.
+// It validates credentials interactively, probes non-interactive access,
+// and runs a background keepalive to prevent timeout during long installations.
+type sudoHandler struct {
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+// Acquire validates sudo credentials and starts a keepalive goroutine.
+func (h *sudoHandler) Acquire(ctx context.Context) error {
+	// Probe first: if cached credentials or passwordless sudo already work,
+	// avoid an unnecessary interactive prompt. This keeps CI / non-TTY flows
+	// working when sudoers is configured for NOPASSWD.
+	if err := exec.CommandContext(ctx, "sudo", "-n", "true").Run(); err != nil {
+		stdinFD := os.Stdin.Fd()
+		if !isatty.IsTerminal(stdinFD) && !isatty.IsCygwinTerminal(stdinFD) {
+			return fmt.Errorf("sudo requires interactive authentication, but stdin is not a TTY; rerun interactively or configure passwordless sudo for --system mode: %w", err)
+		}
+
+		// Interactive sudo -v (prompts for password if needed).
+		cmd := exec.CommandContext(ctx, "sudo", "-v")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("sudo authentication failed: %w", err)
+		}
+
+		// Verify that non-interactive sudo now works as required by the
+		// keepalive loop and later privileged commands.
+		if err := exec.CommandContext(ctx, "sudo", "-n", "true").Run(); err != nil {
+			return fmt.Errorf("sudo -n failed after sudo -v; your system may have tty_tickets enabled or a restrictive sudoers policy: %w", err)
+		}
+	}
+
+	// Background keepalive: refresh sudo timestamp every 45 seconds.
+	// Uses -n to avoid blocking on a password prompt if the timestamp expires
+	// between ticks (e.g., system sleep/resume).
+	keepCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	go func() {
+		ticker := time.NewTicker(45 * time.Second)
+		defer ticker.Stop()
+		failures := 0
+		for {
+			select {
+			case <-keepCtx.Done():
+				return
+			case <-ticker.C:
+				if err := exec.CommandContext(keepCtx, "sudo", "-n", "-v").Run(); err != nil {
+					failures++
+					slog.Warn("sudo keepalive failed", "consecutive_failures", failures, "error", err)
+					if failures >= 2 {
+						slog.Error("sudo keepalive failed repeatedly, sudo session may have expired")
+						return
+					}
+				} else {
+					failures = 0
+				}
+			}
+		}
+	}()
+
+	return nil
+}
+
+// Release invalidates the sudo timestamp and stops the keepalive goroutine.
+// Safe to call multiple times (idempotent via sync.Once).
+func (h *sudoHandler) Release() error {
+	var err error
+	h.once.Do(func() {
+		if h.cancel != nil {
+			h.cancel()
+		}
+		// Use a short timeout to avoid hanging if sudo is unresponsive.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err = exec.CommandContext(releaseCtx, "sudo", "-k").Run()
+	})
+	return err
+}
+
+// rejectUnsupportedSystemKinds returns an error if the resources include any
+// system-privilege kind. The engine does not yet execute SystemInstaller or
+// SystemPackage* resources, so we fail fast rather than silently ignoring them.
+func rejectUnsupportedSystemKinds(resources []resource.Resource) error {
+	var names []string
+	for _, r := range resources {
+		if resource.IsSystemKind(r.Kind()) {
+			names = append(names, fmt.Sprintf("%s/%s", r.Kind(), r.Name()))
+		}
+	}
+	if len(names) > 0 {
+		return fmt.Errorf("system-privilege resources are not yet supported: %s", strings.Join(names, ", "))
+	}
+	return nil
 }

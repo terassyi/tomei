@@ -578,6 +578,74 @@ func TestToolComparator_BinaryNameChanged(t *testing.T) {
 	}
 }
 
+// --- ToolComparator privileged change tests ---
+
+func TestToolComparator_PrivilegedChanged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		specPrivileged  bool
+		statePrivileged bool
+		wantUpdate      bool
+	}{
+		{
+			name:            "no change (both false)",
+			specPrivileged:  false,
+			statePrivileged: false,
+			wantUpdate:      false,
+		},
+		{
+			name:            "no change (both true)",
+			specPrivileged:  true,
+			statePrivileged: true,
+			wantUpdate:      false,
+		},
+		{
+			name:            "changed to privileged",
+			specPrivileged:  true,
+			statePrivileged: false,
+			wantUpdate:      true,
+		},
+		{
+			name:            "changed from privileged",
+			specPrivileged:  false,
+			statePrivileged: true,
+			wantUpdate:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			comparator := ToolComparator()
+
+			res := &resource.Tool{
+				BaseResource: resource.BaseResource{
+					Metadata: resource.Metadata{Name: "homebrew"},
+				},
+				ToolSpec: &resource.ToolSpec{
+					Version:    "4.0.0",
+					Privileged: tt.specPrivileged,
+					Commands:   &resource.ToolCommandSet{CommandSet: resource.CommandSet{Install: []string{"echo install"}}},
+				},
+			}
+
+			state := &resource.ToolState{
+				Version:     "4.0.0",
+				VersionKind: resource.VersionExact,
+				SpecVersion: "4.0.0",
+				Privileged:  tt.statePrivileged,
+			}
+
+			needsUpdate, reason := comparator(res, state)
+			assert.Equal(t, tt.wantUpdate, needsUpdate)
+			if tt.wantUpdate {
+				assert.Contains(t, reason, "privileged changed")
+			}
+		})
+	}
+}
+
 // --- RuntimeComparator tests with VersionKind ---
 
 func TestRuntimeComparator_VersionKind(t *testing.T) {

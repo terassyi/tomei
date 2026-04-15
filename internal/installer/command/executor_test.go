@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/tomei/internal/installer/executor"
 )
 
 func TestNewExecutor(t *testing.T) {
@@ -91,6 +92,27 @@ func TestExecutor_expand(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestExecutor_BuildCommand_Privileged(t *testing.T) {
+	t.Parallel()
+	e := NewExecutor("")
+
+	t.Run("normal command uses sh", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		cmd := e.buildCommand(ctx, "echo hello", nil)
+		assert.Equal(t, "sh", filepath.Base(cmd.Path))
+		assert.Equal(t, []string{"sh", "-c", "echo hello"}, cmd.Args)
+	})
+
+	t.Run("privileged command uses sudo", func(t *testing.T) {
+		t.Parallel()
+		ctx := executor.WithPrivileged(context.Background())
+		cmd := e.buildCommand(ctx, "echo hello", nil)
+		assert.Contains(t, cmd.Path, "sudo")
+		assert.Equal(t, []string{"sudo", "-n", "sh", "-c", "echo hello"}, cmd.Args)
+	})
 }
 
 func TestExecutor_Execute(t *testing.T) {

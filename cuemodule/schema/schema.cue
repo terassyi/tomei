@@ -170,6 +170,7 @@ package schema
 		commands?:      #ToolCommandSet
 		binaryName?:    string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 		args?: [...string]
+		privileged?: bool
 	}
 }
 
@@ -188,6 +189,7 @@ package schema
 			package?:    #Package
 			binaryName?: string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 			args?: [...string]
+			privileged?: bool
 		}}
 	}
 }

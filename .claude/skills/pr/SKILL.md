@@ -39,13 +39,21 @@ git log --oneline -5
 
 ### 1. Run tests (same as /test)
 
-Run sequentially, stop on first failure:
+**Skip this step** if the immediately preceding turn already ran the same
+verification pipeline against the current working tree (e.g., `/copilot`,
+`/gha`, or a previous `/pr` invocation that completed cleanly). Reusing
+the prior run avoids redundant work when no code changed since.
+
+Otherwise, run sequentially, stop on first failure:
 1. `make build`
 2. `make test`
 3. `make test-integration`
 4. `make test-e2e`
 
 ### 2. Lint and format
+
+Same skip rule as step 1 — if the preceding turn already ran `make fmt`
+and `make lint` against the current tree, skip. Otherwise:
 
 ```
 make fmt

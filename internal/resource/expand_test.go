@@ -551,3 +551,96 @@ func TestCollectDisabled_InheritedFields(t *testing.T) {
 func TestToolImplementsEnableable(t *testing.T) {
 	var _ Enableable = (*Tool)(nil)
 }
+
+func TestIsPrivileged(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		res  Resource
+		want bool
+	}{
+		{
+			name: "privileged commands-based tool",
+			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}}},
+			want: true,
+		},
+		{
+			name: "privileged tool without commands (non-commands pattern ignores privileged)",
+			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true}},
+			want: false,
+		},
+		{
+			name: "non-privileged tool",
+			res:  &Tool{ToolSpec: &ToolSpec{Privileged: false}},
+			want: false,
+		},
+		{
+			name: "tool with nil spec",
+			res:  &Tool{},
+			want: false,
+		},
+		{
+			name: "runtime (not a tool)",
+			res:  &Runtime{RuntimeSpec: &RuntimeSpec{Version: "1.22.0"}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, IsPrivileged(tt.res))
+		})
+	}
+}
+
+func TestFilterPrivileged(t *testing.T) {
+	t.Parallel()
+	resources := []Resource{
+		&Tool{
+			BaseResource: BaseResource{Metadata: Metadata{Name: "homebrew"}},
+			ToolSpec:     &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}},
+		},
+		&Tool{
+			BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}},
+			ToolSpec:     &ToolSpec{InstallerRef: "aqua", Version: "14.1.1"},
+		},
+		&Runtime{
+			BaseResource: BaseResource{Metadata: Metadata{Name: "go"}},
+			RuntimeSpec:  &RuntimeSpec{Version: "1.22.0"},
+		},
+	}
+
+	normal, privileged := FilterPrivileged(resources)
+	assert.Len(t, normal, 2)
+	assert.Len(t, privileged, 1)
+	assert.Equal(t, "homebrew", privileged[0].Name())
+	assert.Equal(t, "rg", normal[0].Name())
+	assert.Equal(t, "go", normal[1].Name())
+}
+
+func TestHasPrivileged(t *testing.T) {
+	t.Parallel()
+
+	t.Run("has privileged", func(t *testing.T) {
+		t.Parallel()
+		resources := []Resource{
+			&Tool{ToolSpec: &ToolSpec{Privileged: true, Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}}}},
+			&Tool{ToolSpec: &ToolSpec{}},
+		}
+		assert.True(t, HasPrivileged(resources))
+	})
+
+	t.Run("no privileged", func(t *testing.T) {
+		t.Parallel()
+		resources := []Resource{
+			&Tool{ToolSpec: &ToolSpec{}},
+			&Runtime{RuntimeSpec: &RuntimeSpec{Version: "1.22.0"}},
+		}
+		assert.False(t, HasPrivileged(resources))
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, HasPrivileged(nil))
+	})
+}

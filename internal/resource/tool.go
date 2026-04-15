@@ -263,6 +263,13 @@ type ToolSpec struct {
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
+
+	// Privileged indicates this tool requires elevated privileges for installation.
+	// When true, installation, removal, or update commands are executed with elevated
+	// privileges (for example, via sudo). Depending on the installer or commands used,
+	// this may result in a system-wide installation location.
+	// Default is false.
+	Privileged bool `json:"privileged,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -365,6 +372,15 @@ func (t *Tool) IsEnabled() bool {
 		return true
 	}
 	return t.ToolSpec.IsEnabled()
+}
+
+// IsPrivileged returns true if this tool requires elevated privileges for
+// installation. Privileged execution is only meaningful for command-based
+// tools (spec.commands set); other install patterns (download, registry,
+// delegation) ignore the privileged flag, so this method returns false for
+// them even when spec.privileged is true.
+func (t *Tool) IsPrivileged() bool {
+	return t.ToolSpec != nil && t.ToolSpec.Commands != nil && t.ToolSpec.Privileged
 }
 
 // IsEnabled returns whether the tool spec is enabled.
@@ -471,6 +487,7 @@ func buildToolFromSetItem(ts *ToolSet, name string, item ToolItem) *Tool {
 			Package:       item.Package,
 			BinaryName:    item.BinaryName,
 			Args:          item.Args,
+			Privileged:    item.Privileged,
 		},
 	}
 }
@@ -502,6 +519,10 @@ type ToolItem struct {
 	// Args provides additional arguments appended to the install command.
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	Args []string `json:"args,omitempty"`
+
+	// Privileged indicates this tool requires elevated privileges for installation.
+	// Default is false.
+	Privileged bool `json:"privileged,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -588,6 +609,11 @@ type ToolState struct {
 	// effective name (e.g., tool name, registry files[].name, or delegation output).
 	// Used by the reconciler to detect binaryName changes (both setting and unsetting).
 	BinaryName string `json:"binaryName,omitempty"`
+
+	// Privileged indicates this tool was installed with elevated privileges (sudo).
+	// Persisted so removal and reconciliation can determine if sudo is needed,
+	// even when the manifest is no longer present.
+	Privileged bool `json:"privileged,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
 	// Empty string means the tool is not tainted.

@@ -43,6 +43,17 @@ type Ref struct {
 	Name string
 }
 
+// IsSystemKind reports whether the kind belongs to the system-privilege
+// resource family (SystemInstaller, SystemPackageRepository, SystemPackageSet).
+func IsSystemKind(k Kind) bool {
+	switch k {
+	case KindSystemInstaller, KindSystemPackageRepository, KindSystemPackageSet:
+		return true
+	default:
+		return false
+	}
+}
+
 // knownKinds maps lowercase kind strings to their canonical Kind constants.
 var knownKinds map[string]Kind
 
