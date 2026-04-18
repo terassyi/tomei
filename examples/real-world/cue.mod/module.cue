@@ -4,6 +4,6 @@ language: {
 }
 deps: {
 	"tomei.terassyi.net@v0": {
-		v: "v0.1.9"
+		v: "v0.1.10"
 	}
 }
