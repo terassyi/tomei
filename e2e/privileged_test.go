@@ -17,8 +17,11 @@ func privilegedTests() {
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
 		// Clean up any leftover artifacts. The privileged-tool install creates
 		// root-owned paths (its command invokes `sudo -n` internally), so use
-		// sudo here to be robust to stale artifacts from a prior run.
-		_, _ = testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+		// sudo here to be robust to stale artifacts from a prior run. Assert
+		// success so a broken sudo/sudoers setup fails fast here rather than
+		// manifesting as a confusing failure in the actual privileged tests.
+		out, err := testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+		Expect(err).NotTo(HaveOccurred(), "privileged-tests cleanup failed: %s", out)
 	})
 
 	Context("Validate", func() {
@@ -73,9 +76,12 @@ func privilegedTests() {
 		BeforeAll(func() {
 			// Reset state and artifacts for --system test. sudo is needed
 			// because privileged-tool marker may have been created root-owned
-			// by an earlier apply in the same suite.
+			// by an earlier apply in the same suite. Assert success so a
+			// broken cleanup surfaces immediately rather than as a downstream
+			// assertion failure.
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-			_, _ = testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+			out, err := testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+			Expect(err).NotTo(HaveOccurred(), "--system apply cleanup failed: %s", out)
 		})
 
 		It("installs both privileged and normal tools", func() {
