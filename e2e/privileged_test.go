@@ -15,12 +15,16 @@ func privilegedTests() {
 		By("Resetting state for privileged tests")
 		_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-		// Clean up any leftover artifacts. The privileged-tool install creates
-		// root-owned paths (its command invokes `sudo -n` internally), so use
-		// sudo here to be robust to stale artifacts from a prior run. Assert
-		// success so a broken sudo/sudoers setup fails fast here rather than
-		// manifesting as a confusing failure in the actual privileged tests.
-		out, err := testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+		// Clean up leftover artifacts from prior runs. The normal-tool dir is
+		// always user-owned; the privileged-tool dir may have been created
+		// root-owned by a prior --system apply (its install command uses
+		// `sudo -n tee`). Try an unprivileged rm first so typical local /
+		// CI runs don't depend on sudo at all, then escalate with `sudo -n`
+		// only if the privileged-tool path actually still exists. Assert
+		// success so a broken sudo/sudoers setup surfaces here rather than
+		// as a confusing failure in a downstream assertion.
+		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+		out, err := testExec.ExecBash("[ -e /tmp/tomei-privileged-test ] && sudo -n rm -rf /tmp/tomei-privileged-test || true")
 		Expect(err).NotTo(HaveOccurred(), "privileged-tests cleanup failed: %s", out)
 	})
 
@@ -74,13 +78,15 @@ func privilegedTests() {
 
 	Context("Apply with --system", func() {
 		BeforeAll(func() {
-			// Reset state and artifacts for --system test. sudo is needed
-			// because privileged-tool marker may have been created root-owned
-			// by an earlier apply in the same suite. Assert success so a
-			// broken cleanup surfaces immediately rather than as a downstream
-			// assertion failure.
+			// Reset state and artifacts for the --system test. The
+			// privileged-tool marker may have been created root-owned by an
+			// earlier apply in the same suite; use the same "unprivileged rm
+			// first, sudo -n only if the root-owned path remains" pattern as
+			// the outer BeforeAll so we don't hard-require passwordless sudo
+			// to be usable when no root-owned artifact is actually present.
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-			out, err := testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+			out, err := testExec.ExecBash("[ -e /tmp/tomei-privileged-test ] && sudo -n rm -rf /tmp/tomei-privileged-test || true")
 			Expect(err).NotTo(HaveOccurred(), "--system apply cleanup failed: %s", out)
 		})
 

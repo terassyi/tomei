@@ -13,12 +13,15 @@
 //
 // Privileged Tools (--system mode):
 // Commands always run as the invoking user via "sh -c"; tomei does not
-// wrap commands in sudo. When --system is active, the apply command
-// pre-acquires a sudo timestamp before dispatching work, so any "sudo ..."
-// invocation inside a user-authored command succeeds without prompting
-// (including "sudo -n"). Tools that need a specific step to run as root
-// should write that step explicitly as "sudo <cmd>". Installers that run
-// as the user and escalate internally (e.g., Homebrew) work out of the box.
+// wrap commands in sudo. When --system is active, apply pre-acquires a
+// sudo timestamp and refreshes it during the session (keepalive). "sudo
+// ..." invocations inside a user-authored command can then use that
+// cached ticket (including "sudo -n"), subject to the host's sudoers
+// policy (tty_tickets, requiretty, timestamp_timeout, targetpw, etc.) and
+// to the keepalive successfully refreshing the ticket. Tools that need a
+// specific step to run as root should write that step explicitly as
+// "sudo <cmd>". Installers that run as the user and escalate internally
+// (e.g., Homebrew) work with this approach.
 package command
 
 import (

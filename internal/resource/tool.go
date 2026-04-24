@@ -270,13 +270,19 @@ type ToolSpec struct {
 	//
 	// The commands themselves always execute as the invoking user via
 	// "sh -c" — tomei does not wrap them in sudo. With --system, tomei
-	// pre-acquires a sudo timestamp so that any "sudo ..." invocation
-	// inside the command succeeds without a password prompt (including
-	// "sudo -n"). Without --system, privileged tools are skipped.
+	// pre-acquires a sudo timestamp so that "sudo ..." invocations inside
+	// the command can use the cached ticket without re-prompting, subject
+	// to the host's sudoers policy. Without --system, privileged tools
+	// are skipped.
 	//
 	// If a step must run as root, write it as "sudo <cmd>" explicitly in
 	// the command string. Installers that run as the user and escalate
 	// internally (e.g., Homebrew) work with Privileged alone.
+	//
+	// Migration note: earlier versions wrapped the entire command in
+	// "sudo -n sh -c ..." when Privileged was set. Manifests that relied
+	// on that wrap to run commands as root must now prefix the specific
+	// steps that need root with "sudo " (e.g., "cp ..." → "sudo cp ...").
 	// Default is false.
 	Privileged bool `json:"privileged,omitempty"`
 }
