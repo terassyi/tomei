@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -57,9 +58,7 @@ func TestStore_LoadSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load: %v", err)
 	}
-	if state == nil {
-		t.Fatal("state should not be nil")
-	}
+	require.NotNil(t, state, "state should not be nil")
 
 	// Initialize and save state
 	state.Version = Version
@@ -693,9 +692,7 @@ func TestStore_RegistryState(t *testing.T) {
 					t.Fatalf("expected 1 tool, got %d", len(loaded.Tools))
 				}
 				tool := loaded.Tools["gh"]
-				if tool == nil {
-					t.Fatal("tool 'gh' should exist")
-				}
+				require.NotNil(t, tool, "tool 'gh' should exist")
 				if tool.Package == nil || tool.Package.String() != "cli/cli" {
 					t.Errorf("expected package cli/cli, got %v", tool.Package)
 				}

@@ -15,8 +15,20 @@ func privilegedTests() {
 		By("Resetting state for privileged tests")
 		_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-		// Clean up any leftover artifacts
-		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+		// Clean up leftover artifacts from prior runs. The normal-tool dir is
+		// always user-owned; the privileged-tool dir may have been created
+		// root-owned by a prior --system apply (its install command uses
+		// `sudo -n tee`). Try an unprivileged rm first so typical local /
+		// CI runs don't depend on sudo at all, then escalate with `sudo -n`
+		// only if the privileged-tool path actually still exists. Assert
+		// success so a broken sudo/sudoers setup surfaces here rather than
+		// as a confusing failure in a downstream assertion.
+		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+		// `if ... fi` (not `A && B || true`) so that a sudo failure when the
+		// path still exists surfaces as a non-zero exit, instead of being
+		// masked by the trailing `|| true`.
+		out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
+		Expect(err).NotTo(HaveOccurred(), "privileged-tests cleanup failed: %s", out)
 	})
 
 	Context("Validate", func() {
@@ -69,9 +81,18 @@ func privilegedTests() {
 
 	Context("Apply with --system", func() {
 		BeforeAll(func() {
-			// Reset state and artifacts for --system test
+			// Reset state and artifacts for the --system test. The
+			// privileged-tool marker may have been created root-owned by an
+			// earlier apply in the same suite; use the same "unprivileged rm
+			// first, sudo -n only if the root-owned path remains" pattern as
+			// the outer BeforeAll so we don't hard-require passwordless sudo
+			// to be usable when no root-owned artifact is actually present.
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+			// See outer BeforeAll for why this uses `if ... fi` rather than
+			// `A && B || true` — the latter masks sudo failures.
+			out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
+			Expect(err).NotTo(HaveOccurred(), "--system apply cleanup failed: %s", out)
 		})
 
 		It("installs both privileged and normal tools", func() {
@@ -82,9 +103,12 @@ func privilegedTests() {
 		})
 
 		It("creates privileged tool marker via sudo", func() {
-			// Verify the marker exists and is owned by root (uid 0). Writing
-			// to /tmp would succeed even unprivileged, so ownership is the
-			// distinguishing signal that sudo was actually used.
+			// Verify the marker exists and is owned by root (uid 0). The
+			// privileged-tool's install command runs as the invoking user
+			// and invokes `sudo -n tee` internally; the `-n` succeeds only
+			// because --system pre-acquired a sudo timestamp for the apply
+			// session. Root ownership is the distinguishing signal that the
+			// cached ticket was usable from within the user-authored command.
 			output, err := testExec.ExecBash("cat /tmp/tomei-privileged-test/marker")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("installed"))
@@ -146,6 +170,31 @@ normalTool: {
 			stateOutput, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stateOutput).To(ContainSubstring("privileged-tool"))
+		})
+	})
+
+	Context("Removal with --system", func() {
+		// The previous "Removal without --system" Context left the reduced
+		// manifest at /tmp/tomei-removal-test/ and privileged-tool still in
+		// state. Re-apply the same manifest with --system and verify the
+		// persisted remove command executes end-to-end: the privileged tool's
+		// remove command runs `sudo -n rm -rf /tmp/tomei-privileged-test`,
+		// which depends on the cached sudo timestamp to succeed.
+		It("runs privileged remove command and deletes the root-owned marker", func() {
+			output, err := ExecApply(testExec, "--system", "/tmp/tomei-removal-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("privileged-tool"))
+
+			// The root-owned marker directory should be gone — this proves
+			// the sudo -n inside the persisted remove command actually ran
+			// against the cached ticket.
+			_, err = testExec.ExecBash("test -e /tmp/tomei-privileged-test")
+			Expect(err).To(HaveOccurred(), "privileged-tool marker dir should have been removed")
+
+			// State should no longer contain privileged-tool
+			stateOutput, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stateOutput).NotTo(ContainSubstring("privileged-tool"))
 		})
 	})
 }

@@ -580,21 +580,14 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 
 	vars := command.Vars{Name: name, Version: spec.Version}
 
-	// Use privileged context for install/upgrade/reinstall commands
-	// (sudo -n sh -c). cmdToRun above is Update for upgrade/reinstall when set,
-	// otherwise Install. Check and resolveVersion are read-only and always
-	// run unprivileged.
-	installCtx := ctx
-	if spec.Privileged {
-		installCtx = executor.WithPrivileged(ctx)
-	}
-
-	// Execute command with output streaming (env is nil: self-managed tools define their own environment)
-	if err := i.executeCommand(installCtx, cmdToRun, vars, nil); err != nil {
+	// env is nil: self-managed tools define their own environment inline.
+	// The command runs as the invoking user; see ToolSpec.Privileged for
+	// how --system interacts with sudo calls inside the command.
+	if err := i.executeCommand(ctx, cmdToRun, vars, nil); err != nil {
 		return nil, fmt.Errorf("failed to execute command: %w", err)
 	}
 
-	// Verify installation with check command (always unprivileged)
+	// Verify installation with check command
 	if len(cmds.Check) > 0 {
 		if !i.cmdExecutor.Check(ctx, cmds.Check, vars, nil) {
 			return nil, fmt.Errorf("check command failed after install")
@@ -633,16 +626,13 @@ func (i *Installer) installByCommands(ctx context.Context, res *resource.Tool, n
 func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name string) error {
 	slog.Debug("removing tool", "name", name, "version", st.Version)
 
-	// Self-managed tool removal
+	// Self-managed tool removal. The command runs as the invoking user;
+	// see ToolSpec.Privileged for how --system interacts with sudo calls
+	// inside the command (including removal of root-owned artifacts).
 	if st.Commands != nil {
 		if len(st.Commands.Remove) > 0 {
-			// Use privileged context for remove if the tool was installed with sudo.
-			removeCtx := ctx
-			if st.Privileged {
-				removeCtx = executor.WithPrivileged(ctx)
-			}
 			vars := command.Vars{Name: name, Version: st.Version}
-			if err := i.cmdExecutor.Execute(removeCtx, st.Commands.Remove, vars); err != nil {
+			if err := i.cmdExecutor.Execute(ctx, st.Commands.Remove, vars); err != nil {
 				return fmt.Errorf("failed to execute remove command: %w", err)
 			}
 		} else {

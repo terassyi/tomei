@@ -264,10 +264,25 @@ type ToolSpec struct {
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
 
-	// Privileged indicates this tool requires elevated privileges for installation.
-	// When true, installation, removal, or update commands are executed with elevated
-	// privileges (for example, via sudo). Depending on the installer or commands used,
-	// this may result in a system-wide installation location.
+	// Privileged declares that this tool's Commands require a cached sudo
+	// timestamp while they run. Only meaningful together with Commands;
+	// ignored for other install patterns (InstallerRef, RuntimeRef).
+	//
+	// The commands themselves always execute as the invoking user via
+	// "sh -c" — tomei does not wrap them in sudo. With --system, tomei
+	// pre-acquires a sudo timestamp so that "sudo ..." invocations inside
+	// the command can use the cached ticket without re-prompting, subject
+	// to the host's sudoers policy. Without --system, privileged tools
+	// are skipped.
+	//
+	// If a step must run as root, write it as "sudo <cmd>" explicitly in
+	// the command string. Installers that run as the user and escalate
+	// internally (e.g., Homebrew) work with Privileged alone.
+	//
+	// Migration note: earlier versions wrapped the entire command in
+	// "sudo -n sh -c ..." when Privileged was set. Manifests that relied
+	// on that wrap to run commands as root must now prefix the specific
+	// steps that need root with "sudo " (e.g., "cp ..." → "sudo cp ...").
 	// Default is false.
 	Privileged bool `json:"privileged,omitempty"`
 }
@@ -374,11 +389,12 @@ func (t *Tool) IsEnabled() bool {
 	return t.ToolSpec.IsEnabled()
 }
 
-// IsPrivileged returns true if this tool requires elevated privileges for
-// installation. Privileged execution is only meaningful for command-based
-// tools (spec.commands set); other install patterns (download, registry,
-// delegation) ignore the privileged flag, so this method returns false for
-// them even when spec.privileged is true.
+// IsPrivileged returns true if this tool declares that its install/update/
+// remove commands expect a cached sudo timestamp (i.e. require --system).
+// The privileged flag is only meaningful for command-based tools
+// (spec.commands set); other install patterns (download, registry,
+// delegation) ignore it, so this method returns false for them even when
+// spec.privileged is true.
 func (t *Tool) IsPrivileged() bool {
 	return t.ToolSpec != nil && t.ToolSpec.Commands != nil && t.ToolSpec.Privileged
 }
@@ -520,8 +536,9 @@ type ToolItem struct {
 	// These are joined with spaces and available as {{.Args}} in command templates.
 	Args []string `json:"args,omitempty"`
 
-	// Privileged indicates this tool requires elevated privileges for installation.
-	// Default is false.
+	// Privileged declares that this tool's commands require a cached sudo
+	// timestamp while they run (i.e. --system is required to install/remove).
+	// See ToolSpec.Privileged for full semantics. Default is false.
 	Privileged bool `json:"privileged,omitempty"`
 }
 
@@ -610,9 +627,18 @@ type ToolState struct {
 	// Used by the reconciler to detect binaryName changes (both setting and unsetting).
 	BinaryName string `json:"binaryName,omitempty"`
 
-	// Privileged indicates this tool was installed with elevated privileges (sudo).
-	// Persisted so removal and reconciliation can determine if sudo is needed,
-	// even when the manifest is no longer present.
+	// Privileged indicates this tool was installed under --system (its commands
+	// expect a cached sudo timestamp while they run). Persisted so removal and
+	// reconciliation can apply the same --system gate even when the manifest is
+	// no longer present.
+	//
+	// Migration note: in the short-lived pre-fix semantics, `privileged: true`
+	// meant tomei wrapped the whole command in "sudo -n sh -c ...". A state
+	// entry carrying Commands.Remove written under those semantics may have a
+	// bare "foo" where the new semantics need "sudo foo". Re-applying the
+	// manifest updates the persisted commands, so the resolution is to update
+	// the manifest (prefix root-requiring steps with "sudo ") and run
+	// `tomei apply --system` to refresh state before triggering removal.
 	Privileged bool `json:"privileged,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.

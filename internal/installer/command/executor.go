@@ -11,16 +11,17 @@
 // PRs or shared repos). Running tomei with untrusted manifests can
 // introduce command injection risks and is not supported.
 //
-// Privileged Execution (--system mode):
-// When the context carries the privileged flag (set via executor.WithPrivileged),
-// commands are executed as "sudo -n sh -c" instead of "sh -c", running the
-// entire command pipeline as root. The -n flag ensures non-interactive execution
-// (no password prompt), relying on a previously cached sudo timestamp.
-//
-// Note: sudo's env_reset policy strips most environment variables from the
-// root shell. Any environment variables needed by privileged commands must be
-// inlined in the command string itself (e.g., "NONINTERACTIVE=1 /bin/bash -c ..."),
-// not passed via ExecuteWithEnv's env parameter.
+// Privileged Tools (--system mode):
+// Commands always run as the invoking user via "sh -c"; tomei does not
+// wrap commands in sudo. When --system is active, apply pre-acquires a
+// sudo timestamp and refreshes it during the session (keepalive). "sudo
+// ..." invocations inside a user-authored command can then use that
+// cached ticket (including "sudo -n"), subject to the host's sudoers
+// policy (tty_tickets, requiretty, timestamp_timeout, targetpw, etc.) and
+// to the keepalive successfully refreshing the ticket. Tools that need a
+// specific step to run as root should write that step explicitly as
+// "sudo <cmd>". Installers that run as the user and escalate internally
+// (e.g., Homebrew) work with this approach.
 package command
 
 import (
@@ -35,8 +36,6 @@ import (
 	"strings"
 	"sync"
 	"text/template"
-
-	"github.com/terassyi/tomei/internal/installer/executor"
 )
 
 // OutputCallback is called for each line of command output.
@@ -72,17 +71,10 @@ func (e *Executor) expandCommands(cmds []string, vars Vars) (string, error) {
 }
 
 // buildCommand creates an exec.Cmd with the expanded command string, working directory, and environment.
-// When the context carries the privileged flag, the command is executed via
-// "sudo -n sh -c" instead of "sh -c" for root execution without a password prompt.
+// Commands always run as the invoking user via "sh -c"; see the package doc
+// comment for how privileged tools interact with a cached sudo timestamp.
 func (e *Executor) buildCommand(ctx context.Context, expanded string, env map[string]string) *exec.Cmd {
-	name := "sh"
-	args := []string{"-c", expanded}
-	if executor.PrivilegedFromContext(ctx) {
-		slog.Debug("executing privileged command")
-		name = "sudo"
-		args = []string{"-n", "sh", "-c", expanded}
-	}
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, "sh", "-c", expanded)
 	if e.workDir != "" {
 		cmd.Dir = e.workDir
 	}
