@@ -24,7 +24,10 @@ func privilegedTests() {
 		// success so a broken sudo/sudoers setup surfaces here rather than
 		// as a confusing failure in a downstream assertion.
 		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
-		out, err := testExec.ExecBash("[ -e /tmp/tomei-privileged-test ] && sudo -n rm -rf /tmp/tomei-privileged-test || true")
+		// `if ... fi` (not `A && B || true`) so that a sudo failure when the
+		// path still exists surfaces as a non-zero exit, instead of being
+		// masked by the trailing `|| true`.
+		out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
 		Expect(err).NotTo(HaveOccurred(), "privileged-tests cleanup failed: %s", out)
 	})
 
@@ -86,7 +89,9 @@ func privilegedTests() {
 			// to be usable when no root-owned artifact is actually present.
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
 			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
-			out, err := testExec.ExecBash("[ -e /tmp/tomei-privileged-test ] && sudo -n rm -rf /tmp/tomei-privileged-test || true")
+			// See outer BeforeAll for why this uses `if ... fi` rather than
+			// `A && B || true` — the latter masks sudo failures.
+			out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
 			Expect(err).NotTo(HaveOccurred(), "--system apply cleanup failed: %s", out)
 		})
 
