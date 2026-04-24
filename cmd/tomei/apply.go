@@ -72,8 +72,8 @@ reinstall/remove commands require a cached sudo timestamp while they run.
 Without --system, privileged operations are skipped with a warning.
 With --system, tomei prompts for sudo credentials once and keeps the
 timestamp refreshed; the tool's commands still run as the invoking user,
-and any "sudo ..." invocation inside them succeeds without a password
-prompt.`,
+and "sudo ..." invocations inside them can use the cached ticket without
+re-prompting, subject to the host's sudoers policy.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }

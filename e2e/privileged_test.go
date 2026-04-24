@@ -167,4 +167,29 @@ normalTool: {
 			Expect(stateOutput).To(ContainSubstring("privileged-tool"))
 		})
 	})
+
+	Context("Removal with --system", func() {
+		// The previous "Removal without --system" Context left the reduced
+		// manifest at /tmp/tomei-removal-test/ and privileged-tool still in
+		// state. Re-apply the same manifest with --system and verify the
+		// persisted remove command executes end-to-end: the privileged tool's
+		// remove command runs `sudo -n rm -rf /tmp/tomei-privileged-test`,
+		// which depends on the cached sudo timestamp to succeed.
+		It("runs privileged remove command and deletes the root-owned marker", func() {
+			output, err := ExecApply(testExec, "--system", "/tmp/tomei-removal-test/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("privileged-tool"))
+
+			// The root-owned marker directory should be gone — this proves
+			// the sudo -n inside the persisted remove command actually ran
+			// against the cached ticket.
+			_, err = testExec.ExecBash("test -e /tmp/tomei-privileged-test")
+			Expect(err).To(HaveOccurred(), "privileged-tool marker dir should have been removed")
+
+			// State should no longer contain privileged-tool
+			stateOutput, err := testExec.ExecBash("cat ~/.local/share/tomei/state.json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(stateOutput).NotTo(ContainSubstring("privileged-tool"))
+		})
+	})
 }

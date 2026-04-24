@@ -107,8 +107,9 @@ Commands are separated by privilege level:
   tomei apply --system     Also apply privileged tool operations; tomei
                            prompts for sudo credentials once and keeps
                            the timestamp cached so that "sudo ..." calls
-                           inside the tool's own commands succeed without
-                           a password prompt`,
+                           inside the tool's own commands can use it
+                           without re-prompting (subject to sudoers
+                           policy)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
@@ -119,7 +120,7 @@ Commands are separated by privilege level:
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable privileged tool operations; tomei caches a sudo timestamp so tool commands can invoke 'sudo' internally without prompting")
+	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable privileged tool operations; tomei caches a sudo timestamp so tool commands can invoke 'sudo' internally using it (subject to sudoers policy)")
 	rootCmd.PersistentFlags().Var(globalLogLevel, "log-level", "Log level (debug, info, warn, error)")
 	_ = rootCmd.RegisterFlagCompletionFunc("log-level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp

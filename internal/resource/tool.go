@@ -631,6 +631,14 @@ type ToolState struct {
 	// expect a cached sudo timestamp while they run). Persisted so removal and
 	// reconciliation can apply the same --system gate even when the manifest is
 	// no longer present.
+	//
+	// Migration note: in the short-lived pre-fix semantics, `privileged: true`
+	// meant tomei wrapped the whole command in "sudo -n sh -c ...". A state
+	// entry carrying Commands.Remove written under those semantics may have a
+	// bare "foo" where the new semantics need "sudo foo". Re-applying the
+	// manifest updates the persisted commands, so the resolution is to update
+	// the manifest (prefix root-requiring steps with "sudo ") and run
+	// `tomei apply --system` to refresh state before triggering removal.
 	Privileged bool `json:"privileged,omitempty"`
 
 	// TaintReason indicates why this tool needs reinstallation.
