@@ -60,14 +60,3 @@ func TestOldBinPathContext_Empty(t *testing.T) {
 	got := OldBinPathFromContext(context.Background())
 	assert.Empty(t, got)
 }
-
-func TestPrivilegedContext(t *testing.T) {
-	t.Parallel()
-	ctx := WithPrivileged(context.Background())
-	assert.True(t, PrivilegedFromContext(ctx))
-}
-
-func TestPrivilegedContext_NotSet(t *testing.T) {
-	t.Parallel()
-	assert.False(t, PrivilegedFromContext(context.Background()))
-}

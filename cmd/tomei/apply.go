@@ -67,11 +67,13 @@ For user-level resources (Runtime, Tool, ToolSet):
 For privileged resources (tools with privileged: true):
   tomei apply --system .
 
-Privileged tools (e.g., Homebrew) require sudo for install, upgrade,
-reinstall, and remove operations.
+Privileged tools (e.g., Homebrew) declare that their install/upgrade/
+reinstall/remove commands require a cached sudo timestamp while they run.
 Without --system, privileged operations are skipped with a warning.
-With --system, tomei prompts for sudo credentials once and uses
-them for privileged tool commands only.`,
+With --system, tomei prompts for sudo credentials once and keeps the
+timestamp refreshed; the tool's commands still run as the invoking user,
+and any "sudo ..." invocation inside them succeeds without a password
+prompt.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }

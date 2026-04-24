@@ -15,8 +15,10 @@ func privilegedTests() {
 		By("Resetting state for privileged tests")
 		_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
 		_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-		// Clean up any leftover artifacts
-		_, _ = testExec.ExecBash("rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+		// Clean up any leftover artifacts. The privileged-tool install creates
+		// root-owned paths (its command invokes `sudo -n` internally), so use
+		// sudo here to be robust to stale artifacts from a prior run.
+		_, _ = testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
 	})
 
 	Context("Validate", func() {
@@ -69,9 +71,11 @@ func privilegedTests() {
 
 	Context("Apply with --system", func() {
 		BeforeAll(func() {
-			// Reset state and artifacts for --system test
+			// Reset state and artifacts for --system test. sudo is needed
+			// because privileged-tool marker may have been created root-owned
+			// by an earlier apply in the same suite.
 			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
-			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
+			_, _ = testExec.ExecBash("sudo -n rm -rf /tmp/tomei-privileged-test /tmp/tomei-normal-test")
 		})
 
 		It("installs both privileged and normal tools", func() {
@@ -82,9 +86,12 @@ func privilegedTests() {
 		})
 
 		It("creates privileged tool marker via sudo", func() {
-			// Verify the marker exists and is owned by root (uid 0). Writing
-			// to /tmp would succeed even unprivileged, so ownership is the
-			// distinguishing signal that sudo was actually used.
+			// Verify the marker exists and is owned by root (uid 0). The
+			// privileged-tool's install command runs as the invoking user
+			// and invokes `sudo -n tee` internally; the `-n` succeeds only
+			// because --system pre-acquired a sudo timestamp for the apply
+			// session. Root ownership is the distinguishing signal that the
+			// cached ticket was usable from within the user-authored command.
 			output, err := testExec.ExecBash("cat /tmp/tomei-privileged-test/marker")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(output).To(ContainSubstring("installed"))

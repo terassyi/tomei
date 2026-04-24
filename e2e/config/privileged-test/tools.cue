@@ -1,7 +1,10 @@
 package tomei
 
 // Privileged tool: should be skipped without --system flag.
-// Uses a simple marker file to verify install behavior.
+// The install command runs as the invoking user (just like Homebrew) and
+// invokes `sudo` internally. `sudo -n` succeeds because --system pre-acquires
+// a sudo timestamp for the apply session. The marker ends up root-owned,
+// which proves the cached ticket was used rather than an outer sudo wrap.
 _markerDir: "/tmp/tomei-privileged-test"
 
 privilegedTool: {
@@ -11,9 +14,9 @@ privilegedTool: {
 	spec: {
 		privileged: true
 		commands: {
-			install: ["mkdir -p \(_markerDir) && echo installed > \(_markerDir)/marker"]
+			install: ["sudo -n mkdir -p \(_markerDir) && echo installed | sudo -n tee \(_markerDir)/marker > /dev/null"]
 			check: ["test -f \(_markerDir)/marker"]
-			remove: ["rm -rf \(_markerDir)"]
+			remove: ["sudo -n rm -rf \(_markerDir)"]
 		}
 	}
 }

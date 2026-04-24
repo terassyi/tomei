@@ -36,9 +36,10 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 		if res.ToolSpec.BinaryName != state.BinaryName {
 			return true, "binaryName changed: " + state.BinaryName + " -> " + res.ToolSpec.BinaryName
 		}
-		// Detect privileged change only for commands-based tools, where the
-		// execution mode is persisted in state and relevant to installation.
-		// Other install patterns ignore the privileged flag and do not persist it.
+		// Detect privileged change only for commands-based tools. The flag
+		// is a spec-vs-state drift signal (it gates --system and is persisted
+		// in state). Other install patterns ignore the privileged flag and do
+		// not persist it.
 		if (res.ToolSpec.Commands != nil || state.Commands != nil) && res.ToolSpec.Privileged != state.Privileged {
 			return true, "privileged changed"
 		}

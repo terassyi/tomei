@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/terassyi/tomei/internal/installer/executor"
 )
 
 func TestNewExecutor(t *testing.T) {
@@ -94,25 +93,19 @@ func TestExecutor_expand(t *testing.T) {
 	}
 }
 
-func TestExecutor_BuildCommand_Privileged(t *testing.T) {
+// TestExecutor_BuildCommand_AlwaysUsesSh guards against regressions that
+// would re-introduce implicit sudo wrapping. Tomei runs every user-authored
+// command as the invoking user via "sh -c". Tools that need a step to run
+// as root should write "sudo <cmd>" explicitly; the apply flow caches a sudo
+// timestamp in --system mode so such "sudo" calls succeed without prompting.
+func TestExecutor_BuildCommand_AlwaysUsesSh(t *testing.T) {
 	t.Parallel()
 	e := NewExecutor("")
 
-	t.Run("normal command uses sh", func(t *testing.T) {
-		t.Parallel()
-		ctx := context.Background()
-		cmd := e.buildCommand(ctx, "echo hello", nil)
-		assert.Equal(t, "sh", filepath.Base(cmd.Path))
-		assert.Equal(t, []string{"sh", "-c", "echo hello"}, cmd.Args)
-	})
-
-	t.Run("privileged command uses sudo", func(t *testing.T) {
-		t.Parallel()
-		ctx := executor.WithPrivileged(context.Background())
-		cmd := e.buildCommand(ctx, "echo hello", nil)
-		assert.Contains(t, cmd.Path, "sudo")
-		assert.Equal(t, []string{"sudo", "-n", "sh", "-c", "echo hello"}, cmd.Args)
-	})
+	ctx := context.Background()
+	cmd := e.buildCommand(ctx, "echo hello", nil)
+	assert.Equal(t, "sh", filepath.Base(cmd.Path))
+	assert.Equal(t, []string{"sh", "-c", "echo hello"}, cmd.Args)
 }
 
 func TestExecutor_Execute(t *testing.T) {

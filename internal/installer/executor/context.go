@@ -35,18 +35,3 @@ func OldBinPathFromContext(ctx context.Context) string {
 	}
 	return ""
 }
-
-type privilegedKey struct{}
-
-// WithPrivileged returns a context indicating that commands should be
-// executed with elevated privileges (sudo). Used by the command executor
-// to prefix commands with "sudo -n sh -c" instead of "sh -c".
-func WithPrivileged(ctx context.Context) context.Context {
-	return context.WithValue(ctx, privilegedKey{}, true)
-}
-
-// PrivilegedFromContext reports whether the context indicates privileged execution.
-func PrivilegedFromContext(ctx context.Context) bool {
-	v, _ := ctx.Value(privilegedKey{}).(bool)
-	return v
-}
