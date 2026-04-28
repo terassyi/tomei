@@ -134,7 +134,7 @@ const (
 // Engine orchestrates the apply process.
 type Engine struct {
 	store                   *state.Store[state.UserState]
-	stateCache              *executor.StateCache
+	stateCache              *executor.StateCache[state.UserState]
 	toolStore               executor.StateStore[*resource.ToolState]
 	runtimeStore            executor.StateStore[*resource.RuntimeState]
 	installerRepoStore      executor.StateStore[*resource.InstallerRepositoryState]
@@ -172,7 +172,7 @@ func NewEngine(
 	installerRepoInstaller InstallerRepositoryInstaller,
 	store *state.Store[state.UserState],
 ) *Engine {
-	sc := executor.NewStateCache(store)
+	sc := executor.NewStateCache[state.UserState](store)
 	toolStore := executor.NewToolStore(sc)
 	runtimeStore := executor.NewRuntimeStore(sc)
 	repoStore := executor.NewInstallerRepositoryStore(sc)
