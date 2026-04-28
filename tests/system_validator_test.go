@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"os/exec"
 	"slices"
 	"testing"
 
@@ -32,6 +33,9 @@ func TestValidator_RealSystem(t *testing.T) {
 
 	if !slices.Contains(v.SupportedInstallers(), system.PackageManagerAPT) {
 		t.Skip("apt is not supported on this system")
+	}
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		t.Skip("apt-get not found in PATH")
 	}
 
 	res := &resource.SystemInstaller{
