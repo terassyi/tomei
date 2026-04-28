@@ -1,7 +1,4 @@
 // Package apt provides APT package manager integration for system package management.
-//
-// Currently implements InstallerInstaller for the SystemInstaller resource,
-// which detects APT availability and records the version.
 package apt
 
 import (
@@ -10,12 +7,25 @@ import (
 	"strings"
 
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/system"
 )
 
-// commandRunner abstracts shell command execution for testability.
+// CommandRunner abstracts shell command execution for testability.
 // This is a subset of command.Executor's methods.
-type commandRunner interface {
+type CommandRunner interface {
 	ExecuteCapture(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error)
+}
+
+// VersionFunc returns a system.VersionFunc that runs "apt-get --version"
+// and extracts the version string.
+func VersionFunc(runner CommandRunner) system.VersionFunc {
+	return func(ctx context.Context) (string, error) {
+		output, err := runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to run apt-get --version: %w", err)
+		}
+		return parseAptVersion(output)
+	}
 }
 
 // parseAptVersion extracts the version string from apt-get --version output.
