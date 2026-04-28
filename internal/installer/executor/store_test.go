@@ -14,21 +14,21 @@ import (
 	"pgregory.net/rapid"
 )
 
-// newStateCache creates a StateCache with Lock already acquired and Init called.
-func newStateCache(t *testing.T) *StateCache {
+// newStateCache creates a StateCache[UserState] with Lock already acquired and Init called.
+func newStateCache(t *testing.T) *StateCache[state.UserState] {
 	t.Helper()
 	dir := t.TempDir()
 	store, err := state.NewStore[state.UserState](dir)
 	require.NoError(t, err)
 	require.NoError(t, store.Lock())
 	t.Cleanup(func() { _ = store.Unlock() })
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	sc.Init(state.NewUserState())
 	return sc
 }
 
-// newStateCacheRapid creates a StateCache for use inside rapid.Check.
-func newStateCacheRapid(t *rapid.T) *StateCache {
+// newStateCacheRapid creates a StateCache[UserState] for use inside rapid.Check.
+func newStateCacheRapid(t *rapid.T) *StateCache[state.UserState] {
 	dir, err := os.MkdirTemp("", "store-test-*")
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func newStateCacheRapid(t *rapid.T) *StateCache {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Unlock() })
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	sc.Init(state.NewUserState())
 	return sc
 }
@@ -57,7 +57,7 @@ func TestStateCache_InitAndFlush(t *testing.T) {
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
 
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	st := state.NewUserState()
 	st.Tools["rg"] = &resource.ToolState{Version: "14.0.0"}
 	sc.Init(st)
@@ -84,7 +84,7 @@ func TestStateCache_FlushOnlyWhenDirty(t *testing.T) {
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
 
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	sc.Init(state.NewUserState())
 
 	// Flush without changes should be a no-op (no error, no disk write)
@@ -110,7 +110,7 @@ func TestStateCache_ConcurrentSaveThenFlush(t *testing.T) {
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
 
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	sc.Init(state.NewUserState())
 	ts := NewToolStore(sc)
 
@@ -143,7 +143,7 @@ func TestCachedStore_markDirtyViaSave(t *testing.T) {
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
 
-	sc := NewStateCache(store)
+	sc := NewStateCache[state.UserState](store)
 	st := state.NewUserState()
 	st.Tools["exa"] = &resource.ToolState{Version: "0.10.0", TaintReason: resource.TaintReasonRuntimeUpgraded}
 	sc.Init(st)

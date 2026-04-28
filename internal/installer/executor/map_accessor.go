@@ -5,13 +5,21 @@ import (
 	"github.com/terassyi/tomei/internal/state"
 )
 
-// mapAccessor abstracts access to a specific map within UserState.
+// mapAccessor abstracts access to a specific map within a state type.
+// T is the container (UserState or SystemState), S is the value type.
 // Each implementation knows only about its own map field.
-type mapAccessor[S resource.State] interface {
-	get(st *state.UserState, name string) (S, bool)
-	set(st *state.UserState, name string, val S)
-	del(st *state.UserState, name string)
+type mapAccessor[T state.State, S resource.State] interface {
+	get(st *T, name string) (S, bool)
+	set(st *T, name string, val S)
+	del(st *T, name string)
 }
+
+// Compile-time interface satisfaction checks.
+var (
+	_ mapAccessor[state.UserState, *resource.ToolState]                = toolMapAccessor{}
+	_ mapAccessor[state.UserState, *resource.RuntimeState]             = runtimeMapAccessor{}
+	_ mapAccessor[state.UserState, *resource.InstallerRepositoryState] = repoMapAccessor{}
+)
 
 // --- Tool ---
 
@@ -37,8 +45,8 @@ func (toolMapAccessor) del(st *state.UserState, name string) {
 }
 
 // NewToolStore creates a StateStore for tool state backed by the given cache.
-func NewToolStore(cache *StateCache) StateStore[*resource.ToolState] {
-	return &cachedStore[*resource.ToolState]{cache: cache, accessor: toolMapAccessor{}}
+func NewToolStore(cache *StateCache[state.UserState]) StateStore[*resource.ToolState] {
+	return &cachedStore[state.UserState, *resource.ToolState]{cache: cache, accessor: toolMapAccessor{}}
 }
 
 // --- Runtime ---
@@ -65,8 +73,8 @@ func (runtimeMapAccessor) del(st *state.UserState, name string) {
 }
 
 // NewRuntimeStore creates a StateStore for runtime state backed by the given cache.
-func NewRuntimeStore(cache *StateCache) StateStore[*resource.RuntimeState] {
-	return &cachedStore[*resource.RuntimeState]{cache: cache, accessor: runtimeMapAccessor{}}
+func NewRuntimeStore(cache *StateCache[state.UserState]) StateStore[*resource.RuntimeState] {
+	return &cachedStore[state.UserState, *resource.RuntimeState]{cache: cache, accessor: runtimeMapAccessor{}}
 }
 
 // --- InstallerRepository ---
@@ -93,6 +101,6 @@ func (repoMapAccessor) del(st *state.UserState, name string) {
 }
 
 // NewInstallerRepositoryStore creates a StateStore for installer repository state backed by the given cache.
-func NewInstallerRepositoryStore(cache *StateCache) StateStore[*resource.InstallerRepositoryState] {
-	return &cachedStore[*resource.InstallerRepositoryState]{cache: cache, accessor: repoMapAccessor{}}
+func NewInstallerRepositoryStore(cache *StateCache[state.UserState]) StateStore[*resource.InstallerRepositoryState] {
+	return &cachedStore[state.UserState, *resource.InstallerRepositoryState]{cache: cache, accessor: repoMapAccessor{}}
 }
