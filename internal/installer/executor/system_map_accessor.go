@@ -5,6 +5,13 @@ import (
 	"github.com/terassyi/tomei/internal/state"
 )
 
+// Compile-time interface satisfaction checks.
+var (
+	_ mapAccessor[state.SystemState, *resource.SystemInstallerState]         = systemInstallerMapAccessor{}
+	_ mapAccessor[state.SystemState, *resource.SystemPackageRepositoryState] = systemPackageRepoMapAccessor{}
+	_ mapAccessor[state.SystemState, *resource.SystemPackageSetState]        = systemPackageSetMapAccessor{}
+)
+
 // --- SystemInstaller ---
 
 type systemInstallerMapAccessor struct{}

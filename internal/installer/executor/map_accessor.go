@@ -14,6 +14,13 @@ type mapAccessor[T state.State, S resource.State] interface {
 	del(st *T, name string)
 }
 
+// Compile-time interface satisfaction checks.
+var (
+	_ mapAccessor[state.UserState, *resource.ToolState]                = toolMapAccessor{}
+	_ mapAccessor[state.UserState, *resource.RuntimeState]             = runtimeMapAccessor{}
+	_ mapAccessor[state.UserState, *resource.InstallerRepositoryState] = repoMapAccessor{}
+)
+
 // --- Tool ---
 
 type toolMapAccessor struct{}
