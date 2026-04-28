@@ -165,3 +165,12 @@ func TestValidator_Validate_NilInstaller(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "installer must not be nil")
 }
+
+func TestValidator_Validate_MissingVersionFunc(t *testing.T) {
+	t.Parallel()
+	v := newTestValidator(t, &DistroInfo{ID: "debian"}, map[PackageManager]VersionFunc{})
+
+	_, err := v.Validate(context.Background(), newSystemInstaller("apt"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no version function registered")
+}
