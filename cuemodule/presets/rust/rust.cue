@@ -125,7 +125,8 @@ import "tomei.terassyi.net/schema"
 //
 // Note: runtimeRef is used for DAG ordering only — the engine does not
 // inject the runtime's binDir onto PATH for installer-delegation
-// commands, so rustup is invoked by absolute path.
+// commands, so rustup is invoked by an explicit path (not relying on
+// PATH).
 //
 // Usage:
 //   rustupComponentInstaller: #RustupComponentInstaller
