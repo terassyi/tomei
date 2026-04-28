@@ -46,7 +46,11 @@ func detectDistroFrom(root string) (*DistroInfo, error) {
 			}
 			return nil, fmt.Errorf("failed to read %s: %w", p, err)
 		}
-		return parseOSRelease(string(data))
+		info, err := parseOSRelease(string(data))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse %s: %w", p, err)
+		}
+		return info, nil
 	}
 
 	return nil, fmt.Errorf("os-release not found: checked %s", strings.Join(paths, ", "))

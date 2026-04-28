@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -19,6 +20,10 @@ import (
 
 func TestValidator_RealSystem(t *testing.T) {
 	t.Parallel()
+
+	if runtime.GOOS != "linux" {
+		t.Skip("os-release detection requires Linux")
+	}
 
 	distro, err := system.DetectDistro()
 	require.NoError(t, err)
