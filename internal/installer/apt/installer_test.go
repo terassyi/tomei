@@ -15,10 +15,9 @@ import (
 // --- mock ---
 
 type captureCall struct {
-	cmds       []string
-	vars       command.Vars
-	env        map[string]string
-	privileged bool
+	cmds []string
+	vars command.Vars
+	env  map[string]string
 }
 
 type mockCommandRunner struct {
@@ -27,12 +26,11 @@ type mockCommandRunner struct {
 	calls         []captureCall
 }
 
-func (m *mockCommandRunner) ExecuteCapture(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error) {
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error) {
 	m.calls = append(m.calls, captureCall{
-		cmds:       cmds,
-		vars:       vars,
-		env:        env,
-		privileged: executor.PrivilegedFromContext(ctx),
+		cmds: cmds,
+		vars: vars,
+		env:  env,
 	})
 	return m.captureOutput, m.captureErr
 }
@@ -104,8 +102,6 @@ func TestInstallerInstaller_Install(t *testing.T) {
 			assert.Equal(t, []string{"apt-get --version"}, call.cmds)
 			assert.Equal(t, command.Vars{}, call.vars)
 			assert.Nil(t, call.env)
-			// apt-get --version does not require sudo
-			assert.False(t, call.privileged)
 		})
 	}
 }
