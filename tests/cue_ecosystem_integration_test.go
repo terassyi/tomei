@@ -500,6 +500,115 @@ binstallInstaller: rust.#BinstallInstaller
 	}
 }
 
+// TestCueEcosystem_MockRegistry_RustupComponentToolSet verifies that the
+// rustup-component preset (#RustupComponentInstaller + #RustupComponentToolSet)
+// resolves through the mock OCI registry, deserializes with the expected
+// shell commands, and expands the ToolSet so each component's `package`
+// defaults to the map key.
+func TestCueEcosystem_MockRegistry_RustupComponentToolSet(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/rust"
+
+rustRuntime:              rust.#RustRuntime
+rustupComponentInstaller: rust.#RustupComponentInstaller
+rustComponents: rust.#RustupComponentToolSet & {
+	metadata: name: "rust-components"
+	spec: tools: {
+		"rust-analyzer": {}
+		"rust-src":      {}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(dir)
+	require.NoError(t, err)
+	require.Len(t, resources, 3)
+
+	var (
+		installer *resource.Installer
+		toolset   *resource.ToolSet
+	)
+	for _, r := range resources {
+		switch v := r.(type) {
+		case *resource.Installer:
+			if v.Name() == "rustup-component" {
+				installer = v
+			}
+		case *resource.ToolSet:
+			if v.Name() == "rust-components" {
+				toolset = v
+			}
+		}
+	}
+	require.NotNil(t, installer, "rustup-component installer not found")
+	require.NotNil(t, toolset, "rust-components toolset not found")
+
+	// Installer shape: delegation + runtimeRef "rust" + the three rustup commands.
+	assert.True(t, installer.InstallerSpec.Type.IsDelegation())
+	assert.Equal(t, "rust", installer.InstallerSpec.RuntimeRef)
+	require.NotNil(t, installer.InstallerSpec.Commands)
+	require.Len(t, installer.InstallerSpec.Commands.Install, 1)
+	assert.Contains(t, installer.InstallerSpec.Commands.Install[0], "rustup component add")
+	assert.Contains(t, installer.InstallerSpec.Commands.Install[0], "{{.Package}}")
+	require.Len(t, installer.InstallerSpec.Commands.Check, 1)
+	assert.Contains(t, installer.InstallerSpec.Commands.Check[0], "rustup component list --installed")
+	// Regex must accept both bare-name and `<name>-<host-triple>` forms;
+	// rustup prints the latter for components with per-target variants.
+	assert.Contains(t, installer.InstallerSpec.Commands.Check[0], "grep -qE")
+	assert.Contains(t, installer.InstallerSpec.Commands.Check[0], "(-|$)")
+	require.Len(t, installer.InstallerSpec.Commands.Remove, 1)
+	assert.Contains(t, installer.InstallerSpec.Commands.Remove[0], "rustup component remove")
+
+	// ToolSet expansion: package defaults to the map key.
+	assert.Equal(t, "rustup-component", toolset.ToolSetSpec.InstallerRef)
+	expanded, err := toolset.Expand()
+	require.NoError(t, err)
+	require.Len(t, expanded, 2)
+	pkgs := make(map[string]string)
+	for _, r := range expanded {
+		tool, ok := r.(*resource.Tool)
+		require.True(t, ok)
+		assert.Equal(t, "rustup-component", tool.ToolSpec.InstallerRef)
+		require.NotNil(t, tool.ToolSpec.Package)
+		pkgs[tool.Name()] = tool.ToolSpec.Package.String()
+	}
+	assert.Equal(t, "rust-analyzer", pkgs["rust-analyzer"])
+	assert.Equal(t, "rust-src", pkgs["rust-src"])
+}
+
+// TestCueEcosystem_MockRegistry_RustupComponentToolSet_RejectsVersion verifies
+// that #RustupComponentToolSet's `version?: _|_` guard rejects any attempt to
+// set a per-tool version, since rustup components track the active toolchain.
+func TestCueEcosystem_MockRegistry_RustupComponentToolSet_RejectsVersion(t *testing.T) {
+	reg := startMockRegistry(t)
+	dir := setupMockRegistryDir(t, reg)
+
+	manifest := `package tomei
+
+import "tomei.terassyi.net/presets/rust"
+
+rustRuntime:              rust.#RustRuntime
+rustupComponentInstaller: rust.#RustupComponentInstaller
+rustComponents: rust.#RustupComponentToolSet & {
+	metadata: name: "rust-components"
+	spec: tools: {
+		"rust-analyzer": {version: "1.0"}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+
+	loader := config.NewLoader(nil)
+	_, err := loader.Load(dir)
+	require.Error(t, err, "setting version on a rustup component should fail CUE evaluation")
+}
+
 // TestCueEcosystem_MockRegistry_MultiplePresetImports verifies that go + aqua
 // presets can be imported together via the mock OCI registry.
 func TestCueEcosystem_MockRegistry_MultiplePresetImports(t *testing.T) {

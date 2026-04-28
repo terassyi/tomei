@@ -111,3 +111,78 @@ import "tomei.terassyi.net/schema"
 		}}
 	}
 }
+
+// #RustupComponentInstaller declares an Installer that delegates to
+// `rustup component add/remove`. Depends on #RustRuntime (rustup ships
+// with the runtime).
+//
+// Toolchain selection: the commands operate on the rustup-active
+// toolchain, which is normally the default toolchain set by
+// #RustRuntime's bootstrap (`rustup install --default-toolchain`). A
+// project-local `rust-toolchain.toml` in the apply CWD will shadow the
+// default; if that's a concern, run `tomei apply` from a directory
+// without such an override.
+//
+// Note: runtimeRef is used for DAG ordering only — the engine does not
+// inject the runtime's binDir onto PATH for installer-delegation
+// commands, so rustup is invoked by an explicit path (not relying on
+// PATH).
+//
+// Usage:
+//   rustupComponentInstaller: #RustupComponentInstaller
+#RustupComponentInstaller: schema.#Installer & {
+	let _cargoBin = "~/.cargo/bin"
+
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Installer"
+	metadata: {
+		name:        "rustup-component"
+		description: string | *"Install rustup-managed Rust components"
+	}
+	spec: {
+		type:       "delegation"
+		runtimeRef: "rust"
+		commands: {
+			install: ["\(_cargoBin)/rustup component add {{.Package}}"]
+			// `rustup component list --installed` prints `<component>` or
+			// `<component>-<host-triple>` depending on whether the component
+			// has per-target variants — match either form.
+			check: ["\(_cargoBin)/rustup component list --installed | grep -qE '^{{.Package}}(-|$)'"]
+			remove: ["\(_cargoBin)/rustup component remove {{.Package}}"]
+		}
+	}
+}
+
+// #RustupComponentToolSet declares a set of rustup-managed components.
+// Requires #RustRuntime and #RustupComponentInstaller to be declared.
+//
+// The map key is the component name; `package` defaults to the key, so
+// the common case is `"<component>": {}`.
+//
+// Common components (see `rustup component list`):
+//   rust-analyzer, rust-src, miri, llvm-tools, rustc-dev, rust-docs
+// (rustfmt and clippy are already provided by the default rustup profile.)
+//
+// Usage:
+//   rustComponents: #RustupComponentToolSet & {
+//       metadata: name: "rust-components"
+//       spec: tools: {
+//           "rust-analyzer": {}
+//           "rust-src":      {}
+//       }
+//   }
+#RustupComponentToolSet: schema.#ToolSet & {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "ToolSet"
+	metadata: {
+		name:        string
+		description: string | *"Rust components installed via rustup"
+	}
+	spec: {
+		installerRef: "rustup-component"
+		tools: {[Name=string]: {
+			package:  string | *Name
+			version?: _|_
+		}}
+	}
+}
