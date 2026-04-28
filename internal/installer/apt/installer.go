@@ -37,7 +37,7 @@ func (i *InstallerInstaller) Install(ctx context.Context, _ *resource.SystemInst
 
 	output, err := i.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("apt-get not found: this installer requires a Debian-based system: %w", err)
+		return nil, fmt.Errorf("failed to run apt-get --version (is this a Debian-based system?): %w", err)
 	}
 
 	version, err := parseAptVersion(output)

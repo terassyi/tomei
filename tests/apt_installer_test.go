@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,10 @@ import (
 
 func TestInstallerInstaller_Install_RealAPT(t *testing.T) {
 	t.Parallel()
+
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		t.Skip("apt-get not available")
+	}
 
 	installer := apt.NewInstallerInstaller()
 
@@ -39,6 +44,10 @@ func TestInstallerInstaller_Install_RealAPT(t *testing.T) {
 
 func TestInstallerInstaller_Remove_RealAPT(t *testing.T) {
 	t.Parallel()
+
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		t.Skip("apt-get not available")
+	}
 
 	installer := apt.NewInstallerInstaller()
 

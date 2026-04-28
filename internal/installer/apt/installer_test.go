@@ -63,7 +63,7 @@ func TestInstallerInstaller_Install(t *testing.T) {
 			name:       "apt-get not found",
 			captureErr: fmt.Errorf("exec: \"apt-get\": executable file not found in $PATH"),
 			wantErr:    true,
-			wantErrMsg: "apt-get not found",
+			wantErrMsg: "failed to run apt-get --version",
 		},
 	}
 
