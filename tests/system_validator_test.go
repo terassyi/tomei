@@ -4,7 +4,7 @@ package tests
 
 import (
 	"context"
-	"os/exec"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,19 +19,20 @@ import (
 func TestValidator_RealSystem(t *testing.T) {
 	t.Parallel()
 
-	if _, err := exec.LookPath("apt-get"); err != nil {
-		t.Skip("apt-get not available")
-	}
+	distro, err := system.DetectDistro()
+	require.NoError(t, err)
 
 	runner := command.NewExecutor("")
 	versionFuncs := map[system.PackageManager]system.VersionFunc{
 		system.PackageManagerAPT: apt.VersionFunc(runner),
 	}
 
-	distro, err := system.DetectDistro()
+	v, err := system.NewValidator(distro, versionFuncs)
 	require.NoError(t, err)
 
-	v := system.NewValidator(distro, versionFuncs)
+	if !slices.Contains(v.SupportedInstallers(), system.PackageManagerAPT) {
+		t.Skip("apt is not supported on this system")
+	}
 
 	res := &resource.SystemInstaller{
 		BaseResource: resource.BaseResource{

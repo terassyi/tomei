@@ -54,11 +54,15 @@ type Validator struct {
 
 // NewValidator creates a Validator for the given distribution.
 // Call DetectDistro() first to obtain the DistroInfo.
-func NewValidator(distro *DistroInfo, versionFuncs map[PackageManager]VersionFunc) *Validator {
+// Returns an error if distro is nil.
+func NewValidator(distro *DistroInfo, versionFuncs map[PackageManager]VersionFunc) (*Validator, error) {
+	if distro == nil {
+		return nil, fmt.Errorf("distro must not be nil")
+	}
 	return &Validator{
 		distro:       distro,
 		versionFuncs: versionFuncs,
-	}
+	}, nil
 }
 
 // Validate checks that the declared installer is available on this system
