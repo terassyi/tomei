@@ -178,27 +178,38 @@ func TestSystemStores_ConcurrentMixed(t *testing.T) {
 	sps := NewSystemPackageSetStore(sc)
 
 	const n = 10
-	var wg sync.WaitGroup
+	var (
+		wg      sync.WaitGroup
+		sisErrs = make([]error, n)
+		srsErrs = make([]error, n)
+		spsErrs = make([]error, n)
+	)
 
 	// Concurrent writes across all three system store types
 	for i := range n {
 		wg.Go(func() {
 			name := fmt.Sprintf("installer-%d", i)
-			_ = sis.Save(name, &resource.SystemInstallerState{Version: fmt.Sprintf("2.%d.0", i)})
+			sisErrs[i] = sis.Save(name, &resource.SystemInstallerState{Version: fmt.Sprintf("2.%d.0", i)})
 		})
 		wg.Go(func() {
 			name := fmt.Sprintf("repo-%d", i)
-			_ = srs.Save(name, &resource.SystemPackageRepositoryState{InstallerRef: "apt"})
+			srsErrs[i] = srs.Save(name, &resource.SystemPackageRepositoryState{InstallerRef: "apt"})
 		})
 		wg.Go(func() {
 			name := fmt.Sprintf("pkgset-%d", i)
-			_ = sps.Save(name, &resource.SystemPackageSetState{
+			spsErrs[i] = sps.Save(name, &resource.SystemPackageSetState{
 				InstallerRef: "apt",
 				Packages:     []string{fmt.Sprintf("pkg-%d", i)},
 			})
 		})
 	}
 	wg.Wait()
+
+	for i := range n {
+		require.NoError(t, sisErrs[i], "save failed for installer-%d", i)
+		require.NoError(t, srsErrs[i], "save failed for repo-%d", i)
+		require.NoError(t, spsErrs[i], "save failed for pkgset-%d", i)
+	}
 
 	// Verify all entries are present
 	for i := range n {
