@@ -156,3 +156,12 @@ func TestNewValidator_NilDistro(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "distro must not be nil")
 }
+
+func TestValidator_Validate_NilInstaller(t *testing.T) {
+	t.Parallel()
+	v := newTestValidator(t, &DistroInfo{ID: "debian"}, nil)
+
+	_, err := v.Validate(context.Background(), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "installer must not be nil")
+}

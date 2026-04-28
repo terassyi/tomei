@@ -68,6 +68,9 @@ func NewValidator(distro *DistroInfo, versionFuncs map[PackageManager]VersionFun
 // Validate checks that the declared installer is available on this system
 // and returns the installer state with version info.
 func (v *Validator) Validate(ctx context.Context, installer *resource.SystemInstaller) (*resource.SystemInstallerState, error) {
+	if installer == nil {
+		return nil, fmt.Errorf("installer must not be nil")
+	}
 	name := PackageManager(installer.Name())
 
 	if !allPackageManagers[name] {
