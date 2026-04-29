@@ -381,6 +381,9 @@ func (e *SystemEngine) handleSystemRemovals(
 		}
 		return err
 	}
+	if err := e.stateCache.Flush(); err != nil {
+		return fmt.Errorf("failed to flush state after installer removals: %w", err)
+	}
 	return nil
 }
 
