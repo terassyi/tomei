@@ -185,6 +185,18 @@ func newSystemEngineTestSetup(t *testing.T) *systemEngineTestSetup {
 	return s
 }
 
+// setupState locks the store, applies fn to a fresh SystemState, saves, and
+// unlocks. The deferred unlock ensures the lock is released even if a require
+// assertion fails mid-setup.
+func setupState(t *testing.T, store *state.Store[state.SystemState], fn func(*state.SystemState)) {
+	t.Helper()
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st := state.NewSystemState()
+	fn(st)
+	require.NoError(t, store.Save(st))
+}
+
 func (s *systemEngineTestSetup) getEvents() []Event {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,28 +316,26 @@ func TestSystemEngine_Apply_NoChanges(t *testing.T) {
 	s := newSystemEngineTestSetup(t)
 
 	// Pre-populate state
-	require.NoError(t, s.store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source: resource.SourceConfig{
-			URL:    "https://example.com/docker/repo",
-			KeyURL: "https://example.com/docker/gpg",
-		},
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-		InstallerRef:  "apt",
-		RepositoryRef: "docker",
-		Packages:      []string{"docker-ce", "containerd.io"},
-		UpdatedAt:     time.Now(),
-	}
-	require.NoError(t, s.store.Save(st))
-	require.NoError(t, s.store.Unlock())
+	setupState(t, s.store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source: resource.SourceConfig{
+				URL:    "https://example.com/docker/repo",
+				KeyURL: "https://example.com/docker/gpg",
+			},
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce", "containerd.io"},
+			UpdatedAt:     time.Now(),
+		}
+	})
 
 	resources := []resource.Resource{
 		testSystemInstaller("apt"),
@@ -353,25 +363,23 @@ func TestSystemEngine_Apply_Removals(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pre-populate state with resources that will be removed
-	require.NoError(t, store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
-		UpdatedAt:    time.Now(),
-	}
-	st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-		InstallerRef:  "apt",
-		RepositoryRef: "docker",
-		Packages:      []string{"docker-ce"},
-		UpdatedAt:     time.Now(),
-	}
-	require.NoError(t, store.Save(st))
-	require.NoError(t, store.Unlock())
+	setupState(t, store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			UpdatedAt:    time.Now(),
+		}
+		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce"},
+			UpdatedAt:     time.Now(),
+		}
+	})
 
 	installerMock := &mockSysInstallerInstaller{
 		installFn: defaultInstallerInstallFn,
@@ -419,7 +427,7 @@ func TestSystemEngine_Apply_Removals(t *testing.T) {
 	// Verify state is cleared
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
-	st, err = store.Load()
+	st, err := store.Load()
 	require.NoError(t, err)
 	assert.Empty(t, st.SystemInstallers)
 	assert.Empty(t, st.SystemPackageRepositories)
@@ -505,22 +513,20 @@ func TestSystemEngine_Apply_UpgradeRepo(t *testing.T) {
 	s := newSystemEngineTestSetup(t)
 
 	// Pre-populate state with old URL
-	require.NoError(t, s.store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source: resource.SourceConfig{
-			URL:    "https://old.example.com/docker/repo",
-			KeyURL: "https://example.com/docker/gpg",
-		},
-		UpdatedAt: time.Now(),
-	}
-	require.NoError(t, s.store.Save(st))
-	require.NoError(t, s.store.Unlock())
+	setupState(t, s.store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source: resource.SourceConfig{
+				URL:    "https://old.example.com/docker/repo",
+				KeyURL: "https://example.com/docker/gpg",
+			},
+			UpdatedAt: time.Now(),
+		}
+	})
 
 	resources := []resource.Resource{
 		testSystemInstaller("apt"),
@@ -651,28 +657,26 @@ func TestSystemEngine_PlanAll_NoChanges(t *testing.T) {
 	s := newSystemEngineTestSetup(t)
 
 	// Pre-populate state matching spec
-	require.NoError(t, s.store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source: resource.SourceConfig{
-			URL:    "https://example.com/docker/repo",
-			KeyURL: "https://example.com/docker/gpg",
-		},
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-		InstallerRef:  "apt",
-		RepositoryRef: "docker",
-		Packages:      []string{"docker-ce"},
-		UpdatedAt:     time.Now(),
-	}
-	require.NoError(t, s.store.Save(st))
-	require.NoError(t, s.store.Unlock())
+	setupState(t, s.store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source: resource.SourceConfig{
+				URL:    "https://example.com/docker/repo",
+				KeyURL: "https://example.com/docker/gpg",
+			},
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce"},
+			UpdatedAt:     time.Now(),
+		}
+	})
 
 	resources := []resource.Resource{
 		testSystemInstaller("apt"),
@@ -693,19 +697,17 @@ func TestSystemEngine_PlanAll_InstallerRemovalDependencyError(t *testing.T) {
 	s := newSystemEngineTestSetup(t)
 
 	// Pre-populate state: installer "apt" exists, repo "docker" depends on it
-	require.NoError(t, s.store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
-		UpdatedAt:    time.Now(),
-	}
-	require.NoError(t, s.store.Save(st))
-	require.NoError(t, s.store.Unlock())
+	setupState(t, s.store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			UpdatedAt:    time.Now(),
+		}
+	})
 
 	// Spec keeps repo "docker" but removes installer "apt" → dependency error
 	resources := []resource.Resource{
@@ -722,25 +724,23 @@ func TestSystemEngine_PlanAll_RepoRemovalDependencyError(t *testing.T) {
 	s := newSystemEngineTestSetup(t)
 
 	// Pre-populate state: repo "docker" exists, package set depends on it
-	require.NoError(t, s.store.Lock())
-	st := state.NewSystemState()
-	st.SystemInstallers["apt"] = &resource.SystemInstallerState{
-		Version:   "1.0.0",
-		UpdatedAt: time.Now(),
-	}
-	st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
-		UpdatedAt:    time.Now(),
-	}
-	st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-		InstallerRef:  "apt",
-		RepositoryRef: "docker",
-		Packages:      []string{"docker-ce"},
-		UpdatedAt:     time.Now(),
-	}
-	require.NoError(t, s.store.Save(st))
-	require.NoError(t, s.store.Unlock())
+	setupState(t, s.store, func(st *state.SystemState) {
+		st.SystemInstallers["apt"] = &resource.SystemInstallerState{
+			Version:   "1.0.0",
+			UpdatedAt: time.Now(),
+		}
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			UpdatedAt:    time.Now(),
+		}
+		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce"},
+			UpdatedAt:     time.Now(),
+		}
+	})
 
 	// Spec keeps installer and packages but removes repo → dependency error
 	resources := []resource.Resource{
@@ -760,15 +760,13 @@ func TestSystemEngine_Apply_RemoveError(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pre-populate state with a single package set
-	require.NoError(t, store.Lock())
-	st := state.NewSystemState()
-	st.SystemPackages["failing-pkg"] = &resource.SystemPackageSetState{
-		InstallerRef: "apt",
-		Packages:     []string{"a"},
-		UpdatedAt:    time.Now(),
-	}
-	require.NoError(t, store.Save(st))
-	require.NoError(t, store.Unlock())
+	setupState(t, store, func(st *state.SystemState) {
+		st.SystemPackages["failing-pkg"] = &resource.SystemPackageSetState{
+			InstallerRef: "apt",
+			Packages:     []string{"a"},
+			UpdatedAt:    time.Now(),
+		}
+	})
 
 	packageMock := &mockSysPackageInstaller{
 		installFn: defaultPackageInstallFn,
@@ -793,7 +791,7 @@ func TestSystemEngine_Apply_RemoveError(t *testing.T) {
 	// State should still contain the failed resource
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
-	st, err = store.Load()
+	st, err := store.Load()
 	require.NoError(t, err)
 	assert.NotNil(t, st.SystemPackages["failing-pkg"], "failed removal should leave state intact")
 }
@@ -808,20 +806,18 @@ func TestSystemEngine_Apply_RemoveErrorFlushesSuccessful(t *testing.T) {
 	// and one repo (removal will fail).
 	// Removal order is packages → repos → installers, so packages should
 	// be removed and flushed before the repo removal fails.
-	require.NoError(t, store.Lock())
-	st := state.NewSystemState()
-	st.SystemPackages["good-pkg"] = &resource.SystemPackageSetState{
-		InstallerRef: "apt",
-		Packages:     []string{"a"},
-		UpdatedAt:    time.Now(),
-	}
-	st.SystemPackageRepositories["bad-repo"] = &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source:       resource.SourceConfig{URL: "https://example.com"},
-		UpdatedAt:    time.Now(),
-	}
-	require.NoError(t, store.Save(st))
-	require.NoError(t, store.Unlock())
+	setupState(t, store, func(st *state.SystemState) {
+		st.SystemPackages["good-pkg"] = &resource.SystemPackageSetState{
+			InstallerRef: "apt",
+			Packages:     []string{"a"},
+			UpdatedAt:    time.Now(),
+		}
+		st.SystemPackageRepositories["bad-repo"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: "apt",
+			Source:       resource.SourceConfig{URL: "https://example.com"},
+			UpdatedAt:    time.Now(),
+		}
+	})
 
 	repoMock := &mockSysRepoInstaller{
 		installFn: defaultRepoInstallFn,
@@ -846,7 +842,7 @@ func TestSystemEngine_Apply_RemoveErrorFlushesSuccessful(t *testing.T) {
 	// Verify: successful package removal was flushed despite the repo error
 	require.NoError(t, store.Lock())
 	defer func() { _ = store.Unlock() }()
-	st, err = store.Load()
+	st, err := store.Load()
 	require.NoError(t, err)
 	assert.Nil(t, st.SystemPackages["good-pkg"], "successful removal should be persisted even when later batch fails")
 	assert.NotNil(t, st.SystemPackageRepositories["bad-repo"], "failed removal should leave state intact")
