@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/terassyi/tomei/internal/resource"
@@ -30,6 +31,7 @@ func NewSystemPackageSetReconciler() *Reconciler[*resource.SystemPackageSet, *re
 }
 
 // packageDiff returns packages added to and removed from the spec compared to state.
+// Both inputs are treated as sets; duplicates are ignored and output is sorted.
 func packageDiff(spec, state []string) (added, removed []string) {
 	specSet := make(map[string]bool, len(spec))
 	for _, p := range spec {
@@ -40,16 +42,18 @@ func packageDiff(spec, state []string) (added, removed []string) {
 		stateSet[p] = true
 	}
 
-	for _, p := range spec {
+	for p := range specSet {
 		if !stateSet[p] {
 			added = append(added, p)
 		}
 	}
-	for _, p := range state {
+	for p := range stateSet {
 		if !specSet[p] {
 			removed = append(removed, p)
 		}
 	}
+	slices.Sort(added)
+	slices.Sort(removed)
 	return added, removed
 }
 
