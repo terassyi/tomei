@@ -15,7 +15,8 @@ import (
 
 // validatorInstallerAdapter wraps system.Validator as executor.Installer
 // for SystemInstaller resources. Install validates the package manager;
-// Remove always returns an error because OS package managers cannot be removed.
+// Remove is a no-op that allows stale state entries to be cleaned up;
+// OS package managers themselves are not removed.
 type validatorInstallerAdapter struct {
 	validator *system.Validator
 }

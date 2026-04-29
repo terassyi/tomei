@@ -297,6 +297,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 			Kind:   kind,
 			Name:   action.Name,
 			Action: action.Type,
+			Method: "system",
 			Error:  err,
 		})
 		return fmt.Errorf("failed to execute action %s for %s %s: %w", action.Type, kind, action.Name, err)
@@ -307,6 +308,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		Kind:   kind,
 		Name:   action.Name,
 		Action: action.Type,
+		Method: "system",
 	})
 
 	*totalActions++

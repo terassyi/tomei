@@ -168,7 +168,8 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 	for _, res := range resources {
 		nodeID := graph.NewNodeID(res.Kind(), res.Name())
 
-		// System resources are handled separately via PlanAll
+		// System resources are added separately via addSystemResourceInfo using
+		// the read-only store and reconcilers, so skip them in this per-resource loop.
 		if resource.IsSystemKind(res.Kind()) {
 			continue
 		}
@@ -467,7 +468,8 @@ func addSystemResourceInfo(info map[graph.NodeID]graph.ResourceInfo, resources [
 	// plan is a read-only command and should not create directories.
 	systemDir := pathConfig.SystemDataDir()
 	if _, err := os.Stat(systemDir); os.IsNotExist(err) {
-		// No system state yet (first run) — mark all as install
+		// No system state yet (first run) — use install fallback for supported
+		// system installers and skip unsupported system resource kinds.
 		markAllSystemAsInstall(info, resources)
 		return
 	}
