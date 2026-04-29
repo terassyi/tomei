@@ -238,6 +238,12 @@ func (e *Engine) SkippedPrivileged() int {
 	return e.skippedPrivileged
 }
 
+// eventEmitter is an unexported interface for emitting engine events.
+// Both Engine and SystemEngine satisfy this interface.
+type eventEmitter interface {
+	emitEvent(event Event)
+}
+
 // emitEvent emits an event to the handler if set.
 func (e *Engine) emitEvent(event Event) {
 	if e.eventHandler != nil {
@@ -1331,7 +1337,7 @@ func collectRemovalNodes[R resource.Resource, S resource.State](
 // executeRemovals iterates over actions, executing removals with PhaseRemove events.
 func executeRemovals[R resource.Resource, S resource.State](
 	ctx context.Context,
-	e *Engine,
+	emitter eventEmitter,
 	kind resource.Kind,
 	actions []reconciler.Action[R, S],
 	exec *executor.Executor[R, S],
@@ -1341,7 +1347,7 @@ func executeRemovals[R resource.Resource, S resource.State](
 		if action.Type != resource.ActionRemove {
 			continue
 		}
-		e.emitEvent(Event{
+		emitter.emitEvent(Event{
 			Type:   EventStart,
 			Phase:  PhaseRemove,
 			Kind:   kind,
@@ -1349,7 +1355,7 @@ func executeRemovals[R resource.Resource, S resource.State](
 			Action: action.Type,
 		})
 		if err := exec.Execute(ctx, action); err != nil {
-			e.emitEvent(Event{
+			emitter.emitEvent(Event{
 				Type:   EventError,
 				Phase:  PhaseRemove,
 				Kind:   kind,
@@ -1359,7 +1365,7 @@ func executeRemovals[R resource.Resource, S resource.State](
 			})
 			return fmt.Errorf("failed to remove %s %s: %w", kind, action.Name, err)
 		}
-		e.emitEvent(Event{
+		emitter.emitEvent(Event{
 			Type:   EventComplete,
 			Phase:  PhaseRemove,
 			Kind:   kind,
