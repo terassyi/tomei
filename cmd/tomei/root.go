@@ -120,7 +120,7 @@ Commands are separated by privilege level:
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable privileged tool operations; tomei caches a sudo timestamp so tool commands can invoke 'sudo' internally using it (subject to sudoers policy)")
+	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable system package management and privileged operations. System state is stored per-user (~/.local/share/tomei/system/). In multi-user environments, each user maintains an independent view of system package state. This tool is designed for personal dev environment setup and does not detect out-of-band system changes")
 	rootCmd.PersistentFlags().Var(globalLogLevel, "log-level", "Log level (debug, info, warn, error)")
 	_ = rootCmd.RegisterFlagCompletionFunc("log-level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp

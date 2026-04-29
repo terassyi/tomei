@@ -28,21 +28,21 @@ func TestNew(t *testing.T) {
 			opts:            nil,
 			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   DefaultSystemDataDir,
+			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
 		},
 		{
 			name:            "with custom user data dir",
 			opts:            []Option{WithUserDataDir("/custom/data")},
 			wantUserDataDir: "/custom/data",
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   DefaultSystemDataDir,
+			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
 		},
 		{
 			name:            "with custom user bin dir",
 			opts:            []Option{WithUserBinDir("/custom/bin")},
 			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  "/custom/bin",
-			wantSystemDir:   DefaultSystemDataDir,
+			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
 		},
 		{
 			name:            "with custom system data dir",
@@ -296,6 +296,7 @@ func TestNewFromConfig(t *testing.T) {
 		cfg             *config.Config
 		wantUserDataDir string
 		wantUserBinDir  string
+		wantSystemDir   string
 	}{
 		{
 			name: "default config",
@@ -305,6 +306,7 @@ func TestNewFromConfig(t *testing.T) {
 			},
 			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
 			wantUserBinDir:  filepath.Join(home, ".local/bin"),
+			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
 		},
 		{
 			name: "custom config with tilde",
@@ -314,6 +316,7 @@ func TestNewFromConfig(t *testing.T) {
 			},
 			wantUserDataDir: filepath.Join(home, "my-data"),
 			wantUserBinDir:  filepath.Join(home, "my-bin"),
+			wantSystemDir:   filepath.Join(home, "my-data/system"),
 		},
 		{
 			name: "absolute paths",
@@ -323,6 +326,7 @@ func TestNewFromConfig(t *testing.T) {
 			},
 			wantUserDataDir: "/opt/tomei/data",
 			wantUserBinDir:  "/opt/tomei/bin",
+			wantSystemDir:   "/opt/tomei/data/system",
 		},
 	}
 
@@ -335,6 +339,7 @@ func TestNewFromConfig(t *testing.T) {
 
 			assert.Equal(t, tt.wantUserDataDir, p.UserDataDir())
 			assert.Equal(t, tt.wantUserBinDir, p.UserBinDir())
+			assert.Equal(t, tt.wantSystemDir, p.SystemDataDir())
 		})
 	}
 }

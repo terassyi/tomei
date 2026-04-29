@@ -16,6 +16,7 @@ import (
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/graph"
 	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/installer/reconciler"
 	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/registry/aqua"
 	"github.com/terassyi/tomei/internal/resource"
@@ -98,11 +99,6 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	// Reject unsupported system-privilege resource kinds (see apply.go for rationale).
-	if err := rejectUnsupportedSystemKinds(resources); err != nil {
-		return err
-	}
-
 	updateCfg := engine.UpdateConfig{
 		SyncMode:       planCfg.syncRegistry,
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,
@@ -136,10 +132,12 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 
 	// Load config and state
 	var userState *state.UserState
+	var pathConfig *path.Paths
 	cfg, err := config.LoadConfig(config.DefaultConfigDir)
 	if err == nil {
-		pathConfig, err := path.NewFromConfig(cfg)
+		pc, err := path.NewFromConfig(cfg)
 		if err == nil {
+			pathConfig = pc
 			store, err := state.NewStore[state.UserState](pathConfig.UserDataDir())
 			if err == nil {
 				loaded, err := store.LoadReadOnly()
@@ -161,6 +159,12 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 
 	for _, res := range resources {
 		nodeID := graph.NewNodeID(res.Kind(), res.Name())
+
+		// System resources are handled separately via PlanAll
+		if resource.IsSystemKind(res.Kind()) {
+			continue
+		}
+
 		resInfo := graph.ResourceInfo{
 			Kind:   res.Kind(),
 			Name:   res.Name(),
@@ -214,6 +218,23 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		}
 
 		info[nodeID] = resInfo
+	}
+
+	// Handle system resources
+	if system && pathConfig != nil {
+		addSystemResourceInfo(info, resources, pathConfig)
+	} else {
+		// Without --system, mark all system resources as skip
+		for _, res := range resources {
+			if resource.IsSystemKind(res.Kind()) {
+				nodeID := graph.NewNodeID(res.Kind(), res.Name())
+				info[nodeID] = graph.ResourceInfo{
+					Kind:   res.Kind(),
+					Name:   res.Name(),
+					Action: resource.ActionSkip,
+				}
+			}
+		}
 	}
 
 	// Detect removals: resources in state but not in manifests
@@ -428,6 +449,104 @@ func collectSkipInfos(resourceInfo map[graph.NodeID]graph.ResourceInfo) []graph.
 		return cmp.Compare(a.Name, b.Name)
 	})
 	return infos
+}
+
+// noopInstaller is a generic no-op installer used by PlanAll for plan-only
+// operations where the installer is never actually called.
+type noopInstaller[R resource.Resource, S resource.State] struct{}
+
+func (*noopInstaller[R, S]) Install(_ context.Context, _ R, _ string) (S, error) {
+	var zero S
+	return zero, nil
+}
+
+func (*noopInstaller[R, S]) Remove(_ context.Context, _ S, _ string) error {
+	return nil
+}
+
+// addSystemResourceInfo uses SystemEngine.PlanAll to compute accurate actions
+// for system resources and merges them into the info map.
+func addSystemResourceInfo(info map[graph.NodeID]graph.ResourceInfo, resources []resource.Resource, pathConfig *path.Paths) {
+	// Check if system state directory exists before creating a store.
+	// plan is a read-only command and should not create directories.
+	systemDir := pathConfig.SystemDataDir()
+	if _, err := os.Stat(systemDir); os.IsNotExist(err) {
+		// No system state yet (first run) — mark all as install
+		markAllSystemAsInstall(info, resources)
+		return
+	}
+
+	store, err := state.NewStore[state.SystemState](systemDir)
+	if err != nil {
+		markAllSystemAsInstall(info, resources)
+		return
+	}
+
+	// PlanAll uses reconcilers only; installers are never called, so noop is safe.
+	sysEng := engine.NewSystemEngine(
+		&noopInstaller[*resource.SystemInstaller, *resource.SystemInstallerState]{},
+		&noopInstaller[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState]{},
+		&noopInstaller[*resource.SystemPackageSet, *resource.SystemPackageSetState]{},
+		store,
+	)
+
+	ctx := context.Background()
+	installerActions, repoActions, pkgActions, err := sysEng.PlanAll(ctx, resources)
+	if err != nil {
+		slog.Warn("failed to plan system resources", "error", err)
+		markAllSystemAsInstall(info, resources)
+		return
+	}
+
+	convertActions[*resource.SystemInstaller, *resource.SystemInstallerState](info, resource.KindSystemInstaller, installerActions)
+	convertActions[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState](info, resource.KindSystemPackageRepository, repoActions)
+	convertActions[*resource.SystemPackageSet, *resource.SystemPackageSetState](info, resource.KindSystemPackageSet, pkgActions)
+
+	// Mark repo/package resources as skip when they would require actions,
+	// since concrete installers are not yet implemented.
+	for nodeID, ri := range info {
+		if ri.Kind == resource.KindSystemPackageRepository || ri.Kind == resource.KindSystemPackageSet {
+			if ri.Action != resource.ActionNone {
+				ri.Action = resource.ActionSkip
+				info[nodeID] = ri
+			}
+		}
+	}
+}
+
+// markAllSystemAsInstall marks all system resources as ActionInstall (first-run fallback).
+func markAllSystemAsInstall(info map[graph.NodeID]graph.ResourceInfo, resources []resource.Resource) {
+	for _, res := range resources {
+		if resource.IsSystemKind(res.Kind()) {
+			nodeID := graph.NewNodeID(res.Kind(), res.Name())
+			action := resource.ActionInstall
+			// repo/package not yet implemented — skip
+			if res.Kind() != resource.KindSystemInstaller {
+				action = resource.ActionSkip
+			}
+			info[nodeID] = graph.ResourceInfo{
+				Kind:   res.Kind(),
+				Name:   res.Name(),
+				Action: action,
+			}
+		}
+	}
+}
+
+// convertActions converts reconciler actions to graph.ResourceInfo entries.
+func convertActions[R resource.Resource, S resource.State](
+	info map[graph.NodeID]graph.ResourceInfo,
+	kind resource.Kind,
+	actions []reconciler.Action[R, S],
+) {
+	for _, action := range actions {
+		nodeID := graph.NewNodeID(kind, action.Name)
+		info[nodeID] = graph.ResourceInfo{
+			Kind:   kind,
+			Name:   action.Name,
+			Action: action.Type,
+		}
+	}
 }
 
 // syncRegistryForPlan creates a store and syncs the aqua registry.

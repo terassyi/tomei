@@ -85,6 +85,19 @@ func IsPrivileged(res Resource) bool {
 	return false
 }
 
+// FilterSystemKinds partitions resources into user-kind and system-kind groups.
+// User-kind resources are returned first, system-kind second.
+func FilterSystemKinds(resources []Resource) (user, system []Resource) {
+	for _, res := range resources {
+		if IsSystemKind(res.Kind()) {
+			system = append(system, res)
+		} else {
+			user = append(user, res)
+		}
+	}
+	return user, system
+}
+
 // FilterPrivileged partitions resources into non-privileged and privileged groups.
 // Non-privileged resources are returned first, privileged second.
 func FilterPrivileged(resources []Resource) (normal, privileged []Resource) {

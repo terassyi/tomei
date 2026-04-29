@@ -618,6 +618,57 @@ func TestFilterPrivileged(t *testing.T) {
 	assert.Equal(t, "go", normal[1].Name())
 }
 
+func TestFilterSystemKinds(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		user, system := FilterSystemKinds(nil)
+		assert.Empty(t, user)
+		assert.Empty(t, system)
+	})
+
+	t.Run("user only", func(t *testing.T) {
+		t.Parallel()
+		resources := []Resource{
+			&Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
+			&Runtime{BaseResource: BaseResource{Metadata: Metadata{Name: "go"}}},
+		}
+		user, system := FilterSystemKinds(resources)
+		assert.Len(t, user, 2)
+		assert.Empty(t, system)
+	})
+
+	t.Run("system only", func(t *testing.T) {
+		t.Parallel()
+		resources := []Resource{
+			&SystemInstaller{BaseResource: BaseResource{Metadata: Metadata{Name: "apt"}}},
+			&SystemPackageRepository{BaseResource: BaseResource{Metadata: Metadata{Name: "docker-repo"}}},
+			&SystemPackageSet{BaseResource: BaseResource{Metadata: Metadata{Name: "dev-tools"}}},
+		}
+		user, system := FilterSystemKinds(resources)
+		assert.Empty(t, user)
+		assert.Len(t, system, 3)
+	})
+
+	t.Run("mixed", func(t *testing.T) {
+		t.Parallel()
+		resources := []Resource{
+			&Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
+			&SystemInstaller{BaseResource: BaseResource{Metadata: Metadata{Name: "apt"}}},
+			&Runtime{BaseResource: BaseResource{Metadata: Metadata{Name: "go"}}},
+			&SystemPackageSet{BaseResource: BaseResource{Metadata: Metadata{Name: "dev-tools"}}},
+		}
+		user, system := FilterSystemKinds(resources)
+		assert.Len(t, user, 2)
+		assert.Equal(t, "rg", user[0].Name())
+		assert.Equal(t, "go", user[1].Name())
+		assert.Len(t, system, 2)
+		assert.Equal(t, "apt", system[0].Name())
+		assert.Equal(t, "dev-tools", system[1].Name())
+	})
+}
+
 func TestHasPrivileged(t *testing.T) {
 	t.Parallel()
 

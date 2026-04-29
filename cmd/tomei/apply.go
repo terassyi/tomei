@@ -67,13 +67,14 @@ For user-level resources (Runtime, Tool, ToolSet):
 For privileged resources (tools with privileged: true):
   tomei apply --system .
 
-Privileged tools (e.g., Homebrew) declare that their install/upgrade/
-reinstall/remove commands require a cached sudo timestamp while they run.
-Without --system, privileged operations are skipped with a warning.
+For system resources (SystemInstaller, SystemPackageRepository, SystemPackageSet):
+  tomei apply --system .
+
 With --system, tomei prompts for sudo credentials once and keeps the
-timestamp refreshed; the tool's commands still run as the invoking user,
-and "sudo ..." invocations inside them can use the cached ticket without
-re-prompting, subject to the host's sudoers policy.`,
+timestamp refreshed. Privileged tool commands and system package operations
+run as the invoking user, using the cached sudo ticket without re-prompting
+(subject to sudoers policy). Without --system, privileged and system
+resources are skipped with a warning.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }
@@ -92,14 +93,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	if systemMode {
-		cmd.Printf("Applying resources (including privileged) from %v\n", args)
+		cmd.Printf("Applying resources (including privileged and system) from %v\n", args)
 	} else {
 		cmd.Printf("Applying user-level resources from %v\n", args)
 	}
-	return runUserApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg, systemMode)
+	return executeApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg, systemMode)
 }
 
-func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig, system bool) error {
+func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig, system bool) error {
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil, cfg.verifierOpts()...)
 	resources, err := loader.LoadPaths(paths)
@@ -113,23 +114,40 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	// System-privilege resource kinds (SystemInstaller, SystemPackage*) are not
-	// yet implemented by the engine and would otherwise be silently ignored.
-	// Fail fast with a clear error so users know these manifests have no effect.
-	if err := rejectUnsupportedSystemKinds(resources); err != nil {
-		return err
+	// Split resources into user-kind and system-kind
+	userResources, systemResources := resource.FilterSystemKinds(resources)
+
+	// Handle system resources: skip or prepare for execution
+	var sysEng *engine.SystemEngine
+	var supportedSystemResources []resource.Resource
+	if !system && len(systemResources) > 0 {
+		for _, r := range systemResources {
+			slog.Info("skipping system resource (use --system)", "kind", r.Kind(), "name", r.Name())
+		}
+		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' to manage.\n\n", len(systemResources))
+	}
+	if system && len(systemResources) > 0 {
+		// Filter to resources with concrete installer implementations
+		supported, skipped := filterSupportedSystemResources(systemResources)
+		supportedSystemResources = supported
+		if len(skipped) > 0 {
+			for _, r := range skipped {
+				slog.Info("skipping system resource (not yet implemented)", "kind", r.Kind(), "name", r.Name())
+			}
+			fmt.Fprintf(w, "%d system resource(s) skipped (not yet implemented: repository/package management).\n\n", len(skipped))
+		}
 	}
 
 	// Filter out privileged resources when --system is not set
 	if !system {
-		normal, privileged := resource.FilterPrivileged(resources)
+		normal, privileged := resource.FilterPrivileged(userResources)
 		if len(privileged) > 0 {
 			for _, r := range privileged {
 				slog.Info("skipping privileged resource (use --system)", "kind", r.Kind(), "name", r.Name())
 			}
 			fmt.Fprintf(w, "%d privileged resource(s) skipped. Use 'tomei apply --system' to install.\n\n", len(privileged))
 		}
-		resources = normal
+		userResources = normal
 	}
 
 	// Load config from fixed path (~/.config/tomei/config.cue)
@@ -188,6 +206,7 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		UpdateTools:    cfg.updateTools || cfg.updateAll,
 		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
 	}
+	// Show plan with all resources (system + user) for complete picture
 	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg, system)
 	if err != nil {
 		return fmt.Errorf("failed to plan: %w", err)
@@ -245,6 +264,16 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return nil
 	})
 
+	// Create SystemEngine when --system is set. Even with zero system resources
+	// in the manifest, state may contain entries that need removal.
+	if system {
+		se, err := createSystemEngine(pathConfig.SystemDataDir())
+		if err != nil {
+			return fmt.Errorf("failed to create system engine: %w", err)
+		}
+		sysEng = se
+	}
+
 	// Acquire sudo credentials when --system is set (before TUI to allow interactive prompt).
 	// We always acquire when --system is given, not only when the manifest contains
 	// privileged tools, because privileged tools may exist only in state (removal case).
@@ -259,15 +288,18 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 			}
 		}()
 		eng.SetPrivilegeHandler(handler)
+		if sysEng != nil {
+			sysEng.SetPrivilegeHandler(handler)
+		}
 	}
 
 	// Choose TUI or ProgressManager based on TTY
 	isTTY := isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd())
 	var applyErr error
 	if isTTY && !cfg.quiet {
-		applyErr = runApplyWithTUI(ctx, eng, resources, results, logStore, w, cfg)
+		applyErr = runApplyWithTUI(ctx, eng, userResources, sysEng, supportedSystemResources, results, logStore, w, cfg)
 	} else {
-		applyErr = runApplyWithProgressManager(ctx, eng, resources, results, logStore, w, cfg)
+		applyErr = runApplyWithProgressManager(ctx, eng, userResources, sysEng, supportedSystemResources, results, logStore, w, cfg)
 	}
 
 	// Report privileged action skips after apply completes.
@@ -285,7 +317,9 @@ func runUserApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 func runApplyWithTUI(
 	ctx context.Context,
 	eng *engine.Engine,
-	resources []resource.Resource,
+	userResources []resource.Resource,
+	sysEng *engine.SystemEngine,
+	systemResources []resource.Resource,
 	results *ui.ApplyResults,
 	logStore *tomeilog.Store,
 	w io.Writer,
@@ -305,18 +339,32 @@ func runApplyWithTUI(
 	reporter := ui.NewThrottledReporter(p)
 
 	// Set event handler: forward to reporter + log store
-	eng.SetEventHandler(func(event engine.Event) {
+	eventHandler := func(event engine.Event) {
 		reporter.HandleEvent(event)
 		if logStore != nil {
 			handleLogEvent(logStore, event)
 		}
-	})
+	}
+	eng.SetEventHandler(eventHandler)
+	if sysEng != nil {
+		sysEng.SetEventHandler(eventHandler)
+	}
 
-	// Run engine in background goroutine; signal completion via channel
+	// Run engines in background goroutine; signal completion via channel.
+	// SystemEngine runs first (sequential), then Engine for user resources.
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)
-		applyErr := eng.Apply(ctx, resources)
+		if sysEng != nil {
+			if err := sysEng.Apply(ctx, systemResources); err != nil {
+				if ctx.Err() != nil {
+					reporter.Done(ctx.Err())
+					return
+				}
+				slog.Error("system resource apply failed, continuing with user resources", "error", err)
+			}
+		}
+		applyErr := eng.Apply(ctx, userResources)
 		reporter.Done(applyErr)
 	}()
 
@@ -361,7 +409,9 @@ func runApplyWithTUI(
 func runApplyWithProgressManager(
 	ctx context.Context,
 	eng *engine.Engine,
-	resources []resource.Resource,
+	userResources []resource.Resource,
+	sysEng *engine.SystemEngine,
+	systemResources []resource.Resource,
 	results *ui.ApplyResults,
 	logStore *tomeilog.Store,
 	w io.Writer,
@@ -376,20 +426,31 @@ func runApplyWithProgressManager(
 	defer pm.Wait()
 
 	// Set event handler for progress display and log capture
-	if !cfg.quiet {
-		eng.SetEventHandler(func(event engine.Event) {
+	eventHandler := func(event engine.Event) {
+		if !cfg.quiet {
 			pm.HandleEvent(event, results)
-			if logStore != nil {
-				handleLogEvent(logStore, event)
-			}
-		})
-	} else if logStore != nil {
-		eng.SetEventHandler(func(event engine.Event) {
+		}
+		if logStore != nil {
 			handleLogEvent(logStore, event)
-		})
+		}
+	}
+	eng.SetEventHandler(eventHandler)
+	if sysEng != nil {
+		sysEng.SetEventHandler(eventHandler)
 	}
 
-	applyErr := eng.Apply(ctx, resources)
+	// Run system engine first, then user engine
+	if sysEng != nil {
+		if err := sysEng.Apply(ctx, systemResources); err != nil {
+			if ctx.Err() != nil {
+				return finishApply(w, ctx.Err(), results, logStore, cfg)
+			}
+			slog.Error("system resource apply failed, continuing with user resources", "error", err)
+			fmt.Fprintf(w, "Warning: system resource apply failed: %v\n\n", err)
+		}
+	}
+
+	applyErr := eng.Apply(ctx, userResources)
 	return finishApply(w, applyErr, results, logStore, cfg)
 }
 
@@ -517,20 +578,4 @@ func (h *sudoHandler) Release() error {
 		err = exec.CommandContext(releaseCtx, "sudo", "-k").Run()
 	})
 	return err
-}
-
-// rejectUnsupportedSystemKinds returns an error if the resources include any
-// system-privilege kind. The engine does not yet execute SystemInstaller or
-// SystemPackage* resources, so we fail fast rather than silently ignoring them.
-func rejectUnsupportedSystemKinds(resources []resource.Resource) error {
-	var names []string
-	for _, r := range resources {
-		if resource.IsSystemKind(r.Kind()) {
-			names = append(names, fmt.Sprintf("%s/%s", r.Kind(), r.Name()))
-		}
-	}
-	if len(names) > 0 {
-		return fmt.Errorf("system-privilege resources are not yet supported: %s", strings.Join(names, ", "))
-	}
-	return nil
 }
