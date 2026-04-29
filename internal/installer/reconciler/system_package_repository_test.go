@@ -78,6 +78,28 @@ func TestSystemPackageRepositoryReconciler_NoChange(t *testing.T) {
 	require.Empty(t, actions)
 }
 
+func TestSystemPackageRepositoryReconciler_NoChange_NilVsEmptyOptions(t *testing.T) {
+	t.Parallel()
+	repo := newSystemPackageRepository("simple", "apt", "https://example.com/repo", "", "", nil)
+
+	repos := []*resource.SystemPackageRepository{repo}
+	states := map[string]*resource.SystemPackageRepositoryState{
+		"simple": {
+			InstallerRef: "apt",
+			Source: resource.SourceConfig{
+				URL:     "https://example.com/repo",
+				Options: map[string]string{},
+			},
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	r := NewSystemPackageRepositoryReconciler()
+	actions := r.Reconcile(repos, states)
+
+	require.Empty(t, actions)
+}
+
 func TestSystemPackageRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
 	t.Parallel()
 	repo := dockerRepo()
