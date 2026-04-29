@@ -797,3 +797,57 @@ func TestSystemEngine_Apply_RemoveError(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, st.SystemPackages["failing-pkg"], "failed removal should leave state intact")
 }
+
+func TestSystemEngine_Apply_RemoveErrorFlushesSuccessful(t *testing.T) {
+	t.Parallel()
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.SystemState](stateDir)
+	require.NoError(t, err)
+
+	// Pre-populate state: one package set (will be removed successfully)
+	// and one repo (removal will fail).
+	// Removal order is packages → repos → installers, so packages should
+	// be removed and flushed before the repo removal fails.
+	require.NoError(t, store.Lock())
+	st := state.NewSystemState()
+	st.SystemPackages["good-pkg"] = &resource.SystemPackageSetState{
+		InstallerRef: "apt",
+		Packages:     []string{"a"},
+		UpdatedAt:    time.Now(),
+	}
+	st.SystemPackageRepositories["bad-repo"] = &resource.SystemPackageRepositoryState{
+		InstallerRef: "apt",
+		Source:       resource.SourceConfig{URL: "https://example.com"},
+		UpdatedAt:    time.Now(),
+	}
+	require.NoError(t, store.Save(st))
+	require.NoError(t, store.Unlock())
+
+	repoMock := &mockSysRepoInstaller{
+		installFn: defaultRepoInstallFn,
+		removeFn: func(_ context.Context, _ *resource.SystemPackageRepositoryState, name string) error {
+			return fmt.Errorf("remove failed for %s", name)
+		},
+	}
+
+	engine := NewSystemEngine(
+		&mockSysInstallerInstaller{installFn: defaultInstallerInstallFn},
+		repoMock,
+		&mockSysPackageInstaller{installFn: defaultPackageInstallFn},
+		store,
+	)
+	engine.SetPrivilegeHandler(&mockPrivilegeHandler{})
+
+	// Apply with empty resources → repo removal should fail
+	err = engine.Apply(context.Background(), []resource.Resource{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bad-repo")
+
+	// Verify: successful package removal was flushed despite the repo error
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err = store.Load()
+	require.NoError(t, err)
+	assert.Nil(t, st.SystemPackages["good-pkg"], "successful removal should be persisted even when later batch fails")
+	assert.NotNil(t, st.SystemPackageRepositories["bad-repo"], "failed removal should leave state intact")
+}

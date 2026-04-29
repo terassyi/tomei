@@ -342,13 +342,29 @@ func (e *SystemEngine) handleSystemRemovals(
 		LayerNodes: layerNodes,
 	})
 
-	// Execute removals in reverse dependency order
+	// Execute removals in reverse dependency order.
+	// Flush after each batch so that successfully removed resources are persisted
+	// even if a later batch fails — preventing state drift.
 	if err := executeRemovals(ctx, e, resource.KindSystemPackageSet, packageActions, e.packageExecutor, totalActions); err != nil {
+		if flushErr := e.stateCache.Flush(); flushErr != nil {
+			slog.Warn("failed to flush state after package removal error", "error", flushErr)
+		}
 		return err
 	}
+	if err := e.stateCache.Flush(); err != nil {
+		return fmt.Errorf("failed to flush state after package removals: %w", err)
+	}
+
 	if err := executeRemovals(ctx, e, resource.KindSystemPackageRepository, repoActions, e.repoExecutor, totalActions); err != nil {
+		if flushErr := e.stateCache.Flush(); flushErr != nil {
+			slog.Warn("failed to flush state after repo removal error", "error", flushErr)
+		}
 		return err
 	}
+	if err := e.stateCache.Flush(); err != nil {
+		return fmt.Errorf("failed to flush state after repo removals: %w", err)
+	}
+
 	return executeRemovals(ctx, e, resource.KindSystemInstaller, installerActions, e.installerExecutor, totalActions)
 }
 
