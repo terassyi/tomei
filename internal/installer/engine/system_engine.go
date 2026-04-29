@@ -164,10 +164,20 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 		}
 	}
 
+	// flushAndReturn is a helper that flushes the state cache (best-effort)
+	// before returning an error, so that successfully applied changes are
+	// persisted even when a later operation fails or the context is canceled.
+	flushAndReturn := func(err error) error {
+		if flushErr := e.stateCache.Flush(); flushErr != nil {
+			slog.Warn("failed to flush state before returning error", "error", flushErr)
+		}
+		return err
+	}
+
 	// Execute layer by layer (sequential within each layer)
 	for i, layer := range layers {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return flushAndReturn(ctx.Err())
 		}
 
 		slog.Debug("executing system layer", "layer", i, "nodes", len(layer.Nodes))
@@ -182,7 +192,7 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 
 		for _, node := range layer.Nodes {
 			if ctx.Err() != nil {
-				return ctx.Err()
+				return flushAndReturn(ctx.Err())
 			}
 
 			if err := e.executeSystemNode(ctx, node, resourceMap, &totalActions); err != nil {
@@ -202,7 +212,7 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 
 	// Handle removals: resources in state but not in config
 	if ctx.Err() != nil {
-		return ctx.Err()
+		return flushAndReturn(ctx.Err())
 	}
 	if err := e.handleSystemRemovals(ctx, installers, repos, packages, &totalActions); err != nil {
 		return err
@@ -365,7 +375,13 @@ func (e *SystemEngine) handleSystemRemovals(
 		return fmt.Errorf("failed to flush state after repo removals: %w", err)
 	}
 
-	return executeRemovals(ctx, e, resource.KindSystemInstaller, installerActions, e.installerExecutor, totalActions)
+	if err := executeRemovals(ctx, e, resource.KindSystemInstaller, installerActions, e.installerExecutor, totalActions); err != nil {
+		if flushErr := e.stateCache.Flush(); flushErr != nil {
+			slog.Warn("failed to flush state after installer removal error", "error", flushErr)
+		}
+		return err
+	}
+	return nil
 }
 
 // validateSystemRemovalDeps checks that no remaining resources reference resources being removed.
