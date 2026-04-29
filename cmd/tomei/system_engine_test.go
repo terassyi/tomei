@@ -12,10 +12,10 @@ import (
 func TestValidatorInstallerAdapter_Remove(t *testing.T) {
 	t.Parallel()
 	adapter := &validatorInstallerAdapter{validator: nil}
+	// Remove is a no-op: system package managers are OS-managed, so
+	// "removing" just cleans the state entry.
 	err := adapter.Remove(context.Background(), nil, "apt")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported")
-	assert.Contains(t, err.Error(), "apt")
+	require.NoError(t, err)
 }
 
 func TestSkipRepoInstaller(t *testing.T) {

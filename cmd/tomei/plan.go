@@ -148,6 +148,14 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		}
 	}
 
+	// Fall back to default paths when config is unavailable, so system
+	// resource plans can still compute SystemDataDir accurately.
+	if pathConfig == nil {
+		if pc, err := path.New(); err == nil {
+			pathConfig = pc
+		}
+	}
+
 	if userState == nil {
 		fmt.Fprintln(os.Stderr, "Warning: tomei is not initialized. Run 'tomei init' for accurate state comparison.")
 	}
@@ -451,21 +459,9 @@ func collectSkipInfos(resourceInfo map[graph.NodeID]graph.ResourceInfo) []graph.
 	return infos
 }
 
-// noopInstaller is a generic no-op installer used by PlanAll for plan-only
-// operations where the installer is never actually called.
-type noopInstaller[R resource.Resource, S resource.State] struct{}
-
-func (*noopInstaller[R, S]) Install(_ context.Context, _ R, _ string) (S, error) {
-	var zero S
-	return zero, nil
-}
-
-func (*noopInstaller[R, S]) Remove(_ context.Context, _ S, _ string) error {
-	return nil
-}
-
-// addSystemResourceInfo uses SystemEngine.PlanAll to compute accurate actions
-// for system resources and merges them into the info map.
+// addSystemResourceInfo computes accurate actions for system resources
+// using reconcilers and LoadReadOnly (no lock, no filesystem side effects)
+// and merges them into the info map.
 func addSystemResourceInfo(info map[graph.NodeID]graph.ResourceInfo, resources []resource.Resource, pathConfig *path.Paths) {
 	// Check if system state directory exists before creating a store.
 	// plan is a read-only command and should not create directories.
@@ -482,21 +478,34 @@ func addSystemResourceInfo(info map[graph.NodeID]graph.ResourceInfo, resources [
 		return
 	}
 
-	// PlanAll uses reconcilers only; installers are never called, so noop is safe.
-	sysEng := engine.NewSystemEngine(
-		&noopInstaller[*resource.SystemInstaller, *resource.SystemInstallerState]{},
-		&noopInstaller[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState]{},
-		&noopInstaller[*resource.SystemPackageSet, *resource.SystemPackageSetState]{},
-		store,
-	)
-
-	ctx := context.Background()
-	installerActions, repoActions, pkgActions, err := sysEng.PlanAll(ctx, resources)
+	// Use LoadReadOnly to avoid acquiring the state lock.
+	// plan should have no filesystem side effects.
+	st, err := store.LoadReadOnly()
 	if err != nil {
-		slog.Warn("failed to plan system resources", "error", err)
+		slog.Warn("failed to load system state for plan", "error", err)
 		markAllSystemAsInstall(info, resources)
 		return
 	}
+
+	// Extract system resources by kind
+	var installers []*resource.SystemInstaller
+	var repos []*resource.SystemPackageRepository
+	var packages []*resource.SystemPackageSet
+	for _, res := range resources {
+		switch r := res.(type) {
+		case *resource.SystemInstaller:
+			installers = append(installers, r)
+		case *resource.SystemPackageRepository:
+			repos = append(repos, r)
+		case *resource.SystemPackageSet:
+			packages = append(packages, r)
+		}
+	}
+
+	// Reconcile each resource type directly (reconcilers are stateless)
+	installerActions := reconciler.NewSystemInstallerReconciler().Reconcile(installers, st.SystemInstallers)
+	repoActions := reconciler.NewSystemPackageRepositoryReconciler().Reconcile(repos, st.SystemPackageRepositories)
+	pkgActions := reconciler.NewSystemPackageSetReconciler().Reconcile(packages, st.SystemPackages)
 
 	convertActions[*resource.SystemInstaller, *resource.SystemInstallerState](info, resource.KindSystemInstaller, installerActions)
 	convertActions[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState](info, resource.KindSystemPackageRepository, repoActions)

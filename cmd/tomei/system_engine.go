@@ -24,8 +24,11 @@ func (a *validatorInstallerAdapter) Install(ctx context.Context, res *resource.S
 	return a.validator.Validate(ctx, res)
 }
 
-func (a *validatorInstallerAdapter) Remove(_ context.Context, _ *resource.SystemInstallerState, name string) error {
-	return fmt.Errorf("removing system package manager %q is not supported: managed by the OS", name)
+func (a *validatorInstallerAdapter) Remove(_ context.Context, _ *resource.SystemInstallerState, _ string) error {
+	// System package managers are OS-managed and cannot actually be removed.
+	// Returning nil allows the executor to delete the stale state entry when
+	// a SystemInstaller is dropped from the manifest.
+	return nil
 }
 
 // skipRepoInstaller is a placeholder for SystemPackageRepository operations.
