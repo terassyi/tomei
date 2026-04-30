@@ -103,9 +103,9 @@ func testSystemInstaller(name string) *resource.SystemInstaller {
 			Pattern:    "delegation",
 			Privileged: true,
 			Commands: resource.SystemInstallerCommandsSpec{
-				Install: resource.CommandSpec{Command: name, Verb: "install"},
-				Remove:  resource.CommandSpec{Command: name, Verb: "remove"},
-				Check:   resource.CommandSpec{Command: "dpkg", Verb: "-s"},
+				Install: resource.CommandSpec{Command: name + " install -y"},
+				Remove:  resource.CommandSpec{Command: name + " remove -y"},
+				Check:   resource.CommandSpec{Command: "dpkg -s"},
 			},
 		},
 	}

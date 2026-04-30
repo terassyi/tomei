@@ -46,10 +46,9 @@ type SystemInstallerCommandsSpec struct {
 	Update  string      `json:"update,omitempty"`
 }
 
-// CommandSpec defines a command with its verb.
+// CommandSpec defines a command.
 type CommandSpec struct {
 	Command string `json:"command"`
-	Verb    string `json:"verb"`
 }
 
 // SystemInstallerState represents the state of a system installer.
