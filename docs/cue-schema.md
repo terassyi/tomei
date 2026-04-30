@@ -279,8 +279,10 @@ spec: {
 
 System-level package manager. Requires `--system` to be applied. Only `apt` is currently wired into the engine; declaring other package managers can fail at apply time in several ways depending on the host:
 
+- error contains `unknown package manager "<x>"` — `metadata.name` isn't one of the known identifiers (`apt`, `dnf`, `zypper`, `pacman`, `apk`)
 - error contains `package manager "<x>" is not supported on this system` (with appended distro context such as `(ID=..., ID_LIKE=...)`) — the host's distro does not match
 - error contains `no version function registered for package manager "<x>"` — the package manager is not yet wired up in tomei
+- error contains `failed to get version for "<x>"` — the version probe itself failed (e.g., the package manager binary is missing or returned an unexpected output)
 - error contains `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
 
 `metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`); identifiers other than `apt` are not currently supported by the engine.
@@ -313,7 +315,7 @@ The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (
 | `spec.commands.check` | object | recommended | `{command: string, verb: string}` — used by future package operations |
 | `spec.commands.update` | string | no | Optional update command |
 
-`verb` is a string field defined on each command entry but is not currently consumed anywhere in the engine. It is intended as a human-readable label for future log/progress-UI integration. Unlike [CommandSet](#commandset), system commands take no Go template variables at declaration time — once installers are implemented, the engine will append package names per [SystemPackageSet](#systempackageset).
+`verb` is a string field defined on each command entry but is not currently consumed anywhere in the engine. It is intended as a human-readable label for future log/progress-UI integration. The `spec.commands.*` declarations are likewise not consumed by the engine at apply time today; once concrete installers are implemented, the engine is expected to append package names per [SystemPackageSet](#systempackageset), and any Go template variable conventions for these commands will be documented as part of that implementation.
 
 ### SystemPackageRepository
 
