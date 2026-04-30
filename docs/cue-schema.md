@@ -275,6 +275,125 @@ spec: {
 | `spec.source.url` | HTTPS URL | git only | Repository URL |
 | `spec.source.commands` | [CommandSet](#commandset) | delegation only | Repository management commands |
 
+### SystemInstaller
+
+System-level package manager. Requires `--system` to be applied. Only `apt` is currently wired into the engine; declaring other package managers can fail at apply time in several ways depending on the host:
+
+- error contains `unknown package manager "<x>"` — `metadata.name` isn't one of the known identifiers (`apt`, `dnf`, `zypper`, `pacman`, `apk`)
+- error contains `package manager "<x>" is not supported on this system` (with appended distro context such as `(ID=..., ID_LIKE=...)`) — the host's distro does not match
+- error contains `no version function registered for package manager "<x>"` — the package manager is not yet wired up in tomei
+- error contains `failed to get version for "<x>"` — the version probe itself failed (e.g., the package manager binary is missing or returned an unexpected output)
+- error contains `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
+
+`metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`); identifiers other than `apt` are not currently supported by the engine.
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemInstaller"
+metadata: name: "apt"
+spec: {
+    pattern:    "delegation"
+    privileged: true
+    commands: {
+        install: {command: "sudo apt-get install -y", verb: "install"}
+        remove:  {command: "sudo apt-get remove -y",  verb: "remove"}
+        check:   {command: "dpkg -s",                 verb: "check"}
+    }
+}
+```
+
+#### Fields
+
+The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The `commands.*` entries below are not consumed by the engine at apply time; they are documented here as the conventional shape for `SystemPackageRepository` / `SystemPackageSet` reconciliation, which will start consuming them once the concrete installers land.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
+| `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
+| `spec.commands.install` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.remove` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.check` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.update` | string | no | Optional update command |
+
+`verb` is a string field defined on each command entry but is not currently consumed anywhere in the engine. It is intended as a human-readable label for future log/progress-UI integration. The `spec.commands.*` declarations are likewise not consumed by the engine at apply time today; once concrete installers are implemented, the engine is expected to append package names per [SystemPackageSet](#systempackageset), and any Go template variable conventions for these commands will be documented as part of that implementation.
+
+### SystemPackageRepository
+
+Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan and skipped at apply time with a warning.
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageRepository"
+metadata: name: "docker"
+spec: {
+    installerRef: "apt"
+    source: {
+        url:     "https://download.docker.com/linux/ubuntu"
+        keyUrl:  "https://download.docker.com/linux/ubuntu/gpg"
+        keyHash: "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+        options: {
+            arch:        "amd64"
+            "signed-by": "/etc/apt/keyrings/docker.asc"
+        }
+    }
+}
+```
+
+#### Fields
+
+The CUE schema defines `spec.source` as an open struct constrained only by `url: #HTTPSURL`. The fields below are what the loader expects.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
+| `spec.source.url` | HTTPS URL | yes | Repository URL |
+| `spec.source.keyUrl` | string | no | GPG key URL |
+| `spec.source.keyHash` | string | no | SHA-256 checksum of the GPG key (e.g., `sha256:...`) |
+| `spec.source.options` | `{[string]: string}` | no | Installer-specific options. For APT, common keys include `arch` and `signed-by` |
+
+The exact `options` schema may evolve once the concrete installer lands.
+
+### SystemPackageSet
+
+Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets are shown as `skip` in plan and skipped at apply time with a warning.
+
+```cue
+// Distribution-provided packages — no repositoryRef
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageSet"
+metadata: name: "build-essential"
+spec: {
+    installerRef: "apt"
+    packages: [
+        "build-essential",
+        "pkg-config",
+        "libssl-dev",
+    ]
+}
+
+// Packages from a third-party repository
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageSet"
+metadata: name: "docker"
+spec: {
+    installerRef:  "apt"
+    repositoryRef: "docker"   // matches the SystemPackageRepository above
+    packages: [
+        "docker-ce",
+        "docker-ce-cli",
+        "containerd.io",
+    ]
+}
+```
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
+| `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before packages are installed |
+| `spec.packages` | `[...string]` | yes | Package names to install (must be non-empty) |
+
 ## Common Types
 
 ### DownloadSource

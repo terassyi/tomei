@@ -65,11 +65,13 @@ User privilege (tomei apply):
 ├── Installer            User-level installer definition (aqua, brew, binstall)
 └── InstallerRepository  Third-party tool metadata repository
 
-System privilege (sudo tomei apply --system):
+System privilege (tomei apply --system):
 ├── SystemInstaller          Package manager definition (apt)
 ├── SystemPackageRepository  Third-party apt repository
 └── SystemPackageSet         Set of system packages
 ```
+
+`tomei` itself runs as the invoking user. Manifests must use `sudo` explicitly for steps that require elevation; tomei does not wrap commands. With `--system`, tomei pre-acquires the sudo timestamp (`sudo -v`) and keeps it refreshed so those explicit `sudo` calls typically don't re-prompt. Do not run `sudo tomei apply` — running the whole tool as root may operate on root's home directory or create root-owned files under the configured Tomei data directory (by default `~/.local/share/tomei/`), causing permission issues for subsequent unprivileged invocations.
 
 Each resource has `apiVersion`, `kind`, `metadata`, and `spec`. A Tool specifies exactly one of `runtimeRef`, `installerRef`, or `commands`. The full field reference is in [CUE Schema Reference](cue-schema.md).
 
@@ -139,10 +141,13 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 └── *.cue                  # User manifests
 
 ~/.local/share/tomei/      # Data (configurable via config.cue)
-├── state.json             # Current state
+├── state.json             # Current state (user resources)
 ├── state.lock             # flock file
 ├── runtimes/<name>/<ver>/ # Installed runtimes
-└── tools/<name>/<ver>/    # Installed tools
+├── tools/<name>/<ver>/    # Installed tools
+└── system/
+    ├── state.json         # Current state (system resources)
+    └── state.lock         # flock file
 
 ~/.local/bin/              # Symlinks (configurable via config.cue)
 
@@ -199,24 +204,66 @@ Completed:
 - CUE `@if()` boolean platform tags: `@if(darwin)`, `@if(arm64)`, `@if(headless)` for file-level branching
 - Disabled resource filtering: `enabled: false` resources excluded from ExpandSets and shown as "skip" in `tomei plan`
 - Aqua template variable `AssetWithoutExt` for `files[].src` path references
+- System package management: SystemInstaller validation (APT) via per-user state, sudo delegation, distro detection (Debian/Ubuntu family)
 
-## 10. Roadmap
+## 10. System Package Management
 
-### System privilege (deferred)
+### Execution model
 
-System-level package management via `sudo tomei apply --system`:
+`tomei` runs as the invoking user. Manifests written for `--system` mode must use `sudo` explicitly on commands that need elevation; tomei does not wrap commands itself. With `--system`, tomei pre-acquires the sudo timestamp (`sudo -v`) and keeps it refreshed in the background, so subsequent explicit `sudo …` calls in manifests typically do not re-prompt for a password.
 
-- **SystemInstaller**: Package manager definitions (apt as builtin)
-- **SystemPackageRepository**: Third-party APT repositories with GPG key management
-- **SystemPackageSet**: Sets of system packages
+```
+Right:  tomei apply --system     # tomei runs as user; manifests use sudo where needed
+Wrong:  sudo tomei apply --system # may create root-owned files under the Tomei data directory
+```
 
-The CUE schema and resource types are already defined. Implementation requires privilege escalation handling and APT-specific installer logic.
+### Per-user state
+
+System resource state lives under `<dataDir>/system/state.json` (by default, `~/.local/share/tomei/system/state.json`). Each user maintains an independent view of system package state.
+
+This is a deliberate trade-off for the tool's target use case (single-developer dev environment setup). It is **not** suitable for coordinated multi-user system administration:
+
+- **No cross-user coordination.** State files are independent. Once `SystemPackageSet` reconciliation is implemented (see Roadmap below), dropping a package from user A's manifest would cause tomei to run a system-wide removal (e.g., `apt-get remove vim`) — affecting user B who also relied on the package. Idempotent installs (`apt-get install`) are safe to overlap; removals are not.
+- **No drift detection.** Reconciliation compares the declared spec against tomei's own state file. Out-of-band changes (manual `apt install`, distro upgrades, packages installed by other tools) are invisible.
+
+For shared servers, use a configuration management tool (Ansible, Chef, Puppet) instead.
+
+### Dependency graph
+
+Following the convention from §3, arrows point from a resource to the dependents it enables:
+
+```
+SystemInstaller → SystemPackageRepository → SystemPackageSet
+                ↘ SystemPackageSet
+```
+
+- `SystemPackageRepository.spec.installerRef` and `SystemPackageSet.spec.installerRef` reference a `SystemInstaller`
+- `SystemPackageSet.spec.repositoryRef` (optional) references a `SystemPackageRepository`
+
+### Implementation status
+
+| Resource | Status |
+|----------|--------|
+| `SystemInstaller` (`apt`) | Validates that `apt-get` exists on the host and captures its version |
+| `SystemInstaller` (other) | Schema accepts `dnf`/`zypper`/`pacman`/`apk`, but only `apt` is currently wired. Other package managers fail validation either with "package manager is not supported on this system" (distro mismatch) or "no version function registered" (supported by distro detection but not yet wired in the engine) |
+| `SystemPackageRepository` | Concrete installer not yet implemented (planned: `add-apt-repository`, GPG key management). Recognized by plan/apply but skipped at runtime |
+| `SystemPackageSet` | Concrete installer not yet implemented (planned: `apt-get install`). Recognized by plan/apply but skipped at runtime |
+
+`tomei plan --system` and `tomei apply --system` recognize all three kinds. Resources without a concrete installer are shown as `skip` in plan and skipped at apply time with a warning, so that declaring them does not produce a false success.
+
+`SystemInstaller` removal does not uninstall the OS package manager — it only clears the state entry.
+
+## 11. Roadmap
+
+### System package installers
+
+Concrete installer implementations for `SystemPackageRepository` (`add-apt-repository`, `apt-key` / `/etc/apt/keyrings`) and `SystemPackageSet` (`apt-get install` / `apt-get remove`) are tracked in [#162](https://github.com/terassyi/tomei/issues/162).
 
 ### Private repository access
 
 Authenticated downloads from private GitHub repositories. Public repository rate limiting is already addressed via `GITHUB_TOKEN` / `GH_TOKEN`.
 
-## 11. Design Considerations
+## 12. Design Considerations
 
 ### Authentication & tokens
 
