@@ -254,6 +254,59 @@ Commands-pattern tools run in the first execution layer alongside download-patte
 
 See [CUE Schema Reference — ToolCommandSet](cue-schema.md#toolcommandset) for field details.
 
+### System Package Management (`--system`)
+
+`--system` enables system-level package management and privileged tool operations. tomei still runs as the invoking user — privileged commands are delegated to `sudo` per command.
+
+```bash
+# Show what would change for system resources
+tomei plan --system .
+
+# Apply (user is prompted for sudo password once)
+tomei apply --system .
+```
+
+System resources:
+
+| Kind | Purpose |
+|------|---------|
+| `SystemInstaller` | Declares a host package manager (currently `apt` only). Validates the package manager is available and captures its version. |
+| `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer is **not yet implemented** — declared resources are shown as `skip`. |
+| `SystemPackageSet` | Set of system packages to install. Concrete installer is **not yet implemented** — declared resources are shown as `skip`. |
+
+Example manifest (no preset ships for `apt` — declare it inline):
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemInstaller"
+metadata: name: "apt"
+spec: {
+    pattern:    "delegation"
+    privileged: true
+    commands: {
+        install: {command: "apt-get install -y", verb: "install"}
+        remove:  {command: "apt-get remove -y",  verb: "remove"}
+        check:   {command: "dpkg -s",            verb: "check"}
+    }
+}
+```
+
+Without `--system`, system resources and privileged tools are listed as skipped:
+
+```text
+$ tomei plan .
+2 system resource(s) skipped. Use 'tomei apply --system' to manage.
+1 privileged resource(s) skipped. Use 'tomei apply --system' to install.
+```
+
+Behavior notes:
+
+- **State location.** System state is stored at `~/.local/share/tomei/system/state.json`, per user. The directory is auto-created on first apply; `tomei init` is not required for system resources.
+- **Multi-user limitation.** Each user maintains an independent view of system package state. tomei does not coordinate between users on the same host and does not detect out-of-band changes (e.g., manual `apt install` or distro upgrades). For shared servers, use a configuration management tool instead.
+- **Sudo behavior.** tomei prompts for the sudo password once per run and reuses the cached credential. With passwordless sudo (e.g., `NOPASSWD` in `/etc/sudoers`, common in CI), no prompt is shown. Do not run `sudo tomei apply --system` — it would write user state files as root.
+- **Removing a `SystemInstaller`.** Drops only the state entry — the underlying OS package manager is not uninstalled.
+- **Unsupported platforms.** On non-Linux hosts (e.g., macOS) or distros without a registered package manager, distro detection falls back gracefully: removals (state cleanup) still work, but `Install` actions fail with a clear "distro detection failed" error.
+
 ### Version Resolvers
 
 Runtime presets and commands-pattern tools can declare a `resolveVersion` field that automatically resolves the actual version at install time. Two built-in resolver syntaxes are available, plus a shell command fallback.
@@ -518,7 +571,7 @@ tomei version [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--system` | Apply system-level resources (requires root). Used with `apply` and `plan`. |
+| `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. tomei runs as the invoking user and delegates privileged commands to `sudo` — do not run `sudo tomei`. System state is stored per-user under `~/.local/share/tomei/system/`; in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
 
 ## Environment Variables
 

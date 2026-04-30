@@ -275,6 +275,119 @@ spec: {
 | `spec.source.url` | HTTPS URL | git only | Repository URL |
 | `spec.source.commands` | [CommandSet](#commandset) | delegation only | Repository management commands |
 
+### SystemInstaller
+
+System-level package manager. Requires `--system` to be applied. Only `apt` is currently supported by the engine; declaring other package managers will fail at apply time with "no version function registered".
+
+`metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`).
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemInstaller"
+metadata: name: "apt"
+spec: {
+    pattern:    "delegation"
+    privileged: true
+    commands: {
+        install: {command: "apt-get install -y", verb: "install"}
+        remove:  {command: "apt-get remove -y",  verb: "remove"}
+        check:   {command: "dpkg -s",            verb: "check"}
+    }
+}
+```
+
+#### Fields
+
+The CUE schema defines `spec.commands` as an open struct. The fields below are what the loader expects; declaring them is required for the resource to apply successfully.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
+| `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
+| `spec.commands.install` | object | yes | `{command: string, verb: string}` — command for installing packages |
+| `spec.commands.remove` | object | yes | `{command: string, verb: string}` — command for removing packages |
+| `spec.commands.check` | object | yes | `{command: string, verb: string}` — command for checking package state |
+| `spec.commands.update` | string | no | Optional update command |
+
+`verb` is a human-readable label used in logs and progress UI. Unlike [CommandSet](#commandset), system commands are appended with package names by the engine and don't take Go template variables at declaration time.
+
+### SystemPackageRepository
+
+Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan and skipped at apply time with a warning.
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageRepository"
+metadata: name: "docker"
+spec: {
+    installerRef: "apt"
+    source: {
+        url:     "https://download.docker.com/linux/ubuntu"
+        keyUrl:  "https://download.docker.com/linux/ubuntu/gpg"
+        keyHash: "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+        options: {
+            arch:        "amd64"
+            "signed-by": "/etc/apt/keyrings/docker.asc"
+        }
+    }
+}
+```
+
+#### Fields
+
+The CUE schema defines `spec.source` as an open struct constrained only by `url: #HTTPSURL`. The fields below are what the loader expects.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
+| `spec.source.url` | HTTPS URL | yes | Repository URL |
+| `spec.source.keyUrl` | string | no | GPG key URL |
+| `spec.source.keyHash` | string | no | SHA-256 checksum of the GPG key (e.g., `sha256:...`) |
+| `spec.source.options` | `{[string]: string}` | no | Installer-specific options. For APT, common keys include `arch` and `signed-by` |
+
+The exact `options` schema may evolve once the concrete installer lands.
+
+### SystemPackageSet
+
+Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets are shown as `skip` in plan and skipped at apply time with a warning.
+
+```cue
+// Distribution-provided packages — no repositoryRef
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageSet"
+metadata: name: "build-essential"
+spec: {
+    installerRef: "apt"
+    packages: [
+        "build-essential",
+        "pkg-config",
+        "libssl-dev",
+    ]
+}
+
+// Packages from a third-party repository
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackageSet"
+metadata: name: "docker"
+spec: {
+    installerRef:  "apt"
+    repositoryRef: "docker"   // matches the SystemPackageRepository above
+    packages: [
+        "docker-ce",
+        "docker-ce-cli",
+        "containerd.io",
+    ]
+}
+```
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
+| `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before packages are installed |
+| `spec.packages` | `[...string]` | yes | Package names to install (must be non-empty) |
+
 ## Common Types
 
 ### DownloadSource
