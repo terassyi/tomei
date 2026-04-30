@@ -295,9 +295,9 @@ spec: {
     pattern:    "delegation"
     privileged: true
     commands: {
-        install: {command: "sudo apt-get install -y", verb: "install"}
-        remove:  {command: "sudo apt-get remove -y",  verb: "remove"}
-        check:   {command: "dpkg -s",                 verb: "check"}
+        install: {command: "sudo apt-get install -y"}
+        remove:  {command: "sudo apt-get remove -y"}
+        check:   {command: "dpkg -s"}
     }
 }
 ```
@@ -310,12 +310,12 @@ The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (
 |-------|------|----------|-------------|
 | `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
 | `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
-| `spec.commands.install` | object | recommended | `{command: string, verb: string}` — used by future package operations |
-| `spec.commands.remove` | object | recommended | `{command: string, verb: string}` — used by future package operations |
-| `spec.commands.check` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.install` | object | recommended | `{command: string}` — used by future package operations |
+| `spec.commands.remove` | object | recommended | `{command: string}` — used by future package operations |
+| `spec.commands.check` | object | recommended | `{command: string}` — used by future package operations |
 | `spec.commands.update` | string | no | Optional update command |
 
-`verb` is a string field defined on each command entry but is not currently consumed anywhere in the engine. It is intended as a human-readable label for future log/progress-UI integration. The `spec.commands.*` declarations are likewise not consumed by the engine at apply time today; once concrete installers are implemented, the engine is expected to append package names per [SystemPackageSet](#systempackageset), and any Go template variable conventions for these commands will be documented as part of that implementation.
+The `spec.commands.*` declarations are not consumed by the engine at apply time today; once concrete installers are implemented, the engine is expected to append package names per [SystemPackageSet](#systempackageset), and any Go template variable conventions for these commands will be documented as part of that implementation.
 
 ### SystemPackageRepository
 
