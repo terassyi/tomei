@@ -71,7 +71,7 @@ System privilege (tomei apply --system):
 └── SystemPackageSet         Set of system packages
 ```
 
-`tomei` itself is invoked as a regular user; privileged commands are delegated to `sudo`. Do not run `sudo tomei apply` — running the whole tool as root would write user state files (under `~/.local/share/tomei/`) as root and break subsequent unprivileged invocations.
+`tomei` itself runs as the invoking user. Manifests must use `sudo` explicitly for steps that require elevation; tomei does not wrap commands. With `--system`, tomei pre-acquires the sudo timestamp (`sudo -v`) and keeps it refreshed so those explicit `sudo` calls typically don't re-prompt. Do not run `sudo tomei apply` — running the whole tool as root may operate on root's home directory or create root-owned files under the configured Tomei data directory (by default `~/.local/share/tomei/`), causing permission issues for subsequent unprivileged invocations.
 
 Each resource has `apiVersion`, `kind`, `metadata`, and `spec`. A Tool specifies exactly one of `runtimeRef`, `installerRef`, or `commands`. The full field reference is in [CUE Schema Reference](cue-schema.md).
 
@@ -210,16 +210,16 @@ Completed:
 
 ### Execution model
 
-`tomei` runs as the invoking user and delegates privileged work to `sudo` per command. The user is prompted for the sudo password once and the cached credential is reused for the rest of the run.
+`tomei` runs as the invoking user. Manifests written for `--system` mode must use `sudo` explicitly on commands that need elevation; tomei does not wrap commands itself. With `--system`, tomei pre-acquires the sudo timestamp (`sudo -v`) and keeps it refreshed in the background, so subsequent explicit `sudo …` calls in manifests typically do not re-prompt for a password.
 
 ```
-Right:  tomei apply --system     # tomei runs as user, escalates per command
-Wrong:  sudo tomei apply --system # would write user state files as root
+Right:  tomei apply --system     # tomei runs as user; manifests use sudo where needed
+Wrong:  sudo tomei apply --system # may create root-owned files under the Tomei data directory
 ```
 
 ### Per-user state
 
-System resource state lives at `~/.local/share/tomei/system/state.json`. Each user maintains an independent view of system package state.
+System resource state lives under `<dataDir>/system/state.json` (by default, `~/.local/share/tomei/system/state.json`). Each user maintains an independent view of system package state.
 
 This is a deliberate trade-off for the tool's target use case (single-developer dev environment setup). It is **not** suitable for coordinated multi-user system administration:
 

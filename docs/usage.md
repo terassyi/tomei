@@ -256,7 +256,7 @@ See [CUE Schema Reference — ToolCommandSet](cue-schema.md#toolcommandset) for 
 
 ### System Package Management (`--system`)
 
-`--system` enables system-level package management and privileged tool operations. tomei still runs as the invoking user — privileged commands are delegated to `sudo` per command.
+`--system` enables system-level package management and privileged tool operations. tomei itself still runs as the invoking user; manifests must use `sudo` explicitly on commands that need elevation. With `--system`, tomei pre-acquires the sudo timestamp (`sudo -v`) and keeps it refreshed so those explicit `sudo …` calls typically do not re-prompt for a password.
 
 ```bash
 # Show what would change for system resources
@@ -305,9 +305,9 @@ Behavior notes:
 
 - **State location.** System state is stored at `~/.local/share/tomei/system/state.json`, per user. The system state directory is auto-created on first apply, but `tomei apply` still requires `tomei init` to have been run first because the user state file (`~/.local/share/tomei/state.json`) is checked unconditionally before any apply.
 - **Multi-user limitation.** Each user maintains an independent view of system package state. tomei does not coordinate between users on the same host and does not detect out-of-band changes (e.g., manual `apt install` or distro upgrades). For shared servers, use a configuration management tool instead.
-- **Sudo behavior.** tomei prompts for the sudo password once per run and reuses the cached credential. With passwordless sudo (e.g., `NOPASSWD` in `/etc/sudoers`, common in CI), no prompt is shown. Do not run `sudo tomei apply --system` — it would write user state files as root.
+- **Sudo behavior.** tomei prompts for the sudo password once per run and reuses the cached credential. With passwordless sudo (e.g., `NOPASSWD` in `/etc/sudoers`, common in CI), no prompt is shown. Do not run `sudo tomei apply --system` — it may create or write state files as root, leaving permission issues later or operating on root's home directory instead of the invoking user's.
 - **Removing a `SystemInstaller`.** Drops only the state entry — the underlying OS package manager is not uninstalled.
-- **Unsupported platforms.** On non-Linux hosts (e.g., macOS) or distros without a registered package manager, distro detection falls back gracefully: removals (state cleanup) still work, but `Install` actions fail with a clear "distro detection failed" error.
+- **Unsupported platforms.** On non-Linux hosts (e.g., macOS) or distros without a registered package manager, distro detection falls back gracefully: removals (state cleanup) still work, but `Install` actions fail with `system package manager validation unavailable: distro detection failed or unsupported platform`.
 
 ### Version Resolvers
 
@@ -573,7 +573,7 @@ tomei version [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. tomei runs as the invoking user and delegates privileged commands to `sudo` — do not run `sudo tomei`. System state is stored per-user under `~/.local/share/tomei/system/`; in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
+| `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. tomei itself runs as the invoking user; manifests use `sudo` explicitly for elevation, and tomei keeps the sudo timestamp refreshed so re-prompts are rare. Do not run `sudo tomei`. System state is stored per-user under `<dataDir>/system/` (by default `~/.local/share/tomei/system/`); in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
 
 ## Environment Variables
 
