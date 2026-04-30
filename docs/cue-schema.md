@@ -277,9 +277,13 @@ spec: {
 
 ### SystemInstaller
 
-System-level package manager. Requires `--system` to be applied. Only `apt` is currently supported by the engine; declaring other package managers will fail at apply time with "no version function registered".
+System-level package manager. Requires `--system` to be applied. Only `apt` is currently wired into the engine; declaring other package managers can fail at apply time in several ways depending on the host:
 
-`metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`).
+- `package manager <x> is not supported on this system` — the host's distro does not match
+- `no version function registered for package manager <x>` — the package manager is not yet wired up in tomei
+- `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
+
+`metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`); identifiers other than `apt` are not currently supported by the engine.
 
 ```cue
 apiVersion: "tomei.terassyi.net/v1beta1"
@@ -298,18 +302,18 @@ spec: {
 
 #### Fields
 
-The CUE schema defines `spec.commands` as an open struct. The fields below are what the loader expects; declaring them is required for the resource to apply successfully.
+The CUE schema defines `spec.commands` as an open struct. Today, only `spec.pattern` is enforced by the loader, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above) — the `commands.*` entries below are not consumed at apply time. They are documented here as the conventional shape for `SystemPackageRepository` / `SystemPackageSet` reconciliation, which will start consuming them once the concrete installers land.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
 | `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
-| `spec.commands.install` | object | yes | `{command: string, verb: string}` — command for installing packages |
-| `spec.commands.remove` | object | yes | `{command: string, verb: string}` — command for removing packages |
-| `spec.commands.check` | object | yes | `{command: string, verb: string}` — command for checking package state |
+| `spec.commands.install` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.remove` | object | recommended | `{command: string, verb: string}` — used by future package operations |
+| `spec.commands.check` | object | recommended | `{command: string, verb: string}` — used by future package operations |
 | `spec.commands.update` | string | no | Optional update command |
 
-`verb` is a human-readable label used in logs and progress UI. Unlike [CommandSet](#commandset), system commands are appended with package names by the engine and don't take Go template variables at declaration time.
+When present, `verb` is a human-readable label used in logs and progress UI. Unlike [CommandSet](#commandset), system commands take no Go template variables at declaration time — once installers are implemented, the engine will append package names per [SystemPackageSet](#systempackageset).
 
 ### SystemPackageRepository
 

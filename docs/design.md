@@ -223,7 +223,7 @@ System resource state lives at `~/.local/share/tomei/system/state.json`. Each us
 
 This is a deliberate trade-off for the tool's target use case (single-developer dev environment setup). It is **not** suitable for coordinated multi-user system administration:
 
-- **No cross-user coordination.** State files are independent. If user A installs `vim` via tomei and later drops it from their manifest, tomei runs `apt-get remove vim` — affecting user B who also relied on the package. Idempotent installs (`apt-get install`) are safe to overlap; removals are not.
+- **No cross-user coordination.** State files are independent. Once `SystemPackageSet` reconciliation is implemented (see Roadmap below), dropping a package from user A's manifest would cause tomei to run a system-wide removal (e.g., `apt-get remove vim`) — affecting user B who also relied on the package. Idempotent installs (`apt-get install`) are safe to overlap; removals are not.
 - **No drift detection.** Reconciliation compares the declared spec against tomei's own state file. Out-of-band changes (manual `apt install`, distro upgrades, packages installed by other tools) are invisible.
 
 For shared servers, use a configuration management tool (Ansible, Chef, Puppet) instead.

@@ -291,13 +291,15 @@ spec: {
 }
 ```
 
-Without `--system`, system resources and privileged tools are listed as skipped:
+Without `--system`, system resources and privileged tools are skipped at apply time:
 
 ```text
-$ tomei plan .
+$ tomei apply .
 2 system resource(s) skipped. Use 'tomei apply --system' to manage.
 1 privileged resource(s) skipped. Use 'tomei apply --system' to install.
 ```
+
+`tomei plan .` (without `--system`) shows the same resources marked `skip` in the graph and summary, without the count lines above.
 
 Behavior notes:
 
