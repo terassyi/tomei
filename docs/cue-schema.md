@@ -293,9 +293,9 @@ spec: {
     pattern:    "delegation"
     privileged: true
     commands: {
-        install: {command: "apt-get install -y", verb: "install"}
-        remove:  {command: "apt-get remove -y",  verb: "remove"}
-        check:   {command: "dpkg -s",            verb: "check"}
+        install: {command: "sudo apt-get install -y", verb: "install"}
+        remove:  {command: "sudo apt-get remove -y",  verb: "remove"}
+        check:   {command: "dpkg -s",                 verb: "check"}
     }
 }
 ```
@@ -313,7 +313,7 @@ The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (
 | `spec.commands.check` | object | recommended | `{command: string, verb: string}` — used by future package operations |
 | `spec.commands.update` | string | no | Optional update command |
 
-When present, `verb` is a human-readable label used in logs and progress UI. Unlike [CommandSet](#commandset), system commands take no Go template variables at declaration time — once installers are implemented, the engine will append package names per [SystemPackageSet](#systempackageset).
+`verb` is a string field defined on each command entry but is not currently consumed anywhere in the engine. It is intended as a human-readable label for future log/progress-UI integration. Unlike [CommandSet](#commandset), system commands take no Go template variables at declaration time — once installers are implemented, the engine will append package names per [SystemPackageSet](#systempackageset).
 
 ### SystemPackageRepository
 

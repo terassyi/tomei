@@ -284,9 +284,9 @@ spec: {
     pattern:    "delegation"
     privileged: true
     commands: {
-        install: {command: "apt-get install -y", verb: "install"}
-        remove:  {command: "apt-get remove -y",  verb: "remove"}
-        check:   {command: "dpkg -s",            verb: "check"}
+        install: {command: "sudo apt-get install -y", verb: "install"}
+        remove:  {command: "sudo apt-get remove -y",  verb: "remove"}
+        check:   {command: "dpkg -s",                 verb: "check"}
     }
 }
 ```
