@@ -279,9 +279,9 @@ spec: {
 
 System-level package manager. Requires `--system` to be applied. Only `apt` is currently wired into the engine; declaring other package managers can fail at apply time in several ways depending on the host:
 
-- `package manager <x> is not supported on this system` — the host's distro does not match
-- `no version function registered for package manager <x>` — the package manager is not yet wired up in tomei
-- `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
+- error contains `package manager "<x>" is not supported on this system` (with appended distro context such as `(ID=..., ID_LIKE=...)`) — the host's distro does not match
+- error contains `no version function registered for package manager "<x>"` — the package manager is not yet wired up in tomei
+- error contains `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
 
 `metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`); identifiers other than `apt` are not currently supported by the engine.
 
@@ -302,7 +302,7 @@ spec: {
 
 #### Fields
 
-The CUE schema defines `spec.commands` as an open struct. Today, only `spec.pattern` is enforced by the loader, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above) — the `commands.*` entries below are not consumed at apply time. They are documented here as the conventional shape for `SystemPackageRepository` / `SystemPackageSet` reconciliation, which will start consuming them once the concrete installers land.
+The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The `commands.*` entries below are not consumed by the engine at apply time; they are documented here as the conventional shape for `SystemPackageRepository` / `SystemPackageSet` reconciliation, which will start consuming them once the concrete installers land.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

@@ -245,7 +245,7 @@ SystemInstaller → SystemPackageRepository → SystemPackageSet
 | Resource | Status |
 |----------|--------|
 | `SystemInstaller` (`apt`) | Validates that `apt-get` exists on the host and captures its version |
-| `SystemInstaller` (other) | Schema accepts `dnf`/`zypper`/`pacman`/`apk`, but the engine only wires up `apt` — apply will fail with "no version function registered" |
+| `SystemInstaller` (other) | Schema accepts `dnf`/`zypper`/`pacman`/`apk`, but only `apt` is currently wired. Other package managers fail validation either with "package manager is not supported on this system" (distro mismatch) or "no version function registered" (supported by distro detection but not yet wired in the engine) |
 | `SystemPackageRepository` | Concrete installer not yet implemented (planned: `add-apt-repository`, GPG key management). Recognized by plan/apply but skipped at runtime |
 | `SystemPackageSet` | Concrete installer not yet implemented (planned: `apt-get install`). Recognized by plan/apply but skipped at runtime |
 

@@ -303,7 +303,7 @@ $ tomei apply .
 
 Behavior notes:
 
-- **State location.** System state is stored at `~/.local/share/tomei/system/state.json`, per user. The directory is auto-created on first apply; `tomei init` is not required for system resources.
+- **State location.** System state is stored at `~/.local/share/tomei/system/state.json`, per user. The system state directory is auto-created on first apply, but `tomei apply` still requires `tomei init` to have been run first because the user state file (`~/.local/share/tomei/state.json`) is checked unconditionally before any apply.
 - **Multi-user limitation.** Each user maintains an independent view of system package state. tomei does not coordinate between users on the same host and does not detect out-of-band changes (e.g., manual `apt install` or distro upgrades). For shared servers, use a configuration management tool instead.
 - **Sudo behavior.** tomei prompts for the sudo password once per run and reuses the cached credential. With passwordless sudo (e.g., `NOPASSWD` in `/etc/sudoers`, common in CI), no prompt is shown. Do not run `sudo tomei apply --system` — it would write user state files as root.
 - **Removing a `SystemInstaller`.** Drops only the state entry — the underlying OS package manager is not uninstalled.
