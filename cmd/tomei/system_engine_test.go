@@ -18,6 +18,16 @@ func TestValidatorInstallerAdapter_Remove(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestValidatorInstallerAdapter_Install_NilValidator(t *testing.T) {
+	t.Parallel()
+	// When distro detection fails, validator is nil.
+	// Install should return a clear error instead of panicking.
+	adapter := &validatorInstallerAdapter{validator: nil}
+	_, err := adapter.Install(context.Background(), nil, "apt")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "distro detection failed")
+}
+
 func TestSkipRepoInstaller(t *testing.T) {
 	t.Parallel()
 	installer := &skipRepoInstaller{}

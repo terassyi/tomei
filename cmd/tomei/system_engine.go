@@ -22,6 +22,9 @@ type validatorInstallerAdapter struct {
 }
 
 func (a *validatorInstallerAdapter) Install(ctx context.Context, res *resource.SystemInstaller, _ string) (*resource.SystemInstallerState, error) {
+	if a.validator == nil {
+		return nil, fmt.Errorf("system package manager validation unavailable: distro detection failed or unsupported platform")
+	}
 	return a.validator.Validate(ctx, res)
 }
 
@@ -81,20 +84,25 @@ func createSystemEngine(systemDataDir string) (*engine.SystemEngine, error) {
 		return nil, fmt.Errorf("failed to create system state store: %w", err)
 	}
 
+	// Distro detection and validator creation are best-effort.
+	// When unavailable (e.g., macOS, minimal containers), the engine can
+	// still run removals (state cleanup) — only Install actions will fail.
+	var validator *system.Validator
 	distro, err := system.DetectDistro()
 	if err != nil {
-		return nil, fmt.Errorf("failed to detect Linux distribution: %w", err)
-	}
-	slog.Debug("detected distribution", "id", distro.ID, "id_like", distro.IDLike)
-
-	runner := command.NewExecutor("")
-	versionFuncs := map[system.PackageManager]system.VersionFunc{
-		system.PackageManagerAPT: apt.VersionFunc(runner),
-	}
-
-	validator, err := system.NewValidator(distro, versionFuncs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create system validator: %w", err)
+		slog.Warn("system distro detection unavailable; system installer validation will be skipped", "error", err)
+	} else {
+		slog.Debug("detected distribution", "id", distro.ID, "id_like", distro.IDLike)
+		runner := command.NewExecutor("")
+		versionFuncs := map[system.PackageManager]system.VersionFunc{
+			system.PackageManagerAPT: apt.VersionFunc(runner),
+		}
+		v, err := system.NewValidator(distro, versionFuncs)
+		if err != nil {
+			slog.Warn("failed to create system validator; system installer validation will be skipped", "error", err)
+		} else {
+			validator = v
+		}
 	}
 
 	eng := engine.NewSystemEngine(
