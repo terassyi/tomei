@@ -196,11 +196,7 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 			}
 
 			if err := e.executeSystemNode(ctx, node, resourceMap, &totalActions); err != nil {
-				// Flush what we have before returning
-				if flushErr := e.stateCache.Flush(); flushErr != nil {
-					slog.Warn("failed to flush state after error", "error", flushErr)
-				}
-				return err
+				return flushAndReturn(err)
 			}
 		}
 
@@ -292,6 +288,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		Kind:   kind,
 		Name:   action.Name,
 		Action: action.Type,
+		Method: "system",
 	})
 
 	if err := exec.Execute(ctx, action); err != nil {
@@ -300,6 +297,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 			Kind:   kind,
 			Name:   action.Name,
 			Action: action.Type,
+			Method: "system",
 			Error:  err,
 		})
 		return fmt.Errorf("failed to execute action %s for %s %s: %w", action.Type, kind, action.Name, err)
@@ -310,6 +308,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		Kind:   kind,
 		Name:   action.Name,
 		Action: action.Type,
+		Method: "system",
 	})
 
 	*totalActions++

@@ -8,11 +8,6 @@ import (
 	"github.com/terassyi/tomei/internal/config"
 )
 
-// Default path constants
-const (
-	DefaultSystemDataDir = "/var/lib/tomei"
-)
-
 // Default path suffixes (relative to home directory)
 const (
 	defaultUserDataSuffix  = ".local/share/tomei"
@@ -64,7 +59,7 @@ func New(opts ...Option) (*Paths, error) {
 		userDataDir:   filepath.Join(home, defaultUserDataSuffix),
 		userBinDir:    filepath.Join(home, defaultUserBinSuffix),
 		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
-		systemDataDir: DefaultSystemDataDir,
+		systemDataDir: filepath.Join(home, defaultUserDataSuffix, "system"),
 	}
 
 	for _, opt := range opts {
@@ -167,7 +162,7 @@ func NewFromConfig(cfg *config.Config) (*Paths, error) {
 		userBinDir:    binDir,
 		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
 		envDir:        envDir,
-		systemDataDir: DefaultSystemDataDir,
+		systemDataDir: filepath.Join(dataDir, "system"),
 	}, nil
 }
 

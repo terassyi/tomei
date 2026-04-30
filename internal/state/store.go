@@ -40,9 +40,17 @@ func NewUserStore() (*Store[UserState], error) {
 }
 
 // NewSystemStore creates a Store for system state.
-// Default path: /var/lib/tomei/state.json
+// Default path: ~/.local/share/tomei/system/state.json
+//
+// Prefer using NewStore[SystemState](pathConfig.SystemDataDir()) in cmd code
+// where path configuration is available.
 func NewSystemStore() (*Store[SystemState], error) {
-	return NewStore[SystemState]("/var/lib/tomei")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+	dir := filepath.Join(home, ".local", "share", "tomei", "system")
+	return NewStore[SystemState](dir)
 }
 
 // NewStore creates a new Store with the given directory.

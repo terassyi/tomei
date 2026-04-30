@@ -506,6 +506,14 @@ func TestSystemEngine_Apply_Events(t *testing.T) {
 	// Verify kinds are correct
 	assert.Equal(t, resource.KindSystemInstaller, starts[0].Kind)
 	assert.Equal(t, resource.KindSystemPackageRepository, starts[1].Kind)
+
+	// Verify method is set to "system" for all emitted success-path events
+	for _, e := range starts {
+		assert.Equal(t, "system", e.Method, "system engine start events should have Method=\"system\"")
+	}
+	for _, e := range completes {
+		assert.Equal(t, "system", e.Method, "system engine complete events should have Method=\"system\"")
+	}
 }
 
 func TestSystemEngine_Apply_UpgradeRepo(t *testing.T) {
