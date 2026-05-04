@@ -94,7 +94,7 @@ func resourceKey(kind resource.Kind, name string) string {
 
 // isDownloadMethod returns true if the method is a download pattern.
 func isDownloadMethod(method string) bool {
-	return method == "" || method == "download"
+	return method == "" || method == engine.MethodDownload
 }
 
 // handleDownloadStart handles EventStart for download pattern.

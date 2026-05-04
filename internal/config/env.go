@@ -40,7 +40,7 @@ func DetectEnv() *Env {
 
 func detectOS() OS {
 	switch runtime.GOOS {
-	case "darwin":
+	case string(OSDarwin):
 		return OSDarwin
 	default:
 		return OSLinux
@@ -49,7 +49,7 @@ func detectOS() OS {
 
 func detectArch() Arch {
 	switch runtime.GOARCH {
-	case "arm64":
+	case string(ArchARM64):
 		return ArchARM64
 	default:
 		return ArchAMD64
@@ -63,7 +63,7 @@ func detectHeadless() bool {
 	}
 
 	// Check for DISPLAY on Linux
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == string(OSLinux) {
 		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
 			return true
 		}

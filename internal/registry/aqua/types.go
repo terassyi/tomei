@@ -18,6 +18,17 @@ import (
 	"github.com/Masterminds/semver/v3"
 )
 
+// PackageInfo.Type values recognized by the resolver.
+const (
+	// PackageTypeGitHubRelease packages download assets from GitHub releases.
+	PackageTypeGitHubRelease = "github_release"
+	// PackageTypeHTTP packages download from an arbitrary URL template.
+	PackageTypeHTTP = "http"
+)
+
+// SupportedEnvAll matches any OS/Arch combination in PackageInfo.SupportedEnvs.
+const SupportedEnvAll = "all"
+
 // RegistryRef represents a reference to an aqua-registry version (tag).
 // Format: "vX.Y.Z" (e.g., "v4.465.0")
 type RegistryRef string

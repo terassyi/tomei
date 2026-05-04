@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// MsgCircularDependency is the canonical error message prefix for cycle detection.
+const MsgCircularDependency = "circular dependency detected"
+
 // DependencyError represents a dependency resolution error.
 type DependencyError struct {
 	Base Error `json:"error"`
@@ -27,7 +30,7 @@ func NewCycleError(cycle []string) *DependencyError {
 		Base: Error{
 			Category: CategoryDependency,
 			Code:     CodeCyclicDependency,
-			Message:  "circular dependency detected",
+			Message:  MsgCircularDependency,
 			Hint:     "Remove one of the dependencies to break the cycle.",
 		},
 		Cycle: cycle,

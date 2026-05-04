@@ -3,6 +3,7 @@ package graph
 import (
 	"fmt"
 
+	tomeierrors "github.com/terassyi/tomei/internal/errors"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -74,7 +75,7 @@ func (r *resolver) Resolve() ([]Layer, error) {
 // Validate checks for circular dependencies without computing the full sort.
 func (r *resolver) Validate() error {
 	if cycle := r.dag.detectCycle(); cycle != nil {
-		return fmt.Errorf("circular dependency detected: %v", cycle)
+		return fmt.Errorf("%s: %v", tomeierrors.MsgCircularDependency, cycle)
 	}
 	return nil
 }

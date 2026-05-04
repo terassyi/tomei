@@ -258,18 +258,18 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 // buildURL constructs the download URL based on package type.
 //
 // Supported types:
-//   - "github_release": https://github.com/{owner}/{repo}/releases/download/{version}/{asset}
-//   - "http": arbitrary URL with template variables
+//   - PackageTypeGitHubRelease: https://github.com/{owner}/{repo}/releases/download/{version}/{asset}
+//   - PackageTypeHTTP: arbitrary URL with template variables
 func (r *Resolver) buildURL(info *PackageInfo, vars TemplateVars) (string, error) {
 	switch info.Type {
-	case "github_release":
+	case PackageTypeGitHubRelease:
 		asset, err := RenderTemplate(info.Asset, vars)
 		if err != nil {
 			return "", fmt.Errorf("failed to render asset template: %w", err)
 		}
 		return githubReleaseURL(info, vars.Version, asset), nil
 
-	case "http":
+	case PackageTypeHTTP:
 		return RenderTemplate(info.URL, vars)
 
 	default:
@@ -289,7 +289,7 @@ func (r *Resolver) buildChecksumURL(info *PackageInfo, vars TemplateVars) (strin
 	}
 
 	switch info.Checksum.Type {
-	case "github_release", "":
+	case PackageTypeGitHubRelease, "":
 		return githubReleaseURL(info, vars.Version, checksumAsset), nil
 	default:
 		return "", fmt.Errorf("unsupported checksum type: %s", info.Checksum.Type)
@@ -307,14 +307,14 @@ func githubReleaseURL(info *PackageInfo, version, asset string) string {
 // isSupportedEnv checks if the given OS/Arch is in the supported environments list.
 //
 // Supported formats in aqua-registry:
-//   - "all": matches any environment
+//   - SupportedEnvAll: matches any environment
 //   - "linux", "darwin", "windows": matches any arch on the specified OS
 //   - "linux/amd64", "darwin/arm64": matches specific OS/Arch combination
 func isSupportedEnv(supportedEnvs []string, goos, goarch string) bool {
 	env := fmt.Sprintf("%s/%s", goos, goarch)
 
 	for _, supported := range supportedEnvs {
-		if supported == "all" {
+		if supported == SupportedEnvAll {
 			return true
 		}
 		if supported == goos {

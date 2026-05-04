@@ -219,7 +219,7 @@ const (
 // IsLatestVersion returns true if the version string means "use latest".
 // Both empty string and "latest" are treated as latest.
 func IsLatestVersion(version string) bool {
-	return version == "" || version == "latest"
+	return version == "" || version == string(VersionLatest)
 }
 
 // ClassifyVersion determines the VersionKind for a given spec version string.
@@ -272,6 +272,10 @@ type CommandSet struct {
 	// Remove is the shell command(s) to uninstall/cleanup.
 	Remove []string `json:"remove,omitempty"`
 }
+
+// jsonFieldResolveVersion is the JSON tag used by the resolveVersion field
+// on RuntimeSpec, RuntimeBootstrapSpec, and ToolCommandSet.
+const jsonFieldResolveVersion = "resolveVersion"
 
 // stringField describes a single []string field to be unmarshaled with
 // unmarshalStringOrSlice.
@@ -369,7 +373,7 @@ func (t *ToolCommandSet) UnmarshalJSON(data []byte) error {
 	}
 	return unmarshalStringFields([]stringField{
 		{"update", extra.Update, &t.Update},
-		{"resolveVersion", extra.ResolveVersion, &t.ResolveVersion},
+		{jsonFieldResolveVersion, extra.ResolveVersion, &t.ResolveVersion},
 	})
 }
 

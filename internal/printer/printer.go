@@ -52,13 +52,13 @@ func printResources[T resource.StateType](w io.Writer, m map[string]*T, name str
 // Run executes the get command logic for a given resource type and UserState.
 func Run(w io.Writer, userState *state.UserState, resType, name string, wide, jsonOut bool) error {
 	switch resType {
-	case "tools":
+	case resourceTypeTools:
 		return printResources(w, userState.Tools, name, wide, jsonOut, toolFormatter{})
-	case "runtimes":
+	case resourceTypeRuntimes:
 		return printResources(w, userState.Runtimes, name, wide, jsonOut, runtimeFormatter{})
-	case "installers":
+	case resourceTypeInstallers:
 		return printResources(w, userState.Installers, name, wide, jsonOut, installerFormatter{})
-	case "installerrepositories":
+	case resourceTypeInstallerRepositories:
 		return printResources(w, userState.InstallerRepositories, name, wide, jsonOut, installerRepoFormatter{})
 	default:
 		return fmt.Errorf("unknown resource type %q", resType)
@@ -68,17 +68,17 @@ func Run(w io.Writer, userState *state.UserState, resType, name string, wide, js
 // ResolveResourceType resolves aliases to canonical resource type names.
 func ResolveResourceType(s string) (string, error) {
 	aliases := map[string]string{
-		"tools":                 "tools",
-		"tool":                  "tools",
-		"runtimes":              "runtimes",
-		"runtime":               "runtimes",
-		"rt":                    "runtimes",
-		"installers":            "installers",
-		"installer":             "installers",
-		"inst":                  "installers",
-		"installerrepositories": "installerrepositories",
-		"installerrepository":   "installerrepositories",
-		"instrepo":              "installerrepositories",
+		resourceTypeTools:                 resourceTypeTools,
+		"tool":                            resourceTypeTools,
+		resourceTypeRuntimes:              resourceTypeRuntimes,
+		"runtime":                         resourceTypeRuntimes,
+		"rt":                              resourceTypeRuntimes,
+		resourceTypeInstallers:            resourceTypeInstallers,
+		"installer":                       resourceTypeInstallers,
+		"inst":                            resourceTypeInstallers,
+		resourceTypeInstallerRepositories: resourceTypeInstallerRepositories,
+		"installerrepository":             resourceTypeInstallerRepositories,
+		"instrepo":                        resourceTypeInstallerRepositories,
 	}
 
 	resolved, ok := aliases[strings.ToLower(s)]
@@ -90,9 +90,20 @@ func ResolveResourceType(s string) (string, error) {
 
 // Common column header constants.
 const (
-	colName        = "NAME"
-	colVersion     = "VERSION"
-	colVersionKind = "VERSION_KIND"
+	colName             = "NAME"
+	colVersion          = "VERSION"
+	colVersionKind      = "VERSION_KIND"
+	colInstallerRuntime = "INSTALLER/RUNTIME"
+	colType             = "TYPE"
+	colTainted          = "TAINTED"
+)
+
+// Resource type names accepted by Run/ResolveResourceType (canonical plural forms).
+const (
+	resourceTypeTools                 = "tools"
+	resourceTypeRuntimes              = "runtimes"
+	resourceTypeInstallers            = "installers"
+	resourceTypeInstallerRepositories = "installerrepositories"
 )
 
 // --- Tool ---
@@ -101,7 +112,7 @@ const (
 type toolFormatter struct{}
 
 func (toolFormatter) Headers(wide bool) []string {
-	h := []string{colName, colVersion, colVersionKind, "INSTALLER/RUNTIME", "TAINTED"}
+	h := []string{colName, colVersion, colVersionKind, colInstallerRuntime, colTainted}
 	if wide {
 		h = append(h, "PACKAGE", "BIN_PATH")
 	}
@@ -133,7 +144,7 @@ func (toolFormatter) FormatRow(name string, t *resource.ToolState, wide bool) []
 type runtimeFormatter struct{}
 
 func (runtimeFormatter) Headers(wide bool) []string {
-	h := []string{colName, colVersion, colVersionKind, "TYPE"}
+	h := []string{colName, colVersion, colVersionKind, colType}
 	if wide {
 		h = append(h, "INSTALL_PATH", "BINARIES")
 	}

@@ -25,9 +25,9 @@ const (
 // ParseShellType parses a string into a ShellType.
 func ParseShellType(s string) (ShellType, error) {
 	switch s {
-	case "posix", "bash", "sh", "zsh", "":
+	case string(ShellPosix), "bash", "sh", "zsh", "":
 		return ShellPosix, nil
-	case "fish":
+	case string(ShellFish):
 		return ShellFish, nil
 	default:
 		return "", fmt.Errorf("unsupported shell type: %q (supported: posix, fish)", s)

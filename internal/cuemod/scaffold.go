@@ -15,18 +15,27 @@ type ScaffoldParams struct {
 	Bare bool
 }
 
+// User-facing kind names accepted by `tomei cue scaffold <kind>`.
+const (
+	scaffoldKindTool          = "tool"
+	scaffoldKindRuntime       = "runtime"
+	scaffoldKindInstaller     = "installer"
+	scaffoldKindInstallerRepo = "installer-repository"
+	scaffoldKindToolSet       = "toolset"
+)
+
 // supportedKinds maps user-facing kind names to template file names.
 var supportedKinds = map[string]string{
-	"tool":                 "scaffold_tool.cue.tmpl",
-	"runtime":              "scaffold_runtime.cue.tmpl",
-	"installer":            "scaffold_installer.cue.tmpl",
-	"installer-repository": "scaffold_installer_repository.cue.tmpl",
-	"toolset":              "scaffold_toolset.cue.tmpl",
+	scaffoldKindTool:          "scaffold_tool.cue.tmpl",
+	scaffoldKindRuntime:       "scaffold_runtime.cue.tmpl",
+	scaffoldKindInstaller:     "scaffold_installer.cue.tmpl",
+	scaffoldKindInstallerRepo: "scaffold_installer_repository.cue.tmpl",
+	scaffoldKindToolSet:       "scaffold_toolset.cue.tmpl",
 }
 
 // SupportedScaffoldKinds returns the list of supported kind names for scaffold.
 func SupportedScaffoldKinds() []string {
-	return []string{"tool", "runtime", "installer", "installer-repository", "toolset"}
+	return []string{scaffoldKindTool, scaffoldKindRuntime, scaffoldKindInstaller, scaffoldKindInstallerRepo, scaffoldKindToolSet}
 }
 
 // Scaffold generates a CUE manifest scaffold for the given resource kind.

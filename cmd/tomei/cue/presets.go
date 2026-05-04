@@ -42,18 +42,18 @@ Output formats:
 
 func init() {
 	presetsCmd.Flags().StringVar(&presetsVersion, "version", "", "Module version to inspect (default: latest)")
-	presetsCmd.Flags().StringVarP(&presetsOutput, "output", "o", "table", "Output format: table, cue, json")
+	presetsCmd.Flags().StringVarP(&presetsOutput, "output", "o", outputTable, "Output format: table, cue, json")
 	presetsCmd.Flags().BoolVar(&presetsPreRelease, "pre", false, "Include pre-release versions")
 	presetsCmd.Flags().StringVarP(&presetsDefinition, "definition", "d", "", "Filter by definition name (e.g. GoRuntime or #GoRuntime)")
 
 	_ = presetsCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"table", "cue", "json"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{outputTable, outputCue, outputJSON}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 
 func runPresets(cmd *cobra.Command, args []string) error {
 	switch presetsOutput {
-	case "table", "cue", "json":
+	case outputTable, outputCue, outputJSON:
 	default:
 		return fmt.Errorf("unsupported output format %q (must be table, cue, or json)", presetsOutput)
 	}
@@ -117,7 +117,7 @@ func runPresets(cmd *cobra.Command, args []string) error {
 	out := cmd.OutOrStdout()
 
 	switch presetsOutput {
-	case "table":
+	case outputTable:
 		fmt.Fprintf(out, "Presets from %s (%s)\n\n", config.TomeiModulePath, version)
 		w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(w, "PRESET\tIMPORT_PATH\tDEFINITIONS")
@@ -128,14 +128,14 @@ func runPresets(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to flush output: %w", err)
 		}
 
-	case "json":
+	case outputJSON:
 		enc := json.NewEncoder(out)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(presets); err != nil {
 			return fmt.Errorf("failed to encode JSON: %w", err)
 		}
 
-	case "cue":
+	case outputCue:
 		for i, p := range presets {
 			if i > 0 {
 				fmt.Fprintln(out, "---")

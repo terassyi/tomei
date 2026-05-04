@@ -96,7 +96,7 @@ func (s *RuntimeSpec) UnmarshalJSON(data []byte) error {
 	*s = RuntimeSpec(r.Alias)
 	return unmarshalStringFields([]stringField{
 		{"binaries", r.Binaries, &s.Binaries},
-		{"resolveVersion", r.ResolveVersion, &s.ResolveVersion},
+		{jsonFieldResolveVersion, r.ResolveVersion, &s.ResolveVersion},
 	})
 }
 
@@ -139,7 +139,7 @@ func (r *RuntimeBootstrapSpec) UnmarshalJSON(data []byte) error {
 	}
 	return unmarshalStringFields([]stringField{
 		{"update", extra.Update, &r.Update},
-		{"resolveVersion", extra.ResolveVersion, &r.ResolveVersion},
+		{jsonFieldResolveVersion, extra.ResolveVersion, &r.ResolveVersion},
 	})
 }
 

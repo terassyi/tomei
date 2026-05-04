@@ -244,7 +244,7 @@ func taskLabel(t *taskState) string {
 	if t.version != "" {
 		label += " " + t.version
 	}
-	if t.method != "" && t.method != "download" {
+	if t.method != "" && t.method != engine.MethodDownload {
 		label += " (" + t.method + ")"
 	}
 	return label

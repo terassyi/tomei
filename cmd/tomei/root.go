@@ -14,7 +14,11 @@ import (
 	"github.com/terassyi/tomei/internal/verify"
 )
 
-const outputJSON = "json"
+const (
+	outputJSON = "json"
+	outputText = "text"
+	shellFish  = "fish"
+)
 
 // logLevelFlag implements pflag.Value for slog.Level.
 type logLevelFlag struct {

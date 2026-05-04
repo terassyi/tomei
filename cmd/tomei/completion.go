@@ -22,14 +22,14 @@ Usage:
   powershell:
     tomei completion powershell | Out-String | Invoke-Expression`,
 	Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
+	ValidArgs: []string{"bash", "zsh", shellFish, "powershell"},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		switch args[0] {
 		case "bash":
 			return rootCmd.GenBashCompletionV2(cmd.OutOrStdout(), true)
 		case "zsh":
 			return rootCmd.GenZshCompletion(cmd.OutOrStdout())
-		case "fish":
+		case shellFish:
 			return rootCmd.GenFishCompletion(cmd.OutOrStdout(), true)
 		case "powershell":
 			return rootCmd.GenPowerShellCompletion(cmd.OutOrStdout())

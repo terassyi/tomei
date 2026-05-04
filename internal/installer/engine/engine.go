@@ -96,6 +96,10 @@ const (
 	EventLayerStart
 )
 
+// MethodDownload is the value reported in Event.Method for resources that
+// install via direct download (no delegation, no runtime).
+const MethodDownload = "download"
+
 // Event represents an engine event for progress reporting.
 type Event struct {
 	Type       EventType
@@ -108,7 +112,7 @@ type Event struct {
 	Downloaded int64  // bytes downloaded (for EventProgress)
 	Total      int64  // total bytes (-1 if unknown, for EventProgress)
 	Output     string // output line (for EventOutput)
-	Method     string // install method: "download", "go install", etc.
+	Method     string // install method: MethodDownload, "go install", etc.
 
 	// EventLayerStart fields
 	Layer         int        // current layer index (0-based)
@@ -947,12 +951,12 @@ func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 	}
 
 	// Installer delegation (e.g., "brew install")
-	if spec.InstallerRef != "" && spec.InstallerRef != "download" {
+	if spec.InstallerRef != "" && spec.InstallerRef != MethodDownload {
 		return spec.InstallerRef + " install"
 	}
 
 	// Download pattern
-	return "download"
+	return MethodDownload
 }
 
 // delegationKeyForTool returns the serialization group key for a tool.

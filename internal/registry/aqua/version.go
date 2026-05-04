@@ -12,12 +12,15 @@ import (
 var semverPattern = regexp.MustCompile(`^semver\("([^"]+)"\)$`)
 
 // matchVersionConstraint checks if the given version matches the constraint.
+// constraintAlwaysTrue is the literal aqua-registry constraint that matches every version.
+const constraintAlwaysTrue = "true"
+
 // Returns true if:
-//   - constraint is "true" or empty string
+//   - constraint is constraintAlwaysTrue or empty string
 //   - constraint is semver("...") and version satisfies the constraint
 func matchVersionConstraint(constraint, version string) bool {
 	// "true" or empty always matches
-	if constraint == "true" || constraint == "" {
+	if constraint == constraintAlwaysTrue || constraint == "" {
 		return true
 	}
 

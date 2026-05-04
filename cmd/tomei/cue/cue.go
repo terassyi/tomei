@@ -2,9 +2,15 @@ package cue
 
 import "github.com/spf13/cobra"
 
+const (
+	outputCue   = "cue"
+	outputJSON  = "json"
+	outputTable = "table"
+)
+
 // Cmd is the parent command for cue subcommands.
 var Cmd = &cobra.Command{
-	Use:   "cue",
+	Use:   outputCue,
 	Short: "CUE module management commands",
 	Long: `Commands for managing CUE module configuration.
 

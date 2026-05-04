@@ -20,7 +20,7 @@ var BuiltinAquaInstaller = &resource.Installer{
 	BaseResource: resource.BaseResource{
 		APIVersion:   resource.GroupVersion,
 		ResourceKind: resource.KindInstaller,
-		Metadata:     resource.Metadata{Name: "aqua"},
+		Metadata:     resource.Metadata{Name: resource.InstallerNameAqua},
 	},
 	InstallerSpec: &resource.InstallerSpec{
 		Type: resource.InstallTypeDownload,
