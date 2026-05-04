@@ -11,10 +11,10 @@ import (
 // semverPattern matches semver constraint expressions like semver("< 1.0.0") or semver(">= 2.0.0").
 var semverPattern = regexp.MustCompile(`^semver\("([^"]+)"\)$`)
 
-// matchVersionConstraint checks if the given version matches the constraint.
 // constraintAlwaysTrue is the literal aqua-registry constraint that matches every version.
 const constraintAlwaysTrue = "true"
 
+// matchVersionConstraint reports whether version satisfies the aqua-registry constraint string.
 // Returns true if:
 //   - constraint is constraintAlwaysTrue or empty string
 //   - constraint is semver("...") and version satisfies the constraint

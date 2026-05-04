@@ -2,6 +2,10 @@ package cue
 
 import "github.com/spf13/cobra"
 
+// cmdName is the cobra Use string for this subcommand tree.
+const cmdName = "cue"
+
+// Output format values for `tomei cue presets -o ...`.
 const (
 	outputCue   = "cue"
 	outputJSON  = "json"
@@ -10,7 +14,7 @@ const (
 
 // Cmd is the parent command for cue subcommands.
 var Cmd = &cobra.Command{
-	Use:   outputCue,
+	Use:   cmdName,
 	Short: "CUE module management commands",
 	Long: `Commands for managing CUE module configuration.
 
