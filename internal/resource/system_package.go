@@ -110,3 +110,44 @@ type SystemPackageSetState struct {
 }
 
 func (*SystemPackageSetState) isState() {}
+
+// SystemPackageSpec defines a single system package; sugar for a 1-element SystemPackageSet.
+type SystemPackageSpec struct {
+	InstallerRef  string `json:"installerRef"`
+	RepositoryRef string `json:"repositoryRef,omitempty"`
+	Package       string `json:"package"`
+}
+
+// Validate validates the SystemPackageSpec.
+func (s *SystemPackageSpec) Validate() error {
+	if s.InstallerRef == "" {
+		return fmt.Errorf("installerRef is required")
+	}
+	if s.Package == "" {
+		return fmt.Errorf("package is required")
+	}
+	return nil
+}
+
+// Dependencies returns the resources this package depends on.
+func (s *SystemPackageSpec) Dependencies() []Ref {
+	deps := []Ref{
+		{Kind: KindSystemInstaller, Name: s.InstallerRef},
+	}
+	if s.RepositoryRef != "" {
+		deps = append(deps, Ref{Kind: KindSystemPackageRepository, Name: s.RepositoryRef})
+	}
+	return deps
+}
+
+// SystemPackage is a sugar resource for a single system package.
+type SystemPackage struct {
+	BaseResource
+	SystemPackageSpec *SystemPackageSpec `json:"spec"`
+}
+
+// Kind returns the resource kind (can be called on nil).
+func (*SystemPackage) Kind() Kind { return KindSystemPackage }
+
+// Spec returns the spec as Spec interface.
+func (s *SystemPackage) Spec() Spec { return s.SystemPackageSpec }

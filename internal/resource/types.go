@@ -12,6 +12,7 @@ type Kind string
 const (
 	// System privilege resources
 	KindSystemInstaller         Kind = "SystemInstaller"
+	KindSystemPackage           Kind = "SystemPackage"
 	KindSystemPackageRepository Kind = "SystemPackageRepository"
 	KindSystemPackageSet        Kind = "SystemPackageSet"
 
@@ -44,10 +45,10 @@ type Ref struct {
 }
 
 // IsSystemKind reports whether the kind belongs to the system-privilege
-// resource family (SystemInstaller, SystemPackageRepository, SystemPackageSet).
+// resource family (SystemInstaller, SystemPackage, SystemPackageRepository, SystemPackageSet).
 func IsSystemKind(k Kind) bool {
 	switch k {
-	case KindSystemInstaller, KindSystemPackageRepository, KindSystemPackageSet:
+	case KindSystemInstaller, KindSystemPackage, KindSystemPackageRepository, KindSystemPackageSet:
 		return true
 	default:
 		return false
@@ -59,7 +60,7 @@ var knownKinds map[string]Kind
 
 func init() {
 	kinds := []Kind{
-		KindSystemInstaller, KindSystemPackageRepository, KindSystemPackageSet,
+		KindSystemInstaller, KindSystemPackage, KindSystemPackageRepository, KindSystemPackageSet,
 		KindInstaller, KindInstallerRepository, KindRuntime,
 		KindTool, KindToolSet,
 	}

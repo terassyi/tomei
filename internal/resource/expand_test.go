@@ -644,11 +644,12 @@ func TestFilterSystemKinds(t *testing.T) {
 		resources := []Resource{
 			&SystemInstaller{BaseResource: BaseResource{Metadata: Metadata{Name: "apt"}}},
 			&SystemPackageRepository{BaseResource: BaseResource{Metadata: Metadata{Name: "docker-repo"}}},
+			&SystemPackage{BaseResource: BaseResource{Metadata: Metadata{Name: "git"}}},
 			&SystemPackageSet{BaseResource: BaseResource{Metadata: Metadata{Name: "dev-tools"}}},
 		}
 		user, system := FilterSystemKinds(resources)
 		assert.Empty(t, user)
-		assert.Len(t, system, 3)
+		assert.Len(t, system, 4)
 	})
 
 	t.Run("mixed", func(t *testing.T) {
@@ -657,15 +658,17 @@ func TestFilterSystemKinds(t *testing.T) {
 			&Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
 			&SystemInstaller{BaseResource: BaseResource{Metadata: Metadata{Name: "apt"}}},
 			&Runtime{BaseResource: BaseResource{Metadata: Metadata{Name: "go"}}},
+			&SystemPackage{BaseResource: BaseResource{Metadata: Metadata{Name: "git"}}},
 			&SystemPackageSet{BaseResource: BaseResource{Metadata: Metadata{Name: "dev-tools"}}},
 		}
 		user, system := FilterSystemKinds(resources)
 		assert.Len(t, user, 2)
 		assert.Equal(t, "rg", user[0].Name())
 		assert.Equal(t, "go", user[1].Name())
-		assert.Len(t, system, 2)
+		assert.Len(t, system, 3)
 		assert.Equal(t, "apt", system[0].Name())
-		assert.Equal(t, "dev-tools", system[1].Name())
+		assert.Equal(t, "git", system[1].Name())
+		assert.Equal(t, "dev-tools", system[2].Name())
 	})
 }
 
