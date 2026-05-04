@@ -36,20 +36,31 @@ const (
 	ArchiveTypePkg ArchiveType = "pkg"
 )
 
+// Common alias names for archive types accepted by NormalizeArchiveType.
+const (
+	archiveAliasTgz = "tgz"
+	archiveAliasTxz = "txz"
+)
+
+// MacOSMetadataDir is the metadata directory injected by macOS ZIP tools
+// (and other archives created on macOS). Tomei filters it out during extraction
+// and archive root detection.
+const MacOSMetadataDir = "__MACOSX"
+
 // NormalizeArchiveType normalizes an archive type string to a canonical ArchiveType constant.
 // It handles common aliases (e.g., "tgz" → ArchiveTypeTarGz, "txz" → ArchiveTypeTarXz).
 // Unrecognized values are passed through as-is (NewExtractor will reject them).
 func NormalizeArchiveType(raw string) ArchiveType {
 	switch strings.ToLower(raw) {
-	case "tar.gz", "tgz":
+	case string(ArchiveTypeTarGz), archiveAliasTgz:
 		return ArchiveTypeTarGz
-	case "tar.xz", "txz":
+	case string(ArchiveTypeTarXz), archiveAliasTxz:
 		return ArchiveTypeTarXz
-	case "zip":
+	case string(ArchiveTypeZip):
 		return ArchiveTypeZip
-	case "raw":
+	case string(ArchiveTypeRaw):
 		return ArchiveTypeRaw
-	case "pkg":
+	case string(ArchiveTypePkg):
 		return ArchiveTypePkg
 	default:
 		return ArchiveType(raw)
@@ -358,7 +369,7 @@ func extractFile(r io.Reader, target string, mode os.FileMode) error {
 // OS-specific metadata tree that should be skipped during extraction.
 // Currently handles __MACOSX/, which macOS ZIP creation tools inject.
 func isOSMetadataPath(name string) bool {
-	return name == "__MACOSX" || name == "__MACOSX/" || strings.HasPrefix(name, "__MACOSX/")
+	return name == MacOSMetadataDir || name == MacOSMetadataDir+"/" || strings.HasPrefix(name, MacOSMetadataDir+"/")
 }
 
 // isInsideDir checks if target path is inside the base directory.

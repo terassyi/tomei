@@ -12,6 +12,9 @@ import (
 	"github.com/terassyi/tomei/internal/state"
 )
 
+// methodSystem is the value reported in events emitted by SystemEngine.
+const methodSystem = "system"
+
 // SystemInstallerAction is an alias for system-installer-specific action type.
 type SystemInstallerAction = reconciler.Action[*resource.SystemInstaller, *resource.SystemInstallerState]
 
@@ -288,7 +291,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		Kind:   kind,
 		Name:   action.Name,
 		Action: action.Type,
-		Method: "system",
+		Method: methodSystem,
 	})
 
 	if err := exec.Execute(ctx, action); err != nil {
@@ -297,7 +300,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 			Kind:   kind,
 			Name:   action.Name,
 			Action: action.Type,
-			Method: "system",
+			Method: methodSystem,
 			Error:  err,
 		})
 		return fmt.Errorf("failed to execute action %s for %s %s: %w", action.Type, kind, action.Name, err)
@@ -308,7 +311,7 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		Kind:   kind,
 		Name:   action.Name,
 		Action: action.Type,
-		Method: "system",
+		Method: methodSystem,
 	})
 
 	*totalActions++

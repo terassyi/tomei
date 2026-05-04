@@ -55,9 +55,9 @@ var planCfg planConfig
 
 func init() {
 	planCfg.registerFlags(planCmd)
-	planCmd.Flags().StringVarP(&planCfg.outputFormat, "output", "o", "text", "Output format: text, json, yaml")
+	planCmd.Flags().StringVarP(&planCfg.outputFormat, "output", "o", outputText, "Output format: text, json, yaml")
 	_ = planCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"text", "json", "yaml"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{outputText, outputJSON, "yaml"}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 
@@ -120,7 +120,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	case "yaml":
 		exporter := graph.NewExporter(result.filteredLayers, result.resourceInfo, result.edges)
 		return exporter.ExportYAML(os.Stdout)
-	case "text":
+	case outputText:
 		fallthrough
 	default:
 		return printTextPlan(cmd, args, resources, result)

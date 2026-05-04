@@ -48,7 +48,7 @@ func init() {
 	envCmd.Flags().StringVar(&envShell, "shell", "posix", "Shell type (posix, fish)")
 	envCmd.Flags().BoolVar(&envExport, "export", false, "Write to file instead of stdout")
 	_ = envCmd.RegisterFlagCompletionFunc("shell", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"posix", "fish"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{"posix", shellFish}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

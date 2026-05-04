@@ -200,6 +200,10 @@ type Checksum struct {
 	Algorithm checksum.Algorithm `json:"algorithm,omitempty"`
 }
 
+// InstallerNameAqua is the canonical name of the builtin aqua installer.
+// Tools using a Registry package (owner/repo form) must reference this installer.
+const InstallerNameAqua = "aqua"
+
 // ToolSpec defines the desired state of an individual tool.
 // A tool can be installed via four patterns:
 //  1. Commands pattern: Self-managed tool with install/update/remove commands
@@ -341,7 +345,7 @@ func (s *ToolSpec) Validate() error {
 	}
 
 	// Registry package (explicit owner/repo object) requires InstallerRef="aqua"
-	if s.Package.IsRegistry() && s.InstallerRef != "aqua" {
+	if s.Package.IsRegistry() && s.InstallerRef != InstallerNameAqua {
 		return fmt.Errorf("package with owner/repo requires installerRef: aqua")
 	}
 

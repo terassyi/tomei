@@ -592,8 +592,8 @@ func TestResolver_Determinism_SameOutput(t *testing.T) {
 		}
 
 		// Reverse order
-		for j := len(resources) - 1; j >= 0; j-- {
-			resolver2.AddResource(resources[j])
+		for _, r := range slices.Backward(resources) {
+			resolver2.AddResource(r)
 		}
 
 		layers1, err1 := resolver1.Resolve()

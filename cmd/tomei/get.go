@@ -37,7 +37,7 @@ Examples:
 func init() {
 	getCmd.Flags().StringVarP(&getOutput, "output", "o", "table", "Output format: table, wide, json")
 	_ = getCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"table", "wide", "json"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{"table", "wide", outputJSON}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
 

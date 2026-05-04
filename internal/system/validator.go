@@ -32,15 +32,22 @@ func init() {
 	}
 }
 
+// Distro family root IDs (lowercase) used as keys in packageManagersByID
+// and matched against /etc/os-release ID / ID_LIKE values.
+const (
+	DistroDebian = "debian"
+	DistroFedora = "fedora"
+)
+
 // packageManagersByID maps distro IDs to their supported package managers.
 // Only family roots need entries — derivatives match via ID_LIKE chain.
 var packageManagersByID = map[string][]PackageManager{
-	"debian": {PackageManagerAPT},
-	"fedora": {PackageManagerDNF},
-	"rhel":   {PackageManagerDNF},
-	"suse":   {PackageManagerZypper},
-	"arch":   {PackageManagerPacman},
-	"alpine": {PackageManagerAPK},
+	DistroDebian: {PackageManagerAPT},
+	DistroFedora: {PackageManagerDNF},
+	"rhel":       {PackageManagerDNF},
+	"suse":       {PackageManagerZypper},
+	"arch":       {PackageManagerPacman},
+	"alpine":     {PackageManagerAPK},
 }
 
 // VersionFunc returns the version string for a package manager.

@@ -1,8 +1,6 @@
 package graph
 
 import (
-	"fmt"
-
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -72,9 +70,11 @@ func (r *resolver) Resolve() ([]Layer, error) {
 }
 
 // Validate checks for circular dependencies without computing the full sort.
+// Returns the same structured *errors.DependencyError as Resolve() so callers
+// can use errors.Is/As consistently across both validation paths.
 func (r *resolver) Validate() error {
 	if cycle := r.dag.detectCycle(); cycle != nil {
-		return fmt.Errorf("circular dependency detected: %v", cycle)
+		return NewCycleError(cycle)
 	}
 	return nil
 }

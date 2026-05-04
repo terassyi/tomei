@@ -15,6 +15,10 @@ const (
 	DiffModified DiffType = "modified"
 )
 
+// ResourceKindRegistry is the synthetic Kind value used in diff entries
+// for registry references (e.g., the aqua-registry version pin).
+const ResourceKindRegistry = "registry"
+
 // ResourceDiff represents a single resource change.
 type ResourceDiff struct {
 	Kind       string   `json:"kind"`
@@ -181,15 +185,15 @@ func diffRegistry(old, current *UserState, diff *Diff) {
 	switch {
 	case oldRef == "":
 		diff.Changes = append(diff.Changes, ResourceDiff{
-			Kind: "registry", Name: "aqua", Type: DiffAdded, NewVersion: newRef,
+			Kind: ResourceKindRegistry, Name: resource.InstallerNameAqua, Type: DiffAdded, NewVersion: newRef,
 		})
 	case newRef == "":
 		diff.Changes = append(diff.Changes, ResourceDiff{
-			Kind: "registry", Name: "aqua", Type: DiffRemoved, OldVersion: oldRef,
+			Kind: ResourceKindRegistry, Name: resource.InstallerNameAqua, Type: DiffRemoved, OldVersion: oldRef,
 		})
 	default:
 		diff.Changes = append(diff.Changes, ResourceDiff{
-			Kind: "registry", Name: "aqua", Type: DiffModified, OldVersion: oldRef, NewVersion: newRef,
+			Kind: ResourceKindRegistry, Name: resource.InstallerNameAqua, Type: DiffModified, OldVersion: oldRef, NewVersion: newRef,
 		})
 	}
 }

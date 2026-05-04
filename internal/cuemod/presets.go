@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 // tomeiImportBase is the module path without the major version suffix,
@@ -42,7 +44,7 @@ type PresetInfo struct {
 // Used for shell completion; the canonical source is the OCI registry,
 // but a network fetch at completion time is too slow.
 func KnownPresetNames() []string {
-	return []string{"aqua", "brew", "bun", "deno", "go", "node", "python", "rust", "zig"}
+	return []string{resource.InstallerNameAqua, "brew", "bun", "deno", "go", "node", "python", "rust", "zig"}
 }
 
 // definitionRe matches top-level CUE definitions (e.g. "#GoRuntime:").

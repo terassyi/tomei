@@ -127,6 +127,7 @@ func TestNormalizeKind(t *testing.T) {
 		{"PascalCase ToolSet", "ToolSet", KindToolSet, true},
 		{"lowercase installer", "installer", KindInstaller, true},
 		{"lowercase systeminstaller", "systeminstaller", KindSystemInstaller, true},
+		{"lowercase systempackage", "systempackage", KindSystemPackage, true},
 		{"lowercase systempackagerepository", "systempackagerepository", KindSystemPackageRepository, true},
 		{"lowercase systempackageset", "systempackageset", KindSystemPackageSet, true},
 		{"unknown kind", "unknown", Kind(""), false},

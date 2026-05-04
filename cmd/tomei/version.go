@@ -48,8 +48,8 @@ var versionCmd = &cobra.Command{
 }
 
 func init() {
-	versionCmd.Flags().StringVarP(&versionFormat, "output", "o", "text", "Output format (text, json)")
+	versionCmd.Flags().StringVarP(&versionFormat, "output", "o", outputText, "Output format (text, json)")
 	_ = versionCmd.RegisterFlagCompletionFunc("output", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
-		return []string{"text", "json"}, cobra.ShellCompDirectiveNoFileComp
+		return []string{outputText, outputJSON}, cobra.ShellCompDirectiveNoFileComp
 	})
 }

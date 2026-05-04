@@ -643,7 +643,7 @@ func isHidden(name string) bool {
 // that should be ignored during archive root detection.
 // Currently handles __MACOSX, which macOS ZIP tools inject.
 func isOSMetadata(name string) bool {
-	return name == "__MACOSX"
+	return name == extract.MacOSMetadataDir
 }
 
 // copyDir copies a directory recursively.
