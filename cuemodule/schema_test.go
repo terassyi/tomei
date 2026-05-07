@@ -340,7 +340,7 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
-			// Locks the verbatim contract: per-installer grammar round-trips byte-for-byte.
+			// Asserts schema admits per-installer grammar (e.g. apt multiarch `libc6:i386`) without false rejection.
 			name: "SystemPackage with multiarch package identifier",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -668,6 +668,19 @@ func TestSchema_InvalidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "SystemPackageSet empty repositoryRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef:  "apt"
+					repositoryRef: ""
+					packages: ["git"]
+				}
+			}`,
+		},
+		{
 			name: "SystemPackage without installerRef",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -734,6 +747,19 @@ func TestSchema_InvalidResources(t *testing.T) {
 				spec: {
 					installerRef: "apt"
 					package:      "git\n"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty repositoryRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef:  "apt"
+					repositoryRef: ""
+					package:       "git"
 				}
 			}`,
 		},
