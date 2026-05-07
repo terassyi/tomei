@@ -223,6 +223,55 @@ spec: {
 	}
 }
 
+func TestLoader_LoadFile_SystemPackage(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cueFile := filepath.Join(dir, "syspkg.cue")
+
+	content := `
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind: "SystemPackage"
+metadata: name: "docker"
+spec: {
+    installerRef: "apt"
+    repositoryRef: "docker-repo"
+    package: "docker-ce"
+}
+`
+	if err := os.WriteFile(cueFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	loader := NewLoader(nil)
+	resources, err := loader.LoadFile(cueFile)
+	if err != nil {
+		t.Fatalf("failed to load file: %v", err)
+	}
+
+	res := resources[0]
+	if res.Kind() != resource.KindSystemPackage {
+		t.Errorf("expected kind SystemPackage, got %s", res.Kind())
+	}
+
+	pkg, ok := res.(*resource.SystemPackage)
+	if !ok {
+		t.Fatalf("expected *resource.SystemPackage, got %T", res)
+	}
+	if pkg.Name() != "docker" {
+		t.Errorf("expected name docker, got %s", pkg.Name())
+	}
+	if pkg.SystemPackageSpec.InstallerRef != "apt" {
+		t.Errorf("expected installerRef apt, got %s", pkg.SystemPackageSpec.InstallerRef)
+	}
+	if pkg.SystemPackageSpec.RepositoryRef != "docker-repo" {
+		t.Errorf("expected repositoryRef docker-repo, got %s", pkg.SystemPackageSpec.RepositoryRef)
+	}
+	if pkg.SystemPackageSpec.Package != "docker-ce" {
+		t.Errorf("expected package docker-ce, got %s", pkg.SystemPackageSpec.Package)
+	}
+}
+
 func TestLoader_LoadFile_WithLabels(t *testing.T) {
 	t.Parallel()
 

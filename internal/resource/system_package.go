@@ -151,3 +151,25 @@ func (*SystemPackage) Kind() Kind { return KindSystemPackage }
 
 // Spec returns the spec as Spec interface.
 func (s *SystemPackage) Spec() Spec { return s.SystemPackageSpec }
+
+// Expand expands a SystemPackage into a single-element SystemPackageSet.
+// Sugar semantics: the engine never sees SystemPackage, only SystemPackageSet.
+func (s *SystemPackage) Expand() ([]Resource, error) {
+	if s.SystemPackageSpec == nil {
+		return nil, fmt.Errorf("SystemPackage %q has nil spec", s.Name())
+	}
+	return []Resource{
+		&SystemPackageSet{
+			BaseResource: BaseResource{
+				APIVersion:   GroupVersion,
+				ResourceKind: KindSystemPackageSet,
+				Metadata:     Metadata{Name: s.Name()},
+			},
+			SystemPackageSetSpec: &SystemPackageSetSpec{
+				InstallerRef:  s.SystemPackageSpec.InstallerRef,
+				RepositoryRef: s.SystemPackageSpec.RepositoryRef,
+				Packages:      []string{s.SystemPackageSpec.Package},
+			},
+		},
+	}, nil
+}
