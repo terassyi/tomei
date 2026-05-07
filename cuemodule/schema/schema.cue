@@ -215,16 +215,35 @@ package schema
 	}
 }
 
+// #SystemPackageSet — set of OS packages installed via a SystemInstaller.
+// Per-installer grammar (version pins, multiarch suffixes, file paths,
+// regex patterns) is accepted verbatim; the per-installer adapter is the
+// authority on naming-rule conformance. Schema rejects whitespace inside
+// a package identifier — no Linux package manager accepts that.
 #SystemPackageSet: {
 	apiVersion: #APIVersion
 	kind:       "SystemPackageSet"
 	metadata:   #Metadata
 	spec: {
 		installerRef:   string & !=""
-		repositoryRef?: string
-		packages: [...string]
+		repositoryRef?: string & !=""
+		packages: [...string & =~"^\\S+$"]
+	}
+}
+
+// #SystemPackage — single-package sugar; expanded to a 1-element
+// #SystemPackageSet before the engine sees it. Constraints mirror
+// #SystemPackageSet.packages element-wise.
+#SystemPackage: {
+	apiVersion: #APIVersion
+	kind:       "SystemPackage"
+	metadata:   #Metadata
+	spec: {
+		installerRef:   string & !=""
+		repositoryRef?: string & !=""
+		package:        string & =~"^\\S+$"
 	}
 }
 
 #Resource: #Runtime | #Installer | #InstallerRepository | #Tool | #ToolSet |
-	#SystemInstaller | #SystemPackageRepository | #SystemPackageSet
+	#SystemInstaller | #SystemPackageRepository | #SystemPackageSet | #SystemPackage

@@ -43,6 +43,7 @@ func TestSchema_Definitions_Exist(t *testing.T) {
 		"#SystemInstaller",
 		"#SystemPackageRepository",
 		"#SystemPackageSet",
+		"#SystemPackage",
 		"#Resource",
 	}
 
@@ -307,6 +308,34 @@ func TestSchema_ValidResources(t *testing.T) {
 				spec: {
 					installerRef: "apt"
 					packages: ["jq", "curl", "htop"]
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage minimal",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage with repositoryRef and metadata description",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: {
+					name:        "docker"
+					description: "Docker CE from upstream apt repository"
+				}
+				spec: {
+					installerRef: "apt"
+					repositoryRef: "docker"
+					package:       "docker-ce"
 				}
 			}`,
 		},
@@ -598,6 +627,100 @@ func TestSchema_InvalidResources(t *testing.T) {
 					source: {
 						type: "invalid"
 					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage missing installerRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					package: "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty installerRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: ""
+					package:      "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage missing package",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty package",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      ""
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage whitespace-only package",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      " "
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage package with embedded space",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git vim"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage package with trailing newline",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git\n"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageSet element with embedded whitespace",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef: "apt"
+					packages: ["git ", "curl"]
 				}
 			}`,
 		},
