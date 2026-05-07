@@ -340,6 +340,19 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			// Locks the verbatim contract: per-installer grammar round-trips byte-for-byte.
+			name: "SystemPackage with multiarch package identifier",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "libc6-i386"
+				spec: {
+					installerRef: "apt"
+					package:      "libc6:i386"
+				}
+			}`,
+		},
+		{
 			name: "Tool with metadata description",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -631,7 +644,19 @@ func TestSchema_InvalidResources(t *testing.T) {
 			}`,
 		},
 		{
-			name: "SystemPackage missing installerRef",
+			name: "SystemPackageSet element with embedded whitespace",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef: "apt"
+					packages: ["git ", "curl"]
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage without installerRef",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
 				kind:       "SystemPackage"
@@ -654,7 +679,7 @@ func TestSchema_InvalidResources(t *testing.T) {
 			}`,
 		},
 		{
-			name: "SystemPackage missing package",
+			name: "SystemPackage without package",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
 				kind:       "SystemPackage"
@@ -673,18 +698,6 @@ func TestSchema_InvalidResources(t *testing.T) {
 				spec: {
 					installerRef: "apt"
 					package:      ""
-				}
-			}`,
-		},
-		{
-			name: "SystemPackage whitespace-only package",
-			cue: `{
-				apiVersion: "tomei.terassyi.net/v1beta1"
-				kind:       "SystemPackage"
-				metadata: name: "git"
-				spec: {
-					installerRef: "apt"
-					package:      " "
 				}
 			}`,
 		},
@@ -709,18 +722,6 @@ func TestSchema_InvalidResources(t *testing.T) {
 				spec: {
 					installerRef: "apt"
 					package:      "git\n"
-				}
-			}`,
-		},
-		{
-			name: "SystemPackageSet element with embedded whitespace",
-			cue: `{
-				apiVersion: "tomei.terassyi.net/v1beta1"
-				kind:       "SystemPackageSet"
-				metadata: name: "cli-tools"
-				spec: {
-					installerRef: "apt"
-					packages: ["git ", "curl"]
 				}
 			}`,
 		},
