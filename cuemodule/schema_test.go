@@ -644,6 +644,18 @@ func TestSchema_InvalidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "SystemPackageSet with empty packages",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef: "apt"
+					packages: []
+				}
+			}`,
+		},
+		{
 			name: "SystemPackageSet element with embedded whitespace",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"

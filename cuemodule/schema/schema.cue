@@ -222,7 +222,7 @@ package schema
 	spec: {
 		installerRef:   string & !=""
 		repositoryRef?: string & !=""
-		packages: [...string & =~"^\\S+$"]
+		packages: [...string & =~"^\\S+$"] & [_, ...]
 	}
 }
 
