@@ -591,6 +591,8 @@ func (l *Loader) parseResource(value cue.Value) (resource.Resource, error) {
 		return decodeResource[*resource.SystemInstaller](value)
 	case resource.KindSystemPackageRepository:
 		return decodeResource[*resource.SystemPackageRepository](value)
+	case resource.KindSystemPackage:
+		return decodeResource[*resource.SystemPackage](value)
 	case resource.KindSystemPackageSet:
 		return decodeResource[*resource.SystemPackageSet](value)
 	default:

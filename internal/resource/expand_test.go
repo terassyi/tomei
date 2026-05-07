@@ -552,6 +552,81 @@ func TestToolImplementsEnableable(t *testing.T) {
 	var _ Enableable = (*Tool)(nil)
 }
 
+func TestExpandSets_SystemPackage_Basic(t *testing.T) {
+	t.Parallel()
+	sp := &SystemPackage{
+		BaseResource: BaseResource{Metadata: Metadata{Name: "git"}},
+		SystemPackageSpec: &SystemPackageSpec{
+			InstallerRef: "apt",
+			Package:      "git",
+		},
+	}
+
+	got, err := ExpandSets([]Resource{sp})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	set, ok := got[0].(*SystemPackageSet)
+	require.True(t, ok, "expected *SystemPackageSet, got %T", got[0])
+	assert.Equal(t, "git", set.Name())
+	assert.Equal(t, "apt", set.SystemPackageSetSpec.InstallerRef)
+	assert.Equal(t, []string{"git"}, set.SystemPackageSetSpec.Packages)
+
+	// SystemPackage must not remain in the output.
+	for _, r := range got {
+		_, ok := r.(*SystemPackage)
+		assert.False(t, ok, "SystemPackage should be replaced by expansion")
+	}
+}
+
+func TestExpandSets_SystemPackage_NameConflict(t *testing.T) {
+	t.Parallel()
+	resources := []Resource{
+		&SystemPackage{
+			BaseResource:      BaseResource{Metadata: Metadata{Name: "curl"}},
+			SystemPackageSpec: &SystemPackageSpec{InstallerRef: "apt", Package: "curl"},
+		},
+		&SystemPackage{
+			BaseResource:      BaseResource{Metadata: Metadata{Name: "curl"}},
+			SystemPackageSpec: &SystemPackageSpec{InstallerRef: "apt", Package: "curl-minimal"},
+		},
+	}
+
+	_, err := ExpandSets(resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "name conflict")
+}
+
+// TestExpandSets_SystemPackage_SamePackageDifferentName validates the
+// Name/Package decoupling: two SystemPackages installing the same OS package
+// but with distinct resource identities expand without conflict.
+func TestExpandSets_SystemPackage_SamePackageDifferentName(t *testing.T) {
+	t.Parallel()
+	resources := []Resource{
+		&SystemPackage{
+			BaseResource:      BaseResource{Metadata: Metadata{Name: "curl-main"}},
+			SystemPackageSpec: &SystemPackageSpec{InstallerRef: "apt", Package: "curl"},
+		},
+		&SystemPackage{
+			BaseResource:      BaseResource{Metadata: Metadata{Name: "curl-backup"}},
+			SystemPackageSpec: &SystemPackageSpec{InstallerRef: "apt", Package: "curl"},
+		},
+	}
+
+	got, err := ExpandSets(resources)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+
+	names := []string{got[0].Name(), got[1].Name()}
+	assert.ElementsMatch(t, []string{"curl-main", "curl-backup"}, names)
+
+	for _, r := range got {
+		set, ok := r.(*SystemPackageSet)
+		require.True(t, ok)
+		assert.Equal(t, []string{"curl"}, set.SystemPackageSetSpec.Packages)
+	}
+}
+
 func TestIsPrivileged(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
