@@ -6,6 +6,59 @@ import (
 	"testing"
 )
 
+func TestSystemPackageSetSpec_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		spec    SystemPackageSetSpec
+		wantErr string
+	}{
+		{
+			name:    "empty installerRef",
+			spec:    SystemPackageSetSpec{Packages: []string{"git"}},
+			wantErr: "installerRef is required",
+		},
+		{
+			name:    "empty packages slice",
+			spec:    SystemPackageSetSpec{InstallerRef: "apt"},
+			wantErr: "at least one package is required",
+		},
+		{
+			name:    "empty package string",
+			spec:    SystemPackageSetSpec{InstallerRef: "apt", Packages: []string{""}},
+			wantErr: "packages[0] must not be empty",
+		},
+		{
+			name:    "empty package among valid ones",
+			spec:    SystemPackageSetSpec{InstallerRef: "apt", Packages: []string{"git", "", "curl"}},
+			wantErr: "packages[1] must not be empty",
+		},
+		{
+			name:    "valid",
+			spec:    SystemPackageSetSpec{InstallerRef: "apt", Packages: []string{"git"}},
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.spec.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("Validate() expected error containing %q, got nil", tt.wantErr)
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("Validate() error = %q, want containing %q", err.Error(), tt.wantErr)
+				}
+			}
+		})
+	}
+}
+
 func TestSystemPackageSpec_Validate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -220,7 +273,7 @@ func TestSystemPackage_Expand_Verbatim(t *testing.T) {
 			}
 			set := got[0].(*SystemPackageSet)
 			if got, want := set.SystemPackageSetSpec.Packages, []string{pkg}; !slices.Equal(got, want) {
-				t.Errorf("Packages = %q, want %q (verbatim)", got, want)
+				t.Errorf("Packages = %v, want %v (verbatim)", got, want)
 			}
 		})
 	}

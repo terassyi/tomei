@@ -64,6 +64,11 @@ func (s *SystemPackageSetSpec) Validate() error {
 	if len(s.Packages) == 0 {
 		return fmt.Errorf("at least one package is required")
 	}
+	for i, p := range s.Packages {
+		if p == "" {
+			return fmt.Errorf("packages[%d] must not be empty", i)
+		}
+	}
 	return nil
 }
 
