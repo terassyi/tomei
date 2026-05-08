@@ -2,6 +2,7 @@ package apt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -67,13 +68,15 @@ func TestParseAptVersion(t *testing.T) {
 // --- mock ---
 
 type mockCommandRunner struct {
+	captureCmds   []string
 	captureOutput string
 	captureErr    error
 }
 
 var _ CommandRunner = (*mockCommandRunner)(nil)
 
-func (m *mockCommandRunner) ExecuteCapture(_ context.Context, _ []string, _ command.Vars, _ map[string]string) (string, error) {
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ command.Vars, _ map[string]string) (string, error) {
+	m.captureCmds = cmds
 	return m.captureOutput, m.captureErr
 }
 
@@ -107,4 +110,54 @@ func TestVersionFunc_ParseError(t *testing.T) {
 	_, err := vf(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected apt-get --version output")
+}
+
+// --- GetInstall tests ---
+
+func TestGetInstall(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		packages  []string
+		runnerErr error
+		wantErr   string
+		wantCmd   string
+	}{
+		{
+			name:     "single package",
+			packages: []string{"git"},
+			wantCmd:  "sudo -n apt-get install -y git",
+		},
+		{
+			name:     "multiple packages",
+			packages: []string{"git", "curl", "tree"},
+			wantCmd:  "sudo -n apt-get install -y git curl tree",
+		},
+		{
+			name:     "empty packages",
+			packages: []string{},
+			wantErr:  "at least one package is required",
+		},
+		{
+			name:      "runner error wraps packages context",
+			packages:  []string{"nonexistent-pkg"},
+			runnerErr: errors.New("exit status 100"),
+			wantErr:   "apt-get install [nonexistent-pkg]",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{captureErr: tt.runnerErr}
+			err := GetInstall(context.Background(), runner, tt.packages)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.Len(t, runner.captureCmds, 1)
+				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
 }

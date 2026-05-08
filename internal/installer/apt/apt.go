@@ -39,3 +39,18 @@ func parseAptVersion(output string) (string, error) {
 	}
 	return fields[1], nil
 }
+
+// GetInstall installs the given packages via "sudo -n apt-get install -y".
+// Pure helper — wiring into the SystemPackageSet installer happens in #198.
+// Returns an error if packages is empty (defense-in-depth; schema validation
+// at the resource layer should reject this earlier).
+func GetInstall(ctx context.Context, runner CommandRunner, packages []string) error {
+	if len(packages) == 0 {
+		return fmt.Errorf("GetInstall: at least one package is required")
+	}
+	cmd := "sudo -n apt-get install -y " + strings.Join(packages, " ")
+	if _, err := runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil); err != nil {
+		return fmt.Errorf("apt-get install %v: %w", packages, err)
+	}
+	return nil
+}
