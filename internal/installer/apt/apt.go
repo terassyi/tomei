@@ -21,11 +21,13 @@ type CommandRunner interface {
 // errEmptyPackages is returned by GetInstall when called with no packages.
 var errEmptyPackages = errors.New("apt: install requires at least one package")
 
-// shellMetachars are characters that, if present in a package name, would
-// allow shell injection via the sh -c command form. The schema layer rejects
-// whitespace; this layer rejects the remaining shell metacharacters as
-// defense-in-depth until the executor moves to argv form.
-const shellMetachars = ";|&`$<>(){}\\\"'"
+// disallowedInPackageName covers whitespace and shell metacharacters that
+// would either split a package name across argv slots or allow injection
+// through the sh -c command form. The schema layer also rejects whitespace,
+// but GetInstall guards independently as defense-in-depth for non-CUE
+// callers (e.g., programmatic construction). Argv-form executor migration
+// is tracked separately and would close this entire surface.
+const disallowedInPackageName = " \t\n\r;|&`$<>(){}\\\"'"
 
 // aptEnv is the environment for every apt-get invocation. DEBIAN_FRONTEND is
 // load-bearing: without it, packages with debconf prompts (tzdata,
@@ -56,10 +58,14 @@ func (c *Client) VersionFunc() system.VersionFunc {
 	}
 }
 
-// GetInstall installs the given packages via "sudo -n apt-get install -y".
+// GetInstall installs the given packages by running, under the configured
+// runner: "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>"
+// with DEBIAN_FRONTEND=noninteractive in the environment. stdout/stderr are
+// drained; the install action is silent on success.
+//
 // Returns errEmptyPackages if packages is empty. Each package name is
-// rejected if it contains shell metacharacters, since the executor uses
-// sh -c (full argv-form is tracked separately).
+// rejected if it contains whitespace or shell metacharacters, since the
+// executor uses sh -c (full argv-form is tracked separately).
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
@@ -68,7 +74,7 @@ func (c *Client) GetInstall(ctx context.Context, packages []string) error {
 		return errEmptyPackages
 	}
 	for _, p := range packages {
-		if strings.ContainsAny(p, shellMetachars) {
+		if strings.ContainsAny(p, disallowedInPackageName) {
 			return fmt.Errorf("apt: package %q contains disallowed characters", p)
 		}
 	}

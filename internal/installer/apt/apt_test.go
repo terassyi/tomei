@@ -154,6 +154,16 @@ func TestGetInstall(t *testing.T) {
 			wantErr:  "contains disallowed characters",
 		},
 		{
+			name:     "package with embedded space rejected",
+			packages: []string{"git vim"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with newline rejected",
+			packages: []string{"git\n"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
 			name:      "runner error wraps packages context",
 			packages:  []string{"nonexistent-pkg"},
 			runnerErr: errors.New("exit status 100"),
