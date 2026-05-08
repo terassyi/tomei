@@ -53,6 +53,14 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 		}
 	})
 
+	// apt-get install can fail on minimal images / stale package indexes
+	// ("Unable to locate package", 404). Refresh the index first; if that
+	// fails (no network, etc.), skip rather than treat as test failure.
+	updateOut, err := exec.Command("sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update").CombinedOutput()
+	if err != nil {
+		t.Skipf("apt-get update failed (cannot run integration test): %v\noutput: %s", err, updateOut)
+	}
+
 	runner := command.NewExecutor("")
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
