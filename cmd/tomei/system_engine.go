@@ -95,7 +95,7 @@ func createSystemEngine(systemDataDir string) (*engine.SystemEngine, error) {
 		slog.Debug("detected distribution", "id", distro.ID, "id_like", distro.IDLike)
 		runner := command.NewExecutor("")
 		versionFuncs := map[system.PackageManager]system.VersionFunc{
-			system.PackageManagerAPT: apt.VersionFunc(runner),
+			system.PackageManagerAPT: apt.New(runner).VersionFunc(),
 		}
 		v, err := system.NewValidator(distro, versionFuncs)
 		if err != nil {

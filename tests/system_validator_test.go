@@ -30,7 +30,7 @@ func TestValidator_RealSystem(t *testing.T) {
 
 	runner := command.NewExecutor("")
 	versionFuncs := map[system.PackageManager]system.VersionFunc{
-		system.PackageManagerAPT: apt.VersionFunc(runner),
+		system.PackageManagerAPT: apt.New(runner).VersionFunc(),
 	}
 
 	v, err := system.NewValidator(distro, versionFuncs)

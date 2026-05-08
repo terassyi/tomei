@@ -2,12 +2,14 @@ package apt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestParseAptVersion(t *testing.T) {
@@ -67,14 +69,21 @@ func TestParseAptVersion(t *testing.T) {
 // --- mock ---
 
 type mockCommandRunner struct {
+	captureCmds   []string
 	captureOutput string
 	captureErr    error
 }
 
 var _ CommandRunner = (*mockCommandRunner)(nil)
 
-func (m *mockCommandRunner) ExecuteCapture(_ context.Context, _ []string, _ command.Vars, _ map[string]string) (string, error) {
+func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ command.Vars, _ map[string]string) (string, error) {
+	m.captureCmds = cmds
 	return m.captureOutput, m.captureErr
+}
+
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, _ command.Vars, _ map[string]string, _ command.OutputCallback) error {
+	m.captureCmds = cmds
+	return m.captureErr
 }
 
 // --- VersionFunc tests ---
@@ -82,7 +91,7 @@ func (m *mockCommandRunner) ExecuteCapture(_ context.Context, _ []string, _ comm
 func TestVersionFunc_Success(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureOutput: "apt 2.7.14build2 (amd64)"}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	version, err := vf(context.Background())
 	require.NoError(t, err)
@@ -92,7 +101,7 @@ func TestVersionFunc_Success(t *testing.T) {
 func TestVersionFunc_CommandError(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureErr: fmt.Errorf("exec: \"apt-get\": executable file not found in $PATH")}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	_, err := vf(context.Background())
 	require.Error(t, err)
@@ -102,9 +111,130 @@ func TestVersionFunc_CommandError(t *testing.T) {
 func TestVersionFunc_ParseError(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureOutput: "apt"}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	_, err := vf(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected apt-get --version output")
+}
+
+// --- PackageSetInstaller tests ---
+
+func TestPackageSetInstaller_Install(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		packages  []string
+		runnerErr error
+		wantErr   string
+		wantCmd   string
+	}{
+		{
+			name:     "single package",
+			packages: []string{"git"},
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
+		},
+		{
+			name:     "multiple packages",
+			packages: []string{"git", "curl", "tree"},
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+		},
+		{
+			name:     "empty packages",
+			packages: []string{},
+			wantErr:  "apt: install requires at least one package",
+		},
+		{
+			name:     "empty string in packages slice",
+			packages: []string{""},
+			wantErr:  "apt: empty package name in install list",
+		},
+		{
+			name:     "empty string among valid packages",
+			packages: []string{"git", "", "tree"},
+			wantErr:  "apt: empty package name in install list",
+		},
+		{
+			name:     "package with semicolon rejected",
+			packages: []string{"git;curl evil|sh"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with backtick rejected",
+			packages: []string{"git", "tree`whoami`"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with embedded space rejected",
+			packages: []string{"git vim"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with newline rejected",
+			packages: []string{"git\n"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with glob star rejected",
+			packages: []string{"linux-image-*"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:      "runner error wraps packages context",
+			packages:  []string{"nonexistent-pkg"},
+			runnerErr: errors.New("exit status 100"),
+			wantErr:   `apt: install ["nonexistent-pkg"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{captureErr: tt.runnerErr}
+			res := &resource.SystemPackageSet{
+				SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+					InstallerRef: "apt",
+					Packages:     tt.packages,
+				},
+			}
+			state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.Len(t, runner.captureCmds, 1)
+				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+				require.NotNil(t, state)
+				assert.Equal(t, "apt", state.InstallerRef)
+				assert.Equal(t, tt.packages, state.Packages)
+				assert.NotNil(t, state.InstalledVersions)
+				assert.False(t, state.UpdatedAt.IsZero(), "UpdatedAt should be set")
+			} else {
+				require.Error(t, err)
+				assert.Nil(t, state)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestPackageSetInstaller_Install_PropagatesRepositoryRef(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "docker")
+	require.NoError(t, err)
+	assert.Equal(t, "docker", state.RepositoryRef)
+}
+
+func TestPackageSetInstaller_Remove_NotYetImplemented(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	state := &resource.SystemPackageSetState{Packages: []string{"git"}}
+	err := New(runner).PackageSetInstaller().Remove(context.Background(), state, "cli-tools")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remove not yet implemented")
 }
