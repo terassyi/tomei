@@ -271,8 +271,9 @@ System resources:
 | Kind | Purpose |
 |------|---------|
 | `SystemInstaller` | Declares a host package manager (currently `apt` only). Validates the package manager is available and captures its version. |
-| `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer is **not yet implemented** — declared resources are shown as `skip`. |
-| `SystemPackageSet` | Set of system packages to install. Concrete installer is **not yet implemented** — declared resources are shown as `skip`. |
+| `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer is **not yet implemented** — declared resources are shown as `skip` in plan when changes would be required. |
+| `SystemPackage` | Single-package shorthand for `SystemPackageSet`. Expands to a one-element set at load time; same skip behavior. |
+| `SystemPackageSet` | Set of system packages to install. Concrete installer is **not yet implemented** — declared resources are shown as `skip` in plan when changes would be required. |
 
 Example manifest (no preset ships for `apt` — declare it inline):
 
@@ -290,6 +291,20 @@ spec: {
     }
 }
 ```
+
+For a single package, use `SystemPackage` (shorthand that expands to a one-element `SystemPackageSet`):
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "SystemPackage"
+metadata: name: "git"
+spec: {
+    installerRef: "apt"
+    package:      "git"
+}
+```
+
+Both `SystemPackage` and `SystemPackageSet` require `--system` at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
 
 Without `--system`, system resources and privileged tools are skipped at apply time:
 

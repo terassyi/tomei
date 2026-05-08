@@ -319,7 +319,7 @@ The `spec.commands.*` declarations are not consumed by the engine at apply time 
 
 ### SystemPackageRepository
 
-Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan and skipped at apply time with a warning.
+Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
 
 ```cue
 apiVersion: "tomei.terassyi.net/v1beta1"
@@ -353,9 +353,51 @@ The CUE schema defines `spec.source` as an open struct constrained only by `url:
 
 The exact `options` schema may evolve once the concrete installer lands.
 
+### SystemPackage
+
+Single-package shorthand for [SystemPackageSet](#systempackageset). A `SystemPackage` manifest is rewritten into a one-element `SystemPackageSet` at load time — `tomei plan` and `tomei apply` output show `SystemPackageSet/<name>`, never `SystemPackage/<name>`.
+
+Use `SystemPackage` when you want to declare an OS package as its own resource (one resource per package, with its own `metadata.name` and dependency edges). Use [SystemPackageSet](#systempackageset) for batched declarations.
+
+> **Note:** Like `SystemPackageSet`, the concrete installer is **not yet implemented** — declared `SystemPackage` resources expand to `SystemPackageSet` and are shown as `skip` in plan when changes would be required, then skipped at apply time with a warning.
+
+```cue
+git: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "SystemPackage"
+    metadata: name: "git"
+    spec: {
+        installerRef: "apt"
+        package:      "git"
+    }
+}
+
+// docker uses an upstream apt repository.
+docker: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "SystemPackage"
+    metadata: name: "docker"
+    spec: {
+        installerRef:  "apt"
+        repositoryRef: "docker"
+        package:       "docker-ce"
+    }
+}
+```
+
+#### Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
+| `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before the package is installed |
+| `spec.package` | string | yes | Package name passed to the installer. Must be a non-whitespace token (`^\S+$` — no spaces, tabs, or newlines). Per-installer grammar (version pins like `nodejs=18.*`, multiarch suffixes like `libc6:i386`, group prefixes like `@core`) is accepted verbatim within that constraint |
+
+`metadata.name` is a tomei resource identifier and is independent from `spec.package` — e.g., `name: "docker"` with `package: "docker-ce"`.
+
 ### SystemPackageSet
 
-Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets are shown as `skip` in plan and skipped at apply time with a warning.
+Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets (and their shorthand [SystemPackage](#systempackage)) are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
 
 ```cue
 // Distribution-provided packages — no repositoryRef
@@ -392,7 +434,7 @@ spec: {
 |-------|------|----------|-------------|
 | `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
 | `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before packages are installed |
-| `spec.packages` | `[...string]` | yes | Package names to install (must be non-empty) |
+| `spec.packages` | `[...string]` | yes | Package names to install. Each element must be a non-whitespace token (`^\S+$`); the list itself must be non-empty |
 
 ## Common Types
 

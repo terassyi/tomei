@@ -1,0 +1,46 @@
+//go:build e2e
+
+package e2e
+
+import (
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+)
+
+func systemPackageTests() {
+	const cfgPath = "~/system-package-test/"
+
+	It("validates SystemPackage and SystemPackageSet manifests", func() {
+		out, err := testExec.Exec("tomei", "validate", cfgPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(ContainSubstring("SystemInstaller/apt"))
+		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+		// Desugar contract: pre-expand SystemPackage names must not surface
+		// in user-visible output. ExpandSets rewrites SystemPackage into
+		// SystemPackageSet before any kind/name printing.
+		Expect(out).NotTo(ContainSubstring("SystemPackage/tree"))
+		Expect(out).To(ContainSubstring("Validation successful"))
+	})
+
+	It("plan without --system shows system resources (skipped)", func() {
+		// Without --system, system resources are forced to ActionSkip
+		// regardless of installer wiring. Action label is not asserted.
+		out, err := testExec.Exec("tomei", "plan", cfgPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+	})
+
+	It("plan --system shows expanded SystemPackageSet entries", func() {
+		// With --system, SystemPackageSet currently shows "skip" because
+		// the concrete APT installer is not yet wired (skipPackageInstaller
+		// stub). Once #199 lands, the action label becomes "install"; the
+		// loose ContainSubstring assertions stay green across the transition.
+		out, err := testExec.Exec("tomei", "plan", "--system", cfgPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out).To(ContainSubstring("SystemInstaller/apt"))
+		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+	})
+}
