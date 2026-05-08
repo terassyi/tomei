@@ -21,13 +21,16 @@ type CommandRunner interface {
 // errEmptyPackages is returned by GetInstall when called with no packages.
 var errEmptyPackages = errors.New("apt: install requires at least one package")
 
-// disallowedInPackageName covers whitespace and shell metacharacters that
-// would either split a package name across argv slots or allow injection
-// through the sh -c command form. The schema layer also rejects whitespace,
-// but GetInstall guards independently as defense-in-depth for non-CUE
-// callers (e.g., programmatic construction). Argv-form executor migration
-// is tracked separately and would close this entire surface.
-const disallowedInPackageName = " \t\n\r;|&`$<>(){}\\\"'"
+// disallowedInPackageName covers whitespace, shell metacharacters, and
+// shell-expansion characters (globs, tilde, comment) that would either
+// split a package name across argv slots, allow injection through the
+// sh -c command form, or be expanded by the shell against the cwd. The
+// schema layer also rejects whitespace; GetInstall guards independently
+// as defense-in-depth for non-CUE callers. As a side effect, apt's regex
+// package syntax (e.g. "linux-image-*") is also rejected — argv-form
+// executor migration is tracked separately and would close this entire
+// surface.
+const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 
 // aptEnv is the environment for every apt-get invocation. DEBIAN_FRONTEND is
 // load-bearing: without it, packages with debconf prompts (tzdata,

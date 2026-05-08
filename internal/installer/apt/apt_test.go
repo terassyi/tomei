@@ -164,6 +164,11 @@ func TestGetInstall(t *testing.T) {
 			wantErr:  "contains disallowed characters",
 		},
 		{
+			name:     "package with glob star rejected",
+			packages: []string{"linux-image-*"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
 			name:      "runner error wraps packages context",
 			packages:  []string{"nonexistent-pkg"},
 			runnerErr: errors.New("exit status 100"),
