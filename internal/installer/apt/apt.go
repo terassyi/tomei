@@ -3,6 +3,7 @@ package apt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,9 +17,23 @@ type CommandRunner interface {
 	ExecuteCapture(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error)
 }
 
-// Client groups apt-get / dpkg helpers used by the SystemInstaller validator
-// and (in #195/#198) the SystemPackageRepository / SystemPackageSet installers.
-// All methods share a single CommandRunner.
+// errEmptyPackages is returned by GetInstall when called with no packages.
+var errEmptyPackages = errors.New("apt: install requires at least one package")
+
+// shellMetachars are characters that, if present in a package name, would
+// allow shell injection via the sh -c command form. The schema layer rejects
+// whitespace; this layer rejects the remaining shell metacharacters as
+// defense-in-depth until the executor moves to argv form.
+const shellMetachars = ";|&`$<>(){}\\\"'"
+
+// aptEnv is the environment for every apt-get invocation. DEBIAN_FRONTEND is
+// load-bearing: without it, packages with debconf prompts (tzdata,
+// keyboard-configuration, etc.) hang indefinitely under "apt-get -y".
+var aptEnv = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
+
+// Client groups apt-get / dpkg helpers behind a single CommandRunner.
+// Used by the SystemInstaller validator and the SystemPackageRepository /
+// SystemPackageSet installers.
 type Client struct {
 	runner CommandRunner
 }
@@ -32,7 +47,7 @@ func New(runner CommandRunner) *Client {
 // and extracts the version string.
 func (c *Client) VersionFunc() system.VersionFunc {
 	return func(ctx context.Context) (string, error) {
-		output, err := c.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, nil)
+		output, err := c.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, aptEnv)
 		if err != nil {
 			return "", fmt.Errorf("failed to run apt-get --version: %w", err)
 		}
@@ -41,16 +56,24 @@ func (c *Client) VersionFunc() system.VersionFunc {
 }
 
 // GetInstall installs the given packages via "sudo -n apt-get install -y".
-// Wiring into the SystemPackageSet installer happens in #198.
-// Returns an error if packages is empty (defense-in-depth; schema validation
-// at the resource layer should reject this earlier).
+// Returns errEmptyPackages if packages is empty. Each package name is
+// rejected if it contains shell metacharacters, since the executor uses
+// sh -c (full argv-form is tracked separately).
+//
+// Callers are responsible for ensuring a recent "apt-get update" has run
+// when stale package indexes would cause 404s.
 func (c *Client) GetInstall(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
-		return fmt.Errorf("GetInstall: at least one package is required")
+		return errEmptyPackages
 	}
-	cmd := "sudo -n apt-get install -y " + strings.Join(packages, " ")
-	if _, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil); err != nil {
-		return fmt.Errorf("apt-get install %v: %w", packages, err)
+	for _, p := range packages {
+		if strings.ContainsAny(p, shellMetachars) {
+			return fmt.Errorf("apt: package %q contains disallowed characters", p)
+		}
+	}
+	cmd := "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(packages, " ")
+	if _, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, aptEnv); err != nil {
+		return fmt.Errorf("apt: install %q: %w", packages, err)
 	}
 	return nil
 }

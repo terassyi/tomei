@@ -25,11 +25,19 @@ func TestAptGetInstall_RealSystem(t *testing.T) {
 	if _, err := exec.LookPath("apt-get"); err != nil {
 		t.Skip("apt-get not found in PATH")
 	}
+	// Mirror the precedent at cmd/tomei/apply.go (sudoHandler.Acquire) so dev
+	// machines without passwordless sudo skip with a clear message instead of
+	// failing later with a generic exit-status error.
+	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
+		t.Skip("passwordless sudo not available")
+	}
 
 	const pkg = "tree"
 	t.Cleanup(func() {
-		// #191 (AptGetRemove) is not yet implemented; use raw exec for cleanup.
-		_ = exec.Command("sudo", "-n", "apt-get", "remove", "-y", pkg).Run()
+		// AptGetRemove is tracked separately; use raw exec for test cleanup.
+		if err := exec.Command("sudo", "-n", "apt-get", "remove", "-y", pkg).Run(); err != nil {
+			t.Logf("cleanup: apt-get remove %s: %v", pkg, err)
+		}
 	})
 
 	runner := command.NewExecutor("")
