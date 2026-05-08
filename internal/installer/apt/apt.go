@@ -15,6 +15,7 @@ import (
 // This is a subset of command.Executor's methods.
 type CommandRunner interface {
 	ExecuteCapture(ctx context.Context, cmds []string, vars command.Vars, env map[string]string) (string, error)
+	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 }
 
 // errEmptyPackages is returned by GetInstall when called with no packages.
@@ -72,7 +73,9 @@ func (c *Client) GetInstall(ctx context.Context, packages []string) error {
 		}
 	}
 	cmd := "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(packages, " ")
-	if _, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, aptEnv); err != nil {
+	// nil callback drains stdout/stderr to io.Discard rather than buffering
+	// in memory; apt-get install output can be large.
+	if err := c.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, aptEnv, nil); err != nil {
 		return fmt.Errorf("apt: install %q: %w", packages, err)
 	}
 	return nil

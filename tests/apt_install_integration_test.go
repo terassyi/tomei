@@ -16,14 +16,17 @@ import (
 	"github.com/terassyi/tomei/internal/installer/command"
 )
 
-// TestAptGetInstall_RealSystem installs `tree`, verifies via dpkg, and removes
-// in t.Cleanup. Requires Linux + apt-get + passwordless sudo (CI: ubuntu-latest).
-func TestAptGetInstall_RealSystem(t *testing.T) {
+// TestGetInstall_RealSystem installs `tree`, verifies via dpkg, and removes
+// in t.Cleanup. Requires Linux + apt-get + dpkg + passwordless sudo
+// (CI: ubuntu-latest).
+func TestGetInstall_RealSystem(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt-get integration test requires Linux")
 	}
-	if _, err := exec.LookPath("apt-get"); err != nil {
-		t.Skip("apt-get not found in PATH")
+	for _, bin := range []string{"apt-get", "dpkg", "sudo"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skipf("%s not found in PATH", bin)
+		}
 	}
 	// Mirror the precedent at cmd/tomei/apply.go (sudoHandler.Acquire) so dev
 	// machines without passwordless sudo skip with a clear message instead of

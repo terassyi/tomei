@@ -80,6 +80,11 @@ func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ c
 	return m.captureOutput, m.captureErr
 }
 
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, _ command.Vars, _ map[string]string, _ command.OutputCallback) error {
+	m.captureCmds = cmds
+	return m.captureErr
+}
+
 // --- VersionFunc tests ---
 
 func TestVersionFunc_Success(t *testing.T) {
