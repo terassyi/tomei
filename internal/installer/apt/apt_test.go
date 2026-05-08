@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
 func TestParseAptVersion(t *testing.T) {
@@ -117,9 +118,9 @@ func TestVersionFunc_ParseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "unexpected apt-get --version output")
 }
 
-// --- Install tests ---
+// --- PackageSetInstaller tests ---
 
-func TestInstall(t *testing.T) {
+func TestPackageSetInstaller_Install(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
@@ -189,15 +190,51 @@ func TestInstall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{captureErr: tt.runnerErr}
-			err := New(runner).Install(context.Background(), tt.packages)
+			res := &resource.SystemPackageSet{
+				SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+					InstallerRef: "apt",
+					Packages:     tt.packages,
+				},
+			}
+			state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				require.Len(t, runner.captureCmds, 1)
 				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+				require.NotNil(t, state)
+				assert.Equal(t, "apt", state.InstallerRef)
+				assert.Equal(t, tt.packages, state.Packages)
+				assert.NotNil(t, state.InstalledVersions)
+				assert.False(t, state.UpdatedAt.IsZero(), "UpdatedAt should be set")
 			} else {
 				require.Error(t, err)
+				assert.Nil(t, state)
 				assert.Contains(t, err.Error(), tt.wantErr)
 			}
 		})
 	}
+}
+
+func TestPackageSetInstaller_Install_PropagatesRepositoryRef(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef:  "apt",
+			RepositoryRef: "docker",
+			Packages:      []string{"docker-ce"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "docker")
+	require.NoError(t, err)
+	assert.Equal(t, "docker", state.RepositoryRef)
+}
+
+func TestPackageSetInstaller_Remove_NotYetImplemented(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	state := &resource.SystemPackageSetState{Packages: []string{"git"}}
+	err := New(runner).PackageSetInstaller().Remove(context.Background(), state, "cli-tools")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "remove not yet implemented")
 }

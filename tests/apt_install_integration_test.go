@@ -14,12 +14,14 @@ import (
 
 	"github.com/terassyi/tomei/internal/installer/apt"
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/resource"
 )
 
-// TestInstall_RealSystem installs `tree`, verifies via dpkg, and removes
-// in t.Cleanup. Requires Linux + apt-get + dpkg + passwordless sudo
+// TestPackageSetInstaller_RealSystem installs `tree` via the apt
+// PackageSetInstaller, verifies presence with dpkg, and removes in
+// t.Cleanup. Requires Linux + apt-get + dpkg + passwordless sudo
 // (CI: ubuntu-latest).
-func TestInstall_RealSystem(t *testing.T) {
+func TestPackageSetInstaller_RealSystem(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt-get integration test requires Linux")
 	}
@@ -51,8 +53,16 @@ func TestInstall_RealSystem(t *testing.T) {
 	})
 
 	runner := command.NewExecutor("")
-	err := apt.New(runner).Install(context.Background(), []string{pkg})
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{pkg},
+		},
+	}
+	state, err := apt.New(runner).PackageSetInstaller().Install(context.Background(), res, "tree-only")
 	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, []string{pkg}, state.Packages)
 
 	out, err := exec.Command("dpkg", "-l", pkg).CombinedOutput()
 	require.NoError(t, err, "dpkg -l output: %s", out)

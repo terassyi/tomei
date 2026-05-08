@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/executor"
+	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/system"
 )
 
@@ -18,14 +21,14 @@ type CommandRunner interface {
 	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 }
 
-// errEmptyPackages is returned by Install when called with no packages.
+// errEmptyPackages is returned when the package list is empty.
 var errEmptyPackages = errors.New("apt: install requires at least one package")
 
 // disallowedInPackageName covers whitespace, shell metacharacters, and
 // shell-expansion characters (globs, tilde, comment) that would either
 // split a package name across argv slots, allow injection through the
 // sh -c command form, or be expanded by the shell against the cwd. The
-// schema layer also rejects whitespace; Install guards independently
+// schema layer also rejects whitespace; the apt layer guards independently
 // as defense-in-depth for non-CUE callers. As a side effect, apt's regex
 // package syntax (e.g. "linux-image-*") is also rejected — argv-form
 // executor migration is tracked separately and would close this entire
@@ -37,9 +40,10 @@ const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 // keyboard-configuration, etc.) hang indefinitely under "apt-get -y".
 var aptEnv = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
 
-// Client groups apt-get / dpkg helpers behind a single CommandRunner.
-// Used by the SystemInstaller validator and the SystemPackageRepository /
-// SystemPackageSet installers.
+// Client wraps a CommandRunner with apt-get / dpkg integration. It is the
+// shared entry point: callers obtain adapters for specific system resources
+// (VersionFunc for SystemInstaller, PackageSetInstaller for SystemPackageSet)
+// from a single Client so the same runner is reused across all apt operations.
 type Client struct {
 	runner CommandRunner
 }
@@ -50,7 +54,7 @@ func New(runner CommandRunner) *Client {
 }
 
 // VersionFunc returns a system.VersionFunc that runs "apt-get --version"
-// and extracts the version string.
+// and extracts the version string. Used by the SystemInstaller validator.
 func (c *Client) VersionFunc() system.VersionFunc {
 	return func(ctx context.Context) (string, error) {
 		output, err := c.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, aptEnv)
@@ -61,33 +65,75 @@ func (c *Client) VersionFunc() system.VersionFunc {
 	}
 }
 
-// Install installs the given packages by running, under the configured
-// runner: "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>"
-// with DEBIAN_FRONTEND=noninteractive in the environment. stdout/stderr are
-// drained; the install action is silent on success.
+// PackageSetInstaller returns the executor.Installer adapter for
+// SystemPackageSet resources backed by apt-get.
+func (c *Client) PackageSetInstaller() *PackageSetInstaller {
+	return &PackageSetInstaller{client: c}
+}
+
+// PackageSetInstaller installs and removes SystemPackageSet resources via
+// apt-get. It satisfies executor.Installer[*resource.SystemPackageSet,
+// *resource.SystemPackageSetState].
+type PackageSetInstaller struct {
+	client *Client
+}
+
+// Compile-time assertion that *PackageSetInstaller satisfies the executor
+// installer interface for SystemPackageSet.
+var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetState] = (*PackageSetInstaller)(nil)
+
+// Install runs the apt-get install for the resource's packages and returns
+// the new state. The InstalledVersions field is left empty until the
+// dpkg-query helper lands; the install action itself is complete.
 //
-// Returns errEmptyPackages if packages is empty. Each package name is
-// rejected if it contains whitespace or shell metacharacters, since the
-// executor uses sh -c (full argv-form is tracked separately).
+// The shell command executed is:
+//
+//	sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
+//
+// with DEBIAN_FRONTEND=noninteractive in the environment. stdout/stderr are
+// drained line-by-line rather than buffered.
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
-func (c *Client) Install(ctx context.Context, packages []string) error {
+func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
+	spec := res.SystemPackageSetSpec
+	if err := p.runInstall(ctx, spec.Packages); err != nil {
+		return nil, err
+	}
+	return &resource.SystemPackageSetState{
+		InstallerRef:      spec.InstallerRef,
+		RepositoryRef:     spec.RepositoryRef,
+		Packages:          append([]string(nil), spec.Packages...),
+		InstalledVersions: map[string]string{},
+		UpdatedAt:         time.Now(),
+	}, nil
+}
+
+// Remove is a stub until the apt-get remove helper lands.
+func (p *PackageSetInstaller) Remove(_ context.Context, _ *resource.SystemPackageSetState, name string) error {
+	return fmt.Errorf("apt: package set %q: remove not yet implemented", name)
+}
+
+// runInstall executes "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 --
+// <packages>" with DEBIAN_FRONTEND=noninteractive. Returns errEmptyPackages
+// if packages is empty. Each name is rejected if it is empty or contains
+// whitespace / shell metacharacters / shell-expansion characters.
+func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
 		return errEmptyPackages
 	}
-	for _, p := range packages {
-		if p == "" {
+	for _, pkg := range packages {
+		if pkg == "" {
 			return errors.New("apt: empty package name in install list")
 		}
-		if strings.ContainsAny(p, disallowedInPackageName) {
-			return fmt.Errorf("apt: package %q contains disallowed characters", p)
+		if strings.ContainsAny(pkg, disallowedInPackageName) {
+			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
 	cmd := "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering
 	// in memory; apt-get install output can be large.
-	if err := c.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, aptEnv, nil); err != nil {
+	if err := p.client.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, aptEnv, nil); err != nil {
 		return fmt.Errorf("apt: install %q: %w", packages, err)
 	}
 	return nil
