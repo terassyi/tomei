@@ -90,10 +90,9 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 // The shell command executed is:
 //
-//	sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
+//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
-// with DEBIAN_FRONTEND=noninteractive in the environment. stdout/stderr are
-// drained line-by-line rather than buffered.
+// stdout/stderr are drained line-by-line rather than buffered.
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
@@ -116,10 +115,11 @@ func (p *PackageSetInstaller) Remove(_ context.Context, _ *resource.SystemPackag
 	return fmt.Errorf("apt: package set %q: remove not yet implemented", name)
 }
 
-// runInstall executes "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 --
-// <packages>" with DEBIAN_FRONTEND=noninteractive. Returns errEmptyPackages
-// if packages is empty. Each name is rejected if it is empty or contains
-// whitespace / shell metacharacters / shell-expansion characters.
+// runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// install -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
+// errEmptyPackages if packages is empty. Each name is rejected if it is
+// empty or contains whitespace / shell metacharacters / shell-expansion
+// characters.
 func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
 		return errEmptyPackages
