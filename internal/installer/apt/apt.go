@@ -77,6 +77,9 @@ func (c *Client) GetInstall(ctx context.Context, packages []string) error {
 		return errEmptyPackages
 	}
 	for _, p := range packages {
+		if p == "" {
+			return errors.New("apt: empty package name in install list")
+		}
 		if strings.ContainsAny(p, disallowedInPackageName) {
 			return fmt.Errorf("apt: package %q contains disallowed characters", p)
 		}
