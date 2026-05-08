@@ -24,9 +24,8 @@ func systemPackageTests() {
 	})
 
 	It("plan without --system shows system resources (skipped)", func() {
-		// Action label (skip/install) is intentionally not asserted: today
-		// SystemPackageSet shows "skip" via plan.go's skip-stub branch and will
-		// become "install" once #199 wires the concrete APT installer.
+		// Without --system, system resources are forced to ActionSkip
+		// regardless of installer wiring. Action label is not asserted.
 		out, err := testExec.Exec("tomei", "plan", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
@@ -34,6 +33,10 @@ func systemPackageTests() {
 	})
 
 	It("plan --system shows expanded SystemPackageSet entries", func() {
+		// With --system, SystemPackageSet currently shows "skip" because
+		// the concrete APT installer is not yet wired (skipPackageInstaller
+		// stub). Once #199 lands, the action label becomes "install"; the
+		// loose ContainSubstring assertions stay green across the transition.
 		out, err := testExec.Exec("tomei", "plan", "--system", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("SystemInstaller/apt"))

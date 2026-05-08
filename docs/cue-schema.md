@@ -319,7 +319,7 @@ The `spec.commands.*` declarations are not consumed by the engine at apply time 
 
 ### SystemPackageRepository
 
-Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan and skipped at apply time with a warning.
+Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
 
 ```cue
 apiVersion: "tomei.terassyi.net/v1beta1"
@@ -359,7 +359,7 @@ Single-package shorthand for [SystemPackageSet](#systempackageset). A `SystemPac
 
 Use `SystemPackage` when you want to declare an OS package as its own resource (one resource per package, with its own `metadata.name` and dependency edges). Use [SystemPackageSet](#systempackageset) for batched declarations.
 
-> **Note:** Like `SystemPackageSet`, the concrete installer is **not yet implemented** — declared `SystemPackage` resources expand to `SystemPackageSet` and are shown as `skip` in plan, then skipped at apply time with a warning.
+> **Note:** Like `SystemPackageSet`, the concrete installer is **not yet implemented** — declared `SystemPackage` resources expand to `SystemPackageSet` and are shown as `skip` in plan when changes would be required, then skipped at apply time with a warning.
 
 ```cue
 git: {
@@ -397,7 +397,7 @@ docker: {
 
 ### SystemPackageSet
 
-Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets (and their shorthand [SystemPackage](#systempackage)) are shown as `skip` in plan and skipped at apply time with a warning.
+Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets (and their shorthand [SystemPackage](#systempackage)) are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
 
 ```cue
 // Distribution-provided packages — no repositoryRef
