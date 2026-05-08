@@ -16,10 +16,10 @@ import (
 	"github.com/terassyi/tomei/internal/installer/command"
 )
 
-// TestGetInstall_RealSystem installs `tree`, verifies via dpkg, and removes
+// TestInstall_RealSystem installs `tree`, verifies via dpkg, and removes
 // in t.Cleanup. Requires Linux + apt-get + dpkg + passwordless sudo
 // (CI: ubuntu-latest).
-func TestGetInstall_RealSystem(t *testing.T) {
+func TestInstall_RealSystem(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt-get integration test requires Linux")
 	}
@@ -51,7 +51,7 @@ func TestGetInstall_RealSystem(t *testing.T) {
 	})
 
 	runner := command.NewExecutor("")
-	err := apt.New(runner).GetInstall(context.Background(), []string{pkg})
+	err := apt.New(runner).Install(context.Background(), []string{pkg})
 	require.NoError(t, err)
 
 	out, err := exec.Command("dpkg", "-l", pkg).CombinedOutput()

@@ -117,9 +117,9 @@ func TestVersionFunc_ParseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "unexpected apt-get --version output")
 }
 
-// --- GetInstall tests ---
+// --- Install tests ---
 
-func TestGetInstall(t *testing.T) {
+func TestInstall(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
@@ -189,7 +189,7 @@ func TestGetInstall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{captureErr: tt.runnerErr}
-			err := New(runner).GetInstall(context.Background(), tt.packages)
+			err := New(runner).Install(context.Background(), tt.packages)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				require.Len(t, runner.captureCmds, 1)

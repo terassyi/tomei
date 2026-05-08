@@ -18,14 +18,14 @@ type CommandRunner interface {
 	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 }
 
-// errEmptyPackages is returned by GetInstall when called with no packages.
+// errEmptyPackages is returned by Install when called with no packages.
 var errEmptyPackages = errors.New("apt: install requires at least one package")
 
 // disallowedInPackageName covers whitespace, shell metacharacters, and
 // shell-expansion characters (globs, tilde, comment) that would either
 // split a package name across argv slots, allow injection through the
 // sh -c command form, or be expanded by the shell against the cwd. The
-// schema layer also rejects whitespace; GetInstall guards independently
+// schema layer also rejects whitespace; Install guards independently
 // as defense-in-depth for non-CUE callers. As a side effect, apt's regex
 // package syntax (e.g. "linux-image-*") is also rejected — argv-form
 // executor migration is tracked separately and would close this entire
@@ -61,7 +61,7 @@ func (c *Client) VersionFunc() system.VersionFunc {
 	}
 }
 
-// GetInstall installs the given packages by running, under the configured
+// Install installs the given packages by running, under the configured
 // runner: "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>"
 // with DEBIAN_FRONTEND=noninteractive in the environment. stdout/stderr are
 // drained; the install action is silent on success.
@@ -72,7 +72,7 @@ func (c *Client) VersionFunc() system.VersionFunc {
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
-func (c *Client) GetInstall(ctx context.Context, packages []string) error {
+func (c *Client) Install(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
 		return errEmptyPackages
 	}
