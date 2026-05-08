@@ -85,7 +85,7 @@ func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ c
 func TestVersionFunc_Success(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureOutput: "apt 2.7.14build2 (amd64)"}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	version, err := vf(context.Background())
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestVersionFunc_Success(t *testing.T) {
 func TestVersionFunc_CommandError(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureErr: fmt.Errorf("exec: \"apt-get\": executable file not found in $PATH")}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	_, err := vf(context.Background())
 	require.Error(t, err)
@@ -105,7 +105,7 @@ func TestVersionFunc_CommandError(t *testing.T) {
 func TestVersionFunc_ParseError(t *testing.T) {
 	t.Parallel()
 	mock := &mockCommandRunner{captureOutput: "apt"}
-	vf := VersionFunc(mock)
+	vf := New(mock).VersionFunc()
 
 	_, err := vf(context.Background())
 	require.Error(t, err)
@@ -149,7 +149,7 @@ func TestGetInstall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{captureErr: tt.runnerErr}
-			err := GetInstall(context.Background(), runner, tt.packages)
+			err := New(runner).GetInstall(context.Background(), tt.packages)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				require.Len(t, runner.captureCmds, 1)

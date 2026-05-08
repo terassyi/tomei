@@ -33,7 +33,7 @@ func TestAptGetInstall_RealSystem(t *testing.T) {
 	})
 
 	runner := command.NewExecutor("")
-	err := apt.GetInstall(context.Background(), runner, []string{pkg})
+	err := apt.New(runner).GetInstall(context.Background(), []string{pkg})
 	require.NoError(t, err)
 
 	out, err := exec.Command("dpkg", "-l", pkg).CombinedOutput()
