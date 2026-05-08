@@ -270,6 +270,11 @@ func (e *nativeExecutor) copyTestConfigs() error {
 		return fmt.Errorf("failed to copy privileged-test: %w", err)
 	}
 
+	// Copy system-package-test configs
+	if err := copyDir(filepath.Join(configDir, "system-package-test"), filepath.Join(e.testHome, "system-package-test")); err != nil {
+		return fmt.Errorf("failed to copy system-package-test: %w", err)
+	}
+
 	return nil
 }
 

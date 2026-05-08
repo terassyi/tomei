@@ -70,5 +70,8 @@ COPY --chown=testuser:testuser config/binary-name-test/ /home/testuser/binary-na
 # Copy privileged-test manifests
 COPY --chown=testuser:testuser config/privileged-test/ /home/testuser/privileged-test/
 
+# Copy system-package-test manifests
+COPY --chown=testuser:testuser config/system-package-test/ /home/testuser/system-package-test/
+
 # Default command
 CMD ["tomei", "version"]
