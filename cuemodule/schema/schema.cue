@@ -221,10 +221,21 @@ package schema
 	metadata:   #Metadata
 	spec: {
 		installerRef:   string & !=""
-		repositoryRef?: string
-		packages: [...string]
+		repositoryRef?: string & !=""
+		packages: [...string & =~"^\\S+$"] & [_, ...]
+	}
+}
+
+#SystemPackage: {
+	apiVersion: #APIVersion
+	kind:       "SystemPackage"
+	metadata:   #Metadata
+	spec: {
+		installerRef:   string & !=""
+		repositoryRef?: string & !=""
+		package:        string & =~"^\\S+$"
 	}
 }
 
 #Resource: #Runtime | #Installer | #InstallerRepository | #Tool | #ToolSet |
-	#SystemInstaller | #SystemPackageRepository | #SystemPackageSet
+	#SystemInstaller | #SystemPackageRepository | #SystemPackageSet | #SystemPackage

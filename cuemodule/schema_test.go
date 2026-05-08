@@ -43,6 +43,7 @@ func TestSchema_Definitions_Exist(t *testing.T) {
 		"#SystemInstaller",
 		"#SystemPackageRepository",
 		"#SystemPackageSet",
+		"#SystemPackage",
 		"#Resource",
 	}
 
@@ -307,6 +308,47 @@ func TestSchema_ValidResources(t *testing.T) {
 				spec: {
 					installerRef: "apt"
 					packages: ["jq", "curl", "htop"]
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage minimal",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage with repositoryRef and metadata description",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: {
+					name:        "docker"
+					description: "Docker CE from upstream apt repository"
+				}
+				spec: {
+					installerRef: "apt"
+					repositoryRef: "docker"
+					package:       "docker-ce"
+				}
+			}`,
+		},
+		{
+			// Asserts schema admits per-installer grammar (e.g. apt multiarch `libc6:i386`) without false rejection.
+			name: "SystemPackage with multiarch package identifier",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "libc6-i386"
+				spec: {
+					installerRef: "apt"
+					package:      "libc6:i386"
 				}
 			}`,
 		},
@@ -598,6 +640,126 @@ func TestSchema_InvalidResources(t *testing.T) {
 					source: {
 						type: "invalid"
 					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageSet with empty packages",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef: "apt"
+					packages: []
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageSet element with embedded whitespace",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef: "apt"
+					packages: ["git ", "curl"]
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageSet empty repositoryRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageSet"
+				metadata: name: "cli-tools"
+				spec: {
+					installerRef:  "apt"
+					repositoryRef: ""
+					packages: ["git"]
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage without installerRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					package: "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty installerRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: ""
+					package:      "git"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage without package",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty package",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      ""
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage package with embedded space",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git vim"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage package with trailing newline",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef: "apt"
+					package:      "git\n"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackage empty repositoryRef",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackage"
+				metadata: name: "git"
+				spec: {
+					installerRef:  "apt"
+					repositoryRef: ""
+					package:       "git"
 				}
 			}`,
 		},
