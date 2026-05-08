@@ -14,10 +14,11 @@ func systemPackageTests() {
 		out, err := testExec.Exec("tomei", "validate", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("SystemInstaller/apt"))
-		// SystemPackage は ExpandSets で展開され、出力は SystemPackageSet 名となる。
 		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
 		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-		// desugar 契約: pre-expand の SystemPackage 名は出力に現れない。
+		// Desugar contract: pre-expand SystemPackage names must not surface
+		// in user-visible output. ExpandSets at validate.go:51 rewrites
+		// SystemPackage into SystemPackageSet before printing.
 		Expect(out).NotTo(ContainSubstring("SystemPackage/tree"))
 		Expect(out).To(ContainSubstring("Validation successful"))
 	})
