@@ -132,12 +132,12 @@ func TestPackageSetInstaller_Install(t *testing.T) {
 		{
 			name:     "single package",
 			packages: []string{"git"},
-			wantCmd:  "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
 		},
 		{
 			name:     "multiple packages",
 			packages: []string{"git", "curl", "tree"},
-			wantCmd:  "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
 		},
 		{
 			name:     "empty packages",

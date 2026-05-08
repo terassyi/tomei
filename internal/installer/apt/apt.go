@@ -35,10 +35,12 @@ var errEmptyPackages = errors.New("apt: install requires at least one package")
 // surface.
 const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 
-// aptEnv is the environment for every apt-get invocation. DEBIAN_FRONTEND is
-// load-bearing: without it, packages with debconf prompts (tzdata,
-// keyboard-configuration, etc.) hang indefinitely under "apt-get -y".
-var aptEnv = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
+// debianFrontendNoninteractive is prepended to the apt-get install command
+// via `env`, not passed via the runner's env map. sudo strips most parent
+// env vars by default (env_reset in /etc/sudoers), so a plain `env` map on
+// the runner side would not reach apt-get; running `sudo env VAR=value
+// apt-get …` is sudoers-independent and works on minimal CI images.
+const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive"
 
 // Client wraps a CommandRunner with apt-get / dpkg integration. It is the
 // shared entry point: callers obtain adapters for specific system resources
@@ -57,7 +59,7 @@ func New(runner CommandRunner) *Client {
 // and extracts the version string. Used by the SystemInstaller validator.
 func (c *Client) VersionFunc() system.VersionFunc {
 	return func(ctx context.Context) (string, error) {
-		output, err := c.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, aptEnv)
+		output, err := c.runner.ExecuteCapture(ctx, []string{"apt-get --version"}, command.Vars{}, nil)
 		if err != nil {
 			return "", fmt.Errorf("failed to run apt-get --version: %w", err)
 		}
@@ -130,10 +132,12 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
-	cmd := "sudo -n apt-get install -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(packages, " ")
+	cmd := "sudo -n " + debianFrontendNoninteractive +
+		" apt-get install -y -o DPkg::Lock::Timeout=60 -- " +
+		strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering
 	// in memory; apt-get install output can be large.
-	if err := p.client.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, aptEnv, nil); err != nil {
+	if err := p.client.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, nil, nil); err != nil {
 		return fmt.Errorf("apt: install %q: %w", packages, err)
 	}
 	return nil
