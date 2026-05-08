@@ -17,8 +17,8 @@ func systemPackageTests() {
 		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
 		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
 		// Desugar contract: pre-expand SystemPackage names must not surface
-		// in user-visible output. ExpandSets at validate.go:51 rewrites
-		// SystemPackage into SystemPackageSet before printing.
+		// in user-visible output. ExpandSets rewrites SystemPackage into
+		// SystemPackageSet before any kind/name printing.
 		Expect(out).NotTo(ContainSubstring("SystemPackage/tree"))
 		Expect(out).To(ContainSubstring("Validation successful"))
 	})

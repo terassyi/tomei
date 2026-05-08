@@ -391,7 +391,7 @@ docker: {
 |-------|------|----------|-------------|
 | `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
 | `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before the package is installed |
-| `spec.package` | string | yes | Package name passed to the installer. Per-installer grammar (version pins like `nodejs=18.*`, multiarch suffixes like `libc6:i386`, group prefixes like `@core`) is accepted verbatim |
+| `spec.package` | string | yes | Package name passed to the installer. Must be a non-whitespace token (`^\S+$` — no spaces, tabs, or newlines). Per-installer grammar (version pins like `nodejs=18.*`, multiarch suffixes like `libc6:i386`, group prefixes like `@core`) is accepted verbatim within that constraint |
 
 `metadata.name` is a tomei resource identifier and is independent from `spec.package` — e.g., `name: "docker"` with `package: "docker-ce"`.
 
@@ -434,7 +434,7 @@ spec: {
 |-------|------|----------|-------------|
 | `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
 | `spec.repositoryRef` | string | no | Reference to a [SystemPackageRepository](#systempackagerepository) — adds a DAG edge so the repository is registered before packages are installed |
-| `spec.packages` | `[...string]` | yes | Package names to install (must be non-empty) |
+| `spec.packages` | `[...string]` | yes | Package names to install. Each element must be a non-whitespace token (`^\S+$`); the list itself must be non-empty |
 
 ## Common Types
 
