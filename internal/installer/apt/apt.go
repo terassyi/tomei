@@ -118,6 +118,12 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 // consulted because Remove may run after the spec was deleted from the
 // manifest.
 //
+// A nil state is treated as an error (defensive against corrupted state
+// files), but an empty Packages list is treated as a no-op so the
+// executor can still proceed to delete the state file. This diverges
+// from Install (which rejects empty input as a manifest mistake) — for
+// Remove, "nothing left to do" is the correct idempotent outcome.
+//
 // The shell command executed is:
 //
 //	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
@@ -128,7 +134,13 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 // `apt-get remove` keeps the operation reversible (config files retained)
 // and avoids cascading removal of dependencies that other
 // SystemPackageSet resources may need.
-func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.SystemPackageSetState, _ string) error {
+func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.SystemPackageSetState, name string) error {
+	if state == nil {
+		return fmt.Errorf("apt: package set %q: nil state", name)
+	}
+	if len(state.Packages) == 0 {
+		return nil
+	}
 	return p.runRemove(ctx, state.Packages)
 }
 

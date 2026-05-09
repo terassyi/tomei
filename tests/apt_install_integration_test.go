@@ -90,14 +90,19 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 
 	require.NoError(t, installer.Remove(context.Background(), state, pkg+"-only"))
 
-	// After remove, dpkg -l should no longer show "ii  <pkg>". dpkg -l
-	// may exit 0 (entry retained as "rc") or 1 (entry purged); we accept
-	// either, but a non-ExitError (e.g. dpkg binary missing, permission
-	// denied) is a real test failure that should not be swallowed.
+	// After remove, dpkg -l should no longer show "ii  <pkg>". dpkg-query
+	// exits 0 on success, 1 when no matching package exists (purged
+	// path), and 2+ on real errors. Exit 0 doesn't surface here as an
+	// error; only exit 1 is an acceptable non-zero status, anything
+	// else (or a non-ExitError such as dpkg binary missing / permission
+	// denied) is a genuine test failure that must not be swallowed.
 	out, dpkgErr := exec.Command("dpkg", "-l", pkg).CombinedOutput()
-	var exitErr *exec.ExitError
-	if dpkgErr != nil && !errors.As(dpkgErr, &exitErr) {
-		require.NoError(t, dpkgErr, "dpkg -l invocation failed: %s", out)
+	if dpkgErr != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(dpkgErr, &exitErr) {
+			require.NoError(t, dpkgErr, "dpkg -l invocation failed: %s", out)
+		}
+		require.Equal(t, 1, exitErr.ExitCode(), "dpkg -l returned unexpected exit %d: %s", exitErr.ExitCode(), out)
 	}
 	assert.NotContains(t, string(out), "ii  "+pkg, "%s should not be installed (status ii) after Remove; got: %s", pkg, out)
 }

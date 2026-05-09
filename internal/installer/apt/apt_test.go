@@ -250,9 +250,10 @@ func TestPackageSetInstaller_Remove(t *testing.T) {
 			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- git curl tree",
 		},
 		{
-			name:     "empty packages",
+			name:     "empty packages is a no-op",
 			packages: []string{},
-			wantErr:  "apt: remove requires at least one package",
+			// No error, no shell command issued — Remove short-circuits
+			// so the executor can still delete the state file.
 		},
 		{
 			name:     "empty string in packages slice",
@@ -305,14 +306,28 @@ func TestPackageSetInstaller_Remove(t *testing.T) {
 				Packages:     tt.packages,
 			}
 			err := New(runner).PackageSetInstaller().Remove(context.Background(), state, "cli-tools")
-			if tt.wantErr == "" {
+			switch {
+			case tt.wantErr != "":
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			case tt.wantCmd != "":
 				require.NoError(t, err)
 				require.Len(t, runner.captureCmds, 1)
 				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
-			} else {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
+			default:
+				// No-op: success without issuing any shell command.
+				require.NoError(t, err)
+				assert.Empty(t, runner.captureCmds)
 			}
 		})
 	}
+}
+
+func TestPackageSetInstaller_Remove_NilState(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	err := New(runner).PackageSetInstaller().Remove(context.Background(), nil, "cli-tools")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil state")
+	assert.Empty(t, runner.captureCmds)
 }
