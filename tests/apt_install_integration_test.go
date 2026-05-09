@@ -4,9 +4,9 @@ package tests
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,7 +50,15 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 	t.Cleanup(func() {
 		// Belt-and-suspenders cleanup using raw exec to avoid depending on
 		// installer.Remove (which is the primary subject under test below).
-		if err := exec.Command("sudo", "-n", "apt-get", "remove", "-y", pkg).Run(); err != nil {
+		// Mirror the production invocation's hardening (DEBIAN_FRONTEND,
+		// lock-timeout, `--` operand separator) so the safety net stays
+		// robust if pkg ever changes to something with shell-meaningful
+		// chars or if the cleanup races with apt-daily.
+		cleanup := exec.Command(
+			"sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive",
+			"apt-get", "remove", "-y", "-o", "DPkg::Lock::Timeout=60", "--", pkg,
+		)
+		if err := cleanup.Run(); err != nil {
 			t.Logf("cleanup: apt-get remove %s: %v", pkg, err)
 		}
 	})
@@ -78,13 +86,18 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 
 	out, err := exec.Command("dpkg", "-l", pkg).CombinedOutput()
 	require.NoError(t, err, "dpkg -l output: %s", out)
-	assert.True(t, strings.Contains(string(out), "ii  "+pkg), "%s should be installed (status ii); got: %s", pkg, out)
+	assert.Contains(t, string(out), "ii  "+pkg, "%s should be installed (status ii); got: %s", pkg, out)
 
 	require.NoError(t, installer.Remove(context.Background(), state, pkg+"-only"))
 
-	// After remove, dpkg -l should no longer show "ii  <pkg>". dpkg -l may
-	// exit 0 (entry retained as "rc") or non-zero (entry purged), so we
-	// don't check the exit code — only that the install marker is gone.
-	out, _ = exec.Command("dpkg", "-l", pkg).CombinedOutput()
-	assert.False(t, strings.Contains(string(out), "ii  "+pkg), "%s should not be installed (status ii) after Remove; got: %s", pkg, out)
+	// After remove, dpkg -l should no longer show "ii  <pkg>". dpkg -l
+	// may exit 0 (entry retained as "rc") or 1 (entry purged); we accept
+	// either, but a non-ExitError (e.g. dpkg binary missing, permission
+	// denied) is a real test failure that should not be swallowed.
+	out, dpkgErr := exec.Command("dpkg", "-l", pkg).CombinedOutput()
+	var exitErr *exec.ExitError
+	if dpkgErr != nil && !errors.As(dpkgErr, &exitErr) {
+		require.NoError(t, dpkgErr, "dpkg -l invocation failed: %s", out)
+	}
+	assert.NotContains(t, string(out), "ii  "+pkg, "%s should not be installed (status ii) after Remove; got: %s", pkg, out)
 }
