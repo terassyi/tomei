@@ -95,7 +95,7 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 //	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
-// stdout/stderr are drained line-by-line rather than buffered.
+// stdout/stderr are drained (discarded, not buffered in memory).
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
@@ -122,7 +122,7 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 //
 //	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
-// stdout/stderr are drained line-by-line rather than buffered.
+// stdout/stderr are drained (discarded, not buffered in memory).
 //
 // `--purge` and `--auto-remove` are intentionally omitted: plain
 // `apt-get remove` keeps the operation reversible (config files retained)
