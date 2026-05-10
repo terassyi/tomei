@@ -45,6 +45,12 @@ const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 // apt-get …` is sudoers-independent and works on minimal CI images.
 const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive"
 
+// dpkgStatusInstalled is the literal third sub-field of dpkg's Status field
+// for an installed package — what `dpkg-query -W -f='${db:Status-Status}'`
+// emits per matching package when it is installed and configured.
+// IsInstalled compares each output line against this exact value.
+const dpkgStatusInstalled = "installed"
+
 // Client wraps a CommandRunner with apt-get / dpkg integration. It is the
 // shared entry point: callers obtain adapters for specific system resources
 // (VersionFunc for SystemInstaller, PackageSetInstaller for SystemPackageSet)
@@ -176,10 +182,10 @@ func (c *Client) IsInstalled(ctx context.Context, pkg string) (bool, error) {
 
 	// dpkg-query emits one line per matched package (multi-arch can yield
 	// >1 line). Return true if any matching package's status sub-field is
-	// exactly "installed" (this includes "hold ok installed" because we
-	// only extract the status sub-field via ${db:Status-Status}).
+	// exactly dpkgStatusInstalled (this includes "hold ok installed"
+	// because we only extract the status sub-field via ${db:Status-Status}).
 	for line := range strings.SplitSeq(output, "\n") {
-		if strings.TrimSpace(line) == "installed" {
+		if strings.TrimSpace(line) == dpkgStatusInstalled {
 			return true, nil
 		}
 	}
