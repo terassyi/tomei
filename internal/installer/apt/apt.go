@@ -76,6 +76,50 @@ func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 	return &PackageSetInstaller{client: c}
 }
 
+// Update runs "apt-get update" to refresh the local APT package index.
+// It does NOT upgrade installed packages — that would be "apt-get
+// upgrade", which tomei does not perform automatically. Callers (e.g.
+// the future repository installer at #195, integration tests guarding
+// against stale indexes) invoke Update before Install when freshness
+// matters.
+//
+// The shell command executed is:
+//
+//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+//
+// stdout/stderr are drained (discarded, not buffered in memory). On
+// failure the wrapped error is the executor's exit-status error;
+// callers needing diagnostic output should re-run "apt-get update"
+// manually.
+//
+// Note: apt-get update treats partial mirror failures (404 / DNS) as
+// success (exit 0, only a stderr `W: Failed to fetch` warning).
+// Update inherits that behavior — a subsequent Install failure with
+// "Unable to locate package" may indicate a stale or unreachable
+// source even when Update returned nil.
+//
+// The flags Install/Remove use are intentionally omitted here:
+//   - `-y`: apt-get update issues no y/N prompts.
+//   - `--`: there are no operands, so an option/operand separator is
+//     unnecessary, and consequently no package-list validation is
+//     needed (Install/Remove guard against shell-meaningful chars in
+//     package names; Update has no such surface).
+//   - lock-timeout flags: apt-get update primarily takes the apt
+//     cache/list locks (covered by `Acquire::Lock::Timeout`) rather
+//     than the dpkg-frontend lock that `DPkg::Lock::Timeout` covers;
+//     the uniform timeout pass across all helpers is being tracked
+//     in a separate follow-up.
+func (c *Client) Update(ctx context.Context) error {
+	cmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update"
+	// nil callback drains stdout/stderr to io.Discard rather than
+	// buffering in memory; consistent with Install/Remove, we never
+	// surface apt-get's human-oriented output to callers.
+	if err := c.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, nil, nil); err != nil {
+		return fmt.Errorf("apt: update: %w", err)
+	}
+	return nil
+}
+
 // PackageSetInstaller installs and removes SystemPackageSet resources via
 // apt-get. It satisfies executor.Installer[*resource.SystemPackageSet,
 // *resource.SystemPackageSetState].

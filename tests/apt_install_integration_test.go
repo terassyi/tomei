@@ -54,6 +54,9 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 		// lock-timeout, `--` operand separator) so the safety net stays
 		// robust if pkg ever changes to something with shell-meaningful
 		// chars or if the cleanup races with apt-daily.
+		// Compare: the apt-get update call below uses Client.Update because
+		// that is the production path; cleanup intentionally does NOT use
+		// Client.Remove because Remove is itself one of the SUTs.
 		cleanup := exec.Command(
 			"sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive",
 			"apt-get", "remove", "-y", "-o", "DPkg::Lock::Timeout=60", "--", pkg,
@@ -63,22 +66,27 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 		}
 	})
 
-	// apt-get install can fail on minimal images / stale package indexes
-	// ("Unable to locate package", 404). Refresh the index first; if that
-	// fails (no network, etc.), skip rather than treat as test failure.
-	updateOut, err := exec.Command("sudo", "-n", "env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "update").CombinedOutput()
-	if err != nil {
-		t.Skipf("apt-get update failed (cannot run integration test): %v\noutput: %s", err, updateOut)
-	}
+	client := apt.New(command.NewExecutor(""))
 
-	runner := command.NewExecutor("")
+	// apt-get install can fail on minimal images / stale package indexes
+	// ("Unable to locate package", 404). Refresh the index first via the
+	// Update helper; if that fails (no network, etc.), skip rather than
+	// treat as a test failure. Diagnostic output is no longer surfaced
+	// because Client.Update drains stdout/stderr — this is an intentional
+	// trade-off (see issue #192): we exercise the same client/runner
+	// shape as production rather than maintaining a parallel raw-exec
+	// path that could drift from the helper. To inspect a real failure,
+	// re-run `sudo apt-get update` manually outside the test.
+	if err := client.Update(context.Background()); err != nil {
+		t.Skipf("apt-get update failed (cannot run integration test): %v", err)
+	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
 			InstallerRef: "apt",
 			Packages:     []string{pkg},
 		},
 	}
-	installer := apt.New(runner).PackageSetInstaller()
+	installer := client.PackageSetInstaller()
 	state, err := installer.Install(context.Background(), res, pkg+"-only")
 	require.NoError(t, err)
 	require.NotNil(t, state)

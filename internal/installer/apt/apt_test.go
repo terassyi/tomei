@@ -118,6 +118,31 @@ func TestVersionFunc_ParseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "unexpected apt-get --version output")
 }
 
+// --- Update tests ---
+
+func TestUpdate_Success(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	err := New(runner).Update(context.Background())
+	require.NoError(t, err)
+	require.Len(t, runner.captureCmds, 1)
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update",
+		runner.captureCmds[0],
+	)
+}
+
+func TestUpdate_CommandError(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{captureErr: errors.New("exit status 100")}
+	err := New(runner).Update(context.Background())
+	require.Error(t, err)
+	// Pin the wrap structure (prefix + delimiter + wrapped cause) so a
+	// future rename of the wrap format is caught here, not just the
+	// substring "apt: update".
+	assert.EqualError(t, err, "apt: update: exit status 100")
+}
+
 // --- PackageSetInstaller tests ---
 
 func TestPackageSetInstaller_Install(t *testing.T) {
