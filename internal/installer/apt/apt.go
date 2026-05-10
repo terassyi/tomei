@@ -21,11 +21,11 @@ type CommandRunner interface {
 	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 }
 
-// errEmptyPackages is returned when the package list is empty.
-var errEmptyPackages = errors.New("apt: install requires at least one package")
+// errEmptyPackagesInstall is returned when the package list is empty.
+var errEmptyPackagesInstall = errors.New("apt: install requires at least one package")
 
-// errEmptyPackagesRemove is returned when the package list is empty.
-var errEmptyPackagesRemove = errors.New("apt: remove requires at least one package")
+// errEmptyPackagesInstallRemove is returned when the package list is empty.
+var errEmptyPackagesInstallRemove = errors.New("apt: remove requires at least one package")
 
 // disallowedInPackageName covers whitespace, shell metacharacters, and
 // shell-expansion characters (globs, tilde, comment) that would either
@@ -146,12 +146,12 @@ func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.System
 
 // runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
 // install -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
-// errEmptyPackages if packages is empty. Each name is rejected if it is
+// errEmptyPackagesInstall if packages is empty. Each name is rejected if it is
 // empty or contains whitespace / shell metacharacters / shell-expansion
 // characters.
 func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
-		return errEmptyPackages
+		return errEmptyPackagesInstall
 	}
 	for _, pkg := range packages {
 		if pkg == "" {
@@ -174,12 +174,12 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 
 // runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
 // remove -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
-// errEmptyPackagesRemove if packages is empty. Each name is rejected if
+// errEmptyPackagesInstallRemove if packages is empty. Each name is rejected if
 // it is empty or contains whitespace / shell metacharacters / shell-
 // expansion characters.
 func (p *PackageSetInstaller) runRemove(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
-		return errEmptyPackagesRemove
+		return errEmptyPackagesInstallRemove
 	}
 	for _, pkg := range packages {
 		if pkg == "" {
