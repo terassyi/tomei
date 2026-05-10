@@ -136,8 +136,11 @@ func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 // (whitespace, metacharacters, expansion characters). The same
 // disallowedInPackageName guard used by Install/Remove applies; ":" is
 // intentionally permitted to support Debian multi-arch package syntax
-// (e.g. "libc6:amd64"). ASCII control / NUL / high-bit chars not on the
-// disallowed list are caught downstream by dpkg-query (exit 1 → false).
+// (e.g. "libc6:amd64"). ASCII control (other than NUL) and high-bit
+// chars not on the disallowed list are caught downstream by dpkg-query
+// (exit 1 → false). A NUL byte in pkg is rejected by os/exec when
+// constructing the subprocess argv ("exec: argument contains NUL") and
+// surfaces as a wrapped error rather than reaching dpkg-query.
 //
 // Trust model: pkg is assumed to come from a trusted source (a CUE
 // manifest under the user's control, or another in-process caller) per
