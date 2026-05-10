@@ -21,8 +21,11 @@ type CommandRunner interface {
 	ExecuteWithOutput(ctx context.Context, cmds []string, vars command.Vars, env map[string]string, callback command.OutputCallback) error
 }
 
-// errEmptyPackages is returned when the package list is empty.
-var errEmptyPackages = errors.New("apt: install requires at least one package")
+// errEmptyPackagesInstall is returned when the package list is empty.
+var errEmptyPackagesInstall = errors.New("apt: install requires at least one package")
+
+// errEmptyPackagesRemove is returned when the package list is empty.
+var errEmptyPackagesRemove = errors.New("apt: remove requires at least one package")
 
 // disallowedInPackageName covers whitespace, shell metacharacters, and
 // shell-expansion characters (globs, tilde, comment) that would either
@@ -92,7 +95,7 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 //	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
-// stdout/stderr are drained line-by-line rather than buffered.
+// stdout/stderr are drained (discarded, not buffered in memory).
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
@@ -110,19 +113,45 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 	}, nil
 }
 
-// Remove is a stub until the apt-get remove helper lands.
-func (p *PackageSetInstaller) Remove(_ context.Context, _ *resource.SystemPackageSetState, name string) error {
-	return fmt.Errorf("apt: package set %q: remove not yet implemented", name)
+// Remove runs the apt-get remove for the state's packages. state.Packages
+// (populated by Install) is the source of truth; the resource spec is not
+// consulted because Remove may run after the spec was deleted from the
+// manifest.
+//
+// A nil state is treated as an error (defensive against corrupted state
+// files), but an empty Packages list is treated as a no-op so the
+// executor can still proceed to delete the state file. This diverges
+// from Install (which rejects empty input as a manifest mistake) — for
+// Remove, "nothing left to do" is the correct idempotent outcome.
+//
+// The shell command executed is:
+//
+//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
+//
+// stdout/stderr are drained (discarded, not buffered in memory).
+//
+// `--purge` and `--auto-remove` are intentionally omitted: plain
+// `apt-get remove` keeps the operation reversible (config files retained)
+// and avoids cascading removal of dependencies that other
+// SystemPackageSet resources may need.
+func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.SystemPackageSetState, name string) error {
+	if state == nil {
+		return fmt.Errorf("apt: package set %q: nil state", name)
+	}
+	if len(state.Packages) == 0 {
+		return nil
+	}
+	return p.runRemove(ctx, state.Packages)
 }
 
 // runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
 // install -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
-// errEmptyPackages if packages is empty. Each name is rejected if it is
+// errEmptyPackagesInstall if packages is empty. Each name is rejected if it is
 // empty or contains whitespace / shell metacharacters / shell-expansion
 // characters.
 func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string) error {
 	if len(packages) == 0 {
-		return errEmptyPackages
+		return errEmptyPackagesInstall
 	}
 	for _, pkg := range packages {
 		if pkg == "" {
@@ -139,6 +168,34 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 	// in memory; apt-get install output can be large.
 	if err := p.client.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, nil, nil); err != nil {
 		return fmt.Errorf("apt: install %q: %w", packages, err)
+	}
+	return nil
+}
+
+// runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// remove -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
+// errEmptyPackagesRemove if packages is empty. Each name is rejected if
+// it is empty or contains whitespace / shell metacharacters / shell-
+// expansion characters.
+func (p *PackageSetInstaller) runRemove(ctx context.Context, packages []string) error {
+	if len(packages) == 0 {
+		return errEmptyPackagesRemove
+	}
+	for _, pkg := range packages {
+		if pkg == "" {
+			return errors.New("apt: empty package name in remove list")
+		}
+		if strings.ContainsAny(pkg, disallowedInPackageName) {
+			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
+		}
+	}
+	cmd := "sudo -n " + debianFrontendNoninteractive +
+		" apt-get remove -y -o DPkg::Lock::Timeout=60 -- " +
+		strings.Join(packages, " ")
+	// nil callback drains stdout/stderr to io.Discard rather than buffering
+	// in memory; apt-get remove output (especially dependency hints) can be large.
+	if err := p.client.runner.ExecuteWithOutput(ctx, []string{cmd}, command.Vars{}, nil, nil); err != nil {
+		return fmt.Errorf("apt: remove %q: %w", packages, err)
 	}
 	return nil
 }

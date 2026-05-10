@@ -230,11 +230,104 @@ func TestPackageSetInstaller_Install_PropagatesRepositoryRef(t *testing.T) {
 	assert.Equal(t, "docker", state.RepositoryRef)
 }
 
-func TestPackageSetInstaller_Remove_NotYetImplemented(t *testing.T) {
+func TestPackageSetInstaller_Remove(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		packages  []string
+		runnerErr error
+		wantErr   string
+		wantCmd   string
+	}{
+		{
+			name:     "single package",
+			packages: []string{"git"},
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- git",
+		},
+		{
+			name:     "multiple packages",
+			packages: []string{"git", "curl", "tree"},
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+		},
+		{
+			name:     "empty packages is a no-op",
+			packages: []string{},
+			// No error, no shell command issued — Remove short-circuits
+			// so the executor can still delete the state file.
+		},
+		{
+			name:     "empty string in packages slice",
+			packages: []string{""},
+			wantErr:  "apt: empty package name in remove list",
+		},
+		{
+			name:     "empty string among valid packages",
+			packages: []string{"git", "", "tree"},
+			wantErr:  "apt: empty package name in remove list",
+		},
+		{
+			name:     "package with semicolon rejected",
+			packages: []string{"git;curl evil|sh"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with backtick rejected",
+			packages: []string{"git", "tree`whoami`"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with embedded space rejected",
+			packages: []string{"git vim"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with newline rejected",
+			packages: []string{"git\n"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:     "package with glob star rejected",
+			packages: []string{"linux-image-*"},
+			wantErr:  "contains disallowed characters",
+		},
+		{
+			name:      "runner error wraps packages context",
+			packages:  []string{"nonexistent-pkg"},
+			runnerErr: errors.New("exit status 100"),
+			wantErr:   `apt: remove ["nonexistent-pkg"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{captureErr: tt.runnerErr}
+			state := &resource.SystemPackageSetState{
+				InstallerRef: "apt",
+				Packages:     tt.packages,
+			}
+			err := New(runner).PackageSetInstaller().Remove(context.Background(), state, "cli-tools")
+			switch {
+			case tt.wantErr != "":
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			case tt.wantCmd != "":
+				require.NoError(t, err)
+				require.Len(t, runner.captureCmds, 1)
+				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+			default:
+				// No-op: success without issuing any shell command.
+				require.NoError(t, err)
+				assert.Empty(t, runner.captureCmds)
+			}
+		})
+	}
+}
+
+func TestPackageSetInstaller_Remove_NilState(t *testing.T) {
 	t.Parallel()
 	runner := &mockCommandRunner{}
-	state := &resource.SystemPackageSetState{Packages: []string{"git"}}
-	err := New(runner).PackageSetInstaller().Remove(context.Background(), state, "cli-tools")
+	err := New(runner).PackageSetInstaller().Remove(context.Background(), nil, "cli-tools")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remove not yet implemented")
+	assert.Contains(t, err.Error(), "nil state")
+	assert.Empty(t, runner.captureCmds)
 }
