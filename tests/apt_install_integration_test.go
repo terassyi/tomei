@@ -90,12 +90,13 @@ func TestPackageSetInstaller_RealSystem(t *testing.T) {
 
 	require.NoError(t, installer.Remove(context.Background(), state, pkg+"-only"))
 
-	// After remove, dpkg -l should no longer show "ii  <pkg>". dpkg-query
-	// exits 0 on success, 1 when no matching package exists (purged
-	// path), and 2+ on real errors. Exit 0 doesn't surface here as an
-	// error; only exit 1 is an acceptable non-zero status, anything
-	// else (or a non-ExitError such as dpkg binary missing / permission
-	// denied) is a genuine test failure that must not be swallowed.
+	// After remove, dpkg -l should no longer show "ii  <pkg>". `dpkg -l`
+	// (backed by dpkg-query) exits 0 on success, 1 when no matching
+	// package exists (purged path), and 2+ on real errors. Exit 0
+	// doesn't surface here as an error; only exit 1 is an acceptable
+	// non-zero status, anything else (or a non-ExitError such as the
+	// dpkg binary missing / permission denied) is a genuine test
+	// failure that must not be swallowed.
 	out, dpkgErr := exec.Command("dpkg", "-l", pkg).CombinedOutput()
 	if dpkgErr != nil {
 		var exitErr *exec.ExitError
