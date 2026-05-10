@@ -88,7 +88,9 @@ func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 //	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
 //
 // stdout/stderr are drained (discarded, not buffered in memory). On
-// failure the wrapped error is the executor's exit-status error;
+// failure the returned error wraps the runner's error (typically
+// `command failed: <expanded>: <cause>` from command.Executor, where
+// <cause> may be an exit-status, start, expand, or context error);
 // callers needing diagnostic output should re-run "apt-get update"
 // manually.
 //
