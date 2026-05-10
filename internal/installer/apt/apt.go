@@ -76,6 +76,116 @@ func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 	return &PackageSetInstaller{client: c}
 }
 
+// IsInstalled reports whether dpkg currently considers pkg to be installed.
+// It is a read-only probe — no apt or dpkg state is modified — used by
+// the SystemPackageSet reconciler (#198) to compare desired vs actual
+// state on each package.
+//
+// The shell command executed is:
+//
+//	dpkg-query -W -f='${db:Status-Status}\n' -- <pkg>
+//
+// dpkg-query's `${db:Status-Status}` format directive returns just the
+// third sub-field of the dpkg Status triple ("installed", "not-installed",
+// "config-files", "half-installed", etc.) — one literal word per line.
+// This avoids parsing the human-formatted "<want> <eflag> <status>" triple
+// and crucially handles two important edge cases correctly:
+//
+//   - hold: `apt-mark hold pkg` produces a Status of "hold ok installed".
+//     The third field is still "installed", so a held package is correctly
+//     reported as installed (rather than triggering an unnecessary
+//     re-install by the reconciler).
+//   - multi-arch ambiguity: if multiple architectures of the same package
+//     are installed (e.g. libc6:amd64 + libc6:i386), dpkg-query emits one
+//     line per match. This helper reports true if any match has status
+//     "installed", which matches the reconciler's intent.
+//
+// dpkg-query (rather than `dpkg -l`) and the `${db:Status-Status}` directive
+// (rather than the full `${Status}` triple) require dpkg 1.17.11+ (Debian 8
+// jessie / Ubuntu 16.04 LTS and later) per `man dpkg-query`; tomei does not
+// target older releases.
+//
+// Return values:
+//   - exit 0, any line equal to "installed" → (true, nil)
+//   - exit 0, no line equal to "installed" (e.g. only "config-files",
+//     "not-installed", "half-installed") → (false, nil)
+//   - exit 1 (dpkg-query: "no packages found matching <pkg>") → (false, nil)
+//   - exit ≥ 2 or a non-ExitError (dpkg-query missing, permission denied,
+//     signal, ctx cancellation, runner-side template error) → wrapped error
+//
+// Caller contract: when err is non-nil the bool return is meaningless
+// (always false) and MUST NOT be interpreted as "package is not
+// installed" — a runner-side failure does not imply absence. Callers
+// MUST check err before consuming the bool.
+//
+// Strict semantic: only the literal status "installed" is reported as
+// installed. "config-files" (a.k.a. `rc` in `dpkg -l` output) is NOT
+// installed — this matches the integration-test convention of asserting
+// on "ii  <pkg>" in `dpkg -l` output. Intermediate states ("half-installed",
+// "unpacked", "half-configured") are also treated as not-installed; the
+// reconciler will trigger a re-install, which is the correct recovery
+// action for a broken dpkg state.
+//
+// pkg is rejected if it is empty or contains shell-meaningful characters
+// (whitespace, metacharacters, expansion characters). The same
+// disallowedInPackageName guard used by Install/Remove applies; ":" is
+// intentionally permitted to support Debian multi-arch package syntax
+// (e.g. "libc6:amd64"). ASCII control / NUL / high-bit chars not on the
+// disallowed list are caught downstream by dpkg-query (exit 1 → false).
+//
+// Trust model: pkg is assumed to come from a trusted source (a CUE
+// manifest under the user's control, or another in-process caller) per
+// command/executor.go's package-level Security Model. Callers exposing
+// IsInstalled to untrusted input (e.g. an HTTP API) MUST add their own
+// sanitization layer.
+//
+// Concurrency: dpkg-query reads /var/lib/dpkg/status (world-readable) and
+// does not take the dpkg-frontend lock. dpkg uses atomic rename to update
+// the status file, so dpkg-query can never observe a torn write — but a
+// probe performed concurrently with apt-get install/remove may observe
+// either the pre- or post-transaction state. Callers should consume the
+// result idempotently.
+//
+// No sudo, no DEBIAN_FRONTEND: dpkg-query is unprivileged and never prompts.
+func (c *Client) IsInstalled(ctx context.Context, pkg string) (bool, error) {
+	if pkg == "" {
+		return false, errors.New("apt: empty package name")
+	}
+	if strings.ContainsAny(pkg, disallowedInPackageName) {
+		return false, fmt.Errorf("apt: package %q contains disallowed characters", pkg)
+	}
+
+	// IMPORTANT: the format string is single-quoted in the shell argument
+	// so sh leaves "${db:Status-Status}" as a literal for dpkg-query to
+	// interpret. Changing this to double quotes would let sh expand
+	// "${db:Status-Status}" against the host environment (almost certainly
+	// to ""), silently breaking the helper. Keep it single-quoted.
+	// `--` operand separator guards against any future widening of allowed
+	// characters that could permit a leading `-`.
+	cmd := `dpkg-query -W -f='${db:Status-Status}\n' -- ` + pkg
+	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
+	if err != nil {
+		// Unknown package: exit 1. command.IsExitCode walks the wrap
+		// chain (executor wraps via %w, preserving *exec.ExitError) so we
+		// can distinguish it from exit ≥ 2 (genuine failure).
+		if command.IsExitCode(err, 1) {
+			return false, nil
+		}
+		return false, fmt.Errorf("apt: status %q: %w", pkg, err)
+	}
+
+	// dpkg-query emits one line per matched package (multi-arch can yield
+	// >1 line). Return true if any matching package's status sub-field is
+	// exactly "installed" (this includes "hold ok installed" because we
+	// only extract the status sub-field via ${db:Status-Status}).
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.TrimSpace(line) == "installed" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Update runs "apt-get update" to refresh the local APT package index.
 // It does NOT upgrade installed packages — that would be "apt-get
 // upgrade", which tomei does not perform automatically. Callers (e.g.
