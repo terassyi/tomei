@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,13 +12,19 @@ import (
 )
 
 // realExitError builds a real *exec.ExitError via `sh -c 'exit N'`.
-// Linux/macOS/POSIX sh required; Windows is unsupported (tomei's CI is
-// ubuntu-latest only). Duplicated in apt_test.go because Go's _test.go
-// scoping prevents test helpers from being shared across package
-// boundaries — the 5-line cost is preferable to introducing an
-// infrastructure-only `cmdtest` subpackage.
+// Skips the calling test when POSIX sh is unavailable (Windows, minimal
+// images without sh) so `go test ./...` is portable. Duplicated in
+// apt_test.go because Go's _test.go scoping prevents test helpers from
+// being shared across package boundaries — the small duplication is
+// preferable to introducing an infrastructure-only `cmdtest` subpackage.
 func realExitError(t *testing.T, code int) error {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("realExitError requires POSIX sh; not available on Windows")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not found in PATH")
+	}
 	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr)

@@ -16,10 +16,12 @@ import (
 )
 
 // TestIsInstalled_RealSystem exercises Client.IsInstalled against the real
-// dpkg database on a Linux runner. IsInstalled is a read-only probe so
-// the "preinstalled fixture" pitfall (memory:
-// feedback_integration_test_fixture) does not apply — we are not mutating
-// host state.
+// dpkg database on a Linux runner. The "preinstalled fixture" pitfall
+// — where an integration test using an "if already installed, skip"
+// guard silently no-ops on every CI run because the fixture happens to
+// be preinstalled on the runner image — does not apply here: IsInstalled
+// is a read-only probe and host state is not mutated, so a preinstalled
+// fixture is a feature, not a hazard.
 //
 //   - Phase 1 — bash: Essential: yes / Priority: required on Debian-family
 //     distros, so guaranteed installed on any sane Linux runner. Also

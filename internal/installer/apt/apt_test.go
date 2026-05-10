@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -359,10 +360,18 @@ func TestPackageSetInstaller_Remove_NilState(t *testing.T) {
 }
 
 // realExitError builds a real *exec.ExitError via `sh -c 'exit N'`.
-// Duplicated from internal/installer/command/exit_test.go because Go's
-// _test.go scoping prevents cross-package test-helper sharing.
+// Skips the calling test when POSIX sh is unavailable (Windows, minimal
+// images without sh) so `go test ./...` is portable. Duplicated from
+// internal/installer/command/exit_test.go because Go's _test.go scoping
+// prevents cross-package test-helper sharing.
 func realExitError(t *testing.T, code int) error {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("realExitError requires POSIX sh; not available on Windows")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not found in PATH")
+	}
 	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
 	var exitErr *exec.ExitError
 	require.ErrorAs(t, err, &exitErr)
