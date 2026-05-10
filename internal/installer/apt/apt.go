@@ -172,8 +172,9 @@ func (c *Client) IsInstalled(ctx context.Context, pkg string) (bool, error) {
 	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
 	if err != nil {
 		// Unknown package: exit 1. command.IsExitCode walks the wrap
-		// chain (executor wraps via %w, preserving *exec.ExitError) so we
-		// can distinguish it from exit ≥ 2 (genuine failure).
+		// chain (Executor.ExecuteCapture wraps cmd.Run()'s error via %w,
+		// preserving *exec.ExitError) so we can distinguish it from
+		// exit ≥ 2 (genuine failure).
 		if command.IsExitCode(err, 1) {
 			return false, nil
 		}

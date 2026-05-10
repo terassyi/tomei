@@ -369,9 +369,10 @@ func realExitError(t *testing.T, code int) error {
 	return err
 }
 
-// wrapRunnerErr mimics command.Executor.ExecuteCapture's wrap shape so
-// errors.As walks the chain in the same way as production. Pinning the
-// shape here in one place catches drift from executor.go:215.
+// wrapRunnerErr mimics the wrap shape that command.Executor.ExecuteCapture
+// applies to a non-zero subprocess exit so errors.As walks the chain in
+// the same way as production. Pinning the format here in one place catches
+// drift in ExecuteCapture's wrap.
 func wrapRunnerErr(pkg string, cause error) error {
 	return fmt.Errorf(`command failed: dpkg-query -W -f='${db:Status-Status}\n' -- %s: %w`, pkg, cause)
 }
