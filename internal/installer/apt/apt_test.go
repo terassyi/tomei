@@ -495,3 +495,172 @@ func TestIsInstalled_NonExitErrorPropagates(t *testing.T) {
 	require.EqualError(t, err, `apt: status "bash": exec: "dpkg-query": executable file not found in $PATH`)
 	require.ErrorIs(t, err, sentinel)
 }
+
+// TestIsInstalled_CtxCanceledTakesPriority verifies that when ctx is
+// canceled the cancellation reason is preserved in the chain even if
+// the runner returns an exit-1 *exec.ExitError that would normally be
+// mapped to (false, nil). Without the ctx.Err() pre-check at the top
+// of the err branch, cancellations would silently surface as
+// "package not installed", which is a wrong-answer bug for callers
+// that intend to retry on cancellation.
+func TestIsInstalled_CtxCanceledTakesPriority(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner := &mockCommandRunner{captureErr: wrapRunnerErr("bash", realExitError(t, 1))}
+
+	got, err := New(runner).IsInstalled(ctx, "bash")
+	require.Error(t, err)
+	assert.False(t, got)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// wrapVersionRunnerErr mimics command.Executor.ExecuteCapture's wrap
+// shape for the PackageVersion command. Pinned in one place to catch
+// drift in production wrap shape.
+func wrapVersionRunnerErr(pkg string, cause error) error {
+	return fmt.Errorf(`command failed: dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- %s: %w`, pkg, cause)
+}
+
+// --- PackageVersion tests ---
+
+func TestPackageVersion(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		pkg       string
+		runnerOut string
+		runnerErr error
+		want      string
+		wantErr   string
+	}{
+		// success — simple
+		{name: "simple version", pkg: "bash", runnerOut: "installed 5.1-6ubuntu1\n", want: "5.1-6ubuntu1"},
+		{name: "epoch version", pkg: "vim", runnerOut: "installed 2:8.2.3995-1ubuntu2.13\n", want: "2:8.2.3995-1ubuntu2.13"},
+		{name: "ubuntu suffix", pkg: "git", runnerOut: "installed 1:2.34.1-1ubuntu1.10\n", want: "1:2.34.1-1ubuntu1.10"},
+		{name: "no trailing newline", pkg: "bash", runnerOut: "installed 5.1-6ubuntu1", want: "5.1-6ubuntu1"},
+		{name: "extra whitespace tolerated", pkg: "bash", runnerOut: "  installed   5.1-6ubuntu1  \n", want: "5.1-6ubuntu1"},
+
+		// success — multi-arch with only one installed (others non-installed)
+		{name: "one installed + one config-files", pkg: "libc6", runnerOut: "installed 2.35-0ubuntu3.5\nconfig-files 2.35-0ubuntu3.5\n", want: "2.35-0ubuntu3.5"},
+		{name: "one installed + one not-installed", pkg: "libc6", runnerOut: "installed 2.35-0ubuntu3.5\nnot-installed \n", want: "2.35-0ubuntu3.5"},
+		{name: "multi-arch suffix syntax (single match)", pkg: "libc6:amd64", runnerOut: "installed 2.35-0ubuntu3.5\n", want: "2.35-0ubuntu3.5"},
+
+		// success — boundary-of-allowed pkg names
+		{name: "hyphen pkg name", pkg: "linux-image-amd64", runnerOut: "installed 5.15.0.1\n", want: "5.15.0.1"},
+		{name: "plus pkg name", pkg: "g++", runnerOut: "installed 4:11.2.0-1ubuntu1\n", want: "4:11.2.0-1ubuntu1"},
+		{name: "dot pkg name", pkg: "python3.10", runnerOut: "installed 3.10.6-1~22.04\n", want: "3.10.6-1~22.04"},
+
+		// not-installed — exit 0 + 0 installed lines (stale-version protection)
+		{name: "config-files only treated as not installed", pkg: "vim", runnerOut: "config-files 8.2.0\n", wantErr: `apt: package "vim" is not installed`},
+		{name: "not-installed only treated as not installed", pkg: "ghost", runnerOut: "not-installed \n", wantErr: `apt: package "ghost" is not installed`},
+		{name: "half-installed treated as not installed", pkg: "broken", runnerOut: "half-installed 1.0\n", wantErr: `apt: package "broken" is not installed`},
+		{name: "half-configured treated as not installed", pkg: "broken", runnerOut: "half-configured 1.0\n", wantErr: `apt: package "broken" is not installed`},
+		{name: "multi-arch all config-files", pkg: "libc6", runnerOut: "config-files 2.35-0ubuntu3.5\nconfig-files 2.35-0ubuntu3.5\n", wantErr: `apt: package "libc6" is not installed`},
+
+		// multi-arch ambiguity — exit 0 + 2+ installed lines
+		{name: "multi-arch both installed (same version)", pkg: "libc6", runnerOut: "installed 2.35-0ubuntu3.5\ninstalled 2.35-0ubuntu3.5\n", wantErr: `apt: package "libc6" is installed for multiple architectures`},
+		{name: "multi-arch both installed (different versions)", pkg: "libc6", runnerOut: "installed 2.35-0ubuntu3.5\ninstalled 2.34-0ubuntu3.4\n", wantErr: `apt: package "libc6" is installed for multiple architectures`},
+
+		// degenerate / edge outputs
+		{name: "empty output", pkg: "ghost", runnerOut: "", wantErr: `apt: package "ghost" is not installed`},
+		{name: "newline-only output", pkg: "ghost", runnerOut: "\n\n", wantErr: `apt: package "ghost" is not installed`},
+		{name: "installed without version field", pkg: "broken", runnerOut: "installed\n", wantErr: `apt: package "broken" is not installed`},
+
+		// validation
+		{name: "empty pkg name rejected", pkg: "", wantErr: "apt: empty package name"},
+		{name: "pkg with semicolon rejected", pkg: "bash; rm -rf /", wantErr: "contains disallowed characters"},
+		{name: "pkg with backtick rejected", pkg: "bash`whoami`", wantErr: "contains disallowed characters"},
+		{name: "pkg with embedded space rejected", pkg: "bash vim", wantErr: "contains disallowed characters"},
+		{name: "pkg with newline rejected", pkg: "bash\n", wantErr: "contains disallowed characters"},
+		{name: "pkg with glob star rejected", pkg: "linux-image-*", wantErr: "contains disallowed characters"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{captureOutput: tt.runnerOut, captureErr: tt.runnerErr}
+			got, err := New(runner).PackageVersion(context.Background(), tt.pkg)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Empty(t, got)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			require.Len(t, runner.captureCmds, 1)
+			assert.Equal(t,
+				`dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- `+tt.pkg,
+				runner.captureCmds[0],
+			)
+		})
+	}
+}
+
+// TestPackageVersion_NotInstalledExit1 verifies exit 1 (unknown package)
+// is mapped to a wrapped "is not installed" error using a real
+// *exec.ExitError, exercising the errors.As chain through
+// command.Executor's `command failed: %s: %w` wrap.
+func TestPackageVersion_NotInstalledExit1(t *testing.T) {
+	t.Parallel()
+	exitErr := realExitError(t, 1)
+	wrapped := wrapVersionRunnerErr("ghost-pkg", exitErr)
+	runner := &mockCommandRunner{captureErr: wrapped}
+
+	got, err := New(runner).PackageVersion(context.Background(), "ghost-pkg")
+	require.Error(t, err)
+	assert.Empty(t, got)
+	require.EqualError(t, err, fmt.Sprintf(`apt: package "ghost-pkg" is not installed: %s`, wrapped.Error()))
+	require.ErrorIs(t, err, exitErr)
+}
+
+// TestPackageVersion_GenuineFailureExit2 verifies non-1 exit codes
+// propagate with exactly `apt: version "<pkg>": <inner>`. EqualError
+// pin (instead of Contains) catches accidental rewording — the format
+// is part of the public contract per #207's precedent.
+func TestPackageVersion_GenuineFailureExit2(t *testing.T) {
+	t.Parallel()
+	exitErr := realExitError(t, 2)
+	wrapped := wrapVersionRunnerErr("bash", exitErr)
+	runner := &mockCommandRunner{captureErr: wrapped}
+
+	got, err := New(runner).PackageVersion(context.Background(), "bash")
+	require.Error(t, err)
+	assert.Empty(t, got)
+	require.EqualError(t, err, fmt.Sprintf(`apt: version "bash": %s`, wrapped.Error()))
+	require.ErrorIs(t, err, exitErr)
+}
+
+// TestPackageVersion_NonExitErrorPropagates verifies runner errors that
+// are not *exec.ExitError (binary not found, ctx canceled, permission
+// denied) bypass the exit-1 special case.
+func TestPackageVersion_NonExitErrorPropagates(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New(`exec: "dpkg-query": executable file not found in $PATH`)
+	runner := &mockCommandRunner{captureErr: sentinel}
+
+	got, err := New(runner).PackageVersion(context.Background(), "bash")
+	require.Error(t, err)
+	assert.Empty(t, got)
+	require.EqualError(t, err, `apt: version "bash": exec: "dpkg-query": executable file not found in $PATH`)
+	require.ErrorIs(t, err, sentinel)
+}
+
+// TestPackageVersion_CtxCanceledTakesPriority verifies that when ctx is
+// canceled the cancellation reason is preserved in the chain even if
+// the runner returns an exit-1 *exec.ExitError that would normally be
+// wrapped as "is not installed". Without the ctx.Err() pre-check at
+// the top of the err branch, cancellations would be misclassified as
+// "not installed", which is a wrong-answer bug for callers that intend
+// to retry on cancellation.
+func TestPackageVersion_CtxCanceledTakesPriority(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runner := &mockCommandRunner{captureErr: wrapVersionRunnerErr("bash", realExitError(t, 1))}
+
+	got, err := New(runner).PackageVersion(ctx, "bash")
+	require.Error(t, err)
+	assert.Empty(t, got)
+	require.ErrorIs(t, err, context.Canceled)
+}
