@@ -174,6 +174,16 @@ func (c *Client) IsInstalled(ctx context.Context, pkg string) (bool, error) {
 	cmd := `dpkg-query -W -f='${db:Status-Status}\n' -- ` + pkg
 	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
 	if err != nil {
+		// ctx cancellation/timeout surfaces as a signal-kill on dpkg-query
+		// whose *exec.ExitError reports ExitCode() == -1. Without an
+		// explicit ctx check the cancellation would silently fall through
+		// to the generic wrap, leaving callers unable to detect it via
+		// errors.Is(err, context.Canceled / context.DeadlineExceeded).
+		// Check ctx.Err() first so the cancellation reason is preserved
+		// in the chain.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, fmt.Errorf("apt: status %q: %w", pkg, ctxErr)
+		}
 		// Unknown package: exit 1. command.IsExitCode walks the wrap
 		// chain (Executor.ExecuteCapture wraps cmd.Run()'s error via %w,
 		// preserving *exec.ExitError) so we can distinguish it from
@@ -194,6 +204,145 @@ func (c *Client) IsInstalled(ctx context.Context, pkg string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// PackageVersion returns the dpkg-recorded version of an installed package.
+// It is a read-only probe used by the SystemPackageSet reconciler (#198)
+// to populate SystemPackageSetState.InstalledVersions for each managed
+// package. NOTE: this is the version of the installed package per the
+// dpkg database — NOT the version of apt-get itself (see VersionFunc).
+//
+// The shell command executed is:
+//
+//	dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- <pkg>
+//
+// The combined `${db:Status-Status} ${Version}` format directive is
+// deliberate: by emitting both the third Status sub-field and the
+// Version on the same line, the helper can filter to only those
+// packages whose status is exactly "installed". This protects against
+// the "stale version" pitfall where `apt-get remove pkg` (without
+// --purge) leaves an entry in dpkg db with status "config-files" and
+// the prior Version field intact. A naive `${Version}`-only query would
+// return that stale version even though the package is no longer
+// installed — PackageVersion treats such cases as not-installed.
+// Held packages (`apt-mark hold pkg` produces a Status of "hold ok
+// installed") are correctly reported as installed because only the
+// third Status sub-field is extracted; the helper behaves identically
+// to IsInstalled in this respect.
+//
+// `${db:Status-Status}` requires dpkg 1.17.11+ (Debian 8 jessie / Ubuntu
+// 16.04 LTS and later); tomei does not target older releases.
+//
+// Return values:
+//   - exit 0, exactly one line whose status sub-field is "installed"
+//     → (version, nil)
+//   - exit 0, no line with status "installed" (e.g. only "config-files",
+//     "not-installed", "half-installed") → ("", error
+//     `apt: package %q is not installed`).
+//   - exit 0, two or more lines with status "installed" (multi-arch
+//     ambiguity, e.g. libc6:amd64 + libc6:i386) → ("", error
+//     `apt: package %q is installed for multiple architectures;
+//     specify arch using <pkg>:<arch> syntax`). A reconciler must
+//     record version against an unambiguous identity to detect drift;
+//     emitting a non-deterministic first-line would create flaky state.
+//   - exit 1 (dpkg-query: "no packages found matching <pkg>") → ("",
+//     wrapped `apt: package %q is not installed: %w`). Callers needing
+//     to distinguish from genuine failures can use
+//     command.IsExitCode(err, 1).
+//   - exit ≥ 2 or a non-ExitError (dpkg-query missing, permission
+//     denied, signal, ctx cancellation, runner-side template error)
+//     → ("", wrapped `apt: version %q: %w`).
+//
+// Caller contract: when err is non-nil the returned version string is
+// always "" and MUST NOT be interpreted as data. Callers MUST check
+// err before consuming the version.
+//
+// pkg validation: rejected if empty or contains shell-meaningful
+// characters per disallowedInPackageName (whitespace, metacharacters,
+// expansion characters). The CUE layer's `=~"^\\S+$"` constraint
+// (cuemodule/schema/schema.cue) is the upstream allow-list; this guard
+// is defense-in-depth for non-CUE callers. ":" is intentionally
+// permitted to support Debian multi-arch syntax (e.g. "libc6:amd64").
+// A NUL byte in pkg is rejected by os/exec when constructing the
+// subprocess argv ("exec: argument contains NUL") and surfaces as a
+// wrapped error rather than reaching dpkg-query.
+//
+// Trust model: pkg is assumed to come from a trusted source (CUE
+// manifest under the user's control, or another in-process caller) per
+// command/executor.go's package-level Security Model. Callers exposing
+// PackageVersion to untrusted input (e.g. an HTTP API) MUST add their
+// own sanitization layer.
+//
+// Concurrency: dpkg-query reads /var/lib/dpkg/status (world-readable)
+// and does not take the dpkg-frontend lock. dpkg uses atomic rename to
+// update the status file, so dpkg-query can never observe a torn write
+// — but a probe performed concurrently with apt-get install/remove may
+// observe either the pre- or post-transaction state. Callers should
+// consume the result idempotently.
+//
+// No sudo, no DEBIAN_FRONTEND: dpkg-query is unprivileged and never
+// prompts.
+func (c *Client) PackageVersion(ctx context.Context, pkg string) (string, error) {
+	if pkg == "" {
+		return "", errors.New("apt: empty package name")
+	}
+	if strings.ContainsAny(pkg, disallowedInPackageName) {
+		return "", fmt.Errorf("apt: package %q contains disallowed characters", pkg)
+	}
+
+	// IMPORTANT: the format string is single-quoted in the shell argument
+	// so sh leaves "${db:Status-Status}" and "${Version}" as literals for
+	// dpkg-query to interpret. Changing this to double quotes would let
+	// sh expand them against the host environment (almost certainly to
+	// ""), silently breaking the helper. Keep it single-quoted.
+	// `--` operand separator guards against any future widening of
+	// allowed characters that could permit a leading `-`.
+	cmd := `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- ` + pkg
+	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
+	if err != nil {
+		// ctx cancellation/timeout surfaces as a signal-kill on dpkg-query
+		// whose *exec.ExitError reports ExitCode() == -1. Without an
+		// explicit ctx check the cancellation would silently fall through
+		// to the generic wrap or be misclassified as exit 1 ("not
+		// installed"), leaving callers unable to detect it via
+		// errors.Is(err, context.Canceled / context.DeadlineExceeded).
+		// Check ctx.Err() first so the cancellation reason is preserved
+		// in the chain.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", fmt.Errorf("apt: version %q: %w", pkg, ctxErr)
+		}
+		// Unknown package: exit 1. command.IsExitCode walks the wrap
+		// chain (Executor.ExecuteCapture wraps cmd.Run()'s error via
+		// %w, preserving *exec.ExitError) so we can distinguish it
+		// from exit ≥ 2 (genuine failure).
+		if command.IsExitCode(err, 1) {
+			return "", fmt.Errorf("apt: package %q is not installed: %w", pkg, err)
+		}
+		return "", fmt.Errorf("apt: version %q: %w", pkg, err)
+	}
+
+	// dpkg-query emits one line per matched package (multi-arch can
+	// yield >1 line). Each line is "<status> <version>" — split with
+	// strings.Fields to be robust to surrounding whitespace, and
+	// retain only the lines whose status is dpkgStatusInstalled.
+	var installedVersions []string
+	for line := range strings.SplitSeq(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == dpkgStatusInstalled {
+			installedVersions = append(installedVersions, fields[1])
+		}
+	}
+	switch len(installedVersions) {
+	case 0:
+		return "", fmt.Errorf("apt: package %q is not installed", pkg)
+	case 1:
+		return installedVersions[0], nil
+	default:
+		return "", fmt.Errorf(
+			"apt: package %q is installed for multiple architectures; specify arch using <pkg>:<arch> syntax",
+			pkg,
+		)
+	}
 }
 
 // Update runs "apt-get update" to refresh the local APT package index.
