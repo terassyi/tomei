@@ -205,13 +205,48 @@ package schema
 	}
 }
 
+// #SystemPackageRepository declares a third-party APT repository as a
+// triple of (1) where to fetch packages from, (2) which GPG key signs
+// the repo metadata, and (3) how that line is emitted in
+// /etc/apt/sources.list.d. Fields map to the canonical one-line APT
+// sources.list format:
+//
+//	deb [<options>] <url> <suite> <components...>
 #SystemPackageRepository: {
 	apiVersion: #APIVersion
 	kind:       "SystemPackageRepository"
 	metadata:   #Metadata
 	spec: {
+		// installerRef binds this repository to a SystemInstaller (e.g.
+		// "apt") that knows how to perform the setup.
 		installerRef: string & !=""
-		source: {url: #HTTPSURL, ...}
+		source: {
+			// url is the repository base URL (e.g.
+			// "https://download.docker.com/linux/ubuntu"). HTTPS only.
+			url: #HTTPSURL
+			// keyUrl is the HTTPS URL of the armored GPG public key
+			// that signs this repository's Release / InRelease files.
+			keyUrl: #HTTPSURL
+			// keyHash is the SHA256 of the armored key in
+			// "sha256:<64-lowercase-hex>" form. Required: HTTPS alone
+			// protects only against passive MITM, not against CDN or
+			// upstream-mirror compromise.
+			keyHash: string & =~"^sha256:[0-9a-f]{64}$"
+			// suite is the distribution release identifier (e.g.
+			// "jammy", "noble", "bookworm"). Some single-suite repos
+			// use "/" to denote a flat repository layout.
+			suite: string & !=""
+			// components are the pool components emitted as
+			// space-separated trailing tokens (e.g. ["stable"],
+			// ["main", "contrib", "non-free"]). At least one required.
+			components: [...string & !=""] & [_, ...]
+			// options is the bracketed key=value pairs APT understands
+			// (signed-by, arch, by-hash, ...). signed-by is auto-derived
+			// to /usr/share/keyrings/<metadata.name>.gpg unless
+			// explicitly overridden. trusted=yes is intentionally NOT
+			// in the allowlist — it disables signature verification.
+			options?: {[string]: string}
+		}
 	}
 }
 

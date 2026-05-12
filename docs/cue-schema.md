@@ -319,7 +319,16 @@ The `spec.commands.*` declarations are not consumed by the engine at apply time 
 
 ### SystemPackageRepository
 
-Third-party APT repository (e.g., Docker, Kubernetes). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared repositories are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
+Third-party APT repository (e.g., Docker, Kubernetes). The APT concrete
+installer places a per-repository GPG keyring at
+`/usr/share/keyrings/<metadata.name>.gpg` and a one-line `.list` fragment
+at `/etc/apt/sources.list.d/<metadata.name>.list`, then refreshes the APT
+index. If the just-added repository fails to fetch
+(`W: Failed to fetch …` against the configured URL), the helper rolls
+back both files automatically so the host state does not regress.
+Engine wiring of the concrete installer is tracked in a separate issue
+(#196); declared repositories run through the installer once the engine
+is updated to construct it.
 
 ```cue
 apiVersion: "tomei.terassyi.net/v1beta1"
@@ -328,12 +337,15 @@ metadata: name: "docker"
 spec: {
     installerRef: "apt"
     source: {
-        url:     "https://download.docker.com/linux/ubuntu"
-        keyUrl:  "https://download.docker.com/linux/ubuntu/gpg"
-        keyHash: "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+        url:        "https://download.docker.com/linux/ubuntu"
+        keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+        keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+        suite:      "jammy"
+        components: ["stable"]
         options: {
-            arch:        "amd64"
-            "signed-by": "/etc/apt/keyrings/docker.asc"
+            arch: "amd64"
+            // signed-by is optional; if omitted it defaults to
+            // /usr/share/keyrings/<metadata.name>.gpg.
         }
     }
 }
@@ -341,17 +353,23 @@ spec: {
 
 #### Fields
 
-The CUE schema defines `spec.source` as an open struct constrained only by `url: #HTTPSURL`. The fields below are what the loader expects.
-
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
-| `spec.source.url` | HTTPS URL | yes | Repository URL |
-| `spec.source.keyUrl` | string | no | GPG key URL |
-| `spec.source.keyHash` | string | no | SHA-256 checksum of the GPG key (e.g., `sha256:...`) |
-| `spec.source.options` | `{[string]: string}` | no | Installer-specific options. For APT, common keys include `arch` and `signed-by` |
+| `spec.source.url` | HTTPS URL | yes | Repository base URL (the value before suite/components in the emitted `deb` line) |
+| `spec.source.keyUrl` | HTTPS URL | yes | URL of the ASCII-armored GPG public key |
+| `spec.source.keyHash` | string | yes | SHA-256 of the armored key in `sha256:<64-lowercase-hex>` form. Required as defense-in-depth: HTTPS alone protects only against passive MITM, not against CDN or upstream-mirror compromise |
+| `spec.source.suite` | string | yes | Distribution release (e.g. `jammy`, `noble`, `bookworm`). Use `/` for a flat repository |
+| `spec.source.components` | `[...string]` | yes | One or more pool components (e.g. `["stable"]`, `["main", "contrib", "non-free"]`) |
+| `spec.source.options` | `{[string]: string}` | no | Bracketed sources.list options. Allowed keys: `signed-by`, `arch`, `target`, `by-hash`, `pdiffs`, `check-valid-until`, `lang`, `allow-insecure`, `allow-weak`, `allow-downgrade-to-insecure`. `trusted=yes` is intentionally rejected because it disables signature verification |
 
-The exact `options` schema may evolve once the concrete installer lands.
+`signed-by` defaults to `/usr/share/keyrings/<metadata.name>.gpg` when
+unset. Explicitly setting it overrides the default — useful for pointing
+at a pre-existing system keyring.
+
+> **Note:** `spec.source.keyUrl`, `keyHash`, `suite`, and `components`
+> became required when the concrete installer landed; manifests written
+> against earlier tomei versions need updates to add these fields.
 
 ### SystemPackage
 

@@ -70,22 +70,78 @@ func TestParseAptVersion(t *testing.T) {
 
 // --- mock ---
 
+// mockCommandRunner is the package-local CommandRunner stub used across
+// every apt unit test. It records each call and can return per-call
+// outputs and errors, so multi-step flows (e.g. PackageRepositoryInstaller
+// which fires 4–6 shell calls in a single Install) can assert the exact
+// sequence as well as inject failures at specific steps.
+//
+// Backward-compat for the single-call helpers (IsInstalled, PackageVersion,
+// Update, PackageSetInstaller.Install/Remove):
+//
+//   - captureCmds is the flat concatenation of every cmds slice passed in
+//     (1-element-per-call in current callers). Existing assertions like
+//     require.Len(t, captureCmds, 1) + captureCmds[0] continue to work
+//     unchanged because each helper still makes exactly one call.
+//   - captureOutput / captureErr are returned for every call unless the
+//     captureOutputs / captureErrs sequence has an entry at the call index.
+//
+// Sequence mode (for multi-call flows):
+//
+//   - captureCallCmds[i] is the cmds slice passed on the i-th call.
+//   - captureOutputs[i] / captureErrs[i] override captureOutput /
+//     captureErr for the i-th call, otherwise the legacy field is used.
+//     Pass shorter sequences and the legacy field acts as the default for
+//     calls past len(sequence).
 type mockCommandRunner struct {
-	captureCmds   []string
+	// captureCmds is the flat list of every cmd across every call.
+	captureCmds []string
+	// captureCallCmds[i] is the cmds slice passed on the i-th call.
+	captureCallCmds [][]string
+	// captureMethods[i] is "capture" or "withoutput" for the i-th call.
+	captureMethods []string
+	// captureOutput is the default ExecuteCapture return when captureOutputs
+	// has no entry at the call index.
 	captureOutput string
-	captureErr    error
+	// captureOutputs, when non-empty, returns the i-th element for the
+	// i-th ExecuteCapture call.
+	captureOutputs []string
+	// captureErr is the default error returned when captureErrs has no
+	// entry at the call index.
+	captureErr error
+	// captureErrs, when non-empty, returns the i-th element for the i-th
+	// call regardless of method (ExecuteCapture or ExecuteWithOutput).
+	captureErrs []error
 }
 
 var _ CommandRunner = (*mockCommandRunner)(nil)
 
+// record stores cmds and returns (output, err) for the current call,
+// preferring sequence-mode fields over the legacy single-value defaults.
+func (m *mockCommandRunner) record(method string, cmds []string) (string, error) {
+	idx := len(m.captureCallCmds)
+	m.captureCmds = append(m.captureCmds, cmds...)
+	m.captureCallCmds = append(m.captureCallCmds, cmds)
+	m.captureMethods = append(m.captureMethods, method)
+
+	out := m.captureOutput
+	if idx < len(m.captureOutputs) {
+		out = m.captureOutputs[idx]
+	}
+	err := m.captureErr
+	if idx < len(m.captureErrs) {
+		err = m.captureErrs[idx]
+	}
+	return out, err
+}
+
 func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ command.Vars, _ map[string]string) (string, error) {
-	m.captureCmds = cmds
-	return m.captureOutput, m.captureErr
+	return m.record("capture", cmds)
 }
 
 func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, _ command.Vars, _ map[string]string, _ command.OutputCallback) error {
-	m.captureCmds = cmds
-	return m.captureErr
+	_, err := m.record("withoutput", cmds)
+	return err
 }
 
 // --- VersionFunc tests ---

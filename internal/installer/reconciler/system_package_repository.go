@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"maps"
+	"slices"
 
 	"github.com/terassyi/tomei/internal/resource"
 )
@@ -22,6 +23,12 @@ func SystemPackageRepositoryComparator() Comparator[*resource.SystemPackageRepos
 		}
 		if spec.Source.KeyHash != state.Source.KeyHash {
 			return true, "source key hash changed: " + state.Source.KeyHash + " -> " + spec.Source.KeyHash
+		}
+		if spec.Source.Suite != state.Source.Suite {
+			return true, "source suite changed: " + state.Source.Suite + " -> " + spec.Source.Suite
+		}
+		if !slices.Equal(spec.Source.Components, state.Source.Components) {
+			return true, "source components changed"
 		}
 		if !maps.Equal(spec.Source.Options, state.Source.Options) {
 			return true, "source options changed"

@@ -1,4 +1,9 @@
-// Package apt provides APT package manager integration for system package management.
+// Package apt provides APT package manager integration for system
+// package and third-party repository management on Debian-family
+// distributions. It exposes a shared Client over a CommandRunner and
+// per-resource installers (PackageSetInstaller for SystemPackageSet,
+// PackageRepositoryInstaller for SystemPackageRepository) plus
+// read-only probes (IsInstalled, PackageVersion, VersionFunc).
 package apt
 
 import (
@@ -9,6 +14,7 @@ import (
 	"time"
 
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/system"
@@ -80,6 +86,17 @@ func (c *Client) VersionFunc() system.VersionFunc {
 // SystemPackageSet resources backed by apt-get.
 func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 	return &PackageSetInstaller{client: c}
+}
+
+// PackageRepositoryInstaller returns the executor.Installer adapter for
+// SystemPackageRepository resources. Unlike PackageSetInstaller it takes
+// a download.Downloader because adding a repository involves fetching the
+// armored GPG key over HTTPS — keeping the dependency on the per-resource
+// factory rather than on Client itself means other future installers that
+// do not need network access (e.g. local-only package sets) are not forced
+// to thread an unused dependency through.
+func (c *Client) PackageRepositoryInstaller(d download.Downloader) *PackageRepositoryInstaller {
+	return &PackageRepositoryInstaller{client: c, downloader: d}
 }
 
 // IsInstalled reports whether dpkg currently considers pkg to be installed.

@@ -19,6 +19,23 @@ func (s *SystemPackageRepositorySpec) Validate() error {
 	if s.Source.URL == "" {
 		return fmt.Errorf("source.url is required")
 	}
+	if s.Source.KeyURL == "" {
+		return fmt.Errorf("source.keyUrl is required")
+	}
+	if s.Source.KeyHash == "" {
+		return fmt.Errorf("source.keyHash is required")
+	}
+	if s.Source.Suite == "" {
+		return fmt.Errorf("source.suite is required")
+	}
+	if len(s.Source.Components) == 0 {
+		return fmt.Errorf("source.components must have at least one entry")
+	}
+	for i, c := range s.Source.Components {
+		if c == "" {
+			return fmt.Errorf("source.components[%d] must not be empty", i)
+		}
+	}
 	return nil
 }
 
@@ -42,11 +59,25 @@ func (*SystemPackageRepository) Kind() Kind { return KindSystemPackageRepository
 func (s *SystemPackageRepository) Spec() Spec { return s.SystemPackageRepositorySpec }
 
 // SourceConfig holds repository source configuration.
+//
+// The fields map to the canonical APT one-line sources.list format:
+//
+//	deb [<options>] <URL> <Suite> <Components...>
+//
+// URL is the base mirror (e.g. "https://download.docker.com/linux/ubuntu");
+// Suite identifies the distribution release (e.g. "jammy"); Components is
+// the non-empty list of pool components ("stable", "main", etc.). KeyURL
+// supplies the armored GPG public key to import into a per-repository
+// keyring; KeyHash pins its SHA256 (format "sha256:<64-hex>") and is
+// required as defense-in-depth against transport / CDN compromise. Options
+// carries the bracketed sources.list options (signed-by, arch, etc.).
 type SourceConfig struct {
-	URL     string            `json:"url"`
-	KeyURL  string            `json:"keyUrl,omitempty"`
-	KeyHash string            `json:"keyHash,omitempty"`
-	Options map[string]string `json:"options,omitempty"`
+	URL        string            `json:"url"`
+	KeyURL     string            `json:"keyUrl"`
+	KeyHash    string            `json:"keyHash"`
+	Suite      string            `json:"suite"`
+	Components []string          `json:"components"`
+	Options    map[string]string `json:"options,omitempty"`
 }
 
 // SystemPackageSetSpec defines a set of system packages.
@@ -96,6 +127,13 @@ func (*SystemPackageSet) Kind() Kind { return KindSystemPackageSet }
 func (s *SystemPackageSet) Spec() Spec { return s.SystemPackageSetSpec }
 
 // SystemPackageRepositoryState represents the state of a repository.
+//
+// InstalledFiles records the paths the installer placed on disk in
+// install order. By convention the APT installer emits
+// [<keyring path>, <sources.list path>] so that Remove can iterate in
+// reverse (sources.list first, then keyring) — this avoids a brief
+// window where APT would consult a sources.list pointing to a missing
+// keyring.
 type SystemPackageRepositoryState struct {
 	InstallerRef   string       `json:"installerRef"`
 	Source         SourceConfig `json:"source"`
