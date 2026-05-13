@@ -30,6 +30,12 @@ const keyringDir = "/usr/share/keyrings"
 // (legacy one-line) or `.sources` (deb822). tomei writes `.list`.
 const sourcesListDir = "/etc/apt/sources.list.d"
 
+// archOption is the bracket-option key declaring per-architecture
+// restrictions in a sources.list entry (e.g. `[arch=amd64]`). It is
+// referenced in multiple places so it lives as a named constant to keep
+// goconst quiet and to give the key a single source of truth.
+const archOption = "arch"
+
 // allowedSourcesListOptions is the whitelist of bracket-option keys
 // permitted in SystemPackageRepository.spec.source.options. APT understands
 // many more, but the ones below cover all realistic third-party-repository
@@ -39,7 +45,7 @@ const sourcesListDir = "/etc/apt/sources.list.d"
 // freeform option).
 var allowedSourcesListOptions = map[string]struct{}{
 	"signed-by":                   {},
-	"arch":                        {},
+	archOption:                    {},
 	"target":                      {},
 	"by-hash":                     {},
 	"pdiffs":                      {},
@@ -463,8 +469,7 @@ func (p *PackageRepositoryInstaller) Remove(ctx context.Context, state *resource
 	}
 	// Remove in reverse install order so the sources.list referencing the
 	// keyring is gone before the keyring itself disappears.
-	for i := len(state.InstalledFiles) - 1; i >= 0; i-- {
-		path := state.InstalledFiles[i]
+	for _, path := range slices.Backward(state.InstalledFiles) {
 		if err := validateInstalledPath(path); err != nil {
 			return fmt.Errorf("apt: repository %q: %w", name, err)
 		}
