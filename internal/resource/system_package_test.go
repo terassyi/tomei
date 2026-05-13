@@ -305,6 +305,12 @@ func TestAptSource_Validate(t *testing.T) {
 			a.URL = "http://localhost:8080/repo"
 			a.KeyURL = "http://127.0.0.1:8080/gpg"
 		}},
+		// Opaque-form URLs ("https:example.com" — scheme set but no
+		// `//` / host) are accepted by url.Parse but rejected by CUE's
+		// `^https://` regex. Pin the Go-side rejection so the two
+		// gates agree on a strict hierarchical URL.
+		{name: "url opaque-form rejected", mutate: func(a *AptSource) { a.URL = "https:example.com/repo" }, wantErr: "not a hierarchical https URL"},
+		{name: "keyUrl opaque-form rejected", mutate: func(a *AptSource) { a.KeyURL = "https:example.com/gpg" }, wantErr: "not a hierarchical https URL"},
 		{name: "suite with whitespace rejected", mutate: func(a *AptSource) { a.Suite = "jammy main" }, wantErr: "contains whitespace"},
 		{name: "component with whitespace rejected", mutate: func(a *AptSource) { a.Components = []string{"main contrib"} }, wantErr: "contains whitespace"},
 		{name: "component with newline rejected", mutate: func(a *AptSource) { a.Components = []string{"main\nhostile"} }, wantErr: "contains line-ending"},

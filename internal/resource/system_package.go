@@ -229,6 +229,14 @@ func validateRepoURL(field, rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("%s %q is not a valid URL: %w", field, rawURL, err)
 	}
+	// Require a hierarchical URL (scheme://authority/path) — url.Parse
+	// happily accepts opaque forms like "https:example.com" where the
+	// scheme is set but `//` and host are missing, which CUE's
+	// `^https://` regex would reject. The combination Opaque=="" +
+	// Host!="" rules these out.
+	if u.Opaque != "" || u.Host == "" {
+		return fmt.Errorf("%s %q is not a hierarchical https URL (missing `//` or host)", field, rawURL)
+	}
 	switch u.Scheme {
 	case "https":
 		return nil
