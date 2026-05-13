@@ -311,6 +311,11 @@ func TestAptSource_Validate(t *testing.T) {
 		// gates agree on a strict hierarchical URL.
 		{name: "url opaque-form rejected", mutate: func(a *AptSource) { a.URL = "https:example.com/repo" }, wantErr: "not a hierarchical https URL"},
 		{name: "keyUrl opaque-form rejected", mutate: func(a *AptSource) { a.KeyURL = "https:example.com/gpg" }, wantErr: "not a hierarchical https URL"},
+		// A bare host with no scheme parses to Scheme="" + Host="" —
+		// pin the more actionable "no scheme; use https://" error
+		// instead of the generic hierarchical-URL message.
+		{name: "url missing scheme reports scheme error", mutate: func(a *AptSource) { a.URL = "example.com/repo" }, wantErr: "has no scheme"},
+		{name: "keyUrl missing scheme reports scheme error", mutate: func(a *AptSource) { a.KeyURL = "example.com/gpg" }, wantErr: "has no scheme"},
 		{name: "suite with whitespace rejected", mutate: func(a *AptSource) { a.Suite = "jammy main" }, wantErr: "contains whitespace"},
 		{name: "component with whitespace rejected", mutate: func(a *AptSource) { a.Components = []string{"main contrib"} }, wantErr: "contains whitespace"},
 		{name: "component with newline rejected", mutate: func(a *AptSource) { a.Components = []string{"main\nhostile"} }, wantErr: "contains line-ending"},

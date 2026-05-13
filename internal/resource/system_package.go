@@ -229,6 +229,15 @@ func validateRepoURL(field, rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("%s %q is not a valid URL: %w", field, rawURL, err)
 	}
+	// Order matters here: a bare host like `example.com/repo` parses as
+	// Scheme="" + Host="" (everything becomes a path), and a literal
+	// hostname like `example.com` similarly has no scheme. Report the
+	// missing-scheme case first so the operator gets the actionable
+	// "use https://" message instead of the less-specific
+	// "not a hierarchical https URL" branch below.
+	if u.Scheme == "" {
+		return fmt.Errorf("%s %q has no scheme; use https://", field, rawURL)
+	}
 	// Require a hierarchical URL (scheme://authority/path) — url.Parse
 	// happily accepts opaque forms like "https:example.com" where the
 	// scheme is set but `//` and host are missing, which CUE's
@@ -245,8 +254,6 @@ func validateRepoURL(field, rawURL string) error {
 			return nil
 		}
 		return fmt.Errorf("%s %q must use https:// (http:// allowed only for localhost / 127.0.0.1 in tests)", field, rawURL)
-	case "":
-		return fmt.Errorf("%s %q has no scheme; use https://", field, rawURL)
 	default:
 		return fmt.Errorf("%s %q uses unsupported scheme %q; only https:// (and http://localhost for tests) is permitted", field, rawURL, u.Scheme)
 	}
