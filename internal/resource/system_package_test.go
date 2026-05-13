@@ -435,7 +435,7 @@ func TestSystemPackageRepositorySpec_ArmsRegistered(t *testing.T) {
 	specT := reflect.TypeFor[SystemPackageRepositorySpec]()
 	for i := 0; i < specT.NumField(); i++ {
 		f := specT.Field(i)
-		if f.Type.Kind() != reflect.Ptr {
+		if f.Type.Kind() != reflect.Pointer {
 			continue
 		}
 		installerRef := strings.ToLower(f.Name)

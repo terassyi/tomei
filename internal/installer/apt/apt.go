@@ -44,18 +44,22 @@ var errEmptyPackagesRemove = errors.New("apt: remove requires at least one packa
 // surface.
 const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 
-// debianFrontendNoninteractive is prepended to apt-get commands via
-// `env`, not passed via the runner's env map. sudo strips most parent
-// env vars by default (env_reset in /etc/sudoers), so a plain `env` map
-// on the runner side would not reach apt-get; running `sudo env VAR=value
-// apt-get …` is sudoers-independent and works on minimal CI images.
+// aptGetEnvPrefix is the `env VAR=value ...` prefix prepended to every
+// apt-get invocation in this package. It is passed via `env` (not the
+// runner's env map) because sudo strips most parent env vars by default
+// (env_reset in /etc/sudoers), so a plain env map on the runner side
+// would not reach apt-get; running `sudo env VAR=value apt-get …` is
+// sudoers-independent and works on minimal CI images.
 //
-// The locale pins (LC_ALL=C LANGUAGE=C) are load-bearing for the
-// repository installer's partial-fetch detector: apt translates warning
-// prefixes per locale (e.g. `W: ` becomes `警告: ` under ja_JP.UTF-8),
-// and the `^W: Failed to fetch` regex would silently miss a real fetch
-// failure on non-C locales — leaving a broken sources.list installed.
-const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C"
+// The prefix bundles three pins:
+//   - DEBIAN_FRONTEND=noninteractive — keeps apt-get from prompting on
+//     conffile / debconf questions when invoked over sudo.
+//   - LC_ALL=C LANGUAGE=C — load-bearing for the repository installer's
+//     partial-fetch detector: apt translates warning prefixes per locale
+//     (e.g. `W: ` becomes `警告: ` under ja_JP.UTF-8), and the
+//     `^W: Failed to fetch` regex would silently miss a real fetch
+//     failure on non-C locales — leaving a broken sources.list installed.
+const aptGetEnvPrefix = "env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C"
 
 // dpkgStatusInstalled is the literal third sub-field of dpkg's Status field
 // for an installed package — what `dpkg-query -W -f='${db:Status-Status}'`
@@ -404,7 +408,7 @@ func (c *Client) PackageVersion(ctx context.Context, pkg string) (string, error)
 //     the uniform timeout pass across all helpers is being tracked
 //     in a separate follow-up.
 func (c *Client) Update(ctx context.Context) error {
-	cmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update"
+	cmd := "sudo -n " + aptGetEnvPrefix + " apt-get update"
 	// nil callback drains stdout/stderr to io.Discard rather than
 	// buffering in memory; consistent with Install/Remove, we never
 	// surface apt-get's human-oriented output to callers.
@@ -499,7 +503,7 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
-	cmd := "sudo -n " + debianFrontendNoninteractive +
+	cmd := "sudo -n " + aptGetEnvPrefix +
 		" apt-get install -y -o DPkg::Lock::Timeout=60 -- " +
 		strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering
@@ -527,7 +531,7 @@ func (p *PackageSetInstaller) runRemove(ctx context.Context, packages []string) 
 			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
-	cmd := "sudo -n " + debianFrontendNoninteractive +
+	cmd := "sudo -n " + aptGetEnvPrefix +
 		" apt-get remove -y -o DPkg::Lock::Timeout=60 -- " +
 		strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering

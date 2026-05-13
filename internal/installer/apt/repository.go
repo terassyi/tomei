@@ -472,7 +472,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	// hosts with verbose apt-get output. The callback runs from two
 	// goroutines (stdout + stderr), so collectFailedFetches synchronizes
 	// internally.
-	updateCmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update"
+	updateCmd := "sudo -n " + aptGetEnvPrefix + " apt-get update"
 	failedFetches := newFailedFetchCollector(spec.Apt.URL)
 	updateErr := p.client.runner.ExecuteWithOutput(ctx, []string{updateCmd}, command.Vars{}, nil, failedFetches.scanLine)
 	if updateErr != nil {

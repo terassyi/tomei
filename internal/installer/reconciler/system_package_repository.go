@@ -32,7 +32,7 @@ func SystemPackageRepositoryComparator() Comparator[*resource.SystemPackageRepos
 			return true, "installerRef changed: " + state.InstallerRef + " -> " + spec.InstallerRef
 		}
 		switch spec.InstallerRef {
-		case "apt":
+		case resource.InstallerRefApt:
 			return compareAptSource(spec.Apt, state.Apt)
 		default:
 			// Defensive: validation should have rejected the spec before

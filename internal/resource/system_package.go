@@ -13,6 +13,23 @@ import (
 // and a clearer fail-fast than the eventual checksum mismatch.
 var keyHashRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
+// InstallerRefApt is the canonical string value of
+// SystemPackageRepositorySpec.InstallerRef for the only implemented
+// arm of the discriminated union today. Exported so reconciler /
+// installer / test code that switches on installerRef can reference
+// the single source of truth instead of stringly-typed literals.
+const InstallerRefApt = "apt"
+
+// aptOptionSignedBy is the bracket-option key whose use in
+// AptSource.Options is explicitly forbidden (the keyring path is
+// auto-derived from metadata.name).
+const aptOptionSignedBy = "signed-by"
+
+// aptOptionArch is the bracket-option key declaring per-architecture
+// restrictions in a sources.list entry (e.g. `arch=amd64`). The most
+// commonly set option; exported indirectly through AllowedAptOptionKeys.
+const aptOptionArch = "arch"
+
 // SystemPackageRepositorySpec defines a third-party repository. It is a
 // discriminated union keyed by InstallerRef: exactly one of the
 // installer-specific source pointers (Apt, ...) is non-nil and must
@@ -30,7 +47,7 @@ func (s *SystemPackageRepositorySpec) Validate() error {
 		return fmt.Errorf("installerRef is required")
 	}
 	switch s.InstallerRef {
-	case "apt":
+	case InstallerRefApt:
 		if s.Apt == nil {
 			return fmt.Errorf("apt source block is required when installerRef is %q", s.InstallerRef)
 		}
@@ -107,7 +124,7 @@ type AptSource struct {
 // AllowedAptOptionKeys for read access (the latter returns a fresh
 // sorted copy so callers can't smuggle a mutation through the slice).
 var allowedAptOptions = map[string]struct{}{
-	"arch":              {},
+	aptOptionArch:       {},
 	"target":            {},
 	"by-hash":           {},
 	"pdiffs":            {},
@@ -202,7 +219,7 @@ func (a *AptSource) Validate() error {
 		}
 	}
 	for k, v := range a.Options {
-		if k == "signed-by" {
+		if k == aptOptionSignedBy {
 			return fmt.Errorf(`apt.options["signed-by"] is auto-derived from metadata.name; remove it from spec.apt.options`)
 		}
 		if !IsAllowedAptOption(k) {
