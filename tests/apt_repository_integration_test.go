@@ -149,7 +149,7 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 			Metadata:     resource.Metadata{Name: repoName},
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Apt: &resource.AptSource{
 				URL:        server.URL,
 				KeyURL:     server.URL + "/key.asc",

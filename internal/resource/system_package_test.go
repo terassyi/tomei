@@ -395,8 +395,8 @@ func TestSystemPackageRepositorySpec_Validate(t *testing.T) {
 	}{
 		{name: "empty installerRef", spec: SystemPackageRepositorySpec{}, wantErr: "installerRef is required"},
 		{name: "unknown installerRef", spec: SystemPackageRepositorySpec{InstallerRef: "dnf"}, wantErr: `unsupported installerRef "dnf"`},
-		{name: "apt with nil Apt", spec: SystemPackageRepositorySpec{InstallerRef: "apt"}, wantErr: "apt source block is required"},
-		{name: "apt with valid Apt", spec: SystemPackageRepositorySpec{InstallerRef: "apt", Apt: validAptSource()}, wantErr: ""},
+		{name: "apt with nil Apt", spec: SystemPackageRepositorySpec{InstallerRef: InstallerRefApt}, wantErr: "apt source block is required"},
+		{name: "apt with valid Apt", spec: SystemPackageRepositorySpec{InstallerRef: InstallerRefApt, Apt: validAptSource()}, wantErr: ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

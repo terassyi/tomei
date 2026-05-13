@@ -58,7 +58,7 @@ func dockerSpec(name string) *resource.SystemPackageRepository {
 			Metadata:     resource.Metadata{Name: name},
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Apt: &resource.AptSource{
 				URL:        "https://download.docker.com/linux/ubuntu",
 				KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
@@ -299,7 +299,7 @@ func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 		runner.captureCallCmds[3][0])
 
 	// State contract: keyring first, then sources.list.
-	assert.Equal(t, "apt", state.InstallerRef)
+	assert.Equal(t, resource.InstallerRefApt, state.InstallerRef)
 	assert.Equal(t, []string{
 		keyringPath("docker"),
 		sourcesListPath("docker"),

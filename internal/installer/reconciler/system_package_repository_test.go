@@ -17,7 +17,7 @@ func newAptRepository(name string, src *resource.AptSource) *resource.SystemPack
 			Metadata:     resource.Metadata{Name: name},
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Apt:          src,
 		},
 	}
@@ -40,7 +40,7 @@ func dockerRepo() *resource.SystemPackageRepository {
 
 func dockerRepoState() *resource.SystemPackageRepositoryState {
 	return &resource.SystemPackageRepositoryState{
-		InstallerRef:   "apt",
+		InstallerRef:   resource.InstallerRefApt,
 		Apt:            dockerSource(),
 		InstalledFiles: []string{"/usr/share/keyrings/docker.gpg", "/etc/apt/sources.list.d/docker.list"},
 		UpdatedAt:      time.Now(),
@@ -90,7 +90,7 @@ func TestSystemPackageRepositoryReconciler_NoChange_NilVsEmptyOptions(t *testing
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
 		"simple": {
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Apt:          &stateSrc,
 			UpdatedAt:    time.Now(),
 		},
