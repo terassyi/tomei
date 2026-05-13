@@ -375,9 +375,16 @@ via the schema; the install destination is one source of truth.
 
 > **Note:** The schema is a discriminated union keyed by `installerRef`.
 > Today only the `apt` arm is implemented; dnf / apk / pacman arms are
-> tracked in #213. Manifests written against pre-union tomei versions
-> need to rename `spec.source` to `spec.apt`; the field set inside the
-> block is unchanged.
+> tracked in #213. Migrating manifests written against pre-#195 tomei:
+>
+> 1. Rename `spec.source` to `spec.apt`.
+> 2. Confirm `keyUrl`, `keyHash`, `suite`, and `components` are all set
+>    — they became required when the concrete installer landed in #195.
+> 3. If `options` carried `signed-by`, remove it (auto-derived from
+>    `metadata.name`). If it carried `trusted=yes`, `allow-insecure`,
+>    `allow-weak`, or `allow-downgrade-to-insecure`, remove them — the
+>    schema rejects these because they disable or weaken signature
+>    verification.
 
 ### SystemPackage
 

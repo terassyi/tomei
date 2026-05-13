@@ -108,6 +108,16 @@ func validateRepoName(name string) error {
 	if filepath.Clean(name) != name {
 		return fmt.Errorf("apt: repository name %q is not a stable path component", name)
 	}
+	// `.` and `..` pass both the character allowlist and filepath.Clean
+	// (they ARE canonical paths) but join to surprising on-disk targets
+	// like /usr/share/keyrings/.gpg or /usr/share/keyrings/...gpg. Any
+	// name starting with `.` is also refused because dot-prefixed files
+	// would shadow the auto-derived keyring path semantics. The CUE
+	// regex `^[a-z0-9]...` already rejects all of these; this is
+	// defense-in-depth for non-CUE callers.
+	if name == "." || name == ".." || strings.HasPrefix(name, ".") {
+		return fmt.Errorf("apt: repository name %q is reserved or dot-prefixed", name)
+	}
 	return nil
 }
 
@@ -547,10 +557,20 @@ func validateInstalledPath(path string) error {
 // cause; instead, they are logged at WARN level with the rollback
 // reason and offending path so operators can manually clean up if the
 // rollback itself did not complete.
+//
+// The caller's ctx is detached via context.WithoutCancel before issuing
+// rm so that rollback runs even when the original Install timed out or
+// was canceled (the typical paths into rollback). Without this, a ctx
+// already past its deadline would cause CommandContext to refuse to
+// spawn rm at all, leaving the keyring and sources.list on disk despite
+// the rollback contract. A short standalone deadline is then applied so
+// a stuck sudo cannot hang cleanup indefinitely.
 func (p *PackageRepositoryInstaller) bestEffortRemove(ctx context.Context, reason string, paths []string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
 	for _, path := range paths {
 		rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))
-		if _, err := p.client.runner.ExecuteCapture(ctx, []string{rmCmd}, command.Vars{}, nil); err != nil {
+		if _, err := p.client.runner.ExecuteCapture(cleanupCtx, []string{rmCmd}, command.Vars{}, nil); err != nil {
 			slog.Warn("apt: repository rollback rm failed",
 				"reason", reason, "path", path, "err", err)
 		}

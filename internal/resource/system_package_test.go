@@ -273,6 +273,11 @@ func TestAptSource_Validate(t *testing.T) {
 		{name: "empty url", mutate: func(a *AptSource) { a.URL = "" }, wantErr: "apt.url is required"},
 		{name: "empty keyUrl", mutate: func(a *AptSource) { a.KeyURL = "" }, wantErr: "apt.keyUrl is required"},
 		{name: "empty keyHash", mutate: func(a *AptSource) { a.KeyHash = "" }, wantErr: "apt.keyHash is required"},
+		{name: "keyHash wrong algorithm rejected", mutate: func(a *AptSource) { a.KeyHash = "sha512:abc" }, wantErr: "does not match required form"},
+		{name: "keyHash uppercase hex rejected", mutate: func(a *AptSource) {
+			a.KeyHash = "sha256:ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD"
+		}, wantErr: "does not match required form"},
+		{name: "keyHash short rejected", mutate: func(a *AptSource) { a.KeyHash = "sha256:00" }, wantErr: "does not match required form"},
 		{name: "empty suite", mutate: func(a *AptSource) { a.Suite = "" }, wantErr: "apt.suite is required"},
 		{name: "flat repo suite rejected", mutate: func(a *AptSource) { a.Suite = "/" }, wantErr: "flat repository"},
 		{name: "empty components", mutate: func(a *AptSource) { a.Components = nil }, wantErr: "components must have at least one entry"},

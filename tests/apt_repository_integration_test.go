@@ -150,14 +150,24 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 	assert.Contains(t, err.Error(), server.URL,
 		"the error should name the URL whose fetch failed")
 
-	// Both files must have been rolled back. Use stat via real exec
-	// because tomei runs as a non-root user and /etc/apt/sources.list.d
-	// is root-readable so a Go-level os.Stat works for absence checks,
-	// but using `test -e` via sudo is more symmetric with how Install
-	// places the files.
+	// Both files must have been rolled back. /etc/apt/sources.list.d and
+	// /usr/share/keyrings are both world-readable on a default Debian/
+	// Ubuntu (0755), so a non-root os.Stat reliably distinguishes
+	// IsNotExist (rollback succeeded) from any other error. os.IsPermission
+	// is treated separately so a hardened image with a stricter umask is
+	// reported as inconclusive rather than masquerading as a failing
+	// rollback assertion.
 	for _, p := range []string{keyringPath, sourcesPath} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Errorf("expected %s to have been rolled back, but it still exists (stat err: %v)", p, err)
+		_, err := os.Stat(p)
+		switch {
+		case os.IsNotExist(err):
+			// Rollback succeeded.
+		case os.IsPermission(err):
+			t.Logf("stat %s returned permission denied; cannot confirm absence from non-root context: %v", p, err)
+		case err == nil:
+			t.Errorf("expected %s to have been rolled back, but it still exists", p)
+		default:
+			t.Errorf("expected %s to have been rolled back, unexpected stat error: %v", p, err)
 		}
 	}
 }

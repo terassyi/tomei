@@ -177,6 +177,28 @@ func TestBuildSourcesListLine(t *testing.T) {
 			wantErr: "contains disallowed characters",
 		},
 		{
+			// `.` and `..` survive both the character allowlist and
+			// filepath.Clean, but join to surprising on-disk targets
+			// (/usr/share/keyrings/.gpg, /usr/share/keyrings/...gpg).
+			// Rejected explicitly as defense-in-depth for non-CUE callers.
+			name:    "name dot rejected",
+			repo:    ".",
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			wantErr: "reserved or dot-prefixed",
+		},
+		{
+			name:    "name dotdot rejected",
+			repo:    "..",
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			wantErr: "reserved or dot-prefixed",
+		},
+		{
+			name:    "name dot-prefix rejected",
+			repo:    ".hidden",
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			wantErr: "reserved or dot-prefixed",
+		},
+		{
 			name:    "empty URL rejected",
 			repo:    "x",
 			src:     &resource.AptSource{URL: "", Suite: "s", Components: []string{"c"}},

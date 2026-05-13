@@ -2,8 +2,14 @@ package resource
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
+
+// keyHashRE pins AptSource.KeyHash to the same `sha256:<64-lowercase-hex>`
+// shape the CUE schema enforces. Defense-in-depth for non-CUE callers
+// and a clearer fail-fast than the eventual checksum mismatch.
+var keyHashRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // SystemPackageRepositorySpec defines a third-party repository. It is a
 // discriminated union keyed by InstallerRef: exactly one of the
@@ -113,6 +119,9 @@ func (a *AptSource) Validate() error {
 	}
 	if a.KeyHash == "" {
 		return fmt.Errorf("apt.keyHash is required")
+	}
+	if !keyHashRE.MatchString(a.KeyHash) {
+		return fmt.Errorf("apt.keyHash %q does not match required form sha256:<64-lowercase-hex>", a.KeyHash)
 	}
 	if a.Suite == "" {
 		return fmt.Errorf("apt.suite is required")
