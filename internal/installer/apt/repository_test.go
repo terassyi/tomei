@@ -168,13 +168,13 @@ func TestBuildSourcesListLine(t *testing.T) {
 			name:    "name with slash rejected",
 			repo:    "evil/name",
 			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
-			wantErr: "contains disallowed characters",
+			wantErr: "does not match required form",
 		},
 		{
 			name:    "name with traversal rejected",
 			repo:    "../etc/passwd",
 			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
-			wantErr: "contains disallowed characters",
+			wantErr: "does not match required form",
 		},
 		{
 			// `.` and `..` survive both the character allowlist and
@@ -184,19 +184,19 @@ func TestBuildSourcesListLine(t *testing.T) {
 			name:    "name dot rejected",
 			repo:    ".",
 			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
-			wantErr: "reserved or dot-prefixed",
+			wantErr: "does not match required form",
 		},
 		{
 			name:    "name dotdot rejected",
 			repo:    "..",
 			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
-			wantErr: "reserved or dot-prefixed",
+			wantErr: "does not match required form",
 		},
 		{
 			name:    "name dot-prefix rejected",
 			repo:    ".hidden",
 			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
-			wantErr: "reserved or dot-prefixed",
+			wantErr: "does not match required form",
 		},
 		{
 			name:    "empty URL rejected",
@@ -324,7 +324,7 @@ func TestPackageRepositoryInstaller_Install_NameRejected(t *testing.T) {
 	res := dockerSpec("evil/name")
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), res, "evil/name")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contains disallowed characters")
+	assert.Contains(t, err.Error(), "does not match required form")
 	// No host mutation, no download attempted.
 	assert.Empty(t, runner.captureCallCmds)
 	assert.Empty(t, dl.downloadURLs)

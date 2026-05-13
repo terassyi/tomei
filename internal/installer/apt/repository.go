@@ -39,13 +39,17 @@ const sourcesListDir = "/etc/apt/sources.list.d"
 // shell-encoding concerns); the *key* allowlist lives in
 // internal/resource/system_package.go.
 
-// disallowedInRepoName covers shell metacharacters, path separators, and
-// path-traversal-relevant characters. The CUE layer already constrains
-// metadata.name to `^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`; this guard is
-// defense-in-depth for non-CUE callers and is also re-checked downstream
-// against filepath.Clean to refuse any name that does not survive a
-// canonicalization pass.
-const disallowedInRepoName = "/\\ \t\n\r;|&`$<>(){}*?[]~#\"'"
+// repoNameRE mirrors the CUE schema's metadata.name constraint
+// (`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`) exactly. Using an allowlist
+// regex Go-side rather than a hand-curated disallow string closes the
+// gap between CUE and Go for non-CUE callers — every character the
+// regex rejects (including `=`, `,`, `+`, `:`, uppercase letters, and
+// shell metas) is rejected uniformly, with no risk of forgetting a
+// metacharacter when the threat model evolves. The derived keyring
+// path /usr/share/keyrings/<name>.gpg and the
+// signed-by=/usr/share/keyrings/<name>.gpg bracket-option value are
+// both safe by construction once name has passed this gate.
+var repoNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
 
 // failedToFetchRE matches `W: Failed to fetch <url>` warnings emitted by
 // apt-get update when a configured source is unreachable or fails signature
@@ -95,34 +99,13 @@ func validateRepoName(name string) error {
 	if name == "" {
 		return errors.New("apt: empty repository name")
 	}
-	if strings.ContainsAny(name, disallowedInRepoName) {
-		return fmt.Errorf("apt: repository name %q contains disallowed characters", name)
+	if !repoNameRE.MatchString(name) {
+		return fmt.Errorf("apt: repository name %q does not match required form ^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$", name)
 	}
-	// Reject NUL explicitly — disallowedInRepoName does not include it
-	// because Go string literals cannot embed it cleanly in a const.
-	if strings.ContainsRune(name, 0) {
-		return fmt.Errorf("apt: repository name %q contains NUL byte", name)
-	}
-	// Belt-and-suspenders: disallowedInRepoName already rejects `/` and
-	// `\`, so a name reaching this point cannot contain path separators.
-	// filepath.Clean is kept as a structural sanity check — anything
-	// where Clean(name) != name (trailing separators, internal `.`
-	// segments) is rejected here as a stable-path-component invariant.
-	// The dot/dotdot-prefix check below covers the residual cases (`.`
-	// and `..` survive both the char allowlist AND Clean).
-	if filepath.Clean(name) != name {
-		return fmt.Errorf("apt: repository name %q is not a stable path component", name)
-	}
-	// `.` and `..` pass both the character allowlist and filepath.Clean
-	// (they ARE canonical paths) but join to surprising on-disk targets
-	// like /usr/share/keyrings/.gpg or /usr/share/keyrings/...gpg. Any
-	// name starting with `.` is also refused because dot-prefixed files
-	// would shadow the auto-derived keyring path semantics. The CUE
-	// regex `^[a-z0-9]...` already rejects all of these; this is
-	// defense-in-depth for non-CUE callers.
-	if name == "." || name == ".." || strings.HasPrefix(name, ".") {
-		return fmt.Errorf("apt: repository name %q is reserved or dot-prefixed", name)
-	}
+	// repoNameRE already rejects `.` / `..` (it requires the first char
+	// to be [a-z0-9]) and any name starting with `.`. The defensive
+	// filepath.Clean check is no longer needed because the regex is
+	// strictly tighter than what filepath.Clean would normalize.
 	return nil
 }
 
