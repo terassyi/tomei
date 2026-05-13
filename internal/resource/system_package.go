@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"time"
@@ -165,6 +166,18 @@ func (a *AptSource) Validate() error {
 	if r := a.Suite[0]; r == '.' || r == '/' {
 		return fmt.Errorf("apt.suite=%q must not start with %q (flat-repository markers and partial paths are not supported)", a.Suite, string(r))
 	}
+	// URL and KeyURL must be HTTPS (or http://localhost for tests, in
+	// line with download.validateDownloadURL — duplicated here because
+	// the resource layer is a leaf that download.Downloader imports).
+	// The CUE schema enforces #HTTPSURL but non-CUE callers slip through
+	// without this gate, contradicting the docstring's "HTTPS only"
+	// security claim.
+	if err := validateRepoURL("apt.url", a.URL); err != nil {
+		return err
+	}
+	if err := validateRepoURL("apt.keyUrl", a.KeyURL); err != nil {
+		return err
+	}
 	// URL and Suite tokens flow verbatim into the rendered sources.list
 	// line. Reject whitespace / line-ending / NUL / control chars at
 	// validate time so `tomei validate` mirrors the same rules
@@ -203,6 +216,32 @@ func (a *AptSource) Validate() error {
 		}
 	}
 	return nil
+}
+
+// validateRepoURL enforces HTTPS-only on AptSource URL fields, with a
+// narrow http://localhost (or 127.0.0.1) escape hatch matching
+// download.validateDownloadURL so integration tests using
+// httptest.NewServer keep working. Duplicated rather than imported
+// because download imports this package; the test pinning the two
+// stay-in-sync would live in a follow-up if drift becomes a concern.
+func validateRepoURL(field, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("%s %q is not a valid URL: %w", field, rawURL, err)
+	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if h := u.Hostname(); h == "localhost" || h == "127.0.0.1" {
+			return nil
+		}
+		return fmt.Errorf("%s %q must use https:// (http:// allowed only for localhost / 127.0.0.1 in tests)", field, rawURL)
+	case "":
+		return fmt.Errorf("%s %q has no scheme; use https://", field, rawURL)
+	default:
+		return fmt.Errorf("%s %q uses unsupported scheme %q; only https:// (and http://localhost for tests) is permitted", field, rawURL, u.Scheme)
+	}
 }
 
 // validateSourcesListToken rejects characters that break the

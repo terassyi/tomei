@@ -291,8 +291,20 @@ func TestAptSource_Validate(t *testing.T) {
 		// Token-shape checks now mirror buildSourcesListLine at validate
 		// time so `tomei validate` rejects manifests that would otherwise
 		// fail later at apply.
-		{name: "url with whitespace rejected", mutate: func(a *AptSource) { a.URL = "https://example.com hello" }, wantErr: "contains whitespace"},
-		{name: "url with newline rejected", mutate: func(a *AptSource) { a.URL = "https://example.com\nhttps://attacker" }, wantErr: "contains line-ending"},
+		// URL whitespace / newlines are caught by url.Parse (via the
+		// new HTTPS gate) BEFORE the token-shape check fires; both
+		// gates reject the same set, the URL gate just runs first.
+		{name: "url with whitespace rejected", mutate: func(a *AptSource) { a.URL = "https://example.com hello" }, wantErr: "is not a valid URL"},
+		{name: "url with newline rejected", mutate: func(a *AptSource) { a.URL = "https://example.com\nhttps://attacker" }, wantErr: "is not a valid URL"},
+		// HTTPS-only gate, matching the CUE #HTTPSURL constraint and
+		// download.validateDownloadURL. Non-CUE callers must fail closed.
+		{name: "url with http rejected", mutate: func(a *AptSource) { a.URL = "http://example.com/repo" }, wantErr: `apt.url "http://example.com/repo" must use https://`},
+		{name: "url with ftp rejected", mutate: func(a *AptSource) { a.URL = "ftp://example.com/repo" }, wantErr: "unsupported scheme"},
+		{name: "keyUrl with http rejected", mutate: func(a *AptSource) { a.KeyURL = "http://example.com/gpg" }, wantErr: `apt.keyUrl "http://example.com/gpg" must use https://`},
+		{name: "http localhost url accepted (test escape)", mutate: func(a *AptSource) {
+			a.URL = "http://localhost:8080/repo"
+			a.KeyURL = "http://127.0.0.1:8080/gpg"
+		}},
 		{name: "suite with whitespace rejected", mutate: func(a *AptSource) { a.Suite = "jammy main" }, wantErr: "contains whitespace"},
 		{name: "component with whitespace rejected", mutate: func(a *AptSource) { a.Components = []string{"main contrib"} }, wantErr: "contains whitespace"},
 		{name: "component with newline rejected", mutate: func(a *AptSource) { a.Components = []string{"main\nhostile"} }, wantErr: "contains line-ending"},
