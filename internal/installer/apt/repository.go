@@ -567,15 +567,17 @@ func validateInstalledPath(path string) error {
 // reason and offending path so operators can manually clean up if the
 // rollback itself did not complete.
 //
-// The caller's ctx is detached via context.WithoutCancel before issuing
-// rm so that rollback runs even when the original Install timed out or
-// was canceled (the typical paths into rollback). Without this, a ctx
-// already past its deadline would cause CommandContext to refuse to
-// spawn rm at all, leaving the keyring and sources.list on disk despite
-// the rollback contract. A short standalone deadline is then applied so
-// a stuck sudo cannot hang cleanup indefinitely.
-func (p *PackageRepositoryInstaller) bestEffortRemove(ctx context.Context, reason string, paths []string) {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+// Cleanup runs on a fresh context.Background-rooted context with its
+// own 30s deadline, fully decoupled from the caller's ctx. The typical
+// path into rollback is "Install timed out during apt-get update," at
+// which point the caller's ctx is already past its deadline and any
+// context derived from it (even via WithoutCancel, which strips
+// cancellation and deadline but is brittle to reason about) risks
+// refusing to spawn rm at all. Starting from Background() is the
+// unambiguously-correct pattern: cleanup gets a guaranteed fresh budget
+// regardless of what the caller's ctx is doing.
+func (p *PackageRepositoryInstaller) bestEffortRemove(_ context.Context, reason string, paths []string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, path := range paths {
 		rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))

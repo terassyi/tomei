@@ -61,11 +61,19 @@ func defaultInstallerInstallFn(_ context.Context, _ *resource.SystemInstaller, _
 }
 
 func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
+	// Match the real apt PackageRepositoryInstaller contract: state
+	// records [keyring, sources.list] in install order so Remove can
+	// iterate in reverse (sources.list first, then keyring) and avoid
+	// the brief window where apt would consult a sources.list pointing
+	// at a missing keyring.
 	return &resource.SystemPackageRepositoryState{
-		InstallerRef:   res.SystemPackageRepositorySpec.InstallerRef,
-		Apt:            res.SystemPackageRepositorySpec.Apt,
-		InstalledFiles: []string{"/usr/share/keyrings/" + name + ".gpg"},
-		UpdatedAt:      time.Now(),
+		InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
+		Apt:          res.SystemPackageRepositorySpec.Apt,
+		InstalledFiles: []string{
+			"/usr/share/keyrings/" + name + ".gpg",
+			"/etc/apt/sources.list.d/" + name + ".list",
+		},
+		UpdatedAt: time.Now(),
 	}, nil
 }
 
