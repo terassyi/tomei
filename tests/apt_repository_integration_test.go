@@ -198,7 +198,12 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 		case os.IsNotExist(err):
 			// Rollback succeeded.
 		case os.IsPermission(err):
-			t.Logf("stat %s returned permission denied; cannot confirm absence from non-root context: %v", p, err)
+			// Cannot confirm absence from a non-root context with a
+			// stricter umask than the default 0755 on the allowed
+			// directories — skip the whole test rather than letting a
+			// permission failure pose as a green run that didn't
+			// actually verify the rollback contract.
+			t.Skipf("stat %s returned permission denied; cannot confirm rollback from non-root context: %v", p, err)
 		case err == nil:
 			t.Errorf("expected %s to have been rolled back, but it still exists", p)
 		default:

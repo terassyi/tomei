@@ -429,7 +429,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		// necessary even when the higher-level command "failed" —
 		// otherwise a stray /usr/share/keyrings/<name>.gpg can linger
 		// despite Install returning an error.
-		p.bestEffortRemove(ctx, "after keyring install failure", []string{keyringDst})
+		p.bestEffortRemove("after keyring install failure", []string{keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install keyring: %w", name, ctxErr)
 		}
@@ -439,7 +439,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	sourcesListSrc := filepath.Join(tmpDir, name+".list")
 	if err := os.WriteFile(sourcesListSrc, []byte(sourcesLine), 0o644); err != nil {
 		// keyring was placed; roll it back since sources.list failed.
-		p.bestEffortRemove(ctx, "after sources-line write failure", []string{keyringDst})
+		p.bestEffortRemove("after sources-line write failure", []string{keyringDst})
 		return nil, fmt.Errorf("apt: repository %q: write sources line: %w", name, err)
 	}
 	sourcesDst := sourcesListPath(name)
@@ -454,7 +454,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		// alongside the keyring to keep rollback symmetric and prevent
 		// a stranded sources.list pointing at a removed keyring from
 		// breaking subsequent apt operations.
-		p.bestEffortRemove(ctx, "after sources install failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRemove("after sources install failure", []string{sourcesDst, keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install sources: %w", name, ctxErr)
 		}
@@ -475,14 +475,14 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	failedFetches := newFailedFetchCollector(spec.Apt.URL)
 	updateErr := p.client.runner.ExecuteWithOutput(ctx, []string{updateCmd}, command.Vars{}, nil, failedFetches.scanLine)
 	if updateErr != nil {
-		p.bestEffortRemove(ctx, "after apt-get update hard failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRemove("after apt-get update hard failure", []string{sourcesDst, keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: update: %w", name, ctxErr)
 		}
 		return nil, fmt.Errorf("apt: repository %q: update: %w", name, updateErr)
 	}
 	if failed := failedFetches.urls(); len(failed) > 0 {
-		p.bestEffortRemove(ctx, "after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRemove("after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
 		// Run a follow-up update on a fresh Background-rooted context
 		// (with its own short deadline) so the host's APT index is
 		// restored to a consistent state even when Install's caller
@@ -651,7 +651,7 @@ func validateInstalledPath(name, path string) error {
 // refusing to spawn rm at all. Starting from Background() is the
 // unambiguously-correct pattern: cleanup gets a guaranteed fresh budget
 // regardless of what the caller's ctx is doing.
-func (p *PackageRepositoryInstaller) bestEffortRemove(_ context.Context, reason string, paths []string) {
+func (p *PackageRepositoryInstaller) bestEffortRemove(reason string, paths []string) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	for _, path := range paths {
