@@ -65,7 +65,13 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 	if runtime.GOOS != "linux" {
 		t.Skip("apt repository integration test requires Linux")
 	}
-	for _, bin := range []string{"apt-get", "dpkg", "sudo", "gpg"} {
+	// The installer drives `sudo -n install ...` for both the keyring
+	// and the sources.list, so `install` (from coreutils) and `rm` (for
+	// the rollback path) must also be available. Coreutils is universal
+	// on any system that ships apt-get, but the explicit check makes a
+	// minimal/stripped image skip cleanly instead of failing with an
+	// unexpected error shape mid-run.
+	for _, bin := range []string{"apt-get", "dpkg", "sudo", "gpg", "install", "rm"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s not found in PATH", bin)
 		}
