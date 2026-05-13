@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -61,20 +63,35 @@ func defaultInstallerInstallFn(_ context.Context, _ *resource.SystemInstaller, _
 }
 
 func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
-	// Match the real apt PackageRepositoryInstaller contract: state
-	// records [keyring, sources.list] in install order so Remove can
-	// iterate in reverse (sources.list first, then keyring) and avoid
-	// the brief window where apt would consult a sources.list pointing
-	// at a missing keyring.
-	return &resource.SystemPackageRepositoryState{
+	// Match the real apt PackageRepositoryInstaller contract on two
+	// axes:
+	//   1. state.InstalledFiles records [keyring, sources.list] in
+	//      install order so Remove can iterate in reverse and avoid the
+	//      brief window where apt would consult a sources.list pointing
+	//      at a missing keyring.
+	//   2. state.Apt is a deep copy of spec.Apt (independent slice/map
+	//      backing) so subsequent in-test mutations of the resource spec
+	//      cannot leak into the persisted state — same invariant the
+	//      real installer maintains via slices.Clone / maps.Clone.
+	state := &resource.SystemPackageRepositoryState{
 		InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
-		Apt:          res.SystemPackageRepositorySpec.Apt,
 		InstalledFiles: []string{
 			"/usr/share/keyrings/" + name + ".gpg",
 			"/etc/apt/sources.list.d/" + name + ".list",
 		},
 		UpdatedAt: time.Now(),
-	}, nil
+	}
+	if src := res.SystemPackageRepositorySpec.Apt; src != nil {
+		state.Apt = &resource.AptSource{
+			URL:        src.URL,
+			KeyURL:     src.KeyURL,
+			KeyHash:    src.KeyHash,
+			Suite:      src.Suite,
+			Components: slices.Clone(src.Components),
+			Options:    maps.Clone(src.Options),
+		}
+	}
+	return state, nil
 }
 
 func defaultPackageInstallFn(_ context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
@@ -120,22 +137,29 @@ func testSystemInstaller(name string) *resource.SystemInstaller {
 }
 
 func testSystemPackageRepository(name, installerRef string) *resource.SystemPackageRepository {
+	spec := &resource.SystemPackageRepositorySpec{InstallerRef: installerRef}
+	// Discriminated-union contract: only the arm matching installerRef
+	// is populated. Tests exercising future arms (dnf / apk / pacman per
+	// #213) will need their own *Source assignment here when those arms
+	// land; today only "apt" is wired so a non-apt installerRef yields a
+	// spec with no source block (engine tests using "dnf" assert on
+	// state-map counting and do not depend on the source).
+	if installerRef == "apt" {
+		spec.Apt = &resource.AptSource{
+			URL:        "https://example.com/" + name + "/repo",
+			KeyURL:     "https://example.com/" + name + "/gpg",
+			KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			Suite:      "stable",
+			Components: []string{"main"},
+		}
+	}
 	return &resource.SystemPackageRepository{
 		BaseResource: resource.BaseResource{
 			APIVersion:   resource.GroupVersion,
 			ResourceKind: resource.KindSystemPackageRepository,
 			Metadata:     resource.Metadata{Name: name},
 		},
-		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: installerRef,
-			Apt: &resource.AptSource{
-				URL:        "https://example.com/" + name + "/repo",
-				KeyURL:     "https://example.com/" + name + "/gpg",
-				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-				Suite:      "stable",
-				Components: []string{"main"},
-			},
-		},
+		SystemPackageRepositorySpec: spec,
 	}
 }
 
