@@ -362,16 +362,21 @@ func TestPackageRepositoryInstaller_Install_DearmorFailure(t *testing.T) {
 	require.Len(t, runner.captureCallCmds, 1)
 }
 
-func TestPackageRepositoryInstaller_Install_KeyringInstallFailure(t *testing.T) {
+func TestPackageRepositoryInstaller_Install_KeyringInstallFailure_RollsBackKeyring(t *testing.T) {
 	t.Parallel()
-	// call 0 (dearmor) succeeds; call 1 (install keyring) fails.
-	runner := &mockCommandRunner{captureErrs: []error{nil, errors.New("sudo denied")}}
+	// call 0 (dearmor) succeeds; call 1 (install keyring) fails; call 2
+	// must be the rollback `sudo rm -f --` of the keyring — `install`
+	// can leave a partially-created destination on error, so the rm is
+	// load-bearing for the "no host state regression on failure"
+	// contract.
+	runner := &mockCommandRunner{captureErrs: []error{nil, errors.New("sudo denied"), nil}}
 	dl := &mockDownloader{downloadBody: []byte("body")}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": install keyring`)
-	// Stopped after the failure: dearmor + install keyring only.
-	require.Len(t, runner.captureCallCmds, 2)
+	require.Len(t, runner.captureCallCmds, 3)
+	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[2][0], keyringPath("docker"))
 }
 
 func TestPackageRepositoryInstaller_Install_SourcesInstallFailure_RollsBackBoth(t *testing.T) {
@@ -572,6 +577,28 @@ func TestPackageRepositoryInstaller_Remove_PathOutsideAllowlist(t *testing.T) {
 	// The first iteration (sources.list slot, here /etc/passwd) was
 	// rejected before any rm fired.
 	assert.Empty(t, runner.captureCallCmds)
+}
+
+func TestPackageRepositoryInstaller_Remove_FixedOrderIgnoresStateOrder(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	// A tampered/hand-edited state with the installed files in
+	// reversed order must NOT cause Remove to delete the keyring
+	// before the sources.list — apt would briefly see a sources.list
+	// pointing at a missing keyring on concurrent traffic. Remove
+	// uses the canonical [sources, keyring] order regardless of
+	// state.InstalledFiles ordering.
+	state := &resource.SystemPackageRepositoryState{
+		InstalledFiles: []string{
+			sourcesListPath("docker"), // reversed (canonical install order is [keyring, sources])
+			keyringPath("docker"),
+		},
+	}
+	err := New(runner).PackageRepositoryInstaller(&mockDownloader{}).Remove(context.Background(), state, "docker")
+	require.NoError(t, err)
+	require.Len(t, runner.captureCallCmds, 3)
+	assert.Contains(t, runner.captureCallCmds[0][0], sourcesListPath("docker"), "sources.list must be removed first regardless of state order")
+	assert.Contains(t, runner.captureCallCmds[1][0], keyringPath("docker"), "keyring must be removed second regardless of state order")
 }
 
 func TestPackageRepositoryInstaller_Remove_PathOtherRepositoryRejected(t *testing.T) {

@@ -420,6 +420,13 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	installKeyringCmd := fmt.Sprintf("sudo -n install -D -m 0644 -o root -g root -- %s %s",
 		shellQuote(dearmoredPath), shellQuote(keyringDst))
 	if _, err := p.client.runner.ExecuteCapture(ctx, []string{installKeyringCmd}, command.Vars{}, nil); err != nil {
+		// `install` can fail after partially creating the destination
+		// (disk full mid-copy, interrupted write, sudo timeout between
+		// chmod and chown phases, etc.) so a best-effort rm is
+		// necessary even when the higher-level command "failed" —
+		// otherwise a stray /usr/share/keyrings/<name>.gpg can linger
+		// despite Install returning an error.
+		p.bestEffortRemove(ctx, "after keyring install failure", []string{keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install keyring: %w", name, ctxErr)
 		}
@@ -513,8 +520,14 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 //
 // Shell commands executed (one per ExecuteCapture call):
 //
-//   - sudo -n rm -f -- '<state.InstalledFiles[N]>'   (for each path, reverse order)
+//   - sudo -n rm -f -- '/etc/apt/sources.list.d/<name>.list'
+//   - sudo -n rm -f -- '/usr/share/keyrings/<name>.gpg'
 //   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update         (via Client.Update)
+//
+// The rm order is fixed (sources.list first, then keyring) regardless
+// of state.InstalledFiles order so a reordered state file cannot
+// induce a window where apt would consult a still-present sources.list
+// pointing at a now-removed keyring.
 //
 // Path safety: each path is re-validated against the deterministic
 // per-name destinations Install writes (keyringPath(name) and
@@ -543,16 +556,28 @@ func (p *PackageRepositoryInstaller) Remove(ctx context.Context, state *resource
 	if err := validateRepoName(name); err != nil {
 		return err
 	}
-	// Remove in reverse install order so the sources.list referencing the
-	// keyring is gone before the keyring itself disappears. Each path is
-	// re-validated against the exact paths this installer writes for the
-	// given name — directory-prefix-only matching would let a tampered
-	// state file enumerate other repositories' files under the same
-	// allowed directories and trick Remove into deleting them.
-	for _, path := range slices.Backward(state.InstalledFiles) {
+	// state.InstalledFiles is re-validated against the exact paths this
+	// installer writes for the given name — directory-prefix-only
+	// matching would let a tampered state file enumerate other
+	// repositories' files under the same allowed directories and trick
+	// Remove into deleting them. Once validated, we IGNORE the recorded
+	// order and remove in the canonical sequence (sources.list first,
+	// then keyring) so a reordered state file cannot induce a window
+	// where apt would consult a sources.list pointing at a removed
+	// keyring — which would break concurrent apt activity on the host.
+	for _, path := range state.InstalledFiles {
 		if err := validateInstalledPath(name, path); err != nil {
 			return fmt.Errorf("apt: repository %q: %w", name, err)
 		}
+	}
+	// Validation above guarantees every path in state.InstalledFiles is
+	// either keyringPath(name) or sourcesListPath(name) (and any
+	// duplicates collapse harmlessly — rm -f is idempotent). The fixed
+	// order below means an empty InstalledFiles still results in two rm
+	// calls, but rm -f against non-existent paths is a no-op which
+	// matches the "Remove makes the host quiet on this repo" contract.
+	orderedPaths := []string{sourcesListPath(name), keyringPath(name)}
+	for _, path := range orderedPaths {
 		rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))
 		if _, err := p.client.runner.ExecuteCapture(ctx, []string{rmCmd}, command.Vars{}, nil); err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
