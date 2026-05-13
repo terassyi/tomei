@@ -545,11 +545,16 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 // directories entirely, or inside them but for a different repository
 // — yields an immediate error before any rm fires.
 //
-// Caller contract: state MUST be non-nil. An empty InstalledFiles is
-// treated as a no-op for the rm loop — apt-get update still runs so
-// any lingering cache for the (already absent) repository is evicted.
-// ctx cancellation surfaces as a wrapped ctx.Err() so callers can
-// distinguish cancellation from a genuine rm or update failure.
+// Caller contract: state MUST be non-nil. InstalledFiles is consulted
+// only as a membership set for the path validator — Remove always
+// issues the two canonical rm calls (sources.list then keyring)
+// regardless of slice contents, including when InstalledFiles is
+// empty. `rm -f` against a non-existent path is a no-op which matches
+// the "Remove makes the host quiet on this repo" contract, then
+// apt-get update runs so any lingering cache for the (already absent)
+// repository is evicted. ctx cancellation surfaces as a wrapped
+// ctx.Err() so callers can distinguish cancellation from a genuine rm
+// or update failure.
 //
 // Concurrency: Remove takes the dpkg-frontend lock via the apt-get
 // update step. Concurrent Install / Remove against the same repository
