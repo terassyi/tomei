@@ -205,13 +205,16 @@ package schema
 	}
 }
 
-// #SystemPackageRepository is a discriminated-union resource: one arm
-// per system installer, keyed by spec.installerRef. The matching arm
-// supplies a named source block (e.g. spec.apt for #AptPackageRepository)
-// so each installer can express its own configuration shape with static
-// CUE validation. Adding a new installer (dnf, apk, pacman) means adding
-// a new arm and a new named source block — existing arms are unaffected.
-// Tracking issue for additional arms: #213.
+// #SystemPackageRepository is the public entry point for declaring a
+// third-party system-package repository. Today it is an alias for the
+// single implemented arm (#AptPackageRepository, keyed by spec.installerRef
+// = "apt") which supplies its own spec.apt source block. When additional
+// installer arms (dnf, apk, pacman) land per #213 this will become a real
+// CUE disjunction (#AptPackageRepository | #DnfPackageRepository | ...)
+// keyed by spec.installerRef — each arm expresses its own configuration
+// shape with static CUE validation and existing arms stay unaffected.
+// Manifests already written against the "apt" arm round-trip unchanged
+// through that future transition.
 #SystemPackageRepository: #AptPackageRepository
 
 // #AptPackageRepository declares a third-party APT repository as a
