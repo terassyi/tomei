@@ -671,7 +671,10 @@ func failedToFetchURLs(output, base string) []string {
 
 // shellQuote single-quotes a string for safe interpolation into a
 // `sh -c` command, escaping any embedded single quotes via the standard
-// `'\”` idiom. Required because filepath.Join can produce paths
+// POSIX idiom: close the open quote with a quote, emit an
+// escaped-then-literal quote pair (backslash + quote), then reopen
+// with another quote — written literally as four characters: quote,
+// backslash, quote, quote. Required because filepath.Join can produce paths
 // containing characters that are sensitive to shell parsing (though
 // none in practice here — tmp dirs come from os.MkdirTemp and installed
 // paths are derived from validateRepoName-sanitized inputs); POSIX

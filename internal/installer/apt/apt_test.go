@@ -101,11 +101,17 @@ type mockCommandRunner struct {
 	captureCallCmds [][]string
 	// captureMethods[i] is "capture" or "withoutput" for the i-th call.
 	captureMethods []string
-	// captureOutput is the default ExecuteCapture return when captureOutputs
-	// has no entry at the call index.
+	// captureOutput is the default return when captureOutputs has no
+	// entry at the call index. For ExecuteCapture it is the returned
+	// string; for ExecuteWithOutput it is the canned text fed back
+	// through the callback line-by-line so streaming consumers can be
+	// exercised from tests.
 	captureOutput string
-	// captureOutputs, when non-empty, returns the i-th element for the
-	// i-th ExecuteCapture call.
+	// captureOutputs, when non-empty, returns the i-th element on the
+	// i-th call regardless of method (ExecuteCapture or
+	// ExecuteWithOutput). Indexed by overall call sequence, not per-
+	// method; pass shorter sequences and captureOutput acts as the
+	// default for calls past len(captureOutputs).
 	captureOutputs []string
 	// captureErr is the default error returned when captureErrs has no
 	// entry at the call index.
