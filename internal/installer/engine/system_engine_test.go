@@ -65,10 +65,13 @@ func defaultInstallerInstallFn(_ context.Context, _ *resource.SystemInstaller, _
 func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
 	// Match the real apt PackageRepositoryInstaller contract on two
 	// axes:
-	//   1. state.InstalledFiles records [keyring, sources.list] in
-	//      install order so Remove can iterate in reverse and avoid the
-	//      brief window where apt would consult a sources.list pointing
-	//      at a missing keyring.
+	//   1. state.InstalledFiles records the paths placed on disk
+	//      ([keyring, sources.list]). Remove uses InstalledFiles as a
+	//      membership set for path validation and then deletes in a
+	//      canonical sequence regardless of slice order — recording
+	//      both paths keeps engine tests honest about that contract
+	//      (a stub that only set one would silently hide ordering /
+	//      reverse-iteration regressions in the real installer).
 	//   2. state.Apt is a deep copy of spec.Apt (independent slice/map
 	//      backing) so subsequent in-test mutations of the resource spec
 	//      cannot leak into the persisted state — same invariant the

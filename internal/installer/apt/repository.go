@@ -102,10 +102,13 @@ func validateRepoName(name string) error {
 	if strings.ContainsRune(name, 0) {
 		return fmt.Errorf("apt: repository name %q contains NUL byte", name)
 	}
-	// Refuse any name that does not survive path canonicalization. This
-	// catches `..` segments that slipped past the character allowlist via
-	// e.g. encoded forms and is the seatbelt against state-file tampering
-	// driving Remove towards an unintended target.
+	// Belt-and-suspenders: disallowedInRepoName already rejects `/` and
+	// `\`, so a name reaching this point cannot contain path separators.
+	// filepath.Clean is kept as a structural sanity check — anything
+	// where Clean(name) != name (trailing separators, internal `.`
+	// segments) is rejected here as a stable-path-component invariant.
+	// The dot/dotdot-prefix check below covers the residual cases (`.`
+	// and `..` survive both the char allowlist AND Clean).
 	if filepath.Clean(name) != name {
 		return fmt.Errorf("apt: repository name %q is not a stable path component", name)
 	}
@@ -247,14 +250,14 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 }
 
 // Install runs the full repository setup flow: download the armored GPG
-// key from spec.Apt.KeyURL (HTTPS-only at the CUE / download.Downloader
-// layer — a localhost http:// override is permitted by the downloader
-// for integration tests; this installer itself does not re-validate the
-// scheme and trusts the upstream validation chain), verify its SHA256
-// against spec.Apt.KeyHash, convert to the binary keyring format with
-// `gpg --dearmor`, place it under /usr/share/keyrings/, write a
-// one-line sources.list entry under /etc/apt/sources.list.d/, and
-// refresh the APT index.
+// key from spec.Apt.KeyURL (HTTPS-only — the CUE schema, AptSource.Validate
+// via spec.Validate() called at the top of this function, and
+// download.Downloader's own validateDownloadURL all enforce the same
+// rule, with a localhost http:// escape hatch for integration tests),
+// verify its SHA256 against spec.Apt.KeyHash, convert to the binary
+// keyring format with `gpg --dearmor`, place it under
+// /usr/share/keyrings/, write a one-line sources.list entry under
+// /etc/apt/sources.list.d/, and refresh the APT index.
 //
 // Shell commands executed (the first three via ExecuteCapture; the
 // apt-get update step via ExecuteWithOutput with a per-line callback
