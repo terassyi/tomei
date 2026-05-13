@@ -71,6 +71,65 @@ var failedToFetchRE = regexp.MustCompile(`(?m)^W: Failed to fetch (\S+)`)
 // dead mirror.
 var defaultRepoInstallTimeout = 10 * time.Minute
 
+// destinationSnapshot captures the contents of the destination keyring
+// and sources.list at Install entry. If Install fails partway through
+// (e.g. apt-get update reports a partial fetch on the new spec), the
+// rollback path restores whichever files preexisted instead of rm'ing
+// them — without this an upgrade that overwrites a previously-working
+// repo and then fails would regress host state by deleting the
+// working installation it replaced.
+//
+// /usr/share/keyrings/<name>.gpg and /etc/apt/sources.list.d/<name>.list
+// are root:root 0644 (world-readable), so the snapshot is taken with a
+// plain non-root os.ReadFile. Empty []byte slots mean the destination
+// did not exist at snapshot time and rollback should rm rather than
+// restore.
+type destinationSnapshot struct {
+	keyringDst  string
+	sourcesDst  string
+	keyringData []byte // nil if keyringDst did not exist
+	sourcesData []byte // nil if sourcesDst did not exist
+}
+
+// snapshotInstalledDestinations reads the current contents of the two
+// destination files for the given repository name. Errors other than
+// ErrNotExist are silently treated as "no snapshot taken" — the
+// rollback then falls back to rm, which is the prior behavior and the
+// safest default when we cannot confirm what was on disk.
+//
+// Indirected through a package-level var so unit tests that use names
+// colliding with real host installations (e.g. "docker") can stub it
+// out — the production fallback runs the real disk-reading
+// implementation defined below.
+var snapshotInstalledDestinations = snapshotInstalledDestinationsImpl
+
+func snapshotInstalledDestinationsImpl(name string) destinationSnapshot {
+	snap := destinationSnapshot{
+		keyringDst: keyringPath(name),
+		sourcesDst: sourcesListPath(name),
+	}
+	if data, err := os.ReadFile(snap.keyringDst); err == nil {
+		snap.keyringData = data
+	}
+	if data, err := os.ReadFile(snap.sourcesDst); err == nil {
+		snap.sourcesData = data
+	}
+	return snap
+}
+
+// dataFor returns the snapshot bytes for the given destination path,
+// or nil if the path does not match a tracked destination or had no
+// preexisting content.
+func (s destinationSnapshot) dataFor(path string) []byte {
+	switch path {
+	case s.keyringDst:
+		return s.keyringData
+	case s.sourcesDst:
+		return s.sourcesData
+	}
+	return nil
+}
+
 // PackageRepositoryInstaller adds and removes third-party APT repositories
 // by placing a per-repository GPG keyring under /usr/share/keyrings and a
 // matching sources.list fragment under /etc/apt/sources.list.d, then
@@ -366,6 +425,13 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	}
 	defer os.RemoveAll(tmpDir)
 
+	// Snapshot the destination files (if any preexist) so a rollback
+	// after this point can restore the pre-Install state rather than
+	// rm'ing the working installation this Install is replacing. The
+	// snapshot is taken with non-root os.ReadFile (files are 0644);
+	// missing files leave nil slots that mean "rm on rollback."
+	snap := snapshotInstalledDestinations(name)
+
 	armoredPath := filepath.Join(tmpDir, name+".armored")
 	if _, err := p.downloader.Download(ctx, spec.Apt.KeyURL, armoredPath); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -413,7 +479,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		// necessary even when the higher-level command "failed" —
 		// otherwise a stray /usr/share/keyrings/<name>.gpg can linger
 		// despite Install returning an error.
-		p.bestEffortRemove("after keyring install failure", []string{keyringDst})
+		p.bestEffortRollback("after keyring install failure", []string{keyringDst}, snap)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install keyring: %w", name, ctxErr)
 		}
@@ -423,7 +489,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	sourcesListSrc := filepath.Join(tmpDir, name+".list")
 	if err := os.WriteFile(sourcesListSrc, []byte(sourcesLine), 0o644); err != nil {
 		// keyring was placed; roll it back since sources.list failed.
-		p.bestEffortRemove("after sources-line write failure", []string{keyringDst})
+		p.bestEffortRollback("after sources-line write failure", []string{keyringDst}, snap)
 		return nil, fmt.Errorf("apt: repository %q: write sources line: %w", name, err)
 	}
 	sourcesDst := sourcesListPath(name)
@@ -438,7 +504,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		// alongside the keyring to keep rollback symmetric and prevent
 		// a stranded sources.list pointing at a removed keyring from
 		// breaking subsequent apt operations.
-		p.bestEffortRemove("after sources install failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRollback("after sources install failure", []string{sourcesDst, keyringDst}, snap)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install sources: %w", name, ctxErr)
 		}
@@ -459,14 +525,14 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	failedFetches := newFailedFetchCollector(spec.Apt.URL)
 	updateErr := p.client.runner.ExecuteWithOutput(ctx, []string{updateCmd}, command.Vars{}, nil, failedFetches.scanLine)
 	if updateErr != nil {
-		p.bestEffortRemove("after apt-get update hard failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRollback("after apt-get update hard failure", []string{sourcesDst, keyringDst}, snap)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: update: %w", name, ctxErr)
 		}
 		return nil, fmt.Errorf("apt: repository %q: update: %w", name, updateErr)
 	}
 	if failed := failedFetches.urls(); len(failed) > 0 {
-		p.bestEffortRemove("after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
+		p.bestEffortRollback("after apt-get update partial fetch failure", []string{sourcesDst, keyringDst}, snap)
 		// Run a follow-up update on a fresh Background-rooted context
 		// (with its own short deadline) so the host's APT index is
 		// restored to a consistent state even when Install's caller
@@ -626,12 +692,16 @@ func validateInstalledPath(name, path string) error {
 	return nil
 }
 
-// bestEffortRemove issues `sudo -n rm -f --` for each path. Errors are
-// not returned because callers (Install's rollback branches) have
-// already failed and surfacing rollback errors would mask the original
-// cause; instead, they are logged at WARN level with the rollback
-// reason and offending path so operators can manually clean up if the
-// rollback itself did not complete.
+// bestEffortRollback removes or restores each path. If snap has
+// preexisting content for the path (i.e. this Install overwrote an
+// already-installed repo), the path is restored to its pre-Install
+// bytes via `sudo install -m 0644 -o root -g root` from a per-call
+// tmp file. Otherwise the path is rm'd. Errors are not returned
+// because callers (Install's rollback branches) have already failed
+// and surfacing rollback errors would mask the original cause; they
+// are logged at WARN level with the rollback reason and offending
+// path so operators can manually clean up if the rollback itself did
+// not complete.
 //
 // Cleanup runs on a fresh context.Background-rooted context with its
 // own 30s deadline, fully decoupled from the caller's ctx. The typical
@@ -639,16 +709,54 @@ func validateInstalledPath(name, path string) error {
 // which point the caller's ctx is already past its deadline and any
 // context derived from it (even via WithoutCancel, which strips
 // cancellation and deadline but is brittle to reason about) risks
-// refusing to spawn rm at all. Starting from Background() is the
-// unambiguously-correct pattern: cleanup gets a guaranteed fresh budget
-// regardless of what the caller's ctx is doing.
-func (p *PackageRepositoryInstaller) bestEffortRemove(reason string, paths []string) {
+// refusing to spawn rm/install at all. Starting from Background() is
+// the unambiguously-correct pattern: cleanup gets a guaranteed fresh
+// budget regardless of what the caller's ctx is doing.
+func (p *PackageRepositoryInstaller) bestEffortRollback(reason string, paths []string, snap destinationSnapshot) {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// Lazily create a per-call tmp dir only if we need to restore at
+	// least one file. The dir is mode 0700 (from MkdirTemp) and removed
+	// at the end.
+	var restoreTmpDir string
+	defer func() {
+		if restoreTmpDir != "" {
+			_ = os.RemoveAll(restoreTmpDir)
+		}
+	}()
 	for _, path := range paths {
-		rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))
-		if _, err := p.client.runner.ExecuteCapture(cleanupCtx, []string{rmCmd}, command.Vars{}, nil); err != nil {
-			slog.Warn("apt: repository rollback rm failed",
+		preexisting := snap.dataFor(path)
+		if preexisting == nil {
+			rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))
+			if _, err := p.client.runner.ExecuteCapture(cleanupCtx, []string{rmCmd}, command.Vars{}, nil); err != nil {
+				slog.Warn("apt: repository rollback rm failed",
+					"reason", reason, "path", path, "err", err)
+			}
+			continue
+		}
+		// Restore the preexisting contents. Write to tmpDir first
+		// (user-owned, no sudo), then `sudo install` it back with
+		// root:root 0644 — matching how Install placed the file
+		// originally.
+		if restoreTmpDir == "" {
+			d, err := os.MkdirTemp("", "tomei-apt-rollback-*")
+			if err != nil {
+				slog.Warn("apt: repository rollback restore tmpdir failed",
+					"reason", reason, "path", path, "err", err)
+				continue
+			}
+			restoreTmpDir = d
+		}
+		bakPath := filepath.Join(restoreTmpDir, filepath.Base(path))
+		if err := os.WriteFile(bakPath, preexisting, 0o600); err != nil {
+			slog.Warn("apt: repository rollback restore write failed",
+				"reason", reason, "path", path, "err", err)
+			continue
+		}
+		restoreCmd := fmt.Sprintf("sudo -n install -D -m 0644 -o root -g root -- %s %s",
+			shellQuote(bakPath), shellQuote(path))
+		if _, err := p.client.runner.ExecuteCapture(cleanupCtx, []string{restoreCmd}, command.Vars{}, nil); err != nil {
+			slog.Warn("apt: repository rollback restore install failed",
 				"reason", reason, "path", path, "err", err)
 		}
 	}

@@ -258,6 +258,19 @@ func TestBuildSourcesListLine(t *testing.T) {
 	}
 }
 
+// TestMain stubs the destination-snapshot reader so unit tests that
+// use a repository name colliding with a real host installation (e.g.
+// "docker" on a developer machine that has actually installed Docker)
+// do not pick up host state and treat it as a pre-Install snapshot to
+// restore — which would invert the rollback-asserted commands from
+// `sudo rm -f --` to `sudo install -D ...`. Tests that exercise the
+// upgrade/restore path explicitly override snapshotInstalledDestinations
+// inside the test body and then restore the stub when they're done.
+func TestMain(m *testing.M) {
+	snapshotInstalledDestinations = func(string) destinationSnapshot { return destinationSnapshot{} }
+	os.Exit(m.Run())
+}
+
 // --- Install: success path ---
 
 func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
@@ -693,6 +706,50 @@ func TestFailedToFetchURLs_QueryStringAndIPv6(t *testing.T) {
 	hits := failedToFetchURLs(output, "https://[::1]/repo")
 	require.Len(t, hits, 1)
 	assert.Equal(t, "https://[::1]/repo/dists/main?arch=amd64", hits[0])
+}
+
+// TestPackageRepositoryInstaller_Install_PartialFetchFailure_RestoresPreexisting
+// pins the upgrade-rollback invariant: when a partial fetch failure
+// triggers rollback AND the destination files already existed before
+// Install began (an upgrade flow), the rollback restores the
+// pre-Install contents instead of rm'ing them. Without this, an
+// upgrade that fails partway would silently delete the previously-
+// working repo it was meant to replace.
+func TestPackageRepositoryInstaller_Install_PartialFetchFailure_RestoresPreexisting(t *testing.T) {
+	// Override the snapshot stub for THIS test to simulate pre-existing
+	// keyring + sources.list contents; restore the package-level stub
+	// at the end so other parallel tests see the no-op default.
+	previousSnapshot := snapshotInstalledDestinations
+	snapshotInstalledDestinations = func(name string) destinationSnapshot {
+		return destinationSnapshot{
+			keyringDst:  keyringPath(name),
+			sourcesDst:  sourcesListPath(name),
+			keyringData: []byte("PREVIOUS-KEYRING"),
+			sourcesData: []byte("PREVIOUS-SOURCES-LIST"),
+		}
+	}
+	t.Cleanup(func() { snapshotInstalledDestinations = previousSnapshot })
+
+	failedOutput := `W: Failed to fetch https://download.docker.com/linux/ubuntu/dists/jammy/InRelease  404 Not Found`
+	runner := &mockCommandRunner{
+		captureOutputs: []string{"", "", "", failedOutput},
+	}
+	dl := &mockDownloader{downloadBody: []byte("body")}
+	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
+	require.Error(t, err)
+	// Rollback path: calls 4 and 5 are the per-destination restores
+	// (sudo install -D back to root:root 0644 from a tmp file). Call 6
+	// is the follow-up apt-get update. Crucially, NO `rm -f` is issued
+	// because the destinations preexisted.
+	require.GreaterOrEqual(t, len(runner.captureCallCmds), 6)
+	assert.Contains(t, runner.captureCallCmds[4][0], "sudo -n install -D")
+	assert.Contains(t, runner.captureCallCmds[4][0], sourcesListPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[5][0], "sudo -n install -D")
+	assert.Contains(t, runner.captureCallCmds[5][0], keyringPath("docker"))
+	for _, cmds := range runner.captureCallCmds {
+		assert.NotContains(t, cmds[0], "sudo -n rm -f --",
+			"rollback must restore preexisting files, never rm them")
+	}
 }
 
 // TestFailedFetchCollector_DeduplicatesAndSorts pins the contract that
