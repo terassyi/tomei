@@ -312,6 +312,46 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "SystemPackageRepository minimal apt",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+						suite:      "jammy"
+						components: ["stable"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageRepository with allowed options",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+						suite:      "jammy"
+						components: ["stable"]
+						options: {
+							arch:      "amd64"
+							"by-hash": "yes"
+						}
+					}
+				}
+			}`,
+		},
+		{
 			name: "SystemPackage minimal",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -677,6 +717,197 @@ func TestSchema_InvalidResources(t *testing.T) {
 					installerRef:  "apt"
 					repositoryRef: ""
 					packages: ["git"]
+				}
+			}`,
+		},
+		{
+			// Discriminator must literally be "apt"; CUE pins the union arm.
+			name: "SystemPackageRepository wrong installerRef case",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "Apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+						suite:      "jammy"
+						components: ["stable"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageRepository missing apt block",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageRepository empty components",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+						suite:      "jammy"
+						components: []
+					}
+				}
+			}`,
+		},
+		{
+			// HTTPS-only constraint on key URL.
+			name: "SystemPackageRepository non-HTTPS keyUrl",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "http://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
+						suite:      "jammy"
+						components: ["stable"]
+					}
+				}
+			}`,
+		},
+		{
+			// keyHash must match the sha256:<64-hex> pattern; an md5 prefix or
+			// short hash is rejected.
+			name: "SystemPackageRepository malformed keyHash",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "docker"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://download.docker.com/linux/ubuntu"
+						keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
+						keyHash:    "md5:abc"
+						suite:      "jammy"
+						components: ["stable"]
+					}
+				}
+			}`,
+		},
+		{
+			// Flat repository syntax — APT's canonical form is `deb URL ./`
+			// where the suite token is the literal "./" — is explicitly out
+			// of scope. The CUE constraint rejects every flat-style marker
+			// (./, /, ., ..) so manifests cannot smuggle a flat layout past
+			// validate-time by varying the spelling.
+			name: "SystemPackageRepository flat repo suite dotslash rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "./"
+						components: ["main"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageRepository flat repo suite slash rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "/"
+						components: ["main"]
+					}
+				}
+			}`,
+		},
+		{
+			// trusted=yes disables signature verification — must be rejected
+			// at the CUE layer so tomei validate catches it.
+			name: "SystemPackageRepository trusted=yes option rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "stable"
+						components: ["main"]
+						options: { trusted: "yes" }
+					}
+				}
+			}`,
+		},
+		{
+			// signed-by must not be set; the keyring path is auto-derived
+			// from metadata.name and the install/emit pair owns one source
+			// of truth for the path.
+			name: "SystemPackageRepository signed-by option rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "stable"
+						components: ["main"]
+						options: { "signed-by": "/etc/apt/keyrings/vendor.gpg" }
+					}
+				}
+			}`,
+		},
+		{
+			// allow-insecure is equivalent to trusted=yes in effect — also rejected.
+			name: "SystemPackageRepository allow-insecure rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "stable"
+						components: ["main"]
+						options: { "allow-insecure": "yes" }
+					}
 				}
 			}`,
 		},

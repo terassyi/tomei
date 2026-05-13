@@ -3,6 +3,8 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -61,12 +63,38 @@ func defaultInstallerInstallFn(_ context.Context, _ *resource.SystemInstaller, _
 }
 
 func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
-	return &resource.SystemPackageRepositoryState{
-		InstallerRef:   res.SystemPackageRepositorySpec.InstallerRef,
-		Source:         res.SystemPackageRepositorySpec.Source,
-		InstalledFiles: []string{"/usr/share/keyrings/" + name + ".gpg"},
-		UpdatedAt:      time.Now(),
-	}, nil
+	// Match the real apt PackageRepositoryInstaller contract on two
+	// axes:
+	//   1. state.InstalledFiles records the paths placed on disk
+	//      ([keyring, sources.list]). Remove uses InstalledFiles as a
+	//      membership set for path validation and then deletes in a
+	//      canonical sequence regardless of slice order — recording
+	//      both paths keeps engine tests honest about that contract
+	//      (a stub that only set one would silently hide ordering /
+	//      reverse-iteration regressions in the real installer).
+	//   2. state.Apt is a deep copy of spec.Apt (independent slice/map
+	//      backing) so subsequent in-test mutations of the resource spec
+	//      cannot leak into the persisted state — same invariant the
+	//      real installer maintains via slices.Clone / maps.Clone.
+	state := &resource.SystemPackageRepositoryState{
+		InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
+		InstalledFiles: []string{
+			"/usr/share/keyrings/" + name + ".gpg",
+			"/etc/apt/sources.list.d/" + name + ".list",
+		},
+		UpdatedAt: time.Now(),
+	}
+	if src := res.SystemPackageRepositorySpec.Apt; src != nil {
+		state.Apt = &resource.AptSource{
+			URL:        src.URL,
+			KeyURL:     src.KeyURL,
+			KeyHash:    src.KeyHash,
+			Suite:      src.Suite,
+			Components: slices.Clone(src.Components),
+			Options:    maps.Clone(src.Options),
+		}
+	}
+	return state, nil
 }
 
 func defaultPackageInstallFn(_ context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
@@ -112,19 +140,29 @@ func testSystemInstaller(name string) *resource.SystemInstaller {
 }
 
 func testSystemPackageRepository(name, installerRef string) *resource.SystemPackageRepository {
+	spec := &resource.SystemPackageRepositorySpec{InstallerRef: installerRef}
+	// Discriminated-union contract: only the arm matching installerRef
+	// is populated. Tests exercising future arms (dnf / apk / pacman per
+	// #213) will need their own *Source assignment here when those arms
+	// land; today only "apt" is wired so a non-apt installerRef yields a
+	// spec with no source block (engine tests using "dnf" assert on
+	// state-map counting and do not depend on the source).
+	if installerRef == resource.InstallerRefApt {
+		spec.Apt = &resource.AptSource{
+			URL:        "https://example.com/" + name + "/repo",
+			KeyURL:     "https://example.com/" + name + "/gpg",
+			KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+			Suite:      "stable",
+			Components: []string{"main"},
+		}
+	}
 	return &resource.SystemPackageRepository{
 		BaseResource: resource.BaseResource{
 			APIVersion:   resource.GroupVersion,
 			ResourceKind: resource.KindSystemPackageRepository,
 			Metadata:     resource.Metadata{Name: name},
 		},
-		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: installerRef,
-			Source: resource.SourceConfig{
-				URL:    "https://example.com/" + name + "/repo",
-				KeyURL: "https://example.com/" + name + "/gpg",
-			},
-		},
+		SystemPackageRepositorySpec: spec,
 	}
 }
 
@@ -272,11 +310,25 @@ func TestSystemEngine_Apply_DAGOrder(t *testing.T) {
 	repoMock := &mockSysRepoInstaller{
 		installFn: func(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
 			recordCall("repo:" + name)
-			return &resource.SystemPackageRepositoryState{
+			st := &resource.SystemPackageRepositoryState{
 				InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
-				Source:       res.SystemPackageRepositorySpec.Source,
 				UpdatedAt:    time.Now(),
-			}, nil
+			}
+			// Deep-copy spec.Apt to match the deep-copy invariant the
+			// real apt PackageRepositoryInstaller and defaultRepoInstallFn
+			// both maintain; aliasing the pointer here would let later
+			// spec mutations leak into the persisted state.
+			if src := res.SystemPackageRepositorySpec.Apt; src != nil {
+				st.Apt = &resource.AptSource{
+					URL:        src.URL,
+					KeyURL:     src.KeyURL,
+					KeyHash:    src.KeyHash,
+					Suite:      src.Suite,
+					Components: slices.Clone(src.Components),
+					Options:    maps.Clone(src.Options),
+				}
+			}
+			return st, nil
 		},
 	}
 	packageMock := &mockSysPackageInstaller{
@@ -322,15 +374,18 @@ func TestSystemEngine_Apply_NoChanges(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source: resource.SourceConfig{
-				URL:    "https://example.com/docker/repo",
-				KeyURL: "https://example.com/docker/gpg",
+			InstallerRef: resource.InstallerRefApt,
+			Apt: &resource.AptSource{
+				URL:        "https://example.com/docker/repo",
+				KeyURL:     "https://example.com/docker/gpg",
+				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Suite:      "stable",
+				Components: []string{"main"},
 			},
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-			InstallerRef:  "apt",
+			InstallerRef:  resource.InstallerRefApt,
 			RepositoryRef: "docker",
 			Packages:      []string{"docker-ce", "containerd.io"},
 			UpdatedAt:     time.Now(),
@@ -369,12 +424,12 @@ func TestSystemEngine_Apply_Removals(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          &resource.AptSource{URL: "https://example.com/docker/repo"},
 			UpdatedAt:    time.Now(),
 		}
 		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-			InstallerRef:  "apt",
+			InstallerRef:  resource.InstallerRefApt,
 			RepositoryRef: "docker",
 			Packages:      []string{"docker-ce"},
 			UpdatedAt:     time.Now(),
@@ -527,10 +582,13 @@ func TestSystemEngine_Apply_UpgradeRepo(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source: resource.SourceConfig{
-				URL:    "https://old.example.com/docker/repo",
-				KeyURL: "https://example.com/docker/gpg",
+			InstallerRef: resource.InstallerRefApt,
+			Apt: &resource.AptSource{
+				URL:        "https://old.example.com/docker/repo",
+				KeyURL:     "https://example.com/docker/gpg",
+				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Suite:      "stable",
+				Components: []string{"main"},
 			},
 			UpdatedAt: time.Now(),
 		}
@@ -553,7 +611,8 @@ func TestSystemEngine_Apply_UpgradeRepo(t *testing.T) {
 	defer func() { _ = s.store.Unlock() }()
 	updatedSt, err := s.store.Load()
 	require.NoError(t, err)
-	assert.Equal(t, "https://example.com/docker/repo", updatedSt.SystemPackageRepositories["docker"].Source.URL)
+	require.NotNil(t, updatedSt.SystemPackageRepositories["docker"].Apt)
+	assert.Equal(t, "https://example.com/docker/repo", updatedSt.SystemPackageRepositories["docker"].Apt.URL)
 }
 
 func TestSystemEngine_Apply_MultipleInstallers(t *testing.T) {
@@ -671,15 +730,18 @@ func TestSystemEngine_PlanAll_NoChanges(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source: resource.SourceConfig{
-				URL:    "https://example.com/docker/repo",
-				KeyURL: "https://example.com/docker/gpg",
+			InstallerRef: resource.InstallerRefApt,
+			Apt: &resource.AptSource{
+				URL:        "https://example.com/docker/repo",
+				KeyURL:     "https://example.com/docker/gpg",
+				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Suite:      "stable",
+				Components: []string{"main"},
 			},
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-			InstallerRef:  "apt",
+			InstallerRef:  resource.InstallerRefApt,
 			RepositoryRef: "docker",
 			Packages:      []string{"docker-ce"},
 			UpdatedAt:     time.Now(),
@@ -711,8 +773,8 @@ func TestSystemEngine_PlanAll_InstallerRemovalDependencyError(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          &resource.AptSource{URL: "https://example.com/docker/repo"},
 			UpdatedAt:    time.Now(),
 		}
 	})
@@ -738,12 +800,12 @@ func TestSystemEngine_PlanAll_RepoRemovalDependencyError(t *testing.T) {
 			UpdatedAt: time.Now(),
 		}
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source:       resource.SourceConfig{URL: "https://example.com/docker/repo"},
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          &resource.AptSource{URL: "https://example.com/docker/repo"},
 			UpdatedAt:    time.Now(),
 		}
 		st.SystemPackages["docker-pkgs"] = &resource.SystemPackageSetState{
-			InstallerRef:  "apt",
+			InstallerRef:  resource.InstallerRefApt,
 			RepositoryRef: "docker",
 			Packages:      []string{"docker-ce"},
 			UpdatedAt:     time.Now(),
@@ -770,7 +832,7 @@ func TestSystemEngine_Apply_RemoveError(t *testing.T) {
 	// Pre-populate state with a single package set
 	setupState(t, store, func(st *state.SystemState) {
 		st.SystemPackages["failing-pkg"] = &resource.SystemPackageSetState{
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Packages:     []string{"a"},
 			UpdatedAt:    time.Now(),
 		}
@@ -816,13 +878,13 @@ func TestSystemEngine_Apply_RemoveErrorFlushesSuccessful(t *testing.T) {
 	// be removed and flushed before the repo removal fails.
 	setupState(t, store, func(st *state.SystemState) {
 		st.SystemPackages["good-pkg"] = &resource.SystemPackageSetState{
-			InstallerRef: "apt",
+			InstallerRef: resource.InstallerRefApt,
 			Packages:     []string{"a"},
 			UpdatedAt:    time.Now(),
 		}
 		st.SystemPackageRepositories["bad-repo"] = &resource.SystemPackageRepositoryState{
-			InstallerRef: "apt",
-			Source:       resource.SourceConfig{URL: "https://example.com"},
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          &resource.AptSource{URL: "https://example.com"},
 			UpdatedAt:    time.Now(),
 		}
 	})

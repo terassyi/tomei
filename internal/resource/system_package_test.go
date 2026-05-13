@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -243,6 +244,219 @@ func TestSystemPackage_Expand_NilSpec(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "nil spec") {
 		t.Errorf("Expand() error = %q, want containing %q", err.Error(), "nil spec")
+	}
+}
+
+// validAptSource returns a minimal-valid AptSource for use as the
+// baseline that table-driven tests mutate per case.
+func validAptSource() *AptSource {
+	return &AptSource{
+		URL:        "https://download.docker.com/linux/ubuntu",
+		KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
+		KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Suite:      "jammy",
+		Components: []string{"stable"},
+	}
+}
+
+func TestAptSource_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mutate  func(*AptSource)
+		wantErr string
+	}{
+		{name: "valid baseline", mutate: nil},
+		{name: "valid with allowed options", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64", "by-hash": "yes"}
+		}},
+		{name: "empty url", mutate: func(a *AptSource) { a.URL = "" }, wantErr: "apt.url is required"},
+		{name: "empty keyUrl", mutate: func(a *AptSource) { a.KeyURL = "" }, wantErr: "apt.keyUrl is required"},
+		{name: "empty keyHash", mutate: func(a *AptSource) { a.KeyHash = "" }, wantErr: "apt.keyHash is required"},
+		{name: "keyHash wrong algorithm rejected", mutate: func(a *AptSource) { a.KeyHash = "sha512:abc" }, wantErr: "does not match required form"},
+		{name: "keyHash uppercase hex rejected", mutate: func(a *AptSource) {
+			a.KeyHash = "sha256:ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD"
+		}, wantErr: "does not match required form"},
+		{name: "keyHash short rejected", mutate: func(a *AptSource) { a.KeyHash = "sha256:00" }, wantErr: "does not match required form"},
+		{name: "empty suite", mutate: func(a *AptSource) { a.Suite = "" }, wantErr: "apt.suite is required"},
+		{name: "flat repo suite slash rejected", mutate: func(a *AptSource) { a.Suite = "/" }, wantErr: "must not start with"},
+		{name: "flat repo suite dotslash rejected", mutate: func(a *AptSource) { a.Suite = "./" }, wantErr: "must not start with"},
+		{name: "flat repo suite dot rejected", mutate: func(a *AptSource) { a.Suite = "." }, wantErr: "must not start with"},
+		{name: "flat repo suite dotdot rejected", mutate: func(a *AptSource) { a.Suite = ".." }, wantErr: "must not start with"},
+		// Partial-path style suites that CUE also rejects via the `^[^./]`
+		// constraint — pinned Go-side so non-CUE callers cannot slip a
+		// suite like ".foo" or "/foo" through into the rendered sources.list.
+		{name: "suite leading dot rejected", mutate: func(a *AptSource) { a.Suite = ".foo" }, wantErr: "must not start with"},
+		{name: "suite leading slash rejected", mutate: func(a *AptSource) { a.Suite = "/foo" }, wantErr: "must not start with"},
+		// Token-shape checks now mirror buildSourcesListLine at validate
+		// time so `tomei validate` rejects manifests that would otherwise
+		// fail later at apply.
+		// URL whitespace / newlines are caught by url.Parse (via the
+		// new HTTPS gate) BEFORE the token-shape check fires; both
+		// gates reject the same set, the URL gate just runs first.
+		{name: "url with whitespace rejected", mutate: func(a *AptSource) { a.URL = "https://example.com hello" }, wantErr: "is not a valid URL"},
+		{name: "url with newline rejected", mutate: func(a *AptSource) { a.URL = "https://example.com\nhttps://attacker" }, wantErr: "is not a valid URL"},
+		// HTTPS-only gate, matching the CUE #HTTPSURL constraint and
+		// download.validateDownloadURL. Non-CUE callers must fail closed.
+		{name: "url with http rejected", mutate: func(a *AptSource) { a.URL = "http://example.com/repo" }, wantErr: `apt.url "http://example.com/repo" must use https://`},
+		{name: "url with ftp rejected", mutate: func(a *AptSource) { a.URL = "ftp://example.com/repo" }, wantErr: "unsupported scheme"},
+		{name: "keyUrl with http rejected", mutate: func(a *AptSource) { a.KeyURL = "http://example.com/gpg" }, wantErr: `apt.keyUrl "http://example.com/gpg" must use https://`},
+		{name: "http localhost url accepted (test escape)", mutate: func(a *AptSource) {
+			a.URL = "http://localhost:8080/repo"
+			a.KeyURL = "http://127.0.0.1:8080/gpg"
+		}},
+		// Opaque-form URLs ("https:example.com" — scheme set but no
+		// `//` / host) are accepted by url.Parse but rejected by CUE's
+		// `^https://` regex. Pin the Go-side rejection so the two
+		// gates agree on a strict hierarchical URL.
+		{name: "url opaque-form rejected", mutate: func(a *AptSource) { a.URL = "https:example.com/repo" }, wantErr: "not a hierarchical https URL"},
+		{name: "keyUrl opaque-form rejected", mutate: func(a *AptSource) { a.KeyURL = "https:example.com/gpg" }, wantErr: "not a hierarchical https URL"},
+		// A bare host with no scheme parses to Scheme="" + Host="" —
+		// pin the more actionable "no scheme; use https://" error
+		// instead of the generic hierarchical-URL message.
+		{name: "url missing scheme reports scheme error", mutate: func(a *AptSource) { a.URL = "example.com/repo" }, wantErr: "has no scheme"},
+		{name: "keyUrl missing scheme reports scheme error", mutate: func(a *AptSource) { a.KeyURL = "example.com/gpg" }, wantErr: "has no scheme"},
+		{name: "suite with whitespace rejected", mutate: func(a *AptSource) { a.Suite = "jammy main" }, wantErr: "contains whitespace"},
+		{name: "component with whitespace rejected", mutate: func(a *AptSource) { a.Components = []string{"main contrib"} }, wantErr: "contains whitespace"},
+		{name: "component with newline rejected", mutate: func(a *AptSource) { a.Components = []string{"main\nhostile"} }, wantErr: "contains line-ending"},
+		{name: "option empty value rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": ""}
+		}, wantErr: "must not be empty"},
+		{name: "option value with whitespace rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64 arm64"}
+		}, wantErr: "contains whitespace"},
+		{name: "option value with newline rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64\nhostile"}
+		}, wantErr: "contains line-ending"},
+		{name: "option value with bracket rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64]"}
+		}, wantErr: "bracket or equals character"},
+		{name: "empty components", mutate: func(a *AptSource) { a.Components = nil }, wantErr: "components must have at least one entry"},
+		{name: "empty component string", mutate: func(a *AptSource) { a.Components = []string{""} }, wantErr: "components[0] must not be empty"},
+		// signed-by is auto-derived; manifests must not set it.
+		{name: "signed-by in options rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"signed-by": "/etc/apt/keyrings/foo.gpg"}
+		}, wantErr: "auto-derived from metadata.name"},
+		// trusted=yes disables signature verification.
+		{name: "trusted=yes rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"trusted": "yes"}
+		}, wantErr: `apt.options["trusted"]`},
+		// allow-insecure and allow-weak / allow-downgrade-to-insecure are
+		// equivalent to trusted=yes in effect — they relax or disable
+		// signature verification.
+		{name: "allow-insecure rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"allow-insecure": "yes"}
+		}, wantErr: `apt.options["allow-insecure"]`},
+		{name: "allow-weak rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"allow-weak": "yes"}
+		}, wantErr: `apt.options["allow-weak"]`},
+		{name: "allow-downgrade-to-insecure rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"allow-downgrade-to-insecure": "yes"}
+		}, wantErr: `apt.options["allow-downgrade-to-insecure"]`},
+		{name: "unknown option rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"bogus-option": "x"}
+		}, wantErr: `apt.options["bogus-option"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := validAptSource()
+			if tt.mutate != nil {
+				tt.mutate(a)
+			}
+			err := a.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Validate() error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestSystemPackageRepositorySpec_Validate exercises the discriminator
+// dispatch: a non-empty InstallerRef plus the matching per-installer
+// source pointer is required. Adding a new arm (dnf, apk, pacman per
+// issue #213) means adding a new case here AND in the reconciler — the
+// exhaustiveness sanity test below pins that invariant.
+func TestSystemPackageRepositorySpec_Validate(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		spec    SystemPackageRepositorySpec
+		wantErr string
+	}{
+		{name: "empty installerRef", spec: SystemPackageRepositorySpec{}, wantErr: "installerRef is required"},
+		{name: "unknown installerRef", spec: SystemPackageRepositorySpec{InstallerRef: "dnf"}, wantErr: `unsupported installerRef "dnf"`},
+		{name: "apt with nil Apt", spec: SystemPackageRepositorySpec{InstallerRef: InstallerRefApt}, wantErr: "apt source block is required"},
+		{name: "apt with valid Apt", spec: SystemPackageRepositorySpec{InstallerRef: InstallerRefApt, Apt: validAptSource()}, wantErr: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.spec.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("Validate() unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("Validate() error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestSystemPackageRepositorySpec_ArmsRegistered is a reflection-driven
+// exhaustiveness sanity check: every pointer field on
+// SystemPackageRepositorySpec (each representing one installer arm of the
+// discriminated union) must have a corresponding case in Validate that
+// returns a non-empty source for that arm. Today only Apt is wired; when
+// dnf / apk / pacman arms land per #213, this test pins the invariant
+// "you cannot add a *Source field without also extending Validate to
+// recognize it."
+//
+// The check is "Validate accepts an installerRef matching the field
+// name (lowercased)" — adjust the mapping if a future arm's field name
+// differs from its installerRef.
+func TestSystemPackageRepositorySpec_ArmsRegistered(t *testing.T) {
+	t.Parallel()
+	specT := reflect.TypeFor[SystemPackageRepositorySpec]()
+	for i := 0; i < specT.NumField(); i++ {
+		f := specT.Field(i)
+		if f.Type.Kind() != reflect.Pointer {
+			continue
+		}
+		installerRef := strings.ToLower(f.Name)
+		spec := SystemPackageRepositorySpec{InstallerRef: installerRef}
+		// Populate the matching pointer field via reflection so the spec
+		// has a non-nil source for its declared installerRef. The source
+		// itself is zero-valued, so Validate of the source will fail —
+		// but the dispatch case must EXIST. A missing case manifests as
+		// `unsupported installerRef "<lower>"`, which the test rejects.
+		v := reflect.ValueOf(&spec).Elem()
+		fv := v.Field(i)
+		fv.Set(reflect.New(f.Type.Elem()))
+		err := spec.Validate()
+		// We expect a non-nil error (the zero-valued source fails its
+		// own field checks) — but the error MUST NOT be "unsupported
+		// installerRef", which is the signal that Validate's switch is
+		// missing the arm.
+		if err != nil && strings.Contains(err.Error(), "unsupported installerRef") {
+			t.Errorf("SystemPackageRepositorySpec has *%s field %q but Validate does not dispatch to it; add a case for installerRef=%q in SystemPackageRepositorySpec.Validate",
+				f.Type.Elem().Name(), f.Name, installerRef)
+		}
 	}
 }
 

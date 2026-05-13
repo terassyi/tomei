@@ -76,8 +76,8 @@ func TestSystemPackageRepositoryStore_SaveAndLoad(t *testing.T) {
 	srs := NewSystemPackageRepositoryStore(sc)
 
 	st := &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source: resource.SourceConfig{
+		InstallerRef: resource.InstallerRefApt,
+		Apt: &resource.AptSource{
 			URL:    "https://download.docker.com/linux/ubuntu",
 			KeyURL: "https://download.docker.com/linux/ubuntu/gpg",
 		},
@@ -90,8 +90,9 @@ func TestSystemPackageRepositoryStore_SaveAndLoad(t *testing.T) {
 	loaded, exists, err := srs.Load("docker")
 	require.NoError(t, err)
 	assert.True(t, exists)
-	assert.Equal(t, "apt", loaded.InstallerRef)
-	assert.Equal(t, "https://download.docker.com/linux/ubuntu", loaded.Source.URL)
+	assert.Equal(t, resource.InstallerRefApt, loaded.InstallerRef)
+	require.NotNil(t, loaded.Apt)
+	assert.Equal(t, "https://download.docker.com/linux/ubuntu", loaded.Apt.URL)
 }
 
 func TestSystemPackageRepositoryStore_Delete(t *testing.T) {
@@ -99,7 +100,7 @@ func TestSystemPackageRepositoryStore_Delete(t *testing.T) {
 	sc := newSystemStateCache(t)
 	srs := NewSystemPackageRepositoryStore(sc)
 
-	require.NoError(t, srs.Save("docker", &resource.SystemPackageRepositoryState{InstallerRef: "apt"}))
+	require.NoError(t, srs.Save("docker", &resource.SystemPackageRepositoryState{InstallerRef: resource.InstallerRefApt}))
 	require.NoError(t, srs.Delete("docker"))
 
 	_, exists, err := srs.Load("docker")
@@ -125,7 +126,7 @@ func TestSystemPackageSetStore_SaveAndLoad(t *testing.T) {
 	sps := NewSystemPackageSetStore(sc)
 
 	st := &resource.SystemPackageSetState{
-		InstallerRef:      "apt",
+		InstallerRef:      resource.InstallerRefApt,
 		RepositoryRef:     "docker",
 		Packages:          []string{"docker-ce", "docker-ce-cli"},
 		InstalledVersions: map[string]string{"docker-ce": "24.0.7", "docker-ce-cli": "24.0.7"},
@@ -137,7 +138,7 @@ func TestSystemPackageSetStore_SaveAndLoad(t *testing.T) {
 	loaded, exists, err := sps.Load("docker-packages")
 	require.NoError(t, err)
 	assert.True(t, exists)
-	assert.Equal(t, "apt", loaded.InstallerRef)
+	assert.Equal(t, resource.InstallerRefApt, loaded.InstallerRef)
 	assert.Equal(t, []string{"docker-ce", "docker-ce-cli"}, loaded.Packages)
 	assert.Equal(t, "24.0.7", loaded.InstalledVersions["docker-ce"])
 }
@@ -148,7 +149,7 @@ func TestSystemPackageSetStore_Delete(t *testing.T) {
 	sps := NewSystemPackageSetStore(sc)
 
 	require.NoError(t, sps.Save("docker-packages", &resource.SystemPackageSetState{
-		InstallerRef: "apt",
+		InstallerRef: resource.InstallerRefApt,
 		Packages:     []string{"docker-ce"},
 	}))
 	require.NoError(t, sps.Delete("docker-packages"))
@@ -193,12 +194,12 @@ func TestSystemStores_ConcurrentMixed(t *testing.T) {
 		})
 		wg.Go(func() {
 			name := fmt.Sprintf("repo-%d", i)
-			srsErrs[i] = srs.Save(name, &resource.SystemPackageRepositoryState{InstallerRef: "apt"})
+			srsErrs[i] = srs.Save(name, &resource.SystemPackageRepositoryState{InstallerRef: resource.InstallerRefApt})
 		})
 		wg.Go(func() {
 			name := fmt.Sprintf("pkgset-%d", i)
 			spsErrs[i] = sps.Save(name, &resource.SystemPackageSetState{
-				InstallerRef: "apt",
+				InstallerRef: resource.InstallerRefApt,
 				Packages:     []string{fmt.Sprintf("pkg-%d", i)},
 			})
 		})

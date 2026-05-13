@@ -9,7 +9,7 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-func newSystemPackageRepository(name, installerRef, url, keyURL, keyHash string, options map[string]string) *resource.SystemPackageRepository {
+func newAptRepository(name string, src *resource.AptSource) *resource.SystemPackageRepository {
 	return &resource.SystemPackageRepository{
 		BaseResource: resource.BaseResource{
 			APIVersion:   "tomei.terassyi.net/v1beta1",
@@ -17,37 +17,32 @@ func newSystemPackageRepository(name, installerRef, url, keyURL, keyHash string,
 			Metadata:     resource.Metadata{Name: name},
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
-			InstallerRef: installerRef,
-			Source: resource.SourceConfig{
-				URL:     url,
-				KeyURL:  keyURL,
-				KeyHash: keyHash,
-				Options: options,
-			},
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          src,
 		},
 	}
 }
 
+func dockerSource() *resource.AptSource {
+	return &resource.AptSource{
+		URL:        "https://download.docker.com/linux/ubuntu",
+		KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
+		KeyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
+		Suite:      "jammy",
+		Components: []string{"stable"},
+		Options:    map[string]string{"arch": "amd64"},
+	}
+}
+
 func dockerRepo() *resource.SystemPackageRepository {
-	return newSystemPackageRepository(
-		"docker", "apt",
-		"https://download.docker.com/linux/ubuntu",
-		"https://download.docker.com/linux/ubuntu/gpg",
-		"sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
-		map[string]string{"arch": "amd64"},
-	)
+	return newAptRepository("docker", dockerSource())
 }
 
 func dockerRepoState() *resource.SystemPackageRepositoryState {
 	return &resource.SystemPackageRepositoryState{
-		InstallerRef: "apt",
-		Source: resource.SourceConfig{
-			URL:     "https://download.docker.com/linux/ubuntu",
-			KeyURL:  "https://download.docker.com/linux/ubuntu/gpg",
-			KeyHash: "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
-			Options: map[string]string{"arch": "amd64"},
-		},
-		InstalledFiles: []string{"/usr/share/keyrings/docker.gpg"},
+		InstallerRef:   resource.InstallerRefApt,
+		Apt:            dockerSource(),
+		InstalledFiles: []string{"/usr/share/keyrings/docker.gpg", "/etc/apt/sources.list.d/docker.list"},
 		UpdatedAt:      time.Now(),
 	}
 }
@@ -80,17 +75,24 @@ func TestSystemPackageRepositoryReconciler_NoChange(t *testing.T) {
 
 func TestSystemPackageRepositoryReconciler_NoChange_NilVsEmptyOptions(t *testing.T) {
 	t.Parallel()
-	repo := newSystemPackageRepository("simple", "apt", "https://example.com/repo", "", "", nil)
+	src := &resource.AptSource{
+		URL:        "https://example.com/repo",
+		KeyURL:     "https://example.com/repo/gpg",
+		KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Suite:      "stable",
+		Components: []string{"main"},
+	}
+	repo := newAptRepository("simple", src)
+
+	stateSrc := *src
+	stateSrc.Options = map[string]string{}
 
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
 		"simple": {
-			InstallerRef: "apt",
-			Source: resource.SourceConfig{
-				URL:     "https://example.com/repo",
-				Options: map[string]string{},
-			},
-			UpdatedAt: time.Now(),
+			InstallerRef: resource.InstallerRefApt,
+			Apt:          &stateSrc,
+			UpdatedAt:    time.Now(),
 		},
 	}
 
@@ -103,7 +105,7 @@ func TestSystemPackageRepositoryReconciler_NoChange_NilVsEmptyOptions(t *testing
 func TestSystemPackageRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
 	t.Parallel()
 	repo := dockerRepo()
-	repo.SystemPackageRepositorySpec.Source.URL = "https://download.docker.com/linux/debian"
+	repo.SystemPackageRepositorySpec.Apt.URL = "https://download.docker.com/linux/debian"
 
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
@@ -115,13 +117,13 @@ func TestSystemPackageRepositoryReconciler_Upgrade_URLChanged(t *testing.T) {
 
 	require.Len(t, actions, 1)
 	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
-	assert.Contains(t, actions[0].Reason, "source URL changed")
+	assert.Contains(t, actions[0].Reason, "apt source URL changed")
 }
 
 func TestSystemPackageRepositoryReconciler_Upgrade_KeyURLChanged(t *testing.T) {
 	t.Parallel()
 	repo := dockerRepo()
-	repo.SystemPackageRepositorySpec.Source.KeyURL = "https://new-key-server.example.com/gpg"
+	repo.SystemPackageRepositorySpec.Apt.KeyURL = "https://new-key-server.example.com/gpg"
 
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
@@ -133,13 +135,13 @@ func TestSystemPackageRepositoryReconciler_Upgrade_KeyURLChanged(t *testing.T) {
 
 	require.Len(t, actions, 1)
 	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
-	assert.Contains(t, actions[0].Reason, "source key URL changed")
+	assert.Contains(t, actions[0].Reason, "apt source key URL changed")
 }
 
 func TestSystemPackageRepositoryReconciler_Upgrade_KeyHashChanged(t *testing.T) {
 	t.Parallel()
 	repo := dockerRepo()
-	repo.SystemPackageRepositorySpec.Source.KeyHash = "sha256:aaaa"
+	repo.SystemPackageRepositorySpec.Apt.KeyHash = "sha256:aaaa"
 
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
@@ -151,13 +153,49 @@ func TestSystemPackageRepositoryReconciler_Upgrade_KeyHashChanged(t *testing.T) 
 
 	require.Len(t, actions, 1)
 	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
-	assert.Contains(t, actions[0].Reason, "source key hash changed")
+	assert.Contains(t, actions[0].Reason, "apt source key hash changed")
+}
+
+func TestSystemPackageRepositoryReconciler_Upgrade_SuiteChanged(t *testing.T) {
+	t.Parallel()
+	repo := dockerRepo()
+	repo.SystemPackageRepositorySpec.Apt.Suite = "noble"
+
+	repos := []*resource.SystemPackageRepository{repo}
+	states := map[string]*resource.SystemPackageRepositoryState{
+		"docker": dockerRepoState(),
+	}
+
+	r := NewSystemPackageRepositoryReconciler()
+	actions := r.Reconcile(repos, states)
+
+	require.Len(t, actions, 1)
+	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
+	assert.Contains(t, actions[0].Reason, "apt source suite changed")
+}
+
+func TestSystemPackageRepositoryReconciler_Upgrade_ComponentsChanged(t *testing.T) {
+	t.Parallel()
+	repo := dockerRepo()
+	repo.SystemPackageRepositorySpec.Apt.Components = []string{"stable", "test"}
+
+	repos := []*resource.SystemPackageRepository{repo}
+	states := map[string]*resource.SystemPackageRepositoryState{
+		"docker": dockerRepoState(),
+	}
+
+	r := NewSystemPackageRepositoryReconciler()
+	actions := r.Reconcile(repos, states)
+
+	require.Len(t, actions, 1)
+	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
+	assert.Contains(t, actions[0].Reason, "apt source components changed")
 }
 
 func TestSystemPackageRepositoryReconciler_Upgrade_OptionsChanged(t *testing.T) {
 	t.Parallel()
 	repo := dockerRepo()
-	repo.SystemPackageRepositorySpec.Source.Options = map[string]string{"arch": "arm64"}
+	repo.SystemPackageRepositorySpec.Apt.Options = map[string]string{"arch": "arm64"}
 
 	repos := []*resource.SystemPackageRepository{repo}
 	states := map[string]*resource.SystemPackageRepositoryState{
@@ -169,7 +207,7 @@ func TestSystemPackageRepositoryReconciler_Upgrade_OptionsChanged(t *testing.T) 
 
 	require.Len(t, actions, 1)
 	assert.Equal(t, resource.ActionUpgrade, actions[0].Type)
-	assert.Contains(t, actions[0].Reason, "source options changed")
+	assert.Contains(t, actions[0].Reason, "apt source options changed")
 }
 
 func TestSystemPackageRepositoryReconciler_Upgrade_InstallerRefChanged(t *testing.T) {

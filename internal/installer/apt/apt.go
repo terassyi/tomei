@@ -1,4 +1,9 @@
-// Package apt provides APT package manager integration for system package management.
+// Package apt provides APT package manager integration for system
+// package and third-party repository management on Debian-family
+// distributions. It exposes a shared Client over a CommandRunner and
+// per-resource installers (PackageSetInstaller for SystemPackageSet,
+// PackageRepositoryInstaller for SystemPackageRepository) plus
+// read-only probes (IsInstalled, PackageVersion, VersionFunc).
 package apt
 
 import (
@@ -9,6 +14,7 @@ import (
 	"time"
 
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/system"
@@ -38,12 +44,22 @@ var errEmptyPackagesRemove = errors.New("apt: remove requires at least one packa
 // surface.
 const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 
-// debianFrontendNoninteractive is prepended to the apt-get install command
-// via `env`, not passed via the runner's env map. sudo strips most parent
-// env vars by default (env_reset in /etc/sudoers), so a plain `env` map on
-// the runner side would not reach apt-get; running `sudo env VAR=value
-// apt-get …` is sudoers-independent and works on minimal CI images.
-const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive"
+// aptGetEnvPrefix is the `env VAR=value ...` prefix prepended to every
+// apt-get invocation in this package. It is passed via `env` (not the
+// runner's env map) because sudo strips most parent env vars by default
+// (env_reset in /etc/sudoers), so a plain env map on the runner side
+// would not reach apt-get; running `sudo env VAR=value apt-get …` is
+// sudoers-independent and works on minimal CI images.
+//
+// The prefix bundles three pins:
+//   - DEBIAN_FRONTEND=noninteractive — keeps apt-get from prompting on
+//     conffile / debconf questions when invoked over sudo.
+//   - LC_ALL=C LANGUAGE=C — load-bearing for the repository installer's
+//     partial-fetch detector: apt translates warning prefixes per locale
+//     (e.g. `W: ` becomes `警告: ` under ja_JP.UTF-8), and the
+//     `^W: Failed to fetch` regex would silently miss a real fetch
+//     failure on non-C locales — leaving a broken sources.list installed.
+const aptGetEnvPrefix = "env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C"
 
 // dpkgStatusInstalled is the literal third sub-field of dpkg's Status field
 // for an installed package — what `dpkg-query -W -f='${db:Status-Status}'`
@@ -80,6 +96,17 @@ func (c *Client) VersionFunc() system.VersionFunc {
 // SystemPackageSet resources backed by apt-get.
 func (c *Client) PackageSetInstaller() *PackageSetInstaller {
 	return &PackageSetInstaller{client: c}
+}
+
+// PackageRepositoryInstaller returns the executor.Installer adapter for
+// SystemPackageRepository resources. Unlike PackageSetInstaller it takes
+// a download.Downloader because adding a repository involves fetching the
+// armored GPG key over HTTPS — keeping the dependency on the per-resource
+// factory rather than on Client itself means other future installers that
+// do not need network access (e.g. local-only package sets) are not forced
+// to thread an unused dependency through.
+func (c *Client) PackageRepositoryInstaller(d download.Downloader) *PackageRepositoryInstaller {
+	return &PackageRepositoryInstaller{client: c, downloader: d}
 }
 
 // IsInstalled reports whether dpkg currently considers pkg to be installed.
@@ -354,7 +381,7 @@ func (c *Client) PackageVersion(ctx context.Context, pkg string) (string, error)
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update
 //
 // stdout/stderr are drained (discarded, not buffered in memory). On
 // failure the returned error wraps the runner's error (typically
@@ -381,7 +408,7 @@ func (c *Client) PackageVersion(ctx context.Context, pkg string) (string, error)
 //     the uniform timeout pass across all helpers is being tracked
 //     in a separate follow-up.
 func (c *Client) Update(ctx context.Context) error {
-	cmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update"
+	cmd := "sudo -n " + aptGetEnvPrefix + " apt-get update"
 	// nil callback drains stdout/stderr to io.Discard rather than
 	// buffering in memory; consistent with Install/Remove, we never
 	// surface apt-get's human-oriented output to callers.
@@ -408,7 +435,7 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
 // stdout/stderr are drained (discarded, not buffered in memory).
 //
@@ -441,7 +468,7 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
 // stdout/stderr are drained (discarded, not buffered in memory).
 //
@@ -459,7 +486,7 @@ func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.System
 	return p.runRemove(ctx, state.Packages)
 }
 
-// runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get
 // install -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
 // errEmptyPackagesInstall if packages is empty. Each name is rejected if it is
 // empty or contains whitespace / shell metacharacters / shell-expansion
@@ -476,7 +503,7 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
-	cmd := "sudo -n " + debianFrontendNoninteractive +
+	cmd := "sudo -n " + aptGetEnvPrefix +
 		" apt-get install -y -o DPkg::Lock::Timeout=60 -- " +
 		strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering
@@ -487,7 +514,7 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 	return nil
 }
 
-// runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get
 // remove -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
 // errEmptyPackagesRemove if packages is empty. Each name is rejected if
 // it is empty or contains whitespace / shell metacharacters / shell-
@@ -504,7 +531,7 @@ func (p *PackageSetInstaller) runRemove(ctx context.Context, packages []string) 
 			return fmt.Errorf("apt: package %q contains disallowed characters", pkg)
 		}
 	}
-	cmd := "sudo -n " + debianFrontendNoninteractive +
+	cmd := "sudo -n " + aptGetEnvPrefix +
 		" apt-get remove -y -o DPkg::Lock::Timeout=60 -- " +
 		strings.Join(packages, " ")
 	// nil callback drains stdout/stderr to io.Discard rather than buffering
