@@ -128,7 +128,7 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
 			InstallerRef: "apt",
-			Source: resource.SourceConfig{
+			Apt: &resource.AptSource{
 				URL:        server.URL,
 				KeyURL:     server.URL + "/key.asc",
 				KeyHash:    keyHashSHA256,

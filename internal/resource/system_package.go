@@ -5,10 +5,15 @@ import (
 	"time"
 )
 
-// SystemPackageRepositorySpec defines a third-party repository.
+// SystemPackageRepositorySpec defines a third-party repository. It is a
+// discriminated union keyed by InstallerRef: exactly one of the
+// installer-specific source pointers (Apt, ...) is non-nil and must
+// match InstallerRef. Adding a new installer means adding a new pointer
+// field and an arm in Validate; existing fields are unaffected. The CUE
+// schema enforces the same shape statically via #SystemPackageRepository.
 type SystemPackageRepositorySpec struct {
-	InstallerRef string       `json:"installerRef"`
-	Source       SourceConfig `json:"source"`
+	InstallerRef string     `json:"installerRef"`
+	Apt          *AptSource `json:"apt,omitempty"`
 }
 
 // Validate validates the SystemPackageRepositorySpec.
@@ -16,27 +21,15 @@ func (s *SystemPackageRepositorySpec) Validate() error {
 	if s.InstallerRef == "" {
 		return fmt.Errorf("installerRef is required")
 	}
-	if s.Source.URL == "" {
-		return fmt.Errorf("source.url is required")
-	}
-	if s.Source.KeyURL == "" {
-		return fmt.Errorf("source.keyUrl is required")
-	}
-	if s.Source.KeyHash == "" {
-		return fmt.Errorf("source.keyHash is required")
-	}
-	if s.Source.Suite == "" {
-		return fmt.Errorf("source.suite is required")
-	}
-	if len(s.Source.Components) == 0 {
-		return fmt.Errorf("source.components must have at least one entry")
-	}
-	for i, c := range s.Source.Components {
-		if c == "" {
-			return fmt.Errorf("source.components[%d] must not be empty", i)
+	switch s.InstallerRef {
+	case "apt":
+		if s.Apt == nil {
+			return fmt.Errorf("apt source block is required when installerRef is %q", s.InstallerRef)
 		}
+		return s.Apt.Validate()
+	default:
+		return fmt.Errorf("unsupported installerRef %q", s.InstallerRef)
 	}
-	return nil
 }
 
 // Dependencies returns the resources this repository depends on.
@@ -58,26 +51,92 @@ func (*SystemPackageRepository) Kind() Kind { return KindSystemPackageRepository
 // Spec returns the spec as Spec interface.
 func (s *SystemPackageRepository) Spec() Spec { return s.SystemPackageRepositorySpec }
 
-// SourceConfig holds repository source configuration.
+// AptSource holds the source configuration for an APT third-party
+// repository.
 //
 // The fields map to the canonical APT one-line sources.list format:
 //
 //	deb [<options>] <URL> <Suite> <Components...>
 //
-// URL is the base mirror (e.g. "https://download.docker.com/linux/ubuntu");
-// Suite identifies the distribution release (e.g. "jammy"); Components is
-// the non-empty list of pool components ("stable", "main", etc.). KeyURL
-// supplies the armored GPG public key to import into a per-repository
-// keyring; KeyHash pins its SHA256 (format "sha256:<64-hex>") and is
-// required as defense-in-depth against transport / CDN compromise. Options
-// carries the bracketed sources.list options (signed-by, arch, etc.).
-type SourceConfig struct {
+// All fields (URL, KeyURL, KeyHash, Suite, Components, Options) are
+// trust-bound: they originate from a CUE manifest under the user's
+// control and flow into the shell-emitted sources.list line through
+// library-emitted strings (not template-expanded user input). URL is
+// the base mirror (e.g. "https://download.docker.com/linux/ubuntu");
+// KeyURL is the HTTPS URL of the armored GPG public key (which may
+// legitimately be served from a different host than URL); KeyHash pins
+// the armored key's SHA256 (format "sha256:<64-hex>") as defense-in-depth
+// against transport / CDN compromise; Suite identifies the distribution
+// release (e.g. "jammy" — single-suite only by design; "/" / flat
+// repositories are explicitly unsupported); Components is the non-empty
+// list of pool components ("stable", "main", etc.); Options carries the
+// bracketed sources.list options restricted to AllowedAptOptions —
+// signed-by is auto-derived from metadata.name and must not be supplied
+// here.
+type AptSource struct {
 	URL        string            `json:"url"`
 	KeyURL     string            `json:"keyUrl"`
 	KeyHash    string            `json:"keyHash"`
 	Suite      string            `json:"suite"`
 	Components []string          `json:"components"`
 	Options    map[string]string `json:"options,omitempty"`
+}
+
+// AllowedAptOptions is the whitelist of bracket-option keys permitted
+// in AptSource.Options. APT understands many more, but the keys below
+// cover all realistic third-party-repository needs while excluding
+// security-regression knobs (trusted=yes, allow-insecure, allow-weak,
+// allow-downgrade-to-insecure — all of which weaken or disable signature
+// verification). signed-by is also excluded: the keyring path is
+// auto-derived from metadata.name (/usr/share/keyrings/<name>.gpg) and
+// must not be overridden via Options. The same allowlist is mirrored
+// into the CUE schema's #AptSource.options constraint so tomei validate
+// rejects disallowed keys before tomei apply runs.
+var AllowedAptOptions = map[string]struct{}{
+	"arch":              {},
+	"target":            {},
+	"by-hash":           {},
+	"pdiffs":            {},
+	"check-valid-until": {},
+	"lang":              {},
+}
+
+// Validate validates the AptSource fields. Empty / missing required
+// fields return a descriptive error rooted at "apt.<field>" so callers
+// know which arm of the discriminated union failed.
+func (a *AptSource) Validate() error {
+	if a.URL == "" {
+		return fmt.Errorf("apt.url is required")
+	}
+	if a.KeyURL == "" {
+		return fmt.Errorf("apt.keyUrl is required")
+	}
+	if a.KeyHash == "" {
+		return fmt.Errorf("apt.keyHash is required")
+	}
+	if a.Suite == "" {
+		return fmt.Errorf("apt.suite is required")
+	}
+	if a.Suite == "/" {
+		return fmt.Errorf(`apt.suite="/" (flat repository layout) is not supported`)
+	}
+	if len(a.Components) == 0 {
+		return fmt.Errorf("apt.components must have at least one entry")
+	}
+	for i, c := range a.Components {
+		if c == "" {
+			return fmt.Errorf("apt.components[%d] must not be empty", i)
+		}
+	}
+	for k := range a.Options {
+		if k == "signed-by" {
+			return fmt.Errorf(`apt.options["signed-by"] is auto-derived from metadata.name; remove it from spec.apt.options`)
+		}
+		if _, ok := AllowedAptOptions[k]; !ok {
+			return fmt.Errorf("apt.options[%q] is not allowed", k)
+		}
+	}
+	return nil
 }
 
 // SystemPackageSetSpec defines a set of system packages.
@@ -128,17 +187,19 @@ func (s *SystemPackageSet) Spec() Spec { return s.SystemPackageSetSpec }
 
 // SystemPackageRepositoryState represents the state of a repository.
 //
-// InstalledFiles records the paths the installer placed on disk in
-// install order. By convention the APT installer emits
-// [<keyring path>, <sources.list path>] so that Remove can iterate in
-// reverse (sources.list first, then keyring) — this avoids a brief
-// window where APT would consult a sources.list pointing to a missing
-// keyring.
+// The state mirrors the discriminated-union shape of the spec: exactly
+// one of the installer-specific source pointers (Apt, ...) is non-nil
+// and matches InstallerRef. InstalledFiles records the paths the
+// installer placed on disk in install order. By convention the APT
+// installer emits [<keyring path>, <sources.list path>] so that Remove
+// can iterate in reverse (sources.list first, then keyring) — this
+// avoids a brief window where APT would consult a sources.list pointing
+// to a missing keyring.
 type SystemPackageRepositoryState struct {
-	InstallerRef   string       `json:"installerRef"`
-	Source         SourceConfig `json:"source"`
-	InstalledFiles []string     `json:"installedFiles"`
-	UpdatedAt      time.Time    `json:"updatedAt"`
+	InstallerRef   string     `json:"installerRef"`
+	Apt            *AptSource `json:"apt,omitempty"`
+	InstalledFiles []string   `json:"installedFiles"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 func (*SystemPackageRepositoryState) isState() {}

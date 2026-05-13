@@ -319,8 +319,15 @@ The `spec.commands.*` declarations are not consumed by the engine at apply time 
 
 ### SystemPackageRepository
 
-Third-party APT repository (e.g., Docker, Kubernetes). The APT concrete
-installer places a per-repository GPG keyring at
+Third-party package repository (e.g., Docker, Kubernetes). The resource
+is a discriminated union keyed by `spec.installerRef`: the matching
+installer-specific block (today only `spec.apt`) supplies the source
+configuration. Additional arms for dnf / apk / pacman are tracked in
+[#213](https://github.com/terassyi/tomei/issues/213); the union shape
+already accommodates them without future migrations of manifests that
+use the existing `apt` arm.
+
+The APT concrete installer places a per-repository GPG keyring at
 `/usr/share/keyrings/<metadata.name>.gpg` and a one-line `.list` fragment
 at `/etc/apt/sources.list.d/<metadata.name>.list`, then refreshes the APT
 index. If the just-added repository fails to fetch
@@ -336,7 +343,7 @@ kind:       "SystemPackageRepository"
 metadata: name: "docker"
 spec: {
     installerRef: "apt"
-    source: {
+    apt: {
         url:        "https://download.docker.com/linux/ubuntu"
         keyUrl:     "https://download.docker.com/linux/ubuntu/gpg"
         keyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570"
@@ -344,8 +351,6 @@ spec: {
         components: ["stable"]
         options: {
             arch: "amd64"
-            // signed-by is optional; if omitted it defaults to
-            // /usr/share/keyrings/<metadata.name>.gpg.
         }
     }
 }
@@ -355,21 +360,24 @@ spec: {
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `spec.installerRef` | string | yes | Reference to a [SystemInstaller](#systeminstaller) |
-| `spec.source.url` | HTTPS URL | yes | Repository base URL (the value before suite/components in the emitted `deb` line) |
-| `spec.source.keyUrl` | HTTPS URL | yes | URL of the ASCII-armored GPG public key |
-| `spec.source.keyHash` | string | yes | SHA-256 of the armored key in `sha256:<64-lowercase-hex>` form. Required as defense-in-depth: HTTPS alone protects only against passive MITM, not against CDN or upstream-mirror compromise |
-| `spec.source.suite` | string | yes | Distribution release (e.g. `jammy`, `noble`, `bookworm`). Use `/` for a flat repository |
-| `spec.source.components` | `[...string]` | yes | One or more pool components (e.g. `["stable"]`, `["main", "contrib", "non-free"]`) |
-| `spec.source.options` | `{[string]: string}` | no | Bracketed sources.list options. Allowed keys: `signed-by`, `arch`, `target`, `by-hash`, `pdiffs`, `check-valid-until`, `lang`, `allow-insecure`, `allow-weak`, `allow-downgrade-to-insecure`. `trusted=yes` is intentionally rejected because it disables signature verification |
+| `spec.installerRef` | `"apt"` | yes | Selects the source-block arm. Today only `"apt"` is supported |
+| `spec.apt.url` | HTTPS URL | yes | Repository base URL (the value before suite/components in the emitted `deb` line) |
+| `spec.apt.keyUrl` | HTTPS URL | yes | URL of the ASCII-armored GPG public key. May legitimately be served from a different host than `url` (e.g. kubernetes's `pkgs.k8s.io` repo with a key on `packages.cloud.google.com`) |
+| `spec.apt.keyHash` | string | yes | SHA-256 of the armored key in `sha256:<64-lowercase-hex>` form. Required as defense-in-depth: HTTPS alone protects only against passive MITM, not against CDN or upstream-mirror compromise |
+| `spec.apt.suite` | string | yes | Distribution release (e.g. `jammy`, `noble`, `bookworm`). Single-suite by design; flat repositories (`suite: "/"`) are explicitly unsupported |
+| `spec.apt.components` | `[...string]` | yes | One or more pool components (e.g. `["stable"]`, `["main", "contrib", "non-free"]`) |
+| `spec.apt.options` | `{[string]: string}` | no | Bracketed sources.list options. Allowed keys: `arch`, `target`, `by-hash`, `pdiffs`, `check-valid-until`, `lang`. `signed-by` is auto-derived from `metadata.name` and must not be set here. `trusted=yes`, `allow-insecure`, `allow-weak`, `allow-downgrade-to-insecure` are rejected by both the CUE schema and `AptSource.Validate` because they disable or weaken signature verification |
 
-`signed-by` defaults to `/usr/share/keyrings/<metadata.name>.gpg` when
-unset. Explicitly setting it overrides the default — useful for pointing
-at a pre-existing system keyring.
+The keyring is always installed to `/usr/share/keyrings/<metadata.name>.gpg`
+and the rendered `signed-by` value matches that path verbatim. Custom
+keyring locations (e.g. `/etc/apt/keyrings/`) are not currently supported
+via the schema; the install destination is one source of truth.
 
-> **Note:** `spec.source.keyUrl`, `keyHash`, `suite`, and `components`
-> became required when the concrete installer landed; manifests written
-> against earlier tomei versions need updates to add these fields.
+> **Note:** The schema is a discriminated union keyed by `installerRef`.
+> Today only the `apt` arm is implemented; dnf / apk / pacman arms are
+> tracked in #213. Manifests written against pre-union tomei versions
+> need to rename `spec.source` to `spec.apt`; the field set inside the
+> block is unchanged.
 
 ### SystemPackage
 

@@ -185,7 +185,7 @@ func TestUpdate_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runner.captureCmds, 1)
 	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update",
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update",
 		runner.captureCmds[0],
 	)
 }
@@ -215,12 +215,12 @@ func TestPackageSetInstaller_Install(t *testing.T) {
 		{
 			name:     "single package",
 			packages: []string{"git"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
 		},
 		{
 			name:     "multiple packages",
 			packages: []string{"git", "curl", "tree"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
 		},
 		{
 			name:     "empty packages",
@@ -325,12 +325,12 @@ func TestPackageSetInstaller_Remove(t *testing.T) {
 		{
 			name:     "single package",
 			packages: []string{"git"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- git",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- git",
 		},
 		{
 			name:     "multiple packages",
 			packages: []string{"git", "curl", "tree"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- git curl tree",
 		},
 		{
 			name:     "empty packages is a no-op",

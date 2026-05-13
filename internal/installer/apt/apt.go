@@ -44,12 +44,18 @@ var errEmptyPackagesRemove = errors.New("apt: remove requires at least one packa
 // surface.
 const disallowedInPackageName = " \t\n\r;|&`$<>(){}*?[]~#\\\"'"
 
-// debianFrontendNoninteractive is prepended to the apt-get install command
-// via `env`, not passed via the runner's env map. sudo strips most parent
-// env vars by default (env_reset in /etc/sudoers), so a plain `env` map on
-// the runner side would not reach apt-get; running `sudo env VAR=value
+// debianFrontendNoninteractive is prepended to apt-get commands via
+// `env`, not passed via the runner's env map. sudo strips most parent
+// env vars by default (env_reset in /etc/sudoers), so a plain `env` map
+// on the runner side would not reach apt-get; running `sudo env VAR=value
 // apt-get …` is sudoers-independent and works on minimal CI images.
-const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive"
+//
+// The locale pins (LC_ALL=C LANGUAGE=C) are load-bearing for the
+// repository installer's partial-fetch detector: apt translates warning
+// prefixes per locale (e.g. `W: ` becomes `警告: ` under ja_JP.UTF-8),
+// and the `^W: Failed to fetch` regex would silently miss a real fetch
+// failure on non-C locales — leaving a broken sources.list installed.
+const debianFrontendNoninteractive = "env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C"
 
 // dpkgStatusInstalled is the literal third sub-field of dpkg's Status field
 // for an installed package — what `dpkg-query -W -f='${db:Status-Status}'`

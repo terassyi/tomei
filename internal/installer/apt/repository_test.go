@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,7 +59,7 @@ func dockerSpec(name string) *resource.SystemPackageRepository {
 		},
 		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
 			InstallerRef: "apt",
-			Source: resource.SourceConfig{
+			Apt: &resource.AptSource{
 				URL:        "https://download.docker.com/linux/ubuntu",
 				KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
 				KeyHash:    "sha256:1500c1f56fa9e26b9b8f42452a553675796ade0807cdce11975eb98170b3a570",
@@ -76,14 +78,14 @@ func TestBuildSourcesListLine(t *testing.T) {
 	tests := []struct {
 		name    string
 		repo    string
-		src     resource.SourceConfig
+		src     *resource.AptSource
 		want    string
 		wantErr string
 	}{
 		{
 			name: "single component, signed-by auto, arch set",
 			repo: "docker",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://download.docker.com/linux/ubuntu",
 				Suite:      "jammy",
 				Components: []string{"stable"},
@@ -94,7 +96,7 @@ func TestBuildSourcesListLine(t *testing.T) {
 		{
 			name: "multiple components",
 			repo: "vendor",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://example.com/ubuntu",
 				Suite:      "noble",
 				Components: []string{"main", "contrib", "non-free"},
@@ -104,7 +106,7 @@ func TestBuildSourcesListLine(t *testing.T) {
 		{
 			name: "empty component string rejected",
 			repo: "x",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://x",
 				Suite:      "s",
 				Components: []string{""},
@@ -114,7 +116,7 @@ func TestBuildSourcesListLine(t *testing.T) {
 		{
 			name: "component with whitespace rejected",
 			repo: "x",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://x",
 				Suite:      "s",
 				Components: []string{" "},
@@ -122,9 +124,16 @@ func TestBuildSourcesListLine(t *testing.T) {
 			wantErr: "components[0]",
 		},
 		{
-			name: "signed-by override accepted",
+			// Defense-in-depth: even if a caller bypasses
+			// AptSource.Validate (which rejects "signed-by" in Options)
+			// and reaches buildSourcesListLine directly, the helper
+			// unconditionally emits the canonical keyring path —
+			// matching the install destination at sudo install time.
+			// This prevents an install/emit divergence where the
+			// sources.list could reference a path tomei did not write.
+			name: "signed-by in options is overridden by auto-derive",
 			repo: "vendor",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://example.com/repo",
 				Suite:      "stable",
 				Components: []string{"main"},
@@ -132,12 +141,12 @@ func TestBuildSourcesListLine(t *testing.T) {
 					"signed-by": "/etc/apt/keyrings/legacy.gpg",
 				},
 			},
-			want: "deb [signed-by=/etc/apt/keyrings/legacy.gpg] https://example.com/repo stable main\n",
+			want: "deb [signed-by=/usr/share/keyrings/vendor.gpg] https://example.com/repo stable main\n",
 		},
 		{
 			name: "deterministic option order",
 			repo: "ordered",
-			src: resource.SourceConfig{
+			src: &resource.AptSource{
 				URL:        "https://example.com/repo",
 				Suite:      "main",
 				Components: []string{"all"},
@@ -152,61 +161,62 @@ func TestBuildSourcesListLine(t *testing.T) {
 		{
 			name:    "empty name rejected",
 			repo:    "",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
 			wantErr: "empty repository name",
 		},
 		{
 			name:    "name with slash rejected",
 			repo:    "evil/name",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
 			wantErr: "contains disallowed characters",
 		},
 		{
 			name:    "name with traversal rejected",
 			repo:    "../etc/passwd",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}},
 			wantErr: "contains disallowed characters",
 		},
 		{
 			name:    "empty URL rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "", Suite: "s", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "", Suite: "s", Components: []string{"c"}},
 			wantErr: "url",
 		},
 		{
 			name:    "URL with newline rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x\nhttps://attacker", Suite: "s", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "https://x\nhttps://attacker", Suite: "s", Components: []string{"c"}},
 			wantErr: "url",
 		},
 		{
 			name:    "empty suite rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "", Components: []string{"c"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "", Components: []string{"c"}},
 			wantErr: "suite",
 		},
 		{
 			name:    "empty components rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: nil},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: nil},
 			wantErr: "components must have at least one entry",
 		},
-		{
-			name:    "unknown option rejected",
-			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}, Options: map[string]string{"trusted": "yes"}},
-			wantErr: `option "trusted" is not allowed`,
-		},
+		// Note: unknown / disallowed option *keys* (e.g. "trusted",
+		// "allow-insecure", "signed-by") are rejected by
+		// AptSource.Validate (covered in
+		// internal/resource/system_package_test.go), not by this helper.
+		// buildSourcesListLine only validates option *values* — the
+		// line-injection and shell-encoding concerns specific to
+		// rendering into the sources.list file.
 		{
 			name:    "option with newline rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}, Options: map[string]string{"arch": "amd64\nhostile"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}, Options: map[string]string{"arch": "amd64\nhostile"}},
 			wantErr: "line-ending or NUL byte",
 		},
 		{
 			name:    "option with bracket rejected",
 			repo:    "x",
-			src:     resource.SourceConfig{URL: "https://x", Suite: "s", Components: []string{"c"}, Options: map[string]string{"arch": "amd64]"}},
+			src:     &resource.AptSource{URL: "https://x", Suite: "s", Components: []string{"c"}, Options: map[string]string{"arch": "amd64]"}},
 			wantErr: "bracket or equals character",
 		},
 	}
@@ -250,13 +260,20 @@ func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 	}
 
 	// Sub-string anchors on each cmd (full strings vary by tmpDir path).
-	assert.Contains(t, runner.captureCallCmds[0][0], "gpg --dearmor")
+	// Dearmor invocation uses --no-options + ephemeral --homedir to
+	// neutralize any user ~/.gnupg/gpg.conf side-effects, and explicit
+	// --output to avoid relying on shell redirection.
+	assert.Contains(t, runner.captureCallCmds[0][0], "gpg ")
+	assert.Contains(t, runner.captureCallCmds[0][0], "--no-default-keyring")
+	assert.Contains(t, runner.captureCallCmds[0][0], "--no-options")
+	assert.Contains(t, runner.captureCallCmds[0][0], "--homedir")
+	assert.Contains(t, runner.captureCallCmds[0][0], "--dearmor")
 	assert.Contains(t, runner.captureCallCmds[1][0], "sudo -n install -D -m 0644 -o root -g root --")
 	assert.Contains(t, runner.captureCallCmds[1][0], keyringPath("docker"))
 	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n install -D -m 0644 -o root -g root --")
 	assert.Contains(t, runner.captureCallCmds[2][0], sourcesListPath("docker"))
 	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update 2>&1",
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update 2>&1",
 		runner.captureCallCmds[3][0])
 
 	// State contract: keyring first, then sources.list.
@@ -414,6 +431,29 @@ Reading package lists... Done
 	require.Len(t, runner.captureCallCmds, 4)
 }
 
+// TestFailedToFetchURLs_PrefixBoundary pins the path-boundary rule:
+// "https://example.com/repo" must NOT match a fetch failure URL of
+// "https://example.com/repo-staging/...", even though one is a byte
+// prefix of the other. Real-world collision: Google Cloud publishes both
+// `https://packages.cloud.google.com/apt` and `.../apt-cli`; a failure
+// in one repo must not trigger a rollback of the other.
+func TestFailedToFetchURLs_PrefixBoundary(t *testing.T) {
+	t.Parallel()
+	output := `W: Failed to fetch https://example.com/repo-staging/dists/jammy/InRelease  404`
+	hits := failedToFetchURLs(output, "https://example.com/repo")
+	assert.Empty(t, hits, "must not attribute repo-staging fetch failure to repo")
+
+	// Exact-match still hits.
+	exact := `W: Failed to fetch https://example.com/repo`
+	hits = failedToFetchURLs(exact, "https://example.com/repo")
+	assert.Len(t, hits, 1, "exact-equal URL must hit")
+
+	// Trailing-slash variants on either side are normalised.
+	withSlash := `W: Failed to fetch https://example.com/repo/dists/jammy/InRelease  404`
+	hits = failedToFetchURLs(withSlash, "https://example.com/repo/")
+	assert.Len(t, hits, 1, "trailing-slash base must hit slash-anchored fetch URL")
+}
+
 // TestPackageRepositoryInstaller_Install_UpdateFailure_RollbackRmAlsoFails_DoesNotMask
 // verifies that when the apt-get update step fails AND the rollback rm
 // of the placed files also fails, the returned error still attributes
@@ -461,7 +501,7 @@ func TestPackageRepositoryInstaller_Remove_Success(t *testing.T) {
 	assert.Contains(t, runner.captureCallCmds[1][0], "sudo -n rm -f --")
 	assert.Contains(t, runner.captureCallCmds[1][0], keyringPath("docker"))
 	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update",
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update",
 		runner.captureCallCmds[2][0])
 }
 
@@ -580,4 +620,47 @@ func TestFailedToFetchURLs_QueryStringAndIPv6(t *testing.T) {
 	hits := failedToFetchURLs(output, "https://[::1]/repo")
 	require.Len(t, hits, 1)
 	assert.Equal(t, "https://[::1]/repo/dists/main?arch=amd64", hits[0])
+}
+
+// TestAllowedAptOptions_CUEMatchesGo is the drift-detector: the CUE
+// schema's #AptSource.options key constraint (a regex alternation in
+// cuemodule/schema/schema.cue) must contain exactly the same key set as
+// resource.AllowedAptOptions. The CUE constraint moves the gate to
+// `tomei validate`; the Go map enforces it at install time. If the two
+// drift, `tomei validate` and `tomei apply` would disagree on which
+// option keys are allowed — a latent correctness/security bug.
+//
+// The check reads the CUE file as text (no full CUE parser dep) and
+// pulls the alternation between "^(" and ")$" out of the line declaring
+// the options field. This is cheaper than embedding cuelang and pins the
+// invariant well enough that intentional changes have to touch both files.
+func TestAllowedAptOptions_CUEMatchesGo(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "cuemodule", "schema", "schema.cue"))
+	require.NoError(t, err, "read schema.cue")
+	const (
+		marker = `options?: {[=~"^(`
+		end    = `)$"]: string}`
+	)
+	idx := strings.Index(string(data), marker)
+	require.NotEqual(t, -1, idx, "could not locate AptSource options regex in schema.cue — drift-detector wiring is broken; update the marker constant")
+	rest := string(data)[idx+len(marker):]
+	endIdx := strings.Index(rest, end)
+	require.NotEqual(t, -1, endIdx, "could not locate end of AptSource options regex")
+	cueKeys := strings.Split(rest[:endIdx], "|")
+	cueSet := make(map[string]struct{}, len(cueKeys))
+	for _, k := range cueKeys {
+		cueSet[k] = struct{}{}
+	}
+	// resource.AllowedAptOptions must match the CUE alternation exactly.
+	for k := range resource.AllowedAptOptions {
+		if _, ok := cueSet[k]; !ok {
+			t.Errorf("Go AllowedAptOptions has key %q absent from CUE alternation in schema.cue", k)
+		}
+	}
+	for k := range cueSet {
+		if _, ok := resource.AllowedAptOptions[k]; !ok {
+			t.Errorf("CUE alternation in schema.cue has key %q absent from Go AllowedAptOptions", k)
+		}
+	}
 }

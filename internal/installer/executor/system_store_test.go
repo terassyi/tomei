@@ -77,7 +77,7 @@ func TestSystemPackageRepositoryStore_SaveAndLoad(t *testing.T) {
 
 	st := &resource.SystemPackageRepositoryState{
 		InstallerRef: "apt",
-		Source: resource.SourceConfig{
+		Apt: &resource.AptSource{
 			URL:    "https://download.docker.com/linux/ubuntu",
 			KeyURL: "https://download.docker.com/linux/ubuntu/gpg",
 		},
@@ -91,7 +91,8 @@ func TestSystemPackageRepositoryStore_SaveAndLoad(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 	assert.Equal(t, "apt", loaded.InstallerRef)
-	assert.Equal(t, "https://download.docker.com/linux/ubuntu", loaded.Source.URL)
+	require.NotNil(t, loaded.Apt)
+	assert.Equal(t, "https://download.docker.com/linux/ubuntu", loaded.Apt.URL)
 }
 
 func TestSystemPackageRepositoryStore_Delete(t *testing.T) {

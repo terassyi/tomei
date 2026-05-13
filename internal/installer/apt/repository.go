@@ -30,31 +30,12 @@ const keyringDir = "/usr/share/keyrings"
 // (legacy one-line) or `.sources` (deb822). tomei writes `.list`.
 const sourcesListDir = "/etc/apt/sources.list.d"
 
-// archOption is the bracket-option key declaring per-architecture
-// restrictions in a sources.list entry (e.g. `[arch=amd64]`). It is
-// referenced in multiple places so it lives as a named constant to keep
-// goconst quiet and to give the key a single source of truth.
-const archOption = "arch"
-
-// allowedSourcesListOptions is the whitelist of bracket-option keys
-// permitted in SystemPackageRepository.spec.source.options. APT understands
-// many more, but the ones below cover all realistic third-party-repository
-// needs while excluding security-regression knobs (notably `trusted=yes`,
-// which disables signature verification — opt-in for that is tracked as a
-// separate ticket via an explicit `AllowUnsigned` flag rather than as a
-// freeform option).
-var allowedSourcesListOptions = map[string]struct{}{
-	"signed-by":                   {},
-	archOption:                    {},
-	"target":                      {},
-	"by-hash":                     {},
-	"pdiffs":                      {},
-	"check-valid-until":           {},
-	"lang":                        {},
-	"allow-insecure":              {},
-	"allow-weak":                  {},
-	"allow-downgrade-to-insecure": {},
-}
+// The bracket-option key allowlist is owned by the resource layer as
+// resource.AllowedAptOptions so that AptSource.Validate (and thus
+// `tomei validate`) rejects disallowed keys before the install path
+// runs. This file only validates option *values* (line-injection +
+// shell-encoding concerns); the *key* allowlist lives in
+// internal/resource/system_package.go.
 
 // disallowedInRepoName covers shell metacharacters, path separators, and
 // path-traversal-relevant characters. The CUE layer already constrains
@@ -69,8 +50,20 @@ const disallowedInRepoName = "/\\ \t\n\r;|&`$<>(){}*?[]~#\"'"
 // verification. apt-get returns exit 0 on partial fetch failures (only the
 // stderr warning surfaces), so the helper greps for this pattern after
 // Install's update step and rolls back the just-placed files if the failure
-// is attributable to the repository being installed.
+// is attributable to the repository being installed. Install runs apt-get
+// with LC_ALL=C LANGUAGE=C so this English-anchored regex matches
+// regardless of the host's user locale.
 var failedToFetchRE = regexp.MustCompile(`(?m)^W: Failed to fetch (\S+)`)
+
+// defaultRepoInstallTimeout caps the cumulative cost of an Install's
+// post-validation work (key download + verify + dearmor + sudo install
+// of the keyring and sources.list + apt-get update). Surfaced as a var
+// (not const) so tests and a future cross-installer timeout knob can
+// override it. 10 minutes is roomy enough for slow dearmor on
+// constrained hardware plus a worst-case apt-get update against a
+// healthy-but-distant mirror, while still bounding a hang against a
+// dead mirror.
+var defaultRepoInstallTimeout = 10 * time.Minute
 
 // PackageRepositoryInstaller adds and removes third-party APT repositories
 // by placing a per-repository GPG keyring under /usr/share/keyrings and a
@@ -182,24 +175,27 @@ func sourcesListPath(name string) string {
 //
 // Behavior:
 //
-//   - signed-by: if src.Options["signed-by"] is set, it is honored
-//     verbatim (allowing the caller to point at a pre-existing system
-//     keyring); otherwise the canonical /usr/share/keyrings/<name>.gpg is
-//     emitted. The auto-derived value is guarded against rewriting an
-//     existing user override.
-//   - Other options: only keys in allowedSourcesListOptions are accepted;
-//     unknown keys yield an error so manifest typos do not silently
-//     produce broken sources.list lines. Values are checked against
-//     validateOptionValue.
+//   - signed-by: always /usr/share/keyrings/<name>.gpg, auto-derived from
+//     name. Manifests cannot override the keyring location through Options
+//     — AptSource.Validate rejects spec.apt.options["signed-by"] outright,
+//     so by the time this helper runs the override path cannot exist.
+//   - Other options: AptSource.Validate has already confirmed each key is
+//     in resource.AllowedAptOptions. This helper only re-validates option
+//     *values* against validateOptionValue (line-injection and
+//     shell-encoding concerns for the rendered sources.list line).
 //   - Determinism: option keys are emitted in lexical order so unit-test
 //     golden assertions are stable regardless of Go's map iteration
 //     order.
 //
 // Returns the rendered line and nil, or an empty string and a validation
-// error.
-func buildSourcesListLine(name string, src resource.SourceConfig) (string, error) {
+// error. src must be non-nil; Install's caller passes spec.Apt after
+// SystemPackageRepositorySpec.Validate has confirmed presence.
+func buildSourcesListLine(name string, src *resource.AptSource) (string, error) {
 	if err := validateRepoName(name); err != nil {
 		return "", err
+	}
+	if src == nil {
+		return "", errors.New("apt: nil apt source")
 	}
 	if err := validateSourcesListField(src.URL); err != nil {
 		return "", fmt.Errorf("apt: url: %w", err)
@@ -218,17 +214,12 @@ func buildSourcesListLine(name string, src resource.SourceConfig) (string, error
 
 	opts := make(map[string]string, len(src.Options)+1)
 	for k, v := range src.Options {
-		if _, ok := allowedSourcesListOptions[k]; !ok {
-			return "", fmt.Errorf("apt: option %q is not allowed", k)
-		}
 		if err := validateOptionValue(v); err != nil {
 			return "", fmt.Errorf("apt: option %q value: %w", k, err)
 		}
 		opts[k] = v
 	}
-	if _, ok := opts["signed-by"]; !ok {
-		opts["signed-by"] = keyringPath(name)
-	}
+	opts["signed-by"] = keyringPath(name)
 
 	keys := slices.Sorted(maps.Keys(opts))
 	parts := make([]string, 0, len(keys))
@@ -252,16 +243,20 @@ func buildSourcesListLine(name string, src resource.SourceConfig) (string, error
 //
 // Shell commands executed (one per ExecuteCapture call):
 //
-//   - gpg --dearmor < '<tmp>/<name>.armored' > '<tmp>/<name>.gpg'
+//   - gpg --no-default-keyring --no-options --homedir '<tmp>' --batch --yes --output '<tmp>/<name>.gpg' --dearmor '<tmp>/<name>.armored'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.gpg' '/usr/share/keyrings/<name>.gpg'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.list' '/etc/apt/sources.list.d/<name>.list'
-//   - sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update 2>&1
+//   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update 2>&1
 //
 // The `-D` flag on `install` ensures the destination directory exists
 // (Ubuntu 20.04 minimal images may ship without /usr/share/keyrings/).
-// stderr is merged into stdout for the update step so the partial-fetch
-// detector can see `W: Failed to fetch` warnings even though apt-get
-// returns exit 0 for them.
+// The dearmor step uses an ephemeral `--homedir` so user-level
+// `~/.gnupg/gpg.conf` cannot redirect logs or output; `LC_ALL=C
+// LANGUAGE=C` on apt-get update ensures the `W: Failed to fetch`
+// partial-fetch detector matches against the canonical English
+// warning regardless of the host's locale. stderr is merged into
+// stdout for the update step so the detector sees the warnings even
+// though apt-get returns exit 0 for them.
 //
 // Return values:
 //   - success: (state, nil) where state.InstalledFiles is
@@ -279,7 +274,7 @@ func buildSourcesListLine(name string, src resource.SourceConfig) (string, error
 //     error). Both files are rolled back via best-effort `sudo rm -f`;
 //     a follow-up apt-get update is NOT issued because the cache is
 //     already in an indeterminate state and re-running will not help.
-//   - apt-get update partial fetch failure rooted in spec.Source.URL
+//   - apt-get update partial fetch failure rooted in spec.Apt.URL
 //     (exit 0 with `W: Failed to fetch` warnings): (nil, wrapped error
 //     including the failing URL). Both files are rolled back AND a
 //     follow-up apt-get update is issued so the host's APT index is
@@ -295,17 +290,24 @@ func buildSourcesListLine(name string, src resource.SourceConfig) (string, error
 // failures are logged at WARN level but do not affect the returned
 // error so the original cause is not masked).
 //
-// Trust model: name, spec.Source.URL, spec.Source.KeyURL, and
-// spec.Source.KeyHash are assumed to come from a trusted source — a
-// CUE manifest under the user's control or another in-process caller —
-// per command/executor.go's package-level Security Model. The CUE
-// layer constrains name (^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$), URL and
-// KeyURL (HTTPS only), and KeyHash (sha256:hex); this helper applies
-// defense-in-depth validation (validateRepoName, validateOptionValue,
-// validateSourcesListField) so non-CUE callers fail closed. KeyHash
-// SHA256 verification of the downloaded key is the integrity gate —
-// HTTPS alone protects only against passive MITM, not against CDN or
-// upstream-mirror compromise.
+// Trust model: every field that reaches the shell-emitted sources.list
+// line (name, spec.Apt.URL, spec.Apt.KeyURL, spec.Apt.KeyHash,
+// spec.Apt.Suite, spec.Apt.Components, spec.Apt.Options) is assumed to
+// come from a trusted source — a CUE manifest under the user's control
+// or another in-process caller — per command/executor.go's package-level
+// Security Model. Shell command strings are library-emitted (not
+// template-expanded user input); the only user-controlled values that
+// reach `sh -c` are shellQuote-wrapped operands derived from the
+// validated spec. The CUE layer constrains name
+// (^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$), URL and KeyURL (HTTPS only —
+// keyUrl may legitimately be served from a different host than URL,
+// e.g. kubernetes's pkgs.k8s.io vs Google's packages.cloud.google.com),
+// KeyHash (sha256:hex), and Options keys (resource.AllowedAptOptions);
+// this helper applies defense-in-depth validation (validateRepoName,
+// validateOptionValue, validateSourcesListField) so non-CUE callers
+// fail closed. KeyHash SHA256 verification of the downloaded key is
+// the integrity gate — HTTPS alone protects only against passive MITM,
+// not against CDN or upstream-mirror compromise.
 //
 // Concurrency: Install mutates /usr/share/keyrings and
 // /etc/apt/sources.list.d (sudo writes), and runs `apt-get update`
@@ -330,9 +332,20 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		return nil, fmt.Errorf("apt: repository %q: %w", name, err)
 	}
 
+	// Cap the cumulative cost of the post-validation steps so a slow or
+	// dead mirror (DNS hang, half-routed CDN) cannot block tomei apply
+	// indefinitely. ctx.WithTimeout ensures the spawned subprocesses
+	// (gpg / sudo install / apt-get update) receive SIGTERM via
+	// command.Executor's CommandContext path on deadline expiry, which
+	// is the only way to release the dpkg-frontend lock cleanly;
+	// wall-clock kill would leave orphan apt holding the lock.
+	ctx, cancel := context.WithTimeout(ctx, defaultRepoInstallTimeout)
+	defer cancel()
+
 	// Build the sources.list line up-front so validation failures abort
-	// before any host mutation.
-	sourcesLine, err := buildSourcesListLine(name, spec.Source)
+	// before any host mutation. spec.Validate above guarantees spec.Apt
+	// is non-nil when installerRef is "apt".
+	sourcesLine, err := buildSourcesListLine(name, spec.Apt)
 	if err != nil {
 		return nil, fmt.Errorf("apt: repository %q: build sources line: %w", name, err)
 	}
@@ -344,13 +357,13 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	defer os.RemoveAll(tmpDir)
 
 	armoredPath := filepath.Join(tmpDir, name+".armored")
-	if _, err := p.downloader.Download(ctx, spec.Source.KeyURL, armoredPath); err != nil {
+	if _, err := p.downloader.Download(ctx, spec.Apt.KeyURL, armoredPath); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: download key: %w", name, ctxErr)
 		}
 		return nil, fmt.Errorf("apt: repository %q: download key: %w", name, err)
 	}
-	if err := p.downloader.Verify(ctx, armoredPath, &resource.Checksum{Value: spec.Source.KeyHash}); err != nil {
+	if err := p.downloader.Verify(ctx, armoredPath, &resource.Checksum{Value: spec.Apt.KeyHash}); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: verify key: %w", name, ctxErr)
 		}
@@ -358,13 +371,23 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	}
 
 	dearmoredPath := filepath.Join(tmpDir, name+".gpg")
-	dearmorCmd := fmt.Sprintf("gpg --dearmor < %s > %s",
-		shellQuote(armoredPath), shellQuote(dearmoredPath))
+	dearmorCmd := fmt.Sprintf(
+		"gpg --no-default-keyring --no-options --homedir %s --batch --yes --output %s --dearmor %s",
+		shellQuote(tmpDir), shellQuote(dearmoredPath), shellQuote(armoredPath))
 	if _, err := p.client.runner.ExecuteCapture(ctx, []string{dearmorCmd}, command.Vars{}, nil); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: dearmor key: %w", name, ctxErr)
 		}
 		return nil, fmt.Errorf("apt: repository %q: dearmor key: %w", name, err)
+	}
+	// Defense-in-depth: gpg returning success while producing a 0-byte
+	// keyring would otherwise sail through to apt-get update which would
+	// then fail opaquely with "the repository is not signed". The lenient
+	// err==nil guard avoids a hard failure when the test mock runner
+	// hasn't written a file (the integration test exercises the strict
+	// path against a real gpg binary).
+	if info, statErr := os.Stat(dearmoredPath); statErr == nil && info.Size() == 0 {
+		return nil, fmt.Errorf("apt: repository %q: dearmor produced empty keyring", name)
 	}
 
 	// Use `install -D` so the destination directory is created if it does
@@ -410,7 +433,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		}
 		return nil, fmt.Errorf("apt: repository %q: update: %w", name, err)
 	}
-	if failed := failedToFetchURLs(updateOut, spec.Source.URL); len(failed) > 0 {
+	if failed := failedToFetchURLs(updateOut, spec.Apt.URL); len(failed) > 0 {
 		p.bestEffortRemove(ctx, "after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
 		// Run a follow-up update so the host's APT index is internally
 		// consistent again now that the offending sources.list is gone.
@@ -424,9 +447,22 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 			name, strings.Join(failed, ", "))
 	}
 
+	// Deep-copy spec.Apt into state. State must outlive Install's stack
+	// frame and is later consumed by the reconciler comparator and the
+	// Remove path; aliasing spec.Apt would leak post-Install spec
+	// mutations into persisted state. Matches the precedent set by
+	// PackageSetInstaller in apt.go (Packages slice cloned on
+	// hand-off to state).
 	return &resource.SystemPackageRepositoryState{
-		InstallerRef:   spec.InstallerRef,
-		Source:         spec.Source,
+		InstallerRef: spec.InstallerRef,
+		Apt: &resource.AptSource{
+			URL:        spec.Apt.URL,
+			KeyURL:     spec.Apt.KeyURL,
+			KeyHash:    spec.Apt.KeyHash,
+			Suite:      spec.Apt.Suite,
+			Components: slices.Clone(spec.Apt.Components),
+			Options:    maps.Clone(spec.Apt.Options),
+		},
 		InstalledFiles: []string{keyringDst, sourcesDst},
 		UpdatedAt:      time.Now(),
 	}, nil
@@ -523,14 +559,15 @@ func (p *PackageRepositoryInstaller) bestEffortRemove(ctx context.Context, reaso
 
 // failedToFetchURLs scans apt-get update output for `W: Failed to fetch
 // <url>` lines whose URL is rooted under the provided base. The base
-// match is a prefix check so that fetch failures against the Release /
-// InRelease / Packages files (each containing the base URL as a prefix)
-// are all attributable to the repo being installed. A trailing slash on
-// base is normalised away so callers may pass either
-// `https://example.com/ubuntu` or `https://example.com/ubuntu/`. If base
-// is empty no failures are returned, matching the early-return contract
-// that Install relies on when the caller has already validated the
-// non-emptiness of spec.Source.URL upstream.
+// match is a path-boundary prefix check so that fetch failures against
+// the Release / InRelease / Packages files (each containing the base URL
+// as a prefix) are all attributable to the repo being installed without
+// falsely matching sibling repos: `https://example.com/repo` must not
+// match a failure URL of `https://example.com/repo-staging/...`. The
+// match is exact-equal OR prefix-with-`/`-boundary. If base is empty no
+// failures are returned, matching the early-return contract that Install
+// relies on when the caller has already validated the non-emptiness of
+// spec.Apt.URL upstream.
 //
 // Capture group 1 of failedToFetchRE yields the failing URL; anything
 // after the URL (apt typically writes `  <code> <reason>` after the URL)
@@ -540,13 +577,14 @@ func failedToFetchURLs(output, base string) []string {
 		return nil
 	}
 	base = strings.TrimRight(base, "/")
+	prefix := base + "/"
 	matches := failedToFetchRE.FindAllStringSubmatch(output, -1)
 	var hits []string
 	for _, m := range matches {
 		if len(m) < 2 {
 			continue
 		}
-		if strings.HasPrefix(m[1], base) {
+		if m[1] == base || strings.HasPrefix(m[1], prefix) {
 			hits = append(hits, m[1])
 		}
 	}
