@@ -295,7 +295,7 @@ func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n install -D -m 0644 -o root -g root --")
 	assert.Contains(t, runner.captureCallCmds[2][0], sourcesListPath("docker"))
 	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update 2>&1",
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update",
 		runner.captureCallCmds[3][0])
 
 	// State contract: keyring first, then sources.list.

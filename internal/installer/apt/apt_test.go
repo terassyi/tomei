@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,8 +140,17 @@ func (m *mockCommandRunner) ExecuteCapture(_ context.Context, cmds []string, _ c
 	return m.record("capture", cmds)
 }
 
-func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, _ command.Vars, _ map[string]string, _ command.OutputCallback) error {
-	_, err := m.record("withoutput", cmds)
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, _ command.Vars, _ map[string]string, callback command.OutputCallback) error {
+	out, err := m.record("withoutput", cmds)
+	// Replay the recorded output as line-by-line callback invocations
+	// so tests that exercise streaming consumers (e.g. the apt-get
+	// update partial-fetch collector) can inject canned output via
+	// captureOutputs and have it observed by the production callback.
+	if callback != nil && out != "" {
+		for line := range strings.SplitSeq(out, "\n") {
+			callback(line)
+		}
+	}
 	return err
 }
 

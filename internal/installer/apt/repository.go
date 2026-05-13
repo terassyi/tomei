@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/terassyi/tomei/internal/installer/command"
@@ -439,20 +440,27 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		return nil, fmt.Errorf("apt: repository %q: install sources: %w", name, err)
 	}
 
-	// Update the APT index and inspect stderr for "W: Failed to fetch"
-	// warnings tied to the URL we just added. apt-get update returns
-	// exit 0 even when individual mirrors fail, so the warning is the
-	// only signal we have to detect a non-functional repo addition.
-	updateCmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update 2>&1"
-	updateOut, err := p.client.runner.ExecuteCapture(ctx, []string{updateCmd}, command.Vars{}, nil)
-	if err != nil {
+	// Update the APT index and scan stdout+stderr for `W: Failed to
+	// fetch` warnings tied to the URL we just added. apt-get update
+	// returns exit 0 even when individual mirrors fail, so the warning
+	// is the only signal we have to detect a non-functional repo
+	// addition. ExecuteWithOutput streams both streams line-by-line via
+	// the callback (no `2>&1`, no full buffer), which avoids coupling
+	// correctness to shell redirection and keeps memory bounded for
+	// hosts with verbose apt-get output. The callback runs from two
+	// goroutines (stdout + stderr), so collectFailedFetches synchronizes
+	// internally.
+	updateCmd := "sudo -n " + debianFrontendNoninteractive + " apt-get update"
+	failedFetches := newFailedFetchCollector(spec.Apt.URL)
+	updateErr := p.client.runner.ExecuteWithOutput(ctx, []string{updateCmd}, command.Vars{}, nil, failedFetches.scanLine)
+	if updateErr != nil {
 		p.bestEffortRemove(ctx, "after apt-get update hard failure", []string{sourcesDst, keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: update: %w", name, ctxErr)
 		}
-		return nil, fmt.Errorf("apt: repository %q: update: %w", name, err)
+		return nil, fmt.Errorf("apt: repository %q: update: %w", name, updateErr)
 	}
-	if failed := failedToFetchURLs(updateOut, spec.Apt.URL); len(failed) > 0 {
+	if failed := failedFetches.urls(); len(failed) > 0 {
 		p.bestEffortRemove(ctx, "after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
 		// Run a follow-up update so the host's APT index is internally
 		// consistent again now that the offending sources.list is gone.
@@ -495,7 +503,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 // Shell commands executed (one per ExecuteCapture call):
 //
 //   - sudo -n rm -f -- '<state.InstalledFiles[N]>'   (for each path, reverse order)
-//   - sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update         (via Client.Update)
+//   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update         (via Client.Update)
 //
 // Path safety: each path is re-validated against an allowlist
 // (/usr/share/keyrings/ and /etc/apt/sources.list.d/) plus a
@@ -588,38 +596,66 @@ func (p *PackageRepositoryInstaller) bestEffortRemove(_ context.Context, reason 
 	}
 }
 
-// failedToFetchURLs scans apt-get update output for `W: Failed to fetch
-// <url>` lines whose URL is rooted under the provided base. The base
-// match is a path-boundary prefix check so that fetch failures against
-// the Release / InRelease / Packages files (each containing the base URL
-// as a prefix) are all attributable to the repo being installed without
+// failedFetchCollector receives apt-get update output one line at a
+// time (via ExecuteWithOutput's callback) and accumulates the failing
+// URLs whose URL is rooted under the configured base. The base match is
+// a path-boundary prefix check so that fetch failures against the
+// Release / InRelease / Packages files (each containing the base URL as
+// a prefix) are all attributable to the repo being installed without
 // falsely matching sibling repos: `https://example.com/repo` must not
 // match a failure URL of `https://example.com/repo-staging/...`. The
-// match is exact-equal OR prefix-with-`/`-boundary. If base is empty no
-// failures are returned, matching the early-return contract that Install
-// relies on when the caller has already validated the non-emptiness of
-// spec.Apt.URL upstream.
+// match is exact-equal OR prefix-with-`/`-boundary.
 //
 // Capture group 1 of failedToFetchRE yields the failing URL; anything
-// after the URL (apt typically writes `  <code> <reason>` after the URL)
-// is excluded by `\S+`.
-func failedToFetchURLs(output, base string) []string {
-	if base == "" {
-		return nil
-	}
+// after the URL (apt typically writes `  <code> <reason>` after the
+// URL) is excluded by `\S+`. The collector is safe for concurrent
+// scanLine calls because ExecuteWithOutput spawns one goroutine per
+// stream (stdout + stderr) and invokes the callback from both.
+type failedFetchCollector struct {
+	base   string
+	prefix string
+	mu     sync.Mutex
+	hits   []string
+}
+
+func newFailedFetchCollector(base string) *failedFetchCollector {
 	base = strings.TrimRight(base, "/")
-	prefix := base + "/"
-	matches := failedToFetchRE.FindAllStringSubmatch(output, -1)
-	var hits []string
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
-		if m[1] == base || strings.HasPrefix(m[1], prefix) {
-			hits = append(hits, m[1])
-		}
+	return &failedFetchCollector{base: base, prefix: base + "/"}
+}
+
+func (f *failedFetchCollector) scanLine(line string) {
+	if f.base == "" {
+		return
 	}
-	return hits
+	m := failedToFetchRE.FindStringSubmatch(line)
+	if len(m) < 2 {
+		return
+	}
+	url := m[1]
+	if url == f.base || strings.HasPrefix(url, f.prefix) {
+		f.mu.Lock()
+		f.hits = append(f.hits, url)
+		f.mu.Unlock()
+	}
+}
+
+func (f *failedFetchCollector) urls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.hits...)
+}
+
+// failedToFetchURLs is a thin wrapper over failedFetchCollector that
+// keeps the original single-shot string-input API for unit tests. The
+// streaming Install path uses the collector directly; this helper
+// exists only so the partial-fetch-detection table tests can stay
+// readable (pass a full apt-get update transcript, get back hits).
+func failedToFetchURLs(output, base string) []string {
+	c := newFailedFetchCollector(base)
+	for line := range strings.SplitSeq(output, "\n") {
+		c.scanLine(line)
+	}
+	return c.urls()
 }
 
 // shellQuote single-quotes a string for safe interpolation into a

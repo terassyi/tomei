@@ -377,7 +377,7 @@ func (c *Client) PackageVersion(ctx context.Context, pkg string) (string, error)
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update
 //
 // stdout/stderr are drained (discarded, not buffered in memory). On
 // failure the returned error wraps the runner's error (typically
@@ -431,7 +431,7 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
 // stdout/stderr are drained (discarded, not buffered in memory).
 //
@@ -464,7 +464,7 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 //
 // The shell command executed is:
 //
-//	sudo -n env DEBIAN_FRONTEND=noninteractive apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- <packages>
 //
 // stdout/stderr are drained (discarded, not buffered in memory).
 //
@@ -482,7 +482,7 @@ func (p *PackageSetInstaller) Remove(ctx context.Context, state *resource.System
 	return p.runRemove(ctx, state.Packages)
 }
 
-// runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// runInstall executes "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get
 // install -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
 // errEmptyPackagesInstall if packages is empty. Each name is rejected if it is
 // empty or contains whitespace / shell metacharacters / shell-expansion
@@ -510,7 +510,7 @@ func (p *PackageSetInstaller) runInstall(ctx context.Context, packages []string)
 	return nil
 }
 
-// runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get
+// runRemove executes "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get
 // remove -y -o DPkg::Lock::Timeout=60 -- <packages>". Returns
 // errEmptyPackagesRemove if packages is empty. Each name is rejected if
 // it is empty or contains whitespace / shell metacharacters / shell-
