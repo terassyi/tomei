@@ -364,7 +364,7 @@ spec: {
 | `spec.apt.url` | HTTPS URL | yes | Repository base URL (the value before suite/components in the emitted `deb` line) |
 | `spec.apt.keyUrl` | HTTPS URL | yes | URL of the ASCII-armored GPG public key. May legitimately be served from a different host than `url` (e.g. kubernetes's `pkgs.k8s.io` repo with a key on `packages.cloud.google.com`) |
 | `spec.apt.keyHash` | string | yes | SHA-256 of the armored key in `sha256:<64-lowercase-hex>` form. Required as defense-in-depth: HTTPS alone protects only against passive MITM, not against CDN or upstream-mirror compromise |
-| `spec.apt.suite` | string | yes | Distribution release (e.g. `jammy`, `noble`, `bookworm`). Single-suite by design; flat repositories (`suite: "/"`) are explicitly unsupported |
+| `spec.apt.suite` | string | yes | Distribution release (e.g. `jammy`, `noble`, `bookworm`). Single-suite by design. Flat repositories — APT's `deb URL ./` syntax where the suite token is the literal `./` — are unsupported; the schema rejects `./`, `/`, `.`, and `..` as suite values |
 | `spec.apt.components` | `[...string]` | yes | One or more pool components (e.g. `["stable"]`, `["main", "contrib", "non-free"]`) |
 | `spec.apt.options` | `{[string]: string}` | no | Bracketed sources.list options. Allowed keys: `arch`, `target`, `by-hash`, `pdiffs`, `check-valid-until`, `lang`. `signed-by` is auto-derived from `metadata.name` and must not be set here. `trusted=yes`, `allow-insecure`, `allow-weak`, `allow-downgrade-to-insecure` are rejected by both the CUE schema and `AptSource.Validate` because they disable or weaken signature verification |
 

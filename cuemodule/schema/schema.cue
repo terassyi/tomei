@@ -254,10 +254,11 @@ package schema
 	// suite is the distribution release identifier (e.g. "jammy",
 	// "noble", "bookworm"). Single-suite by design: multi-suite repos
 	// (used only by distribution mirrors, never by third-party vendors)
-	// are out of scope. Flat repositories ("deb URL ./") are also
-	// unsupported — write multiple SystemPackageRepository resources if
-	// you genuinely need different layouts.
-	suite: string & !="" & !="/"
+	// are out of scope. Flat repositories — APT's `deb URL ./` syntax
+	// where the suite token is the literal `./` — are explicitly
+	// unsupported; AptSource.Validate rejects every flat-style marker
+	// (`/`, `./`, `.`, `..`) as defense-in-depth alongside this regex.
+	suite: string & =~"^[^./]" & !="/"
 	// components are the pool components emitted as space-separated
 	// trailing tokens (e.g. ["stable"], ["main", "contrib", "non-free"]).
 	// At least one required.

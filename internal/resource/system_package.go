@@ -126,8 +126,13 @@ func (a *AptSource) Validate() error {
 	if a.Suite == "" {
 		return fmt.Errorf("apt.suite is required")
 	}
-	if a.Suite == "/" {
-		return fmt.Errorf(`apt.suite="/" (flat repository layout) is not supported`)
+	// APT flat-repository syntax is `deb URL ./` — the suite token is
+	// the literal `./` (relative-path marker), not `/`. Reject all flat-
+	// style markers explicitly so manifests cannot smuggle a flat layout
+	// past the schema by varying the spelling.
+	switch a.Suite {
+	case "/", "./", ".", "..":
+		return fmt.Errorf("apt.suite=%q (flat repository layout) is not supported", a.Suite)
 	}
 	if len(a.Components) == 0 {
 		return fmt.Errorf("apt.components must have at least one entry")

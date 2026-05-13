@@ -279,7 +279,10 @@ func TestAptSource_Validate(t *testing.T) {
 		}, wantErr: "does not match required form"},
 		{name: "keyHash short rejected", mutate: func(a *AptSource) { a.KeyHash = "sha256:00" }, wantErr: "does not match required form"},
 		{name: "empty suite", mutate: func(a *AptSource) { a.Suite = "" }, wantErr: "apt.suite is required"},
-		{name: "flat repo suite rejected", mutate: func(a *AptSource) { a.Suite = "/" }, wantErr: "flat repository"},
+		{name: "flat repo suite slash rejected", mutate: func(a *AptSource) { a.Suite = "/" }, wantErr: "flat repository"},
+		{name: "flat repo suite dotslash rejected", mutate: func(a *AptSource) { a.Suite = "./" }, wantErr: "flat repository"},
+		{name: "flat repo suite dot rejected", mutate: func(a *AptSource) { a.Suite = "." }, wantErr: "flat repository"},
+		{name: "flat repo suite dotdot rejected", mutate: func(a *AptSource) { a.Suite = ".." }, wantErr: "flat repository"},
 		{name: "empty components", mutate: func(a *AptSource) { a.Components = nil }, wantErr: "components must have at least one entry"},
 		{name: "empty component string", mutate: func(a *AptSource) { a.Components = []string{""} }, wantErr: "components[0] must not be empty"},
 		// signed-by is auto-derived; manifests must not set it.

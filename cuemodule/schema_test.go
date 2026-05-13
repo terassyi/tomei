@@ -808,11 +808,30 @@ func TestSchema_InvalidResources(t *testing.T) {
 			}`,
 		},
 		{
-			// Flat repository syntax (suite="/") is explicitly out of scope —
-			// the schema rejects it both via the CUE constraint and the Go
-			// AptSource.Validate so users get a clear "not supported" error
-			// rather than a silently-malformed sources.list line.
-			name: "SystemPackageRepository flat repo suite rejected",
+			// Flat repository syntax — APT's canonical form is `deb URL ./`
+			// where the suite token is the literal "./" — is explicitly out
+			// of scope. The CUE constraint rejects every flat-style marker
+			// (./, /, ., ..) so manifests cannot smuggle a flat layout past
+			// validate-time by varying the spelling.
+			name: "SystemPackageRepository flat repo suite dotslash rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "SystemPackageRepository"
+				metadata: name: "vendor"
+				spec: {
+					installerRef: "apt"
+					apt: {
+						url:        "https://example.com/repo"
+						keyUrl:     "https://example.com/repo/gpg"
+						keyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+						suite:      "./"
+						components: ["main"]
+					}
+				}
+			}`,
+		},
+		{
+			name: "SystemPackageRepository flat repo suite slash rejected",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
 				kind:       "SystemPackageRepository"
