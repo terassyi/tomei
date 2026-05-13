@@ -5,6 +5,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,15 +119,27 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 	// httptest server: serve the armored key for /key.asc, 404 for
 	// every other path. The 404 on /dists/... is precisely what
 	// produces the `W: Failed to fetch` warning that the rollback path
-	// reacts to.
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/key.asc" {
-			w.Header().Set("Content-Type", "application/pgp-keys")
-			_, _ = w.Write(armored)
-			return
-		}
-		http.NotFound(w, r)
-	}))
+	// reacts to. We bind an explicit IPv4 listener instead of using
+	// httptest.NewServer's default behaviour because the default can
+	// pick `[::1]` on IPv6-preferring hosts; resource.validateRepoURL
+	// and download.validateDownloadURL only escape-hatch http:// for
+	// the literal strings "localhost" and "127.0.0.1", so an IPv6 URL
+	// would be rejected before this test reached the rollback
+	// assertions.
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err, "bind IPv4 listener for httptest server")
+	server := &httptest.Server{
+		Listener: listener,
+		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/key.asc" {
+				w.Header().Set("Content-Type", "application/pgp-keys")
+				_, _ = w.Write(armored)
+				return
+			}
+			http.NotFound(w, r)
+		})},
+	}
+	server.Start()
 	t.Cleanup(server.Close)
 
 	res := &resource.SystemPackageRepository{

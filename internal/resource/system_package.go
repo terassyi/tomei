@@ -346,11 +346,15 @@ func (s *SystemPackageSet) Spec() Spec { return s.SystemPackageSetSpec }
 // The state mirrors the discriminated-union shape of the spec: exactly
 // one of the installer-specific source pointers (Apt, ...) is non-nil
 // and matches InstallerRef. InstalledFiles records the paths the
-// installer placed on disk in install order. By convention the APT
-// installer emits [<keyring path>, <sources.list path>] so that Remove
-// can iterate in reverse (sources.list first, then keyring) — this
-// avoids a brief window where APT would consult a sources.list pointing
-// to a missing keyring.
+// installer placed on disk; for APT that is [<keyring path>,
+// <sources.list path>], used by Remove as a membership set rather than
+// as an ordering hint — Remove validates each recorded path against the
+// deterministic per-name destinations and then deletes in the canonical
+// sequence (sources.list first, then keyring) regardless of slice
+// order. The canonical order avoids a brief window where APT would
+// consult a sources.list pointing at an already-removed keyring; the
+// fixed ordering also means a tampered state file cannot induce a
+// reordered Remove that breaks concurrent apt activity.
 type SystemPackageRepositoryState struct {
 	InstallerRef   string     `json:"installerRef"`
 	Apt            *AptSource `json:"apt,omitempty"`
