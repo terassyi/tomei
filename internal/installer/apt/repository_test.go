@@ -568,10 +568,29 @@ func TestPackageRepositoryInstaller_Remove_PathOutsideAllowlist(t *testing.T) {
 	}
 	err := New(runner).PackageRepositoryInstaller(&mockDownloader{}).Remove(context.Background(), state, "docker")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "outside")
+	assert.Contains(t, err.Error(), "expected")
 	// The first iteration (sources.list slot, here /etc/passwd) was
 	// rejected before any rm fired.
 	assert.Empty(t, runner.captureCallCmds)
+}
+
+func TestPackageRepositoryInstaller_Remove_PathOtherRepositoryRejected(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	// A tampered state file that points at another repository's keyring
+	// (under the same allowed directory) must be refused — the security
+	// gate is exact match against the deterministic paths for this name,
+	// not just a directory-prefix check.
+	state := &resource.SystemPackageRepositoryState{
+		InstalledFiles: []string{
+			keyringPath("victim"),
+			sourcesListPath("victim"),
+		},
+	}
+	err := New(runner).PackageRepositoryInstaller(&mockDownloader{}).Remove(context.Background(), state, "docker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `for repository "docker"`)
+	assert.Empty(t, runner.captureCallCmds, "no rm should fire when state points at another repository's files")
 }
 
 func TestPackageRepositoryInstaller_Remove_RmFailure(t *testing.T) {

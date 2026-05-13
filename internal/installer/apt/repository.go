@@ -516,12 +516,14 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 //   - sudo -n rm -f -- '<state.InstalledFiles[N]>'   (for each path, reverse order)
 //   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update         (via Client.Update)
 //
-// Path safety: each path is re-validated against an allowlist
-// (/usr/share/keyrings/ and /etc/apt/sources.list.d/) plus a
-// filepath.Clean canonicalisation check before being passed to rm. This
-// is the seatbelt against a tampered state file driving Remove towards
-// an unintended target. Paths outside the allowlist or with non-canonical
-// segments (e.g. `..`) yield an immediate error before any rm fires.
+// Path safety: each path is re-validated against the deterministic
+// per-name destinations Install writes (keyringPath(name) and
+// sourcesListPath(name)) plus a filepath.Clean canonicalisation check
+// before being passed to rm. This is the seatbelt against a tampered
+// state file driving Remove towards an unintended target. Any path
+// other than the exact pair this name produces — outside the allowed
+// directories entirely, or inside them but for a different repository
+// — yields an immediate error before any rm fires.
 //
 // Caller contract: state MUST be non-nil. An empty InstalledFiles is
 // treated as a no-op for the rm loop — apt-get update still runs so
@@ -542,9 +544,13 @@ func (p *PackageRepositoryInstaller) Remove(ctx context.Context, state *resource
 		return err
 	}
 	// Remove in reverse install order so the sources.list referencing the
-	// keyring is gone before the keyring itself disappears.
+	// keyring is gone before the keyring itself disappears. Each path is
+	// re-validated against the exact paths this installer writes for the
+	// given name — directory-prefix-only matching would let a tampered
+	// state file enumerate other repositories' files under the same
+	// allowed directories and trick Remove into deleting them.
 	for _, path := range slices.Backward(state.InstalledFiles) {
-		if err := validateInstalledPath(path); err != nil {
+		if err := validateInstalledPath(name, path); err != nil {
 			return fmt.Errorf("apt: repository %q: %w", name, err)
 		}
 		rmCmd := fmt.Sprintf("sudo -n rm -f -- %s", shellQuote(path))
@@ -561,10 +567,18 @@ func (p *PackageRepositoryInstaller) Remove(ctx context.Context, state *resource
 	return nil
 }
 
-// validateInstalledPath refuses paths outside the directories Install
-// writes to. This is the seatbelt against a tampered state file driving
-// Remove towards an unintended target (e.g. /etc/passwd).
-func validateInstalledPath(path string) error {
+// validateInstalledPath refuses any path that does not exactly match
+// one of the two paths this installer writes for the given repository
+// name (the keyring at /usr/share/keyrings/<name>.gpg or the
+// sources.list fragment at /etc/apt/sources.list.d/<name>.list). This
+// is the seatbelt against a tampered state file driving Remove towards
+// an unintended target — either outside the allowlist directories
+// entirely (/etc/passwd) or inside them but for a different repository
+// (e.g. a malicious state pointing at /usr/share/keyrings/<other>.gpg).
+// The exact-match policy is sound because Install's paths are
+// deterministic functions of name; a state file that has anything else
+// in InstalledFiles is by definition corrupt.
+func validateInstalledPath(name, path string) error {
 	if path == "" {
 		return errors.New("refuse empty installed-file path")
 	}
@@ -572,9 +586,11 @@ func validateInstalledPath(path string) error {
 	if cleaned != path {
 		return fmt.Errorf("refuse non-canonical installed-file path %q", path)
 	}
-	if !strings.HasPrefix(cleaned, keyringDir+"/") && !strings.HasPrefix(cleaned, sourcesListDir+"/") {
-		return fmt.Errorf("refuse installed-file path %q outside %s and %s",
-			path, keyringDir, sourcesListDir)
+	wantKeyring := keyringPath(name)
+	wantSources := sourcesListPath(name)
+	if cleaned != wantKeyring && cleaned != wantSources {
+		return fmt.Errorf("refuse installed-file path %q: expected %q or %q for repository %q",
+			path, wantKeyring, wantSources, name)
 	}
 	return nil
 }

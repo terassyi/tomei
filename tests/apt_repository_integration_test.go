@@ -50,8 +50,10 @@ const keyHashSHA256 = "sha256:c136badca3a932d7d4ae3a48068370d203ae3fb876dec76fa8
 //   - `sudo -n install -D -m 0644 -o root -g root --` actually creates
 //     /usr/share/keyrings/<name>.gpg and /etc/apt/sources.list.d/<name>.list
 //     as root:root with 0644 permissions.
-//   - `apt-get update` is invoked with stderr-on-stdout merge so
-//     `W: Failed to fetch` warnings reach the helper.
+//   - `apt-get update` is invoked via ExecuteWithOutput which reads
+//     stdout and stderr concurrently and forwards every line to the
+//     partial-fetch collector, so `W: Failed to fetch` warnings on
+//     stderr reach the helper without any shell `2>&1` merge.
 //   - The rollback path actually removes both files via real sudo rm.
 //
 // Coverage gap: the apt-get update **success** path is not exercised by
