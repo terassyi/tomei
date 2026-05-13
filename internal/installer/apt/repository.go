@@ -480,14 +480,21 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	}
 	if failed := failedFetches.urls(); len(failed) > 0 {
 		p.bestEffortRemove(ctx, "after apt-get update partial fetch failure", []string{sourcesDst, keyringDst})
-		// Run a follow-up update so the host's APT index is internally
-		// consistent again now that the offending sources.list is gone.
-		// Errors here are surfaced only via warn logs inside Update —
-		// we cannot return them without masking the rollback cause.
-		if uerr := p.client.Update(ctx); uerr != nil {
+		// Run a follow-up update on a fresh Background-rooted context
+		// (with its own short deadline) so the host's APT index is
+		// restored to a consistent state even when Install's caller
+		// ctx is already past its deadline — without the detached
+		// context the follow-up Update would be refused by
+		// CommandContext, defeating the rollback contract this branch
+		// is meant to satisfy. Errors here are surfaced only via warn
+		// logs; we cannot return them without masking the rollback
+		// cause.
+		updateCleanupCtx, cancelUpdate := context.WithTimeout(context.Background(), 60*time.Second)
+		if uerr := p.client.Update(updateCleanupCtx); uerr != nil {
 			slog.Warn("apt: repository rollback: follow-up update failed",
 				"repository", name, "err", uerr)
 		}
+		cancelUpdate()
 		return nil, fmt.Errorf("apt: repository %q: failed to fetch: %s",
 			name, strings.Join(failed, ", "))
 	}

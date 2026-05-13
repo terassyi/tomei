@@ -165,6 +165,18 @@ func (a *AptSource) Validate() error {
 	if r := a.Suite[0]; r == '.' || r == '/' {
 		return fmt.Errorf("apt.suite=%q must not start with %q (flat-repository markers and partial paths are not supported)", a.Suite, string(r))
 	}
+	// URL and Suite tokens flow verbatim into the rendered sources.list
+	// line. Reject whitespace / line-ending / NUL / control chars at
+	// validate time so `tomei validate` mirrors the same rules
+	// buildSourcesListLine enforces at apply time; without this, a
+	// manifest like `apt.suite: "jammy main"` (extra token) passes
+	// validate but breaks apply mid-Install.
+	if err := validateSourcesListToken("apt.url", a.URL); err != nil {
+		return err
+	}
+	if err := validateSourcesListToken("apt.suite", a.Suite); err != nil {
+		return err
+	}
 	if len(a.Components) == 0 {
 		return fmt.Errorf("apt.components must have at least one entry")
 	}
@@ -172,13 +184,65 @@ func (a *AptSource) Validate() error {
 		if c == "" {
 			return fmt.Errorf("apt.components[%d] must not be empty", i)
 		}
+		if err := validateSourcesListToken(fmt.Sprintf("apt.components[%d]", i), c); err != nil {
+			return err
+		}
 	}
-	for k := range a.Options {
+	for k, v := range a.Options {
 		if k == "signed-by" {
 			return fmt.Errorf(`apt.options["signed-by"] is auto-derived from metadata.name; remove it from spec.apt.options`)
 		}
 		if !IsAllowedAptOption(k) {
 			return fmt.Errorf("apt.options[%q] is not allowed", k)
+		}
+		if v == "" {
+			return fmt.Errorf("apt.options[%q] must not be empty", k)
+		}
+		if err := validateOptionValueChars(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSourcesListToken rejects characters that break the
+// space-separated `URL Suite Components...` portion of a sources.list
+// line (whitespace splits the token; CR / LF inject new lines; NUL and
+// control bytes corrupt apt's parser). Mirrors the same constraints
+// buildSourcesListLine applies at apply time so `tomei validate` and
+// `tomei apply` agree.
+func validateSourcesListToken(field, value string) error {
+	for _, r := range value {
+		switch {
+		case r == ' ' || r == '\t':
+			return fmt.Errorf("%s %q contains whitespace", field, value)
+		case r == '\n' || r == '\r' || r == 0:
+			return fmt.Errorf("%s %q contains line-ending or NUL byte", field, value)
+		case r < 0x20:
+			return fmt.Errorf("%s %q contains control character", field, value)
+		}
+	}
+	return nil
+}
+
+// validateOptionValueChars rejects characters that break the bracket-
+// option syntax `[key=value key=value]` in sources.list (whitespace
+// splits options; CR / LF / NUL inject lines; `]`, `[`, and `=` collide
+// with the surrounding syntax; control bytes corrupt the parser).
+// Mirrors buildSourcesListLine's value-char check so a manifest with
+// `apt.options.arch: "amd64\n"` is rejected at validate time, not
+// silently passed through to apply.
+func validateOptionValueChars(key, value string) error {
+	for _, r := range value {
+		switch {
+		case r == ' ' || r == '\t':
+			return fmt.Errorf("apt.options[%q] value contains whitespace", key)
+		case r == '\n' || r == '\r' || r == 0:
+			return fmt.Errorf("apt.options[%q] value contains line-ending or NUL byte", key)
+		case r == ']' || r == '[' || r == '=':
+			return fmt.Errorf("apt.options[%q] value contains bracket or equals character", key)
+		case r < 0x20:
+			return fmt.Errorf("apt.options[%q] value contains control character", key)
 		}
 	}
 	return nil

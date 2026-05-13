@@ -288,6 +288,26 @@ func TestAptSource_Validate(t *testing.T) {
 		// suite like ".foo" or "/foo" through into the rendered sources.list.
 		{name: "suite leading dot rejected", mutate: func(a *AptSource) { a.Suite = ".foo" }, wantErr: "must not start with"},
 		{name: "suite leading slash rejected", mutate: func(a *AptSource) { a.Suite = "/foo" }, wantErr: "must not start with"},
+		// Token-shape checks now mirror buildSourcesListLine at validate
+		// time so `tomei validate` rejects manifests that would otherwise
+		// fail later at apply.
+		{name: "url with whitespace rejected", mutate: func(a *AptSource) { a.URL = "https://example.com hello" }, wantErr: "contains whitespace"},
+		{name: "url with newline rejected", mutate: func(a *AptSource) { a.URL = "https://example.com\nhttps://attacker" }, wantErr: "contains line-ending"},
+		{name: "suite with whitespace rejected", mutate: func(a *AptSource) { a.Suite = "jammy main" }, wantErr: "contains whitespace"},
+		{name: "component with whitespace rejected", mutate: func(a *AptSource) { a.Components = []string{"main contrib"} }, wantErr: "contains whitespace"},
+		{name: "component with newline rejected", mutate: func(a *AptSource) { a.Components = []string{"main\nhostile"} }, wantErr: "contains line-ending"},
+		{name: "option empty value rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": ""}
+		}, wantErr: "must not be empty"},
+		{name: "option value with whitespace rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64 arm64"}
+		}, wantErr: "contains whitespace"},
+		{name: "option value with newline rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64\nhostile"}
+		}, wantErr: "contains line-ending"},
+		{name: "option value with bracket rejected", mutate: func(a *AptSource) {
+			a.Options = map[string]string{"arch": "amd64]"}
+		}, wantErr: "bracket or equals character"},
 		{name: "empty components", mutate: func(a *AptSource) { a.Components = nil }, wantErr: "components must have at least one entry"},
 		{name: "empty component string", mutate: func(a *AptSource) { a.Components = []string{""} }, wantErr: "components[0] must not be empty"},
 		// signed-by is auto-derived; manifests must not set it.
