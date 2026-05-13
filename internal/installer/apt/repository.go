@@ -246,10 +246,14 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 }
 
 // Install runs the full repository setup flow: download the armored GPG
-// key over HTTPS, verify its SHA256 against the manifest, convert to the
-// binary keyring format with `gpg --dearmor`, place it under
-// /usr/share/keyrings/, write a one-line sources.list entry under
-// /etc/apt/sources.list.d/, and refresh the APT index.
+// key from spec.Apt.KeyURL (HTTPS-only at the CUE / download.Downloader
+// layer — a localhost http:// override is permitted by the downloader
+// for integration tests; this installer itself does not re-validate the
+// scheme and trusts the upstream validation chain), verify its SHA256
+// against spec.Apt.KeyHash, convert to the binary keyring format with
+// `gpg --dearmor`, place it under /usr/share/keyrings/, write a
+// one-line sources.list entry under /etc/apt/sources.list.d/, and
+// refresh the APT index.
 //
 // Shell commands executed (one per ExecuteCapture call):
 //
@@ -271,9 +275,14 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 // Return values:
 //   - success: (state, nil) where state.InstalledFiles is
 //     [keyring path, sources.list path] in install order.
-//   - validation error before any host mutation: (nil, wrapped error
-//     starting with "apt: repository %q:" — name / spec / options /
-//     URL / suite / components / disallowed Options key).
+//   - validation error before any host mutation: (nil, error). Two
+//     prefix shapes occur — `apt: repository name %q ...` from
+//     validateRepoName (returned directly, no per-call wrap because the
+//     name is already embedded in the message) and `apt: repository %q:
+//     <reason>` from spec.Validate / buildSourcesListLine wraps (spec /
+//     options / URL / suite / components / disallowed Options key).
+//     Callers wanting the name in a uniform position should use
+//     errors.Is / errors.As on sentinel errors rather than the prefix.
 //   - download / verify / dearmor failure: (nil, wrapped error). No
 //     files placed.
 //   - sudo install failure for the keyring: (nil, wrapped error). No
