@@ -154,12 +154,16 @@ func (a *AptSource) Validate() error {
 		return fmt.Errorf("apt.suite is required")
 	}
 	// APT flat-repository syntax is `deb URL ./` — the suite token is
-	// the literal `./` (relative-path marker), not `/`. Reject all flat-
-	// style markers explicitly so manifests cannot smuggle a flat layout
-	// past the schema by varying the spelling.
-	switch a.Suite {
-	case "/", "./", ".", "..":
-		return fmt.Errorf("apt.suite=%q (flat repository layout) is not supported", a.Suite)
+	// the literal `./` (relative-path marker), not `/`. Reject any
+	// suite whose first character is `.` or `/`: that includes all
+	// flat-style markers (`/`, `./`, `.`, `..`) plus partial-path
+	// variants like `.foo` or `/foo` that CUE rejects via its
+	// `^[^./]` constraint. The set of legitimate APT suites
+	// (codenames like `jammy`, version numbers like `21.04`) never
+	// starts with either character, so this is a hard match against
+	// the CUE rule and closes the gap for non-CUE callers.
+	if r := a.Suite[0]; r == '.' || r == '/' {
+		return fmt.Errorf("apt.suite=%q must not start with %q (flat-repository markers and partial paths are not supported)", a.Suite, string(r))
 	}
 	if len(a.Components) == 0 {
 		return fmt.Errorf("apt.components must have at least one entry")
