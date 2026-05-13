@@ -32,7 +32,7 @@ const keyringDir = "/usr/share/keyrings"
 const sourcesListDir = "/etc/apt/sources.list.d"
 
 // The bracket-option key allowlist is owned by the resource layer as
-// resource.AllowedAptOptions so that AptSource.Validate (and thus
+// resource.IsAllowedAptOption / AllowedAptOptionKeys so that AptSource.Validate (and thus
 // `tomei validate`) rejects disallowed keys before the install path
 // runs. This file only validates option *values* (line-injection +
 // shell-encoding concerns); the *key* allowlist lives in
@@ -191,7 +191,7 @@ func sourcesListPath(name string) string {
 //     — AptSource.Validate rejects spec.apt.options["signed-by"] outright,
 //     so by the time this helper runs the override path cannot exist.
 //   - Other options: AptSource.Validate has already confirmed each key is
-//     in resource.AllowedAptOptions. This helper only re-validates option
+//     per resource.IsAllowedAptOption. This helper only re-validates option
 //     *values* against validateOptionValue (line-injection and
 //     shell-encoding concerns for the rendered sources.list line).
 //   - Determinism: option keys are emitted in lexical order so unit-test
@@ -325,7 +325,7 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 // (^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$), URL and KeyURL (HTTPS only —
 // keyUrl may legitimately be served from a different host than URL,
 // e.g. kubernetes's pkgs.k8s.io vs Google's packages.cloud.google.com),
-// KeyHash (sha256:hex), and Options keys (resource.AllowedAptOptions);
+// KeyHash (sha256:hex), and Options keys (resource.IsAllowedAptOption);
 // this helper applies defense-in-depth validation (validateRepoName,
 // validateOptionValue, validateSourcesListField) so non-CUE callers
 // fail closed. KeyHash SHA256 verification of the downloaded key is
@@ -436,7 +436,15 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	installSourcesCmd := fmt.Sprintf("sudo -n install -D -m 0644 -o root -g root -- %s %s",
 		shellQuote(sourcesListSrc), shellQuote(sourcesDst))
 	if _, err := p.client.runner.ExecuteCapture(ctx, []string{installSourcesCmd}, command.Vars{}, nil); err != nil {
-		p.bestEffortRemove(ctx, "after sources install failure", []string{keyringDst})
+		// `install` can fail after partially creating or overwriting
+		// sourcesDst (e.g. it copied to a temp path under the
+		// destination directory, then renamed and the rename failed,
+		// or it began an in-place write that errored midway). rm -f
+		// is safe even if sourcesDst does not exist, so remove it
+		// alongside the keyring to keep rollback symmetric and prevent
+		// a stranded sources.list pointing at a removed keyring from
+		// breaking subsequent apt operations.
+		p.bestEffortRemove(ctx, "after sources install failure", []string{sourcesDst, keyringDst})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("apt: repository %q: install sources: %w", name, ctxErr)
 		}

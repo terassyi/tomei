@@ -374,20 +374,25 @@ func TestPackageRepositoryInstaller_Install_KeyringInstallFailure(t *testing.T) 
 	require.Len(t, runner.captureCallCmds, 2)
 }
 
-func TestPackageRepositoryInstaller_Install_SourcesInstallFailure_RollsBackKeyring(t *testing.T) {
+func TestPackageRepositoryInstaller_Install_SourcesInstallFailure_RollsBackBoth(t *testing.T) {
 	t.Parallel()
-	// call 0 dearmor ok, call 1 install keyring ok, call 2 install sources fails,
-	// call 3 must be the rollback `sudo rm -f --` of the keyring.
+	// call 0 dearmor ok, call 1 install keyring ok, call 2 install sources
+	// fails. Rollback must remove BOTH sourcesDst (the install command may
+	// have partially placed it before failing) AND keyringDst, in that
+	// order (sources first so a brief window doesn't leave a sources.list
+	// pointing at a missing keyring). Calls 3 and 4 are the rm operations.
 	runner := &mockCommandRunner{
-		captureErrs: []error{nil, nil, errors.New("sudo denied"), nil},
+		captureErrs: []error{nil, nil, errors.New("sudo denied"), nil, nil},
 	}
 	dl := &mockDownloader{downloadBody: []byte("body")}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": install sources`)
-	require.Len(t, runner.captureCallCmds, 4)
+	require.Len(t, runner.captureCallCmds, 5)
 	assert.Contains(t, runner.captureCallCmds[3][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[3][0], keyringPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[3][0], sourcesListPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[4][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[4][0], keyringPath("docker"))
 }
 
 func TestPackageRepositoryInstaller_Install_UpdateFailure_RollsBackBoth(t *testing.T) {
