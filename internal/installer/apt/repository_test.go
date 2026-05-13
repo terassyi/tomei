@@ -695,6 +695,27 @@ func TestFailedToFetchURLs_QueryStringAndIPv6(t *testing.T) {
 	assert.Equal(t, "https://[::1]/repo/dists/main?arch=amd64", hits[0])
 }
 
+// TestFailedFetchCollector_DeduplicatesAndSorts pins the contract that
+// urls() returns a deterministic, duplicate-free list. apt-get update
+// can name the same failing URL on multiple lines (one per fetch
+// stage — InRelease, Release, Release.gpg), and the collector
+// receives lines from two goroutines (stdout + stderr) so append
+// order is otherwise race-dependent. Dedupe + sort make the
+// user-facing error string stable across runs.
+func TestFailedFetchCollector_DeduplicatesAndSorts(t *testing.T) {
+	t.Parallel()
+	c := newFailedFetchCollector("https://example.com/repo")
+	c.scanLine("W: Failed to fetch https://example.com/repo/dists/jammy/Release  404")
+	c.scanLine("W: Failed to fetch https://example.com/repo/dists/jammy/Release  404")
+	c.scanLine("W: Failed to fetch https://example.com/repo/dists/jammy/InRelease  404")
+	got := c.urls()
+	want := []string{
+		"https://example.com/repo/dists/jammy/InRelease",
+		"https://example.com/repo/dists/jammy/Release",
+	}
+	assert.Equal(t, want, got)
+}
+
 // TestAllowedAptOptions_CUEMatchesGo is the drift-detector: the CUE
 // schema's #AptSource.options key constraint (a regex alternation in
 // cuemodule/schema/schema.cue) must contain exactly the same key set

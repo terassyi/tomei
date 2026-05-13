@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -709,7 +710,25 @@ func (f *failedFetchCollector) scanLine(line string) {
 func (f *failedFetchCollector) urls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]string(nil), f.hits...)
+	// scanLine is invoked from two goroutines (stdout + stderr); raw
+	// append order would therefore be a race-dependent interleave, and
+	// apt can report the same URL on multiple lines (one per fetch
+	// stage). Dedupe + sort so the user-facing error string is stable
+	// across runs and free of duplicates.
+	if len(f.hits) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(f.hits))
+	out := make([]string, 0, len(f.hits))
+	for _, u := range f.hits {
+		if _, ok := seen[u]; ok {
+			continue
+		}
+		seen[u] = struct{}{}
+		out = append(out, u)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // failedToFetchURLs is a thin wrapper over failedFetchCollector that
