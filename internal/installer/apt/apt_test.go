@@ -1,6 +1,7 @@
 package apt
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -152,9 +153,14 @@ func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, 
 	// so tests that exercise streaming consumers (e.g. the apt-get
 	// update partial-fetch collector) can inject canned output via
 	// captureOutputs and have it observed by the production callback.
+	// bufio.Scanner mirrors the real command.Executor.streamOutput
+	// implementation — strips trailing line terminators and (critically)
+	// does NOT emit a final empty token when the input ends with a
+	// newline, unlike strings.SplitSeq.
 	if callback != nil && out != "" {
-		for line := range strings.SplitSeq(out, "\n") {
-			callback(line)
+		scanner := bufio.NewScanner(strings.NewReader(out))
+		for scanner.Scan() {
+			callback(scanner.Text())
 		}
 	}
 	return err
