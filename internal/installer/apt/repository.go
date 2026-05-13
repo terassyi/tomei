@@ -493,12 +493,19 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		// is meant to satisfy. Errors here are surfaced only via warn
 		// logs; we cannot return them without masking the rollback
 		// cause.
-		updateCleanupCtx, cancelUpdate := context.WithTimeout(context.Background(), 60*time.Second)
-		if uerr := p.client.Update(updateCleanupCtx); uerr != nil {
-			slog.Warn("apt: repository rollback: follow-up update failed",
-				"repository", name, "err", uerr)
-		}
-		cancelUpdate()
+		//
+		// Wrapped in a tiny inline closure so `defer cancelUpdate()`
+		// runs even if a future change inside the block adds an early
+		// return — the manual cancel() that used to live after the
+		// Update call was fragile in that respect.
+		func() {
+			updateCleanupCtx, cancelUpdate := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancelUpdate()
+			if uerr := p.client.Update(updateCleanupCtx); uerr != nil {
+				slog.Warn("apt: repository rollback: follow-up update failed",
+					"repository", name, "err", uerr)
+			}
+		}()
 		return nil, fmt.Errorf("apt: repository %q: failed to fetch: %s",
 			name, strings.Join(failed, ", "))
 	}
