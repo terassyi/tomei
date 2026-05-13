@@ -307,11 +307,25 @@ func TestSystemEngine_Apply_DAGOrder(t *testing.T) {
 	repoMock := &mockSysRepoInstaller{
 		installFn: func(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
 			recordCall("repo:" + name)
-			return &resource.SystemPackageRepositoryState{
+			st := &resource.SystemPackageRepositoryState{
 				InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
-				Apt:          res.SystemPackageRepositorySpec.Apt,
 				UpdatedAt:    time.Now(),
-			}, nil
+			}
+			// Deep-copy spec.Apt to match the deep-copy invariant the
+			// real apt PackageRepositoryInstaller and defaultRepoInstallFn
+			// both maintain; aliasing the pointer here would let later
+			// spec mutations leak into the persisted state.
+			if src := res.SystemPackageRepositorySpec.Apt; src != nil {
+				st.Apt = &resource.AptSource{
+					URL:        src.URL,
+					KeyURL:     src.KeyURL,
+					KeyHash:    src.KeyHash,
+					Suite:      src.Suite,
+					Components: slices.Clone(src.Components),
+					Options:    maps.Clone(src.Options),
+				}
+			}
+			return st, nil
 		},
 	}
 	packageMock := &mockSysPackageInstaller{

@@ -256,22 +256,25 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 // one-line sources.list entry under /etc/apt/sources.list.d/, and
 // refresh the APT index.
 //
-// Shell commands executed (one per ExecuteCapture call):
+// Shell commands executed (the first three via ExecuteCapture; the
+// apt-get update step via ExecuteWithOutput with a per-line callback
+// that scans both stdout and stderr for partial-fetch warnings):
 //
 //   - gpg --no-default-keyring --no-options --homedir '<tmp>' --batch --yes --output '<tmp>/<name>.gpg' --dearmor '<tmp>/<name>.armored'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.gpg' '/usr/share/keyrings/<name>.gpg'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.list' '/etc/apt/sources.list.d/<name>.list'
-//   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update 2>&1
+//   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update
 //
 // The `-D` flag on `install` ensures the destination directory exists
 // (Ubuntu 20.04 minimal images may ship without /usr/share/keyrings/).
 // The dearmor step uses an ephemeral `--homedir` so user-level
 // `~/.gnupg/gpg.conf` cannot redirect logs or output; `LC_ALL=C
 // LANGUAGE=C` on apt-get update ensures the `W: Failed to fetch`
-// partial-fetch detector matches against the canonical English
-// warning regardless of the host's locale. stderr is merged into
-// stdout for the update step so the detector sees the warnings even
-// though apt-get returns exit 0 for them.
+// partial-fetch detector matches against the canonical English warning
+// regardless of the host's locale. The update step's stdout and stderr
+// are read concurrently (no shell `2>&1` redirection) and only the
+// matching `W: Failed to fetch` lines are buffered, so the apt-get
+// transcript is never held in memory in full.
 //
 // Return values:
 //   - success: (state, nil) where state.InstalledFiles is

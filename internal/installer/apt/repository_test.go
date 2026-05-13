@@ -646,11 +646,12 @@ func TestFailedToFetchURLs_QueryStringAndIPv6(t *testing.T) {
 
 // TestAllowedAptOptions_CUEMatchesGo is the drift-detector: the CUE
 // schema's #AptSource.options key constraint (a regex alternation in
-// cuemodule/schema/schema.cue) must contain exactly the same key set as
-// resource.AllowedAptOptions. The CUE constraint moves the gate to
-// `tomei validate`; the Go map enforces it at install time. If the two
-// drift, `tomei validate` and `tomei apply` would disagree on which
-// option keys are allowed — a latent correctness/security bug.
+// cuemodule/schema/schema.cue) must contain exactly the same key set
+// the Go side accepts (resource.AllowedAptOptionKeys). The CUE
+// constraint moves the gate to `tomei validate`; the Go map enforces
+// it at install time. If the two drift, `tomei validate` and
+// `tomei apply` would disagree on which option keys are allowed — a
+// latent correctness/security bug.
 //
 // The check reads the CUE file as text (no full CUE parser dep) and
 // pulls the alternation between "^(" and ")$" out of the line declaring
@@ -674,15 +675,18 @@ func TestAllowedAptOptions_CUEMatchesGo(t *testing.T) {
 	for _, k := range cueKeys {
 		cueSet[k] = struct{}{}
 	}
-	// resource.AllowedAptOptions must match the CUE alternation exactly.
-	for k := range resource.AllowedAptOptions {
+	// Go-side allowlist must match the CUE alternation exactly.
+	goKeys := resource.AllowedAptOptionKeys()
+	goSet := make(map[string]struct{}, len(goKeys))
+	for _, k := range goKeys {
+		goSet[k] = struct{}{}
 		if _, ok := cueSet[k]; !ok {
-			t.Errorf("Go AllowedAptOptions has key %q absent from CUE alternation in schema.cue", k)
+			t.Errorf("Go allowlist has key %q absent from CUE alternation in schema.cue", k)
 		}
 	}
 	for k := range cueSet {
-		if _, ok := resource.AllowedAptOptions[k]; !ok {
-			t.Errorf("CUE alternation in schema.cue has key %q absent from Go AllowedAptOptions", k)
+		if _, ok := goSet[k]; !ok {
+			t.Errorf("CUE alternation in schema.cue has key %q absent from Go allowlist", k)
 		}
 	}
 }

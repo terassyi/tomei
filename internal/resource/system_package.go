@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"time"
 )
 
@@ -76,7 +77,8 @@ func (s *SystemPackageRepository) Spec() Spec { return s.SystemPackageRepository
 // release (e.g. "jammy" — single-suite only by design; "/" / flat
 // repositories are explicitly unsupported); Components is the non-empty
 // list of pool components ("stable", "main", etc.); Options carries the
-// bracketed sources.list options restricted to AllowedAptOptions —
+// bracketed sources.list options restricted to the allowlist exposed
+// by IsAllowedAptOption / AllowedAptOptionKeys —
 // signed-by is auto-derived from metadata.name and must not be supplied
 // here.
 type AptSource struct {
@@ -88,7 +90,7 @@ type AptSource struct {
 	Options    map[string]string `json:"options,omitempty"`
 }
 
-// AllowedAptOptions is the whitelist of bracket-option keys permitted
+// allowedAptOptions is the whitelist of bracket-option keys permitted
 // in AptSource.Options. APT understands many more, but the keys below
 // cover all realistic third-party-repository needs while excluding
 // security-regression knobs (trusted=yes, allow-insecure, allow-weak,
@@ -98,13 +100,38 @@ type AptSource struct {
 // must not be overridden via Options. The same allowlist is mirrored
 // into the CUE schema's #AptSource.options constraint so tomei validate
 // rejects disallowed keys before tomei apply runs.
-var AllowedAptOptions = map[string]struct{}{
+//
+// Kept unexported so callers cannot mutate the underlying set at
+// runtime and change validation behavior. Use IsAllowedAptOption /
+// AllowedAptOptionKeys for read access (the latter returns a fresh
+// sorted copy so callers can't smuggle a mutation through the slice).
+var allowedAptOptions = map[string]struct{}{
 	"arch":              {},
 	"target":            {},
 	"by-hash":           {},
 	"pdiffs":            {},
 	"check-valid-until": {},
 	"lang":              {},
+}
+
+// IsAllowedAptOption reports whether the given bracket-option key is
+// permitted in AptSource.Options. Callers outside this package should
+// use this helper rather than reaching into the map directly.
+func IsAllowedAptOption(key string) bool {
+	_, ok := allowedAptOptions[key]
+	return ok
+}
+
+// AllowedAptOptionKeys returns a fresh sorted slice of the allowed
+// bracket-option keys. The slice is a copy — mutating it does not
+// affect future validations.
+func AllowedAptOptionKeys() []string {
+	keys := make([]string, 0, len(allowedAptOptions))
+	for k := range allowedAptOptions {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Validate validates the AptSource fields. Empty / missing required
@@ -146,7 +173,7 @@ func (a *AptSource) Validate() error {
 		if k == "signed-by" {
 			return fmt.Errorf(`apt.options["signed-by"] is auto-derived from metadata.name; remove it from spec.apt.options`)
 		}
-		if _, ok := AllowedAptOptions[k]; !ok {
+		if !IsAllowedAptOption(k) {
 			return fmt.Errorf("apt.options[%q] is not allowed", k)
 		}
 	}
