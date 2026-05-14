@@ -49,6 +49,17 @@ func TestValidateSystemPackageSetStateOverlap(t *testing.T) {
 				"dev":    mkState("curl"),
 			},
 		},
+		{
+			// Defense against false positive: a single state entry
+			// listing the same package twice (e.g., from a noisy
+			// migration or a future bug elsewhere) must NOT surface
+			// as an overlap. Only DISTINCT owner names trip the
+			// guard.
+			name: "duplicate package inside one state entry is not overlap",
+			states: map[string]*SystemPackageSetState{
+				"dev": mkState("curl", "curl", "jq"),
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,6 +144,17 @@ func TestValidateSystemPackageSetOverlap(t *testing.T) {
 			resources: []Resource{
 				mkSet("dev", "curl"),
 				&Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
+			},
+		},
+		{
+			// Defense against false positive: a single
+			// SystemPackageSet listing the same package twice (a
+			// copy-paste mistake — apt handles dupes silently) must
+			// NOT surface as an overlap. Only DISTINCT owner names
+			// trip the guard.
+			name: "duplicate package inside one set is not overlap",
+			resources: []Resource{
+				mkSet("dev", "curl", "curl", "jq"),
 			},
 		},
 	}

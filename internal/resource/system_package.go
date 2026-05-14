@@ -453,21 +453,34 @@ func (*SystemPackageSetState) isState() {}
 // keep the resource package free of an inverse dependency on the
 // state package (state already imports resource).
 func ValidateSystemPackageSetStateOverlap(states map[string]*SystemPackageSetState) error {
-	owners := make(map[string][]string)
+	// owners is pkg → set-of-distinct-owner-names. Using a set rather
+	// than a slice deduplicates the case where a single state entry's
+	// Packages list contains the same package name more than once
+	// (legitimate "noisy" state but only one owner) — without this,
+	// appending the owner name twice would surface a false overlap.
+	owners := make(map[string]map[string]struct{})
 	for name, st := range states {
 		if st == nil {
 			continue
 		}
 		for _, pkg := range st.Packages {
-			owners[pkg] = append(owners[pkg], name)
+			if owners[pkg] == nil {
+				owners[pkg] = make(map[string]struct{})
+			}
+			owners[pkg][name] = struct{}{}
 		}
 	}
 	var dupes []string
-	for pkg, names := range owners {
-		if len(names) > 1 {
-			sort.Strings(names)
-			dupes = append(dupes, fmt.Sprintf("package %q recorded as installed by SystemPackageSet %v", pkg, names))
+	for pkg, ownerSet := range owners {
+		if len(ownerSet) <= 1 {
+			continue
 		}
+		names := make([]string, 0, len(ownerSet))
+		for n := range ownerSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		dupes = append(dupes, fmt.Sprintf("package %q recorded as installed by SystemPackageSet %v", pkg, names))
 	}
 	if len(dupes) == 0 {
 		return nil
@@ -477,7 +490,13 @@ func ValidateSystemPackageSetStateOverlap(states map[string]*SystemPackageSetSta
 }
 
 func ValidateSystemPackageSetOverlap(resources []Resource) error {
-	owners := make(map[string][]string)
+	// owners is pkg → set-of-distinct-owner-names. Set semantics avoid
+	// a false overlap when a single SystemPackageSet's Packages list
+	// repeats the same package name (e.g., a copy-paste mistake in the
+	// manifest — apt-get install handles duplicates without complaint,
+	// so this is not its own validation error; we just don't want it
+	// to look like an overlap across two sets).
+	owners := make(map[string]map[string]struct{})
 	for _, r := range resources {
 		ps, ok := r.(*SystemPackageSet)
 		if !ok {
@@ -487,15 +506,23 @@ func ValidateSystemPackageSetOverlap(resources []Resource) error {
 			continue
 		}
 		for _, pkg := range ps.SystemPackageSetSpec.Packages {
-			owners[pkg] = append(owners[pkg], r.Name())
+			if owners[pkg] == nil {
+				owners[pkg] = make(map[string]struct{})
+			}
+			owners[pkg][r.Name()] = struct{}{}
 		}
 	}
 	var dupes []string
-	for pkg, names := range owners {
-		if len(names) > 1 {
-			sort.Strings(names)
-			dupes = append(dupes, fmt.Sprintf("package %q declared by SystemPackageSet %v", pkg, names))
+	for pkg, ownerSet := range owners {
+		if len(ownerSet) <= 1 {
+			continue
 		}
+		names := make([]string, 0, len(ownerSet))
+		for n := range ownerSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		dupes = append(dupes, fmt.Sprintf("package %q declared by SystemPackageSet %v", pkg, names))
 	}
 	if len(dupes) == 0 {
 		return nil
