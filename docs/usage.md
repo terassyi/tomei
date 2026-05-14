@@ -271,7 +271,7 @@ System resources:
 | Kind | Purpose |
 |------|---------|
 | `SystemInstaller` | Declares a host package manager (currently `apt` only). Validates the package manager is available and captures its version. |
-| `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer is **not yet implemented** — declared resources are shown as `skip` in plan when changes would be required. |
+| `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer (APT-based) places the GPG keyring at `/usr/share/keyrings/<name>.gpg`, writes the source entry to `/etc/apt/sources.list.d/<name>.list`, and runs `apt-get update`. On non-apt hosts the resource fails with a clear "platform unsupported" error. |
 | `SystemPackage` | Single-package shorthand for `SystemPackageSet`. Expands to a one-element set at load time; same skip behavior. |
 | `SystemPackageSet` | Set of system packages to install. Concrete installer is **not yet implemented** — declared resources are shown as `skip` in plan when changes would be required. |
 
@@ -322,7 +322,7 @@ Behavior notes:
 - **Multi-user limitation.** Each user maintains an independent view of system package state. tomei does not coordinate between users on the same host and does not detect out-of-band changes (e.g., manual `apt install` or distro upgrades). For shared servers, use a configuration management tool instead.
 - **Sudo behavior.** tomei prompts for the sudo password once per run and reuses the cached credential. With passwordless sudo (e.g., `NOPASSWD` in `/etc/sudoers`, common in CI), no prompt is shown. Do not run `sudo tomei apply --system` — it may create or write state files as root, leaving permission issues later or operating on root's home directory instead of the invoking user's.
 - **Removing a `SystemInstaller`.** Drops only the state entry — the underlying OS package manager is not uninstalled.
-- **Unsupported platforms.** On non-Linux hosts (e.g., macOS) or distros without a registered package manager, distro detection falls back gracefully: removals (state cleanup) still work, but `Install` actions fail with `system package manager validation unavailable: distro detection failed or unsupported platform`.
+- **Unsupported platforms.** On non-Linux hosts (e.g., macOS) or distros without a registered package manager, distro detection falls back gracefully: removals (state cleanup) still work, but `Install` actions fail with errors of the form `system: installer: package manager validation unavailable (distro detection failed or unsupported platform)` for `SystemInstaller` and `system: repository "<name>": requires a supported Linux package manager (apt) on this host` for `SystemPackageRepository`.
 
 ### Version Resolvers
 

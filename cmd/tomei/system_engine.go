@@ -2,71 +2,93 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/terassyi/tomei/internal/installer/apt"
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/engine"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 	"github.com/terassyi/tomei/internal/system"
 )
 
-// validatorInstallerAdapter wraps system.Validator as executor.Installer
-// for SystemInstaller resources. Install validates the package manager;
-// Remove is a no-op that allows stale state entries to be cleaned up;
-// OS package managers themselves are not removed.
-type validatorInstallerAdapter struct {
+// validatorInstaller adapts *system.Validator into the
+// executor.Installer[*SystemInstaller, *SystemInstallerState] interface
+// expected by the system engine. Install validates the host's package
+// manager; Remove is a no-op so stale state entries can be cleaned up
+// without trying to uninstall an OS-managed package manager.
+type validatorInstaller struct {
 	validator *system.Validator
 }
 
-func (a *validatorInstallerAdapter) Install(ctx context.Context, res *resource.SystemInstaller, _ string) (*resource.SystemInstallerState, error) {
+func (a *validatorInstaller) Install(ctx context.Context, res *resource.SystemInstaller, _ string) (*resource.SystemInstallerState, error) {
 	if a.validator == nil {
-		return nil, fmt.Errorf("system package manager validation unavailable: distro detection failed or unsupported platform")
+		return nil, errors.New("system: installer: package manager validation unavailable (distro detection failed or unsupported platform)")
 	}
 	return a.validator.Validate(ctx, res)
 }
 
-func (a *validatorInstallerAdapter) Remove(_ context.Context, _ *resource.SystemInstallerState, _ string) error {
+func (a *validatorInstaller) Remove(_ context.Context, _ *resource.SystemInstallerState, _ string) error {
 	// System package managers are OS-managed and cannot actually be removed.
 	// Returning nil allows the executor to delete the stale state entry when
 	// a SystemInstaller is dropped from the manifest.
 	return nil
 }
 
-// skipRepoInstaller is a placeholder for SystemPackageRepository operations.
-// Concrete implementations (e.g., APT add-apt-repository) are tracked as a future issue.
-type skipRepoInstaller struct{}
+// unsupportedHostRepoInstaller is the placeholder used when distro detection
+// fails or the host lacks a supported package manager. Install surfaces a
+// clear platform-availability error instead of letting raw apt/gpg exec
+// failures escape. Remove returns nil so re-imaged hosts can drop stale
+// state entries; a warn log captures the host limitation and the orphaned
+// files so dotfile-sync users can audit the originating host.
+type unsupportedHostRepoInstaller struct{}
 
-func (*skipRepoInstaller) Install(_ context.Context, _ *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
-	return nil, fmt.Errorf("system package repository %q: repository management is not yet implemented", name)
+func (*unsupportedHostRepoInstaller) Install(_ context.Context, _ *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
+	// %q Go-quotes control chars in name, defanging log-injection via a
+	// crafted manifest name.
+	return nil, fmt.Errorf("system: repository %q: requires a supported Linux package manager (apt) on this host", name)
 }
 
-func (*skipRepoInstaller) Remove(_ context.Context, _ *resource.SystemPackageRepositoryState, name string) error {
-	return fmt.Errorf("system package repository %q: repository management is not yet implemented", name)
+func (*unsupportedHostRepoInstaller) Remove(_ context.Context, st *resource.SystemPackageRepositoryState, name string) error {
+	// Allow stale state cleanup on hosts that lost (or never had) apt support.
+	// Warn so cross-host state sync (e.g., dotfile sync between a Linux box
+	// and a macOS box) does not silently leave the actual /etc/apt files on
+	// the host that originally installed the repository. Surface the
+	// recorded InstalledFiles so a curious user can clean them up on the
+	// originating host.
+	var orphaned []string
+	if st != nil {
+		orphaned = st.InstalledFiles
+	}
+	slog.Warn("removing state entry for system package repository without touching actual files; this host cannot manage apt repositories",
+		"name", name, "orphaned_files", orphaned)
+	return nil
 }
 
 // skipPackageInstaller is a placeholder for SystemPackageSet operations.
-// Concrete implementations (e.g., APT apt-get install) are tracked as a future issue.
+// Concrete implementations (e.g., APT apt-get install) are tracked in #198.
 type skipPackageInstaller struct{}
 
 func (*skipPackageInstaller) Install(_ context.Context, _ *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
-	return nil, fmt.Errorf("system package set %q: package management is not yet implemented", name)
+	return nil, fmt.Errorf("system: package %q: not yet implemented", name)
 }
 
 func (*skipPackageInstaller) Remove(_ context.Context, _ *resource.SystemPackageSetState, name string) error {
-	return fmt.Errorf("system package set %q: package management is not yet implemented", name)
+	return fmt.Errorf("system: package %q: not yet implemented", name)
 }
 
-// filterSupportedSystemResources returns resources that have concrete installer
-// implementations (currently only SystemInstaller). Unsupported resources
-// (SystemPackageRepository, SystemPackageSet) are returned separately so the
-// caller can warn and skip them.
+// filterSupportedSystemResources splits system resources into those that have
+// a concrete installer (SystemInstaller, SystemPackageRepository) and those
+// that do not (currently SystemPackageSet, #198). Callers warn and skip the
+// unsupported group.
 func filterSupportedSystemResources(resources []resource.Resource) (supported, skipped []resource.Resource) {
 	for _, res := range resources {
 		switch res.Kind() {
-		case resource.KindSystemInstaller:
+		case resource.KindSystemInstaller, resource.KindSystemPackageRepository:
 			supported = append(supported, res)
 		default:
 			skipped = append(skipped, res)
@@ -75,39 +97,76 @@ func filterSupportedSystemResources(resources []resource.Resource) (supported, s
 	return supported, skipped
 }
 
-// createSystemEngine builds a SystemEngine with the available concrete
-// installers for the detected distribution. It auto-creates the system
-// state directory if it does not exist.
-func createSystemEngine(systemDataDir string) (*engine.SystemEngine, error) {
-	store, err := state.NewStore[state.SystemState](systemDataDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create system state store: %w", err)
+// selectRepoInstaller returns the executor.Installer for SystemPackageRepository
+// resources. When the host has a supported package manager (validator is non-
+// nil), the apt-backed installer is returned. Otherwise a placeholder is
+// returned whose Install fails with a clear "platform unsupported" error and
+// whose Remove permits state cleanup.
+//
+// Extracted as a pure helper so the validator-conditional wiring can be
+// unit-tested without depending on real distro detection. Defense-in-depth:
+// the helper falls back to the placeholder when aptClient or downloader is
+// nil, even though createSystemEngine's nil-downloader guard makes that
+// path unreachable from production code.
+func selectRepoInstaller(
+	validator *system.Validator,
+	aptClient *apt.Client,
+	downloader download.Downloader,
+) executor.Installer[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState] {
+	if validator == nil || aptClient == nil || downloader == nil {
+		return &unsupportedHostRepoInstaller{}
+	}
+	return aptClient.PackageRepositoryInstaller(downloader)
+}
+
+// createSystemEngine builds a SystemEngine wired with the concrete installers
+// available on this host. The system state directory is created lazily by
+// state.NewStore — createSystemEngine itself performs no filesystem writes.
+// downloader must be non-nil; pass an un-authenticated downloader (no GitHub
+// token wrapping) because vendor GPG keys do not require GitHub auth and
+// attaching a PAT to manifest-supplied github.com URLs would be a token-leak
+// risk.
+func createSystemEngine(systemDataDir string, downloader download.Downloader) (*engine.SystemEngine, error) {
+	if downloader == nil {
+		return nil, errors.New("downloader is required")
 	}
 
-	// Distro detection and validator creation are best-effort.
-	// When unavailable (e.g., macOS, minimal containers), the engine can
-	// still run removals (state cleanup) — only Install actions will fail.
-	var validator *system.Validator
-	distro, err := system.DetectDistro()
+	store, err := state.NewStore[state.SystemState](systemDataDir)
 	if err != nil {
+		return nil, fmt.Errorf("system: state store: %w", err)
+	}
+
+	// aptClient is constructed unconditionally: command.NewExecutor is stateless
+	// and the apt Client is the shared hub used by both the validator's
+	// VersionFunc and the repository installer. On non-apt hosts the Client
+	// exists but is never invoked (validator stays nil and selectRepoInstaller
+	// returns the placeholder).
+	aptClient := apt.New(command.NewExecutor(""))
+
+	// Distro detection and validator creation are best-effort. When unavailable
+	// (e.g., macOS, minimal containers), the engine can still run removals —
+	// only Install actions will fail with a clear platform-availability error.
+	// Each step uses if-init scoping to keep err local to its branch.
+	var validator *system.Validator
+	if distro, err := system.DetectDistro(); err != nil {
 		slog.Warn("system distro detection unavailable; system installer validation will be skipped", "error", err)
 	} else {
 		slog.Debug("detected distribution", "id", distro.ID, "id_like", distro.IDLike)
-		runner := command.NewExecutor("")
 		versionFuncs := map[system.PackageManager]system.VersionFunc{
-			system.PackageManagerAPT: apt.New(runner).VersionFunc(),
+			system.PackageManagerAPT: aptClient.VersionFunc(),
 		}
-		v, err := system.NewValidator(distro, versionFuncs)
-		if err != nil {
+		if v, err := system.NewValidator(distro, versionFuncs); err != nil {
 			slog.Warn("failed to create system validator; system installer validation will be skipped", "error", err)
 		} else {
 			validator = v
 		}
 	}
 
+	repoInstaller := selectRepoInstaller(validator, aptClient, downloader)
+
 	eng := engine.NewSystemEngine(
-		&validatorInstallerAdapter{validator: validator},
-		&skipRepoInstaller{},
+		&validatorInstaller{validator: validator},
+		repoInstaller,
 		&skipPackageInstaller{},
 		store,
 	)

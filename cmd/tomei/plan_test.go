@@ -1,13 +1,19 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/terassyi/tomei/internal/graph"
+	"github.com/terassyi/tomei/internal/path"
 	"github.com/terassyi/tomei/internal/resource"
+	"github.com/terassyi/tomei/internal/state"
 )
 
 func TestCollectSkipInfos(t *testing.T) {
@@ -133,5 +139,204 @@ func TestAddDisabledResourceInfo(t *testing.T) {
 		require.Contains(t, info, nodeID)
 		assert.Equal(t, resource.ActionSkip, info[nodeID].Action)
 		assert.Empty(t, info[nodeID].Version)
+	})
+}
+
+// systemRepoResource returns a minimal SystemPackageRepository resource
+// suitable for first-install reconcile tests (state-absent → ActionInstall).
+func systemRepoResource(name string) *resource.SystemPackageRepository {
+	return &resource.SystemPackageRepository{
+		BaseResource: resource.BaseResource{
+			APIVersion:   "tomei.terassyi.net/v1beta1",
+			ResourceKind: resource.KindSystemPackageRepository,
+			Metadata:     resource.Metadata{Name: name},
+		},
+		SystemPackageRepositorySpec: &resource.SystemPackageRepositorySpec{
+			InstallerRef: resource.InstallerRefApt,
+			Apt: &resource.AptSource{
+				URL:        "https://download.docker.com/linux/ubuntu",
+				KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
+				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Suite:      "jammy",
+				Components: []string{"stable"},
+			},
+		},
+	}
+}
+
+func systemPackageSetResource(name string) *resource.SystemPackageSet {
+	return &resource.SystemPackageSet{
+		BaseResource: resource.BaseResource{
+			APIVersion:   "tomei.terassyi.net/v1beta1",
+			ResourceKind: resource.KindSystemPackageSet,
+			Metadata:     resource.Metadata{Name: name},
+		},
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: resource.InstallerRefApt,
+			Packages:     []string{"curl"},
+		},
+	}
+}
+
+func systemInstallerResource(name string) *resource.SystemInstaller {
+	// markAllSystemAsInstall only reads Kind() and Name(), so the spec
+	// content is unused here. Leave it nil to keep the helper minimal.
+	return &resource.SystemInstaller{
+		BaseResource: resource.BaseResource{
+			APIVersion:   "tomei.terassyi.net/v1beta1",
+			ResourceKind: resource.KindSystemInstaller,
+			Metadata:     resource.Metadata{Name: name},
+		},
+	}
+}
+
+func TestMarkAllSystemAsInstall(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SystemInstaller gets ActionInstall", func(t *testing.T) {
+		t.Parallel()
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		markAllSystemAsInstall(info, []resource.Resource{systemInstallerResource("apt")})
+
+		nodeID := graph.NewNodeID(resource.KindSystemInstaller, "apt")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action)
+	})
+
+	t.Run("SystemPackageRepository gets ActionInstall (#196 wiring)", func(t *testing.T) {
+		t.Parallel()
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		markAllSystemAsInstall(info, []resource.Resource{systemRepoResource("docker")})
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageRepository, "docker")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action,
+			"SystemPackageRepository must NOT be downgraded to Skip after #196 wired the concrete installer")
+	})
+
+	t.Run("SystemPackageSet still gets ActionSkip (until #198)", func(t *testing.T) {
+		t.Parallel()
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		markAllSystemAsInstall(info, []resource.Resource{systemPackageSetResource("dev-tools")})
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageSet, "dev-tools")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionSkip, info[nodeID].Action,
+			"SystemPackageSet must still be downgraded to Skip until #198 lands the concrete installer")
+	})
+}
+
+func TestAddSystemResourceInfo(t *testing.T) {
+	t.Parallel()
+
+	// Setup: TempDir-backed Paths so LoadReadOnly returns an empty SystemState
+	// (state.json absent → zero-value state per Store.readState). With empty
+	// state, the reconciler emits ActionInstall for both kinds; plan.go's
+	// downgrade loop then converts only SystemPackageSet → ActionSkip.
+	setup := func(t *testing.T) *path.Paths {
+		t.Helper()
+		systemDir := t.TempDir()
+		paths, err := path.New(path.WithSystemDataDir(systemDir))
+		require.NoError(t, err)
+		return paths
+	}
+
+	t.Run("SystemPackageRepository gets ActionInstall (skip-downgrade removed)", func(t *testing.T) {
+		t.Parallel()
+		paths := setup(t)
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		addSystemResourceInfo(info, []resource.Resource{systemRepoResource("docker")}, paths)
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageRepository, "docker")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action,
+			"reconciler emits ActionInstall; the addSystemResourceInfo skip-downgrade loop must NOT convert it back to Skip after #196")
+	})
+
+	t.Run("SystemPackageSet still gets ActionSkip (regression seatbelt)", func(t *testing.T) {
+		t.Parallel()
+		paths := setup(t)
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		addSystemResourceInfo(info, []resource.Resource{systemPackageSetResource("dev-tools")}, paths)
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageSet, "dev-tools")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionSkip, info[nodeID].Action,
+			"SystemPackageSet must still be downgraded to Skip until #198 wires the concrete installer")
+	})
+
+	t.Run("absent system data dir falls back to markAllSystemAsInstall", func(t *testing.T) {
+		t.Parallel()
+		// systemDir is intentionally a path that does not exist: plan must
+		// not create it (read-only contract) and must instead fall through
+		// to the first-run fallback.
+		paths, err := path.New(path.WithSystemDataDir(filepath.Join(t.TempDir(), "absent")))
+		require.NoError(t, err)
+
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		addSystemResourceInfo(info, []resource.Resource{
+			systemRepoResource("hashicorp"),
+			systemPackageSetResource("net-tools"),
+		}, paths)
+
+		repoID := graph.NewNodeID(resource.KindSystemPackageRepository, "hashicorp")
+		require.Contains(t, info, repoID)
+		assert.Equal(t, resource.ActionInstall, info[repoID].Action,
+			"first-run fallback must put SystemPackageRepository on the Install path")
+		pkgID := graph.NewNodeID(resource.KindSystemPackageSet, "net-tools")
+		require.Contains(t, info, pkgID)
+		assert.Equal(t, resource.ActionSkip, info[pkgID].Action,
+			"first-run fallback must still Skip SystemPackageSet until #198")
+	})
+
+	t.Run("corrupt state.json falls back to markAllSystemAsInstall", func(t *testing.T) {
+		t.Parallel()
+		systemDir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(systemDir, "state.json"), []byte("{"), 0644))
+		paths, err := path.New(path.WithSystemDataDir(systemDir))
+		require.NoError(t, err)
+
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		addSystemResourceInfo(info, []resource.Resource{systemRepoResource("kubernetes")}, paths)
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageRepository, "kubernetes")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action,
+			"corrupt state load must fall back to install path, not panic")
+	})
+
+	t.Run("SystemPackageRepository in state but absent from manifest gets ActionRemove", func(t *testing.T) {
+		t.Parallel()
+		// Pre-seed state with a SystemPackageRepository entry; pass an
+		// empty manifest. The reconciler emits ActionRemove; #196's
+		// skip-downgrade removal must NOT convert it to Skip.
+		systemDir := t.TempDir()
+		st := state.NewSystemState()
+		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
+			InstallerRef: resource.InstallerRefApt,
+			Apt: &resource.AptSource{
+				URL:        "https://download.docker.com/linux/ubuntu",
+				KeyURL:     "https://download.docker.com/linux/ubuntu/gpg",
+				KeyHash:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+				Suite:      "jammy",
+				Components: []string{"stable"},
+			},
+			InstalledFiles: []string{"/usr/share/keyrings/docker.gpg", "/etc/apt/sources.list.d/docker.list"},
+			UpdatedAt:      time.Now(),
+		}
+		data, err := json.Marshal(st)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(systemDir, "state.json"), data, 0644))
+
+		paths, err := path.New(path.WithSystemDataDir(systemDir))
+		require.NoError(t, err)
+
+		info := make(map[graph.NodeID]graph.ResourceInfo)
+		addSystemResourceInfo(info, nil, paths) // empty manifest → all state entries should be Remove
+
+		nodeID := graph.NewNodeID(resource.KindSystemPackageRepository, "docker")
+		require.Contains(t, info, nodeID)
+		assert.Equal(t, resource.ActionRemove, info[nodeID].Action,
+			"reconciler emits ActionRemove; the post-#196 skip-downgrade loop only touches SystemPackageSet so Remove must pass through")
 	})
 }
