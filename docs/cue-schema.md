@@ -283,7 +283,7 @@ System-level package manager. Requires `--system` to be applied. Only `apt` is c
 - error contains `package manager "<x>" is not supported on this system` (with appended distro context such as `(ID=..., ID_LIKE=...)`) — the host's distro does not match
 - error contains `no version function registered for package manager "<x>"` — the package manager is not yet wired up in tomei
 - error contains `failed to get version for "<x>"` — the version probe itself failed (e.g., the package manager binary is missing or returned an unexpected output)
-- error contains `system package manager validation unavailable: distro detection failed or unsupported platform` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
+- error contains `system: installer: package manager validation unavailable (distro detection failed or unsupported platform)` — running on a host where distro detection isn't available (e.g., macOS, minimal containers)
 
 `metadata.name` must match a known package manager identifier (`apt`, `dnf`, `zypper`, `pacman`, `apk`); identifiers other than `apt` are not currently supported by the engine.
 

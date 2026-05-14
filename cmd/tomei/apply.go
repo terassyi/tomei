@@ -134,7 +134,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 			for _, r := range skipped {
 				slog.Info("skipping system resource (not yet implemented)", "kind", r.Kind(), "name", r.Name())
 			}
-			fmt.Fprintf(w, "%d system resource(s) skipped (not yet implemented: repository/package management).\n\n", len(skipped))
+			fmt.Fprintf(w, "%d system resource(s) skipped (not yet implemented: package management).\n\n", len(skipped))
 		}
 	}
 
@@ -267,7 +267,22 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Create SystemEngine when --system is set. Even with zero system resources
 	// in the manifest, state may contain entries that need removal.
 	if system {
-		se, err := createSystemEngine(pathConfig.SystemDataDir())
+		// systemDownloader is an un-authenticated downloader (no GitHub token
+		// wrap) for SystemPackageRepository GPG-key fetches. It deliberately
+		// does NOT share dlClient with the user-tier downloader: dlClient
+		// wraps a GitHub PAT via github.WrapTransport, which host-scopes the
+		// token to github.com / *.githubusercontent.com. A manifest pointing
+		// keyUrl at a github-hosted URL would otherwise leak the PAT to the
+		// request log of any GitHub repo the manifest author controls.
+		// Vendor GPG keys (download.docker.com, dl.google.com, etc.) need
+		// no GitHub auth.
+		//
+		// cfg.timeout here bounds only the GPG-key HTTP fetch. The apt-get
+		// update invoked at the tail of the apt installer's Install runs via
+		// command.Executor (shell-out), independent of this timeout — on a
+		// slow mirror it may run longer than --timeout.
+		systemDownloader := download.NewDownloader(download.WithDownloadTimeout(cfg.timeout))
+		se, err := createSystemEngine(pathConfig.SystemDataDir(), systemDownloader)
 		if err != nil {
 			return fmt.Errorf("failed to create system engine: %w", err)
 		}

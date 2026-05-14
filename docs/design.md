@@ -246,10 +246,10 @@ SystemInstaller → SystemPackageRepository → SystemPackageSet
 |----------|--------|
 | `SystemInstaller` (`apt`) | Validates that `apt-get` exists on the host and captures its version |
 | `SystemInstaller` (other) | Schema accepts `dnf`/`zypper`/`pacman`/`apk`, but only `apt` is currently wired. Other package managers fail validation either with "package manager is not supported on this system" (distro mismatch) or "no version function registered" (supported by distro detection but not yet wired in the engine) |
-| `SystemPackageRepository` | Concrete installer not yet implemented (planned: `add-apt-repository`, GPG key management). Recognized by plan/apply but skipped at runtime |
+| `SystemPackageRepository` | Concrete installer wired (APT). Places the GPG keyring under `/usr/share/keyrings/<name>.gpg`, writes the source entry to `/etc/apt/sources.list.d/<name>.list`, and runs `apt-get update`. On hosts where distro detection fails or no supported package manager is present, install fails with `system: repository "<name>": requires a supported Linux package manager (apt) on this host`; Remove returns successfully with a warn log so stale state can be drained without touching the originating host's files. |
 | `SystemPackageSet` | Concrete installer not yet implemented (planned: `apt-get install`). Recognized by plan/apply but skipped at runtime |
 
-`tomei plan --system` and `tomei apply --system` recognize all three kinds. Resources without a concrete installer are shown as `skip` in plan and skipped at apply time with a warning, so that declaring them does not produce a false success.
+`tomei plan --system` and `tomei apply --system` recognize all three kinds. `SystemPackageSet` is still shown as `skip` in plan and skipped at apply time with a warning. `SystemInstaller` and `SystemPackageRepository` execute through their respective concrete installers.
 
 `SystemInstaller` removal does not uninstall the OS package manager — it only clears the state entry.
 
