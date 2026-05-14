@@ -499,9 +499,14 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 			// The rollback uses a fresh ctx with a bounded timeout
 			// (not the caller's ctx) so a caller cancellation that
 			// triggered the probe failure does not cascade into the
-			// undo. 60s is slightly above DPkg::Lock::Timeout=60 so a
-			// genuinely-stuck dpkg-frontend lock surfaces as a
-			// rollback failure rather than blocking apply indefinitely.
+			// undo. The deadline is strictly GREATER than apt-get's own
+			// DPkg::Lock::Timeout=60 so that under lock contention the
+			// child apt-get reaches its lock-timeout error and returns
+			// a meaningful exit status before this ctx kills it from
+			// outside (which would surface only as ctx.DeadlineExceeded
+			// and lose the lock-contention root cause). 90s = 60s lock
+			// wait + 30s headroom for the rollback's own dpkg
+			// transaction (worst-case ≪ install transaction).
 			var toRollback []string
 			for _, p := range spec.Packages {
 				if !wasInstalled[p] {
@@ -509,7 +514,7 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 				}
 			}
 			if len(toRollback) > 0 {
-				rbCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				rbCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 				if rbErr := p.runRemove(rbCtx, toRollback); rbErr != nil {
 					slog.Warn("apt: package set rollback failed; host may have orphaned packages",
 						"reason", "after post-install version probe failure",

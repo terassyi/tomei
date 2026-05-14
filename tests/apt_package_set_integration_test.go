@@ -18,23 +18,32 @@ import (
 )
 
 // TestPackageSetInstaller_RealSystem_InstallAndRemove exercises Install
-// end-to-end with a multi-package set against the real apt-get / dpkg
-// stack, then exercises Remove. The key additional surface beyond
+// end-to-end against the real apt-get / dpkg stack, then exercises
+// Remove. The headline additional surface beyond
 // TestPackageSetInstaller_RealSystem (single-package, in
-// apt_install_integration_test.go) is the post-install per-package
-// dpkg-query probe wired in #198: state.InstalledVersions must be
-// populated with a non-empty version string for every package.
+// apt_install_integration_test.go) is the post-install dpkg-query probe
+// wired in #198: state.InstalledVersions must be populated with a
+// non-empty version string for every package.
 //
 // Requires Linux + apt-get + dpkg + passwordless sudo (CI: ubuntu-latest).
 //
-// Package choice: hello + cowsay. The previous canonical "safe test"
-// pair (tree + jq) is unsafe on the GitHub `ubuntu-latest` runner image
-// where `tree` is preinstalled — installing it would no-op and the test
-// would not exercise the install path. hello and cowsay are both small,
-// have no significant runtime dependencies, and are not preinstalled on
-// the runner image. A per-package preinstall guard skips the whole test
-// if either is already present on a developer machine, so we never
-// mutate a host that already depends on these binaries.
+// Package choice: `hello` (single package, zero new transitive deps).
+// The earlier draft used `hello + cowsay`, but cowsay pulls in perl /
+// perl-modules / etc.; the cleanup either had to use `--auto-remove`
+// (over-broad — it can sweep any orphaned auto-installed packages a
+// developer already had on the host) or leave those deps behind
+// (under-broad — mutates the developer's machine). `hello` depends
+// only on libc6 (always preinstalled), so plain `apt-get remove`
+// restores the host fully without disturbing anything else.
+//
+// Multi-package install logic (loop over spec.Packages, command-line
+// composition, per-package version probe) is independently covered by
+// the table-driven mock tests in apt_test.go's TestPackageSetInstaller_Install
+// "multiple packages" subtest — the integration test's job is to verify
+// the real apt-get / dpkg shell path, not to re-test the loop body.
+//
+// A preinstall guard skips the whole test if `hello` is already present
+// on a developer machine, so we never mutate a host that depends on it.
 func TestPackageSetInstaller_RealSystem_InstallAndRemove(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt-get integration test requires Linux")
@@ -48,7 +57,7 @@ func TestPackageSetInstaller_RealSystem_InstallAndRemove(t *testing.T) {
 		t.Skip("passwordless sudo not available")
 	}
 
-	pkgs := []string{"hello", "cowsay"}
+	pkgs := []string{"hello"}
 	for _, pkg := range pkgs {
 		if err := exec.Command("dpkg", "-s", pkg).Run(); err == nil {
 			t.Skipf("%s is already installed; skipping to avoid mutating the host environment", pkg)
@@ -67,21 +76,17 @@ func TestPackageSetInstaller_RealSystem_InstallAndRemove(t *testing.T) {
 		// strand the placed ones. Per-package isolates the failure to a
 		// single binary so the others still get drained.
 		//
-		// --auto-remove diverges from the production Remove path on
-		// purpose: the test packages (e.g. cowsay) can pull in
-		// transitive deps that the preinstall guard at the top of this
-		// test will already have classified as "not preinstalled by the
-		// developer." Without --auto-remove, apt-get remove would leave
-		// those deps lingering and the test would mutate a developer's
-		// host beyond the preinstall-guard contract. Production Remove
-		// omits --auto-remove because tomei does not own the deps; here
-		// the test transactionally owns everything new that landed.
+		// Plain `apt-get remove` (no --auto-remove): the chosen test
+		// package(s) have zero new transitive deps, so there is nothing
+		// to sweep. --auto-remove would be over-broad — it can pick up
+		// any orphaned auto-installed packages a developer already had
+		// on the host, mutating state beyond what this test touched.
 		for _, pkg := range pkgs {
 			cleanup := exec.Command("sudo",
 				"-n", "env", "DEBIAN_FRONTEND=noninteractive",
-				"apt-get", "remove", "-y", "--auto-remove", "-o", "DPkg::Lock::Timeout=60", "--", pkg)
+				"apt-get", "remove", "-y", "-o", "DPkg::Lock::Timeout=60", "--", pkg)
 			if err := cleanup.Run(); err != nil {
-				t.Logf("cleanup: apt-get remove --auto-remove %s: %v", pkg, err)
+				t.Logf("cleanup: apt-get remove %s: %v", pkg, err)
 			}
 		}
 	})
