@@ -71,6 +71,15 @@ func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R
 				ctx = WithOldBinPath(ctx, oldPath)
 			}
 		}
+		// Pass old Packages for SystemPackageSet upgrade-time drainage.
+		// The generic install flow only re-runs Install with the new
+		// spec; without the old package list the installer has no way
+		// to detect (and uninstall) packages dropped from the spec.
+		if pg, ok := any(action.State).(interface{ GetPackages() []string }); ok {
+			if oldPkgs := pg.GetPackages(); len(oldPkgs) > 0 {
+				ctx = WithOldPackages(ctx, oldPkgs)
+			}
+		}
 	}
 
 	// Install the resource

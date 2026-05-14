@@ -127,14 +127,25 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' to manage.\n\n", len(systemResources))
 	}
 	if system && len(systemResources) > 0 {
-		// Filter to resources with concrete installer implementations
+		// Reject overlapping SystemPackageSet declarations before any
+		// host mutation. Gated on `system` because without --system the
+		// system resources are skipped entirely and overlap is moot.
+		// See resource.ValidateSystemPackageSetOverlap for the full
+		// rationale on why the apt installer's Remove / upgrade-drain
+		// paths are unsafe under multi-owner package state today.
+		if err := resource.ValidateSystemPackageSetOverlap(systemResources); err != nil {
+			return fmt.Errorf("apply rejected: %w", err)
+		}
+		// Filter to resources with concrete installer implementations. As
+		// of #198 all system kinds have installers; the helper is retained
+		// so future system kinds can be staged through this channel.
 		supported, skipped := filterSupportedSystemResources(systemResources)
 		supportedSystemResources = supported
 		if len(skipped) > 0 {
 			for _, r := range skipped {
-				slog.Info("skipping system resource (not yet implemented)", "kind", r.Kind(), "name", r.Name())
+				slog.Info("skipping system resource (no installer wired)", "kind", r.Kind(), "name", r.Name())
 			}
-			fmt.Fprintf(w, "%d system resource(s) skipped (not yet implemented: package management).\n\n", len(skipped))
+			fmt.Fprintf(w, "%d system resource(s) skipped (no installer wired for this kind).\n\n", len(skipped))
 		}
 	}
 

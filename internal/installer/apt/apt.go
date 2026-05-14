@@ -10,6 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -418,6 +421,65 @@ func (c *Client) Update(ctx context.Context) error {
 	return nil
 }
 
+// SimulateRemoveCascade returns the full list of packages apt-get would
+// remove if asked to remove `pkgs`, including transitive cascades that
+// apt's reverse-dependency handling pulls in. Used to pre-flight an
+// upgrade drain so a cascade that would remove a package the manifest
+// still relies on surfaces as a clear error before any host mutation.
+//
+// The shell command executed is:
+//
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- <pkgs>
+//
+// LC_ALL=C is load-bearing: apt prefixes each removal line with the
+// literal "Remv " in C locale; non-C locales translate the prefix and
+// would silently break the parser.
+//
+// The returned list is sorted and deduplicated. Empty input returns
+// (nil, nil) without invoking apt-get.
+func (c *Client) SimulateRemoveCascade(ctx context.Context, pkgs []string) ([]string, error) {
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+	for _, pkg := range pkgs {
+		if pkg == "" {
+			return nil, errors.New("apt: empty package name in simulate-remove list")
+		}
+		if strings.ContainsAny(pkg, disallowedInPackageName) {
+			return nil, fmt.Errorf("apt: package %q contains disallowed characters", pkg)
+		}
+	}
+	cmd := "sudo -n " + aptGetEnvPrefix +
+		" apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- " +
+		strings.Join(pkgs, " ")
+	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("apt: simulate-remove %q: %w", pkgs, err)
+	}
+	seen := make(map[string]bool)
+	var removed []string
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimSpace(line)
+		// apt's simulate-mode emits one "Remv PKGNAME [VERSION]" line per
+		// package it would actually uninstall (target + cascades). Any
+		// other apt status line (Inst, Conf, Reading, etc.) is ignored.
+		if !strings.HasPrefix(line, "Remv ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pkg := fields[1]
+		if !seen[pkg] {
+			seen[pkg] = true
+			removed = append(removed, pkg)
+		}
+	}
+	sort.Strings(removed)
+	return removed, nil
+}
+
 // PackageSetInstaller installs and removes SystemPackageSet resources via
 // apt-get. It satisfies executor.Installer[*resource.SystemPackageSet,
 // *resource.SystemPackageSetState].
@@ -430,8 +492,10 @@ type PackageSetInstaller struct {
 var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetState] = (*PackageSetInstaller)(nil)
 
 // Install runs the apt-get install for the resource's packages and returns
-// the new state. The InstalledVersions field is left empty until the
-// dpkg-query helper lands; the install action itself is complete.
+// the new state. InstalledVersions is populated via dpkg-query per package
+// after the install completes; a probe failure aborts the Install. A
+// successful Install for which we cannot read versions is a state-store
+// consistency bug, so we surface it rather than degrade to an empty map.
 //
 // The shell command executed is:
 //
@@ -441,16 +505,151 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
-func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
+func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
+	if res == nil || res.SystemPackageSetSpec == nil {
+		return nil, fmt.Errorf("apt: package set %q: nil spec", name)
+	}
 	spec := res.SystemPackageSetSpec
+	// Validate at the apt boundary as defense-in-depth: the CUE schema
+	// and the spec's own Validate are upstream layers, but the apt
+	// installer must not assume callers ran them. Mirrors the
+	// PackageRepository installer's `apt: repository %q: %w` wrap.
+	if err := spec.Validate(); err != nil {
+		return nil, fmt.Errorf("apt: package set %q: %w", name, err)
+	}
+	// Pin the installer to APT at the boundary: SystemPackageSetSpec.Validate
+	// only checks that installerRef is non-empty (the CUE schema layer
+	// constrains the literal value upstream). Without this check, a non-
+	// CUE caller — or a future selectPackageInstaller mis-routing — could
+	// land a SystemPackageSet whose installerRef is "dnf" / "zypper" here
+	// and tomei would happily run apt-get on it, then persist the non-APT
+	// installerRef into state.
+	if spec.InstallerRef != resource.InstallerRefApt {
+		return nil, fmt.Errorf("apt: package set %q: installerRef %q is not %q", name, spec.InstallerRef, resource.InstallerRefApt)
+	}
+	// Snapshot pre-install state so a later rollback removes ONLY the
+	// packages this Install action placed. Without this snapshot, a
+	// probe failure for one package would uninstall every package in
+	// the spec — including ones the user (or another SystemPackageSet)
+	// had on the host before this apply. apt-get install no-ops on an
+	// already-installed package, so the post-install state alone cannot
+	// distinguish "this Install placed it" from "it was already here."
+	wasInstalled := make(map[string]bool, len(spec.Packages))
+	for _, pkg := range spec.Packages {
+		installed, err := p.client.IsInstalled(ctx, pkg)
+		if err != nil {
+			return nil, fmt.Errorf("apt: package set %q: snapshot pre-install state of %q: %w", name, pkg, err)
+		}
+		wasInstalled[pkg] = installed
+	}
 	if err := p.runInstall(ctx, spec.Packages); err != nil {
 		return nil, err
+	}
+	versions := make(map[string]string, len(spec.Packages))
+	for _, pkg := range spec.Packages {
+		v, err := p.client.PackageVersion(ctx, pkg)
+		if err != nil {
+			// runInstall placed the packages on the host, but the
+			// post-install probe cannot read a consistent version map
+			// — Install must not return a state that lies about what
+			// is on the host. Mirror PackageRepositoryInstaller's
+			// best-effort rollback (repository.go) and undo only the
+			// packages this Install action newly placed.
+			//
+			// The rollback uses a fresh ctx with a bounded timeout
+			// (not the caller's ctx) so a caller cancellation that
+			// triggered the probe failure does not cascade into the
+			// undo. The deadline is strictly GREATER than apt-get's own
+			// DPkg::Lock::Timeout=60 so that under lock contention the
+			// child apt-get reaches its lock-timeout error and returns
+			// a meaningful exit status before this ctx kills it from
+			// outside (which would surface only as ctx.DeadlineExceeded
+			// and lose the lock-contention root cause). 90s = 60s lock
+			// wait + 30s headroom for the rollback's own dpkg
+			// transaction (worst-case ≪ install transaction).
+			var toRollback []string
+			for _, p := range spec.Packages {
+				if !wasInstalled[p] {
+					toRollback = append(toRollback, p)
+				}
+			}
+			if len(toRollback) > 0 {
+				rbCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				if rbErr := p.runRemove(rbCtx, toRollback); rbErr != nil {
+					slog.Warn("apt: package set rollback failed; host may have orphaned packages",
+						"reason", "after post-install version probe failure",
+						"name", name, "packages", toRollback, "rollback_error", rbErr, "trigger_error", err)
+				}
+				cancel()
+			}
+			return nil, fmt.Errorf("apt: package set %q: probe version of %q: %w", name, pkg, err)
+		}
+		versions[pkg] = v
+	}
+	// Upgrade-time package drainage runs LAST — after the new-spec install
+	// and the per-package version probes have both succeeded. Two failure
+	// modes are bounded by this ordering:
+	//
+	//   - runInstall fails → no drainage attempted, host stays at old
+	//     state (matches state.json which still records old packages).
+	//   - Version probe fails → the post-probe rollback removes only the
+	//     newly-placed packages (delta from the pre-install snapshot);
+	//     no drainage has happened yet, so dropped packages remain on the
+	//     host. State.json still records old packages, host has old
+	//     packages — state and host agree.
+	//   - Drainage fails → Install returns error; state.json keeps the
+	//     OLD package list (no save happened); host has old packages
+	//     plus any newly-placed ones (re-applying will re-emit Upgrade
+	//     and retry drainage; apt-get install is idempotent).
+	//
+	// Earlier drafts drained BEFORE install for symmetry with the
+	// pre-install snapshot, but that ordering leaves a window where the
+	// host has FEWER packages than state.json claims if install or probe
+	// fails — the inverse of the orphan-packages problem and harder to
+	// recover from because dropped packages do not auto-re-install.
+	if oldPkgs := executor.OldPackagesFromContext(ctx); len(oldPkgs) > 0 {
+		newSet := make(map[string]bool, len(spec.Packages))
+		for _, pkg := range spec.Packages {
+			newSet[pkg] = true
+		}
+		var toRemove []string
+		for _, pkg := range oldPkgs {
+			if !newSet[pkg] {
+				toRemove = append(toRemove, pkg)
+			}
+		}
+		if len(toRemove) > 0 {
+			// Pre-flight the drain via apt-get -s to detect cascades.
+			// apt's reverse-dependency handling can pull packages we
+			// did NOT name into the removal — including packages the
+			// new spec still relies on (e.g. shrinking [cowsay, perl]
+			// → [cowsay] would normally cascade-remove cowsay because
+			// cowsay depends on perl). Catching this BEFORE the actual
+			// remove avoids a state-vs-host drift where state.json
+			// records "cowsay installed" but the host no longer has it.
+			cascade, err := p.client.SimulateRemoveCascade(ctx, toRemove)
+			if err != nil {
+				return nil, fmt.Errorf("apt: package set %q: simulate upgrade drain %v: %w", name, toRemove, err)
+			}
+			var cascadeIntoSpec []string
+			for _, pkg := range cascade {
+				if newSet[pkg] {
+					cascadeIntoSpec = append(cascadeIntoSpec, pkg)
+				}
+			}
+			if len(cascadeIntoSpec) > 0 {
+				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v would cascade-remove %v from the new spec; do not split dependent packages across SystemPackageSets (consider declaring the dependency chain in a single set)", name, toRemove, cascadeIntoSpec)
+			}
+			if err := p.runRemove(ctx, toRemove); err != nil {
+				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v: %w", name, toRemove, err)
+			}
+		}
 	}
 	return &resource.SystemPackageSetState{
 		InstallerRef:      spec.InstallerRef,
 		RepositoryRef:     spec.RepositoryRef,
-		Packages:          append([]string(nil), spec.Packages...),
-		InstalledVersions: map[string]string{},
+		Packages:          slices.Clone(spec.Packages),
+		InstalledVersions: versions,
 		UpdatedAt:         time.Now(),
 	}, nil
 }

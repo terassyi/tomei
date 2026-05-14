@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -398,6 +399,150 @@ type SystemPackageSetState struct {
 }
 
 func (*SystemPackageSetState) isState() {}
+
+// ValidateSystemPackageSetStateOverlap is the companion to
+// ValidateSystemPackageSetOverlap for the legacy-drift case: even when
+// the *desired* resource list has no overlap, state.json may already
+// contain overlapping SystemPackageSet entries written by an older
+// tomei version (before the desired-state validation existed) or by
+// manual edits. Removing or shrinking one of those legacy-overlapping
+// sets would then run apt-get remove on a package the other set's
+// state still claims to own, with no manifest-side gate to catch it.
+//
+// Detect the drift early — at the same boundary createSystemEngine
+// loads the SystemState store — and refuse to build the engine. The
+// user must resolve the drift manually (e.g., by editing state.json
+// so only one set claims each package) before subsequent applies.
+//
+// The signature takes the raw map rather than *state.SystemState to
+// keep the resource package free of an inverse dependency on the
+// state package (state already imports resource).
+func ValidateSystemPackageSetStateOverlap(states map[string]*SystemPackageSetState) error {
+	// owners is pkg → set-of-distinct-owner-names. Using a set rather
+	// than a slice deduplicates the case where a single state entry's
+	// Packages list contains the same package name more than once
+	// (legitimate "noisy" state but only one owner) — without this,
+	// appending the owner name twice would surface a false overlap.
+	owners := make(map[string]map[string]struct{})
+	for name, st := range states {
+		if st == nil {
+			continue
+		}
+		for _, pkg := range st.Packages {
+			if owners[pkg] == nil {
+				owners[pkg] = make(map[string]struct{})
+			}
+			owners[pkg][name] = struct{}{}
+		}
+	}
+	var dupes []string
+	for pkg, ownerSet := range owners {
+		if len(ownerSet) <= 1 {
+			continue
+		}
+		names := make([]string, 0, len(ownerSet))
+		for n := range ownerSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		dupes = append(dupes, fmt.Sprintf("package %q recorded as installed by SystemPackageSet %v", pkg, names))
+	}
+	if len(dupes) == 0 {
+		return nil
+	}
+	sort.Strings(dupes)
+	return fmt.Errorf("system package state overlap (resolve state.json manually before re-applying): %s", strings.Join(dupes, "; "))
+}
+
+// ValidateSystemPackageSetOverlap rejects manifests where the same OS
+// package name is declared by more than one SystemPackageSet. Without
+// this check, dropping or shrinking one overlapping set would trigger
+// PackageSetInstaller.Remove (or the Install-time upgrade drain) on a
+// package that another set still relies on; the other set's state would
+// continue to record the package as installed while it had been
+// uninstalled from the host, and subsequent applies would observe no
+// drift to repair.
+//
+// Operates on the post-ExpandSets resource list (SystemPackage → 1-
+// element SystemPackageSet, so it catches overlap regardless of which
+// sugar a manifest used). Callers should invoke this from the same
+// place they invoke ExpandSets (validate / plan / apply).
+//
+// Two SystemPackageSet resources with disjoint Packages are fine. A
+// future refcount-aware Remove/Drain could relax this constraint, but
+// until that lands the only safe model is "one package, one owner."
+//
+// Known limitation — cross-set removal cascade: this check rejects
+// only DIRECT name overlap. apt's reverse-dependency handling can
+// still cascade a Remove on one set's package into a package owned by
+// another set (e.g., set A owns `perl`, set B owns `cowsay`; removing
+// set A cascades cowsay out from under set B because cowsay depends on
+// perl). The within-set variant of this hazard is caught at runtime
+// via apt-get -s simulation in PackageSetInstaller.Install's upgrade
+// drain. Cross-set cascade protection requires plumbing all-set state
+// into Install/Remove (so simulation can compare cascades against the
+// union of every other set's packages), which is tracked as a separate
+// follow-up. Until that lands, manifest authors splitting a dependency
+// chain across multiple SystemPackageSets carry the risk.
+//
+// See also ValidateSystemPackageSetStateOverlap for the companion
+// check that catches legacy state drift (state.json contains
+// overlapping entries from an older tomei version where the desired-
+// state validation did not yet exist).
+func ValidateSystemPackageSetOverlap(resources []Resource) error {
+	// owners is pkg → set-of-distinct-owner-names. Set semantics avoid
+	// a false overlap when a single SystemPackageSet's Packages list
+	// repeats the same package name (e.g., a copy-paste mistake in the
+	// manifest — apt-get install handles duplicates without complaint,
+	// so this is not its own validation error; we just don't want it
+	// to look like an overlap across two sets).
+	owners := make(map[string]map[string]struct{})
+	for _, r := range resources {
+		ps, ok := r.(*SystemPackageSet)
+		if !ok {
+			continue
+		}
+		if ps.SystemPackageSetSpec == nil {
+			continue
+		}
+		for _, pkg := range ps.SystemPackageSetSpec.Packages {
+			if owners[pkg] == nil {
+				owners[pkg] = make(map[string]struct{})
+			}
+			owners[pkg][r.Name()] = struct{}{}
+		}
+	}
+	var dupes []string
+	for pkg, ownerSet := range owners {
+		if len(ownerSet) <= 1 {
+			continue
+		}
+		names := make([]string, 0, len(ownerSet))
+		for n := range ownerSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		dupes = append(dupes, fmt.Sprintf("package %q declared by SystemPackageSet %v", pkg, names))
+	}
+	if len(dupes) == 0 {
+		return nil
+	}
+	sort.Strings(dupes)
+	return fmt.Errorf("system package overlap: %s", strings.Join(dupes, "; "))
+}
+
+// GetPackages returns the package list recorded by Install. The executor
+// type-asserts this method on the state to surface the prior packages
+// through context.WithOldPackages on upgrade/reinstall actions — the apt
+// installer uses that signal to uninstall packages dropped from the new
+// spec, which the generic "upgrade = install" executor flow would
+// otherwise leave orphaned on the host.
+func (s *SystemPackageSetState) GetPackages() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Packages
+}
 
 // SystemPackageSpec defines a single system package; sugar for a 1-element SystemPackageSet.
 type SystemPackageSpec struct {

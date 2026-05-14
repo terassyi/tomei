@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terassyi/tomei/internal/installer/command"
+	"github.com/terassyi/tomei/internal/installer/executor"
 	"github.com/terassyi/tomei/internal/resource"
 )
 
@@ -223,41 +224,176 @@ func TestUpdate_CommandError(t *testing.T) {
 	assert.EqualError(t, err, "apt: update: exit status 100")
 }
 
-// --- PackageSetInstaller tests ---
+// --- SimulateRemoveCascade tests ---
 
-func TestPackageSetInstaller_Install(t *testing.T) {
+func TestSimulateRemoveCascade(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		packages  []string
+		pkgs      []string
+		output    string
 		runnerErr error
+		want      []string
 		wantErr   string
 		wantCmd   string
 	}{
 		{
-			name:     "single package",
-			packages: []string{"git"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
+			name:    "empty input is no-op",
+			pkgs:    nil,
+			wantCmd: "",
+		},
+		{
+			name: "single target, no cascade",
+			pkgs: []string{"jq"},
+			output: "Reading package lists... Done\n" +
+				"Building dependency tree... Done\n" +
+				"Remv jq [1.6-2.1ubuntu3]\n",
+			want:    []string{"jq"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name: "cascade picks up dependent",
+			pkgs: []string{"perl"},
+			output: "Reading package lists... Done\n" +
+				"The following packages will be REMOVED:\n  cowsay perl\n" +
+				"Remv cowsay [3.7.0-3]\n" +
+				"Remv perl [5.34.0-3ubuntu1.3]\n",
+			want:    []string{"cowsay", "perl"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- perl",
+		},
+		{
+			name: "duplicate Remv lines deduped",
+			pkgs: []string{"jq"},
+			output: "Remv jq [1.6-2.1ubuntu3]\n" +
+				"Remv jq [1.6-2.1ubuntu3]\n",
+			want:    []string{"jq"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name:    "no Remv lines returns nil",
+			pkgs:    []string{"jq"},
+			output:  "Reading package lists... Done\nBuilding dependency tree... Done\n",
+			want:    nil,
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name:      "runner error wraps simulate context",
+			pkgs:      []string{"jq"},
+			runnerErr: errors.New("exit status 100"),
+			wantErr:   `apt: simulate-remove ["jq"]`,
+		},
+		{
+			name:    "empty package name rejected",
+			pkgs:    []string{""},
+			wantErr: "apt: empty package name in simulate-remove list",
+		},
+		{
+			name:    "shell-meta package name rejected",
+			pkgs:    []string{"jq;rm -rf /"},
+			wantErr: "contains disallowed characters",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{
+				captureOutput: tt.output,
+				captureErr:    tt.runnerErr,
+			}
+			got, err := New(runner).SimulateRemoveCascade(context.Background(), tt.pkgs)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			if tt.wantCmd != "" {
+				require.Len(t, runner.captureCmds, 1)
+				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+			} else {
+				assert.Empty(t, runner.captureCmds, "empty input must not invoke apt-get")
+			}
+		})
+	}
+}
+
+// --- PackageSetInstaller tests ---
+
+func TestPackageSetInstaller_Install(t *testing.T) {
+	t.Parallel()
+	// Runner call sequence:
+	//
+	//	indices 0..N-1: pre-install IsInstalled probes (one per package).
+	//	                Empty output ⇒ not installed (the bottom of
+	//	                IsInstalled returns false, nil when no status line
+	//	                matches "installed"). Used to snapshot which
+	//	                packages this Install action newly placed for the
+	//	                rollback differential.
+	//	index   N    : apt-get install (no output read).
+	//	indices N+1..2N: post-install dpkg-query version probes (one per
+	//	                package, in spec order). probeOutputs[i] is the
+	//	                output returned for the i-th version probe.
+	tests := []struct {
+		name         string
+		packages     []string
+		probeOutputs []string
+		runnerErr    error
+		wantErr      string
+		wantCmds     []string
+		wantVersions map[string]string
+	}{
+		{
+			name:         "single package",
+			packages:     []string{"git"},
+			probeOutputs: []string{"installed 1:2.34.1-1ubuntu1.10\n"},
+			wantCmds: []string{
+				`dpkg-query -W -f='${db:Status-Status}\n' -- git`,
+				"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git",
+				`dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- git`,
+			},
+			wantVersions: map[string]string{"git": "1:2.34.1-1ubuntu1.10"},
 		},
 		{
 			name:     "multiple packages",
 			packages: []string{"git", "curl", "tree"},
-			wantCmd:  "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+			probeOutputs: []string{
+				"installed 1:2.34.1-1ubuntu1.10\n",
+				"installed 7.81.0-1ubuntu1.13\n",
+				"installed 1.8.0-5build1\n",
+			},
+			wantCmds: []string{
+				`dpkg-query -W -f='${db:Status-Status}\n' -- git`,
+				`dpkg-query -W -f='${db:Status-Status}\n' -- curl`,
+				`dpkg-query -W -f='${db:Status-Status}\n' -- tree`,
+				"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- git curl tree",
+				`dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- git`,
+				`dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- curl`,
+				`dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`,
+			},
+			wantVersions: map[string]string{
+				"git":  "1:2.34.1-1ubuntu1.10",
+				"curl": "7.81.0-1ubuntu1.13",
+				"tree": "1.8.0-5build1",
+			},
 		},
 		{
 			name:     "empty packages",
 			packages: []string{},
-			wantErr:  "apt: install requires at least one package",
+			// spec.Validate() catches this at the apt boundary before
+			// runInstall, producing the package-set-scoped wrap.
+			wantErr: `apt: package set "cli-tools": at least one package is required`,
 		},
 		{
 			name:     "empty string in packages slice",
 			packages: []string{""},
-			wantErr:  "apt: empty package name in install list",
+			wantErr:  `apt: package set "cli-tools": packages[0] must not be empty`,
 		},
 		{
 			name:     "empty string among valid packages",
 			packages: []string{"git", "", "tree"},
-			wantErr:  "apt: empty package name in install list",
+			wantErr:  `apt: package set "cli-tools": packages[1] must not be empty`,
 		},
 		{
 			name:     "package with semicolon rejected",
@@ -288,13 +424,27 @@ func TestPackageSetInstaller_Install(t *testing.T) {
 			name:      "runner error wraps packages context",
 			packages:  []string{"nonexistent-pkg"},
 			runnerErr: errors.New("exit status 100"),
-			wantErr:   `apt: install ["nonexistent-pkg"]`,
+			// Pre-install IsInstalled probe fires first and is the call
+			// that surfaces the runner error. The probe wrap is
+			// "apt: status %q" (from Client.IsInstalled) which is then
+			// scoped by Install as "apt: package set %q: snapshot
+			// pre-install state of %q: <probe wrap>: <runner err>".
+			wantErr: `apt: package set "cli-tools": snapshot pre-install state of "nonexistent-pkg"`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			runner := &mockCommandRunner{captureErr: tt.runnerErr}
+			// Pre-install IsInstalled probes (N) + apt-get install (1) all
+			// consume default "" (empty output) — IsInstalled treats no
+			// "installed" line as "not installed", apt-get install does
+			// not have its output read. probeOutputs feeds the version
+			// probes starting at index N+1.
+			captureOutputs := append(make([]string, len(tt.packages)+1), tt.probeOutputs...)
+			runner := &mockCommandRunner{
+				captureErr:     tt.runnerErr,
+				captureOutputs: captureOutputs,
+			}
 			res := &resource.SystemPackageSet{
 				SystemPackageSetSpec: &resource.SystemPackageSetSpec{
 					InstallerRef: "apt",
@@ -304,12 +454,11 @@ func TestPackageSetInstaller_Install(t *testing.T) {
 			state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
 			if tt.wantErr == "" {
 				require.NoError(t, err)
-				require.Len(t, runner.captureCmds, 1)
-				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+				assert.Equal(t, tt.wantCmds, runner.captureCmds)
 				require.NotNil(t, state)
 				assert.Equal(t, "apt", state.InstallerRef)
 				assert.Equal(t, tt.packages, state.Packages)
-				assert.NotNil(t, state.InstalledVersions)
+				assert.Equal(t, tt.wantVersions, state.InstalledVersions)
 				assert.False(t, state.UpdatedAt.IsZero(), "UpdatedAt should be set")
 			} else {
 				require.Error(t, err)
@@ -320,9 +469,40 @@ func TestPackageSetInstaller_Install(t *testing.T) {
 	}
 }
 
+func TestPackageSetInstaller_Install_NilGuards(t *testing.T) {
+	t.Parallel()
+	// Defense-in-depth at the apt boundary. Mirrors PackageRepository
+	// installer's `apt: repository %q: nil spec` shape (repository.go:394).
+	cases := []struct {
+		name string
+		res  *resource.SystemPackageSet
+	}{
+		{"nil resource", nil},
+		{"nil spec", &resource.SystemPackageSet{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{}
+			state, err := New(runner).PackageSetInstaller().Install(context.Background(), tc.res, "cli-tools")
+			require.Error(t, err)
+			assert.Nil(t, state)
+			assert.Contains(t, err.Error(), `apt: package set "cli-tools": nil spec`)
+			assert.Empty(t, runner.captureCmds, "apt-get install must not run when spec is missing")
+		})
+	}
+}
+
 func TestPackageSetInstaller_Install_PropagatesRepositoryRef(t *testing.T) {
 	t.Parallel()
-	runner := &mockCommandRunner{}
+	// Sequence:
+	//   index 0 = pre-install IsInstalled probe for "docker-ce" (empty
+	//             output ⇒ not installed).
+	//   index 1 = apt-get install (no output read).
+	//   index 2 = dpkg-query version probe for "docker-ce".
+	runner := &mockCommandRunner{
+		captureOutputs: []string{"", "", "installed 5:24.0.7-1~ubuntu.22.04~jammy\n"},
+	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
 			InstallerRef:  "apt",
@@ -333,6 +513,429 @@ func TestPackageSetInstaller_Install_PropagatesRepositoryRef(t *testing.T) {
 	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "docker")
 	require.NoError(t, err)
 	assert.Equal(t, "docker", state.RepositoryRef)
+}
+
+// TestPackageSetInstaller_Install_PopulatesVersions verifies that Install
+// runs the pre-install IsInstalled probes, then apt-get install, then
+// version probes per package in order, and the per-package versions land
+// in state.InstalledVersions.
+func TestPackageSetInstaller_Install_PopulatesVersions(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{
+		// Sequence:
+		//   indices 0..1: pre-install IsInstalled probes for tree, jq
+		//                 (empty output ⇒ not installed).
+		//   index   2   : apt-get install (no output read).
+		//   indices 3..4: dpkg-query version probes per package.
+		captureOutputs: []string{
+			"",
+			"",
+			"",
+			"installed 1.8.0-5build1\n",
+			"installed 1.6-2.1ubuntu3\n",
+		},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree", "jq"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t,
+		map[string]string{"tree": "1.8.0-5build1", "jq": "1.6-2.1ubuntu3"},
+		state.InstalledVersions,
+	)
+	// Verify the full call sequence: pre-install probes, then install,
+	// then version probes — all in spec order.
+	require.Len(t, runner.captureCmds, 5)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[0])
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- jq`, runner.captureCmds[1])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- tree jq",
+		runner.captureCmds[2],
+	)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`, runner.captureCmds[3])
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- jq`, runner.captureCmds[4])
+}
+
+// TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages
+// asserts the upgrade-time package drainage. When the executor invokes
+// Install with executor.WithOldPackages on the ctx (as it does for any
+// ActionUpgrade / ActionReinstall on a state implementing GetPackages),
+// the installer MUST uninstall the diff (old - new) so a user shrinking
+// the spec from [tree, jq] to [tree] does not leave jq installed on the
+// host with no state tracking — the executor's generic "upgrade = re-run
+// Install" flow has no other place to do this cleanup.
+//
+// Ordering: drainage runs AFTER the new-spec install and per-package
+// version probes have both succeeded. Earlier drafts drained before the
+// install, but that left the host with FEWER packages than state.json
+// claimed if install/probe failed. The post-probe ordering is
+// documented in detail on PackageSetInstaller.Install in apt.go.
+func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{
+		// Sequence (new spec = [tree], old packages = [tree, jq] from
+		// executor ctx). Drainage runs LAST so install / probe failures
+		// do not leave the host with FEWER packages than state.json
+		// claims (see Install docstring for the failure-mode analysis):
+		//   index 0: pre-install IsInstalled(tree) → "installed\n".
+		//   index 1: apt-get install tree (no-op, already installed).
+		//   index 2: dpkg-query version(tree).
+		//   index 3: apt-get -s remove jq (cascade simulation) — only
+		//            "jq" itself would be removed; no cascade.
+		//   index 4: apt-get remove jq (real drain).
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 1.8.0-5build1\n",
+			"Reading package lists... Done\nBuilding dependency tree... Done\nRemv jq [1.6-2.1ubuntu3]\n",
+			"",
+		},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree"},
+		},
+	}
+	ctx := executor.WithOldPackages(context.Background(), []string{"tree", "jq"})
+	state, err := New(runner).PackageSetInstaller().Install(ctx, res, "cli-tools")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.Equal(t, []string{"tree"}, state.Packages, "state reflects the new spec only")
+	require.Len(t, runner.captureCmds, 5)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[0])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- tree",
+		runner.captureCmds[1],
+		"install must run BEFORE drainage so a failed install leaves the host at old state, not partially drained",
+	)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`, runner.captureCmds[2])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		runner.captureCmds[3],
+		"simulate the drain first to detect cascade-removal of new-spec packages",
+	)
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		runner.captureCmds[4],
+		"actual drain runs ONLY after the simulation confirms no cascade into new spec",
+	)
+}
+
+// TestPackageSetInstaller_Install_Upgrade_CascadeAbortsBeforeRemove
+// asserts the simulate-then-execute drain guard: if apt's pre-flight
+// simulation shows the drain would cascade-remove a package the new
+// spec still relies on, Install aborts BEFORE the real apt-get remove
+// runs. The cascade can happen when a dependency chain is split across
+// SystemPackageSets — e.g. spec shrinks [cowsay, perl] → [cowsay], and
+// removing perl would also force apt to remove cowsay (which depends
+// on perl). Without this guard, Install would record state saying
+// cowsay is installed while the host no longer has it.
+func TestPackageSetInstaller_Install_Upgrade_CascadeAbortsBeforeRemove(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{
+		// New spec = [cowsay], old packages = [cowsay, perl]. The
+		// simulation output reports that removing perl would also
+		// cascade-remove cowsay — which is in the new spec, so Install
+		// must abort BEFORE running the real apt-get remove.
+		//
+		// Sequence:
+		//   index 0: pre-install IsInstalled(cowsay) → "installed\n".
+		//   index 1: apt-get install cowsay (no-op).
+		//   index 2: dpkg-query version(cowsay).
+		//   index 3: apt-get -s remove perl → cascade includes cowsay.
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 3.7.0-3\n",
+			"Reading package lists... Done\nBuilding dependency tree... Done\nRemv cowsay [3.7.0-3]\nRemv perl [5.34.0-3ubuntu1.3]\n",
+		},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"cowsay"},
+		},
+	}
+	ctx := executor.WithOldPackages(context.Background(), []string{"cowsay", "perl"})
+	state, err := New(runner).PackageSetInstaller().Install(ctx, res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(),
+		`apt: package set "cli-tools": upgrade drain [perl] would cascade-remove [cowsay] from the new spec`)
+	// Exactly 4 commands: snapshot + install + probe + simulate.
+	// The REAL apt-get remove must NOT fire.
+	require.Len(t, runner.captureCmds, 4,
+		"cascade detected by simulation must abort BEFORE the real apt-get remove")
+	for _, cmd := range runner.captureCmds {
+		assert.NotContains(t, cmd, "apt-get remove -y -o",
+			"real apt-get remove (non-simulate) must not run; got %q", cmd)
+	}
+}
+
+// TestPackageSetInstaller_Install_Upgrade_NoDrainWhenSpecGrows asserts
+// that when the new spec is a superset of the old (no packages dropped),
+// no drainage apt-get remove fires — only the install + version probes.
+func TestPackageSetInstaller_Install_Upgrade_NoDrainWhenSpecGrows(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{
+		captureOutputs: []string{
+			"installed\n", // pre-install IsInstalled(tree) → already installed
+			"",            // pre-install IsInstalled(jq)   → not installed
+			"",            // apt-get install (no output read)
+			"installed 1.8.0-5build1\n",
+			"installed 1.6-2.1ubuntu3\n",
+		},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree", "jq"},
+		},
+	}
+	ctx := executor.WithOldPackages(context.Background(), []string{"tree"})
+	state, err := New(runner).PackageSetInstaller().Install(ctx, res, "cli-tools")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.Len(t, runner.captureCmds, 5,
+		"superset upgrade ⇒ no drainage; sequence is 2 IsInstalled + 1 install + 2 version probes")
+	// First command must be a dpkg-query (pre-install IsInstalled probe),
+	// NOT an apt-get remove. This pins the "no drainage" claim.
+	assert.Contains(t, runner.captureCmds[0], "dpkg-query",
+		"superset upgrade must NOT run apt-get remove first")
+}
+
+// TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts asserts
+// that a drainage failure (apt-get remove returning an error) at the END
+// of Install causes the wrapped error to surface. The host has the new
+// install applied successfully but state.json is NOT saved (Install
+// returns an error) — on retry the reconciler emits Upgrade again and
+// drainage is re-attempted. State.json says OLD packages, host has OLD
+// (preinstalled) + NEW (just-placed) packages, with drainage pending
+// retry. See Install's drainage-order docstring for why this is preferred
+// over the inverse failure mode (drain-before-install would leave the
+// host with FEWER packages than state.json claims).
+func TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts(t *testing.T) {
+	t.Parallel()
+	drainErr := errors.New("apt-get remove: exit status 100")
+	runner := &mockCommandRunner{
+		// Sequence: install succeeds, probe succeeds, simulate
+		// succeeds (no cascade), real drain fails.
+		//   index 0: pre-install IsInstalled(tree).
+		//   index 1: apt-get install tree.
+		//   index 2: dpkg-query version(tree).
+		//   index 3: apt-get -s remove jq (no cascade).
+		//   index 4: apt-get remove jq → drainErr.
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 1.8.0-5build1\n",
+			"Remv jq [1.6-2.1ubuntu3]\n",
+			"",
+		},
+		captureErrs: []error{nil, nil, nil, nil, drainErr},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree"},
+		},
+	}
+	ctx := executor.WithOldPackages(context.Background(), []string{"tree", "jq"})
+	state, err := New(runner).PackageSetInstaller().Install(ctx, res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(), `apt: package set "cli-tools": upgrade drain`)
+	require.Len(t, runner.captureCmds, 5, "drainage failure surfaces after install+probe+simulate complete")
+}
+
+// TestPackageSetInstaller_Install_RejectsNonAPTInstallerRef asserts the
+// APT-boundary check on spec.InstallerRef. SystemPackageSetSpec.Validate
+// only checks that installerRef is non-empty; if a SystemPackageSet
+// somehow lands here with installerRef = "dnf" (a non-CUE caller, a
+// future routing bug in selectPackageInstaller), the apt installer would
+// otherwise happily run apt-get and persist "dnf" into state — leaving
+// the engine unable to invoke the correct concrete installer on the
+// next apply.
+func TestPackageSetInstaller_Install_RejectsNonAPTInstallerRef(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "dnf",
+			Packages:     []string{"tree"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(), `apt: package set "cli-tools": installerRef "dnf" is not "apt"`)
+	assert.Empty(t, runner.captureCmds, "no apt-get must run when installerRef is non-APT")
+}
+
+// TestPackageSetInstaller_Install_VersionProbeError verifies that a
+// failure in any post-install dpkg-query probe aborts the Install and
+// returns the wrapped error — a successful apt-get install for which we
+// cannot read versions is a state-store consistency bug, so the helper
+// surfaces it rather than degrading to an empty map.
+//
+// Beyond surfacing the error, Install must also roll back the apt-get
+// install (best-effort) so the host returns to its pre-Install state —
+// but ONLY for packages that this Install action newly placed. Packages
+// already on the host before Install must NOT be uninstalled, even if
+// they appear in spec.Packages (apt-get install no-ops on preexisting
+// packages; the rollback diff is based on the pre-install IsInstalled
+// snapshot). This mirrors PackageRepositoryInstaller.bestEffortRollback's
+// snapshot-restore semantics for repository files.
+func TestPackageSetInstaller_Install_VersionProbeError(t *testing.T) {
+	t.Parallel()
+	probeErr := errors.New("dpkg-query: connection lost")
+	runner := &mockCommandRunner{
+		// Sequence:
+		//   index 0: pre-install IsInstalled(tree) → nil err, "" out → not installed.
+		//   index 1: pre-install IsInstalled(jq)   → nil err, "" out → not installed.
+		//   index 2: apt-get install               → nil err.
+		//   index 3: dpkg-query version(tree)      → probeErr.
+		//   index 4: best-effort rollback apt-get remove → nil err.
+		captureErrs: []error{nil, nil, nil, probeErr, nil},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree", "jq"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state, "no state when version probe fails — state-store consistency")
+	assert.Contains(t, err.Error(), `apt: package set "cli-tools": probe version of "tree"`)
+	// Probe for "jq" must NOT fire after "tree"'s probe failed, but the
+	// best-effort rollback must remove BOTH packages (both were absent
+	// before Install — the snapshot recorded them as not-installed, so
+	// both are in the rollback set).
+	require.Len(t, runner.captureCmds, 5)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[0])
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- jq`, runner.captureCmds[1])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- tree jq",
+		runner.captureCmds[2],
+	)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`, runner.captureCmds[3])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- tree jq",
+		runner.captureCmds[4],
+	)
+}
+
+// TestPackageSetInstaller_Install_VersionProbeError_PreinstalledNotRolledBack
+// asserts the rollback differential: a package that was already installed
+// before Install must NOT be removed during the post-probe-failure rollback.
+// Without the pre-install snapshot, the rollback would uninstall a user-
+// managed (or other SystemPackageSet's) package, violating the "do not
+// touch what we did not place" contract.
+func TestPackageSetInstaller_Install_VersionProbeError_PreinstalledNotRolledBack(t *testing.T) {
+	t.Parallel()
+	probeErr := errors.New("dpkg-query: connection lost")
+	runner := &mockCommandRunner{
+		// Sequence:
+		//   index 0: pre-install IsInstalled(tree) → "installed\n" ⇒ already on host.
+		//   index 1: pre-install IsInstalled(jq)   → "" ⇒ not installed.
+		//   index 2: apt-get install (no-ops tree, installs jq).
+		//   index 3: dpkg-query version(tree) → probeErr.
+		//   index 4: best-effort rollback apt-get remove → nil. Must only
+		//            target jq because tree predated this Install action.
+		captureOutputs: []string{"installed\n", "", "", "", ""},
+		captureErrs:    []error{nil, nil, nil, probeErr, nil},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree", "jq"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(), `apt: package set "cli-tools": probe version of "tree"`)
+	require.Len(t, runner.captureCmds, 5)
+	// Critical assertion: the rollback removes ONLY jq, not tree.
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		runner.captureCmds[4],
+		"rollback must not uninstall packages that predated this Install action",
+	)
+}
+
+// TestPackageSetInstaller_Install_VersionProbeError_AllPreinstalledNoRollback
+// asserts that when every package was already on the host, a probe
+// failure skips rollback entirely (no apt-get remove call). The Install
+// action did not change the host's installed-package set, so there is
+// nothing to undo.
+func TestPackageSetInstaller_Install_VersionProbeError_AllPreinstalledNoRollback(t *testing.T) {
+	t.Parallel()
+	probeErr := errors.New("dpkg-query: connection lost")
+	runner := &mockCommandRunner{
+		// Both pre-install probes report "installed". Install no-ops.
+		// The version probe fails on tree → no rollback (nothing newly placed).
+		captureOutputs: []string{"installed\n", "installed\n", "", "", ""},
+		captureErrs:    []error{nil, nil, nil, probeErr},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree", "jq"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	// No rollback command: sequence stops at the failing version probe.
+	require.Len(t, runner.captureCmds, 4,
+		"all packages preinstalled ⇒ no rollback fires; sequence is 2 IsInstalled + 1 install + 1 failing probe")
+}
+
+// TestPackageSetInstaller_Install_VersionProbeError_RollbackFailure
+// verifies that a rollback failure does NOT mask the probe error in the
+// returned wrap — the trigger cause (probe failure) stays at the head of
+// the chain; the rollback failure goes to slog at Warn. The host may end
+// up with orphaned packages in this rare path, but the apply still fails
+// loudly with the right root cause.
+func TestPackageSetInstaller_Install_VersionProbeError_RollbackFailure(t *testing.T) {
+	t.Parallel()
+	probeErr := errors.New("dpkg-query: connection lost")
+	rollbackErr := errors.New("apt-get remove: exit status 100")
+	runner := &mockCommandRunner{
+		// Sequence:
+		//   index 0: pre-install IsInstalled(tree) → not installed.
+		//   index 1: apt-get install → nil.
+		//   index 2: dpkg-query version(tree) → probeErr.
+		//   index 3: rollback apt-get remove → rollbackErr.
+		captureErrs: []error{nil, nil, probeErr, rollbackErr},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"tree"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	// The trigger error must be the head of the chain; the rollback
+	// failure goes to slog (asserted by other tests via capture pattern).
+	assert.Contains(t, err.Error(), "probe version of")
+	assert.Contains(t, err.Error(), "dpkg-query: connection lost")
+	// The rollback attempt still fired even though it failed.
+	require.Len(t, runner.captureCmds, 4)
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- tree",
+		runner.captureCmds[3],
+	)
 }
 
 func TestPackageSetInstaller_Remove(t *testing.T) {

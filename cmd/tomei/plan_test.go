@@ -203,7 +203,7 @@ func TestMarkAllSystemAsInstall(t *testing.T) {
 		assert.Equal(t, resource.ActionInstall, info[nodeID].Action)
 	})
 
-	t.Run("SystemPackageRepository gets ActionInstall (#196 wiring)", func(t *testing.T) {
+	t.Run("SystemPackageRepository gets ActionInstall (#196/#198 wiring)", func(t *testing.T) {
 		t.Parallel()
 		info := make(map[graph.NodeID]graph.ResourceInfo)
 		markAllSystemAsInstall(info, []resource.Resource{systemRepoResource("docker")})
@@ -214,15 +214,15 @@ func TestMarkAllSystemAsInstall(t *testing.T) {
 			"SystemPackageRepository must NOT be downgraded to Skip after #196 wired the concrete installer")
 	})
 
-	t.Run("SystemPackageSet still gets ActionSkip (until #198)", func(t *testing.T) {
+	t.Run("SystemPackageSet gets ActionInstall (post-#198)", func(t *testing.T) {
 		t.Parallel()
 		info := make(map[graph.NodeID]graph.ResourceInfo)
 		markAllSystemAsInstall(info, []resource.Resource{systemPackageSetResource("dev-tools")})
 
 		nodeID := graph.NewNodeID(resource.KindSystemPackageSet, "dev-tools")
 		require.Contains(t, info, nodeID)
-		assert.Equal(t, resource.ActionSkip, info[nodeID].Action,
-			"SystemPackageSet must still be downgraded to Skip until #198 lands the concrete installer")
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action,
+			"SystemPackageSet must NOT be downgraded to Skip after #198 wired the concrete installer")
 	})
 }
 
@@ -231,8 +231,9 @@ func TestAddSystemResourceInfo(t *testing.T) {
 
 	// Setup: TempDir-backed Paths so LoadReadOnly returns an empty SystemState
 	// (state.json absent → zero-value state per Store.readState). With empty
-	// state, the reconciler emits ActionInstall for both kinds; plan.go's
-	// downgrade loop then converts only SystemPackageSet → ActionSkip.
+	// state, the reconciler emits ActionInstall for both kinds; post-#198 the
+	// skip-downgrade loop is removed entirely, so every system kind passes
+	// through with the reconciler-determined action.
 	setup := func(t *testing.T) *path.Paths {
 		t.Helper()
 		systemDir := t.TempDir()
@@ -253,7 +254,7 @@ func TestAddSystemResourceInfo(t *testing.T) {
 			"reconciler emits ActionInstall; the addSystemResourceInfo skip-downgrade loop must NOT convert it back to Skip after #196")
 	})
 
-	t.Run("SystemPackageSet still gets ActionSkip (regression seatbelt)", func(t *testing.T) {
+	t.Run("SystemPackageSet gets ActionInstall (post-#198)", func(t *testing.T) {
 		t.Parallel()
 		paths := setup(t)
 		info := make(map[graph.NodeID]graph.ResourceInfo)
@@ -261,8 +262,8 @@ func TestAddSystemResourceInfo(t *testing.T) {
 
 		nodeID := graph.NewNodeID(resource.KindSystemPackageSet, "dev-tools")
 		require.Contains(t, info, nodeID)
-		assert.Equal(t, resource.ActionSkip, info[nodeID].Action,
-			"SystemPackageSet must still be downgraded to Skip until #198 wires the concrete installer")
+		assert.Equal(t, resource.ActionInstall, info[nodeID].Action,
+			"reconciler emits ActionInstall; the addSystemResourceInfo skip-downgrade loop was removed in #198 so SystemPackageSet must pass through")
 	})
 
 	t.Run("absent system data dir falls back to markAllSystemAsInstall", func(t *testing.T) {
@@ -285,8 +286,8 @@ func TestAddSystemResourceInfo(t *testing.T) {
 			"first-run fallback must put SystemPackageRepository on the Install path")
 		pkgID := graph.NewNodeID(resource.KindSystemPackageSet, "net-tools")
 		require.Contains(t, info, pkgID)
-		assert.Equal(t, resource.ActionSkip, info[pkgID].Action,
-			"first-run fallback must still Skip SystemPackageSet until #198")
+		assert.Equal(t, resource.ActionInstall, info[pkgID].Action,
+			"first-run fallback must put SystemPackageSet on the Install path post-#198")
 	})
 
 	t.Run("corrupt state.json falls back to markAllSystemAsInstall", func(t *testing.T) {
@@ -308,8 +309,8 @@ func TestAddSystemResourceInfo(t *testing.T) {
 	t.Run("SystemPackageRepository in state but absent from manifest gets ActionRemove", func(t *testing.T) {
 		t.Parallel()
 		// Pre-seed state with a SystemPackageRepository entry; pass an
-		// empty manifest. The reconciler emits ActionRemove; #196's
-		// skip-downgrade removal must NOT convert it to Skip.
+		// empty manifest. The reconciler emits ActionRemove; with the
+		// skip-downgrade loop removed in #198, the action must pass through.
 		systemDir := t.TempDir()
 		st := state.NewSystemState()
 		st.SystemPackageRepositories["docker"] = &resource.SystemPackageRepositoryState{
@@ -337,6 +338,6 @@ func TestAddSystemResourceInfo(t *testing.T) {
 		nodeID := graph.NewNodeID(resource.KindSystemPackageRepository, "docker")
 		require.Contains(t, info, nodeID)
 		assert.Equal(t, resource.ActionRemove, info[nodeID].Action,
-			"reconciler emits ActionRemove; the post-#196 skip-downgrade loop only touches SystemPackageSet so Remove must pass through")
+			"reconciler emits ActionRemove; the skip-downgrade loop was removed in #198 so Remove must pass through")
 	})
 }
