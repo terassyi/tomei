@@ -417,6 +417,19 @@ func (*SystemPackageSetState) isState() {}
 // Two SystemPackageSet resources with disjoint Packages are fine. A
 // future refcount-aware Remove/Drain could relax this constraint, but
 // until that lands the only safe model is "one package, one owner."
+//
+// Known limitation — cross-set removal cascade: this check rejects
+// only DIRECT name overlap. apt's reverse-dependency handling can
+// still cascade a Remove on one set's package into a package owned by
+// another set (e.g., set A owns `perl`, set B owns `cowsay`; removing
+// set A cascades cowsay out from under set B because cowsay depends on
+// perl). The within-set variant of this hazard is caught at runtime
+// via apt-get -s simulation in PackageSetInstaller.Install's upgrade
+// drain. Cross-set cascade protection requires plumbing all-set state
+// into Install/Remove (so simulation can compare cascades against the
+// union of every other set's packages), which is tracked as a separate
+// follow-up. Until that lands, manifest authors splitting a dependency
+// chain across multiple SystemPackageSets carry the risk.
 func ValidateSystemPackageSetOverlap(resources []Resource) error {
 	owners := make(map[string][]string)
 	for _, r := range resources {

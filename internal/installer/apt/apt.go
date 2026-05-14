@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -420,6 +421,65 @@ func (c *Client) Update(ctx context.Context) error {
 	return nil
 }
 
+// SimulateRemoveCascade returns the full list of packages apt-get would
+// remove if asked to remove `pkgs`, including transitive cascades that
+// apt's reverse-dependency handling pulls in. Used to pre-flight an
+// upgrade drain so a cascade that would remove a package the manifest
+// still relies on surfaces as a clear error before any host mutation.
+//
+// The shell command executed is:
+//
+//	sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- <pkgs>
+//
+// LC_ALL=C is load-bearing: apt prefixes each removal line with the
+// literal "Remv " in C locale; non-C locales translate the prefix and
+// would silently break the parser.
+//
+// The returned list is sorted and deduplicated. Empty input returns
+// (nil, nil) without invoking apt-get.
+func (c *Client) SimulateRemoveCascade(ctx context.Context, pkgs []string) ([]string, error) {
+	if len(pkgs) == 0 {
+		return nil, nil
+	}
+	for _, pkg := range pkgs {
+		if pkg == "" {
+			return nil, errors.New("apt: empty package name in simulate-remove list")
+		}
+		if strings.ContainsAny(pkg, disallowedInPackageName) {
+			return nil, fmt.Errorf("apt: package %q contains disallowed characters", pkg)
+		}
+	}
+	cmd := "sudo -n " + aptGetEnvPrefix +
+		" apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- " +
+		strings.Join(pkgs, " ")
+	output, err := c.runner.ExecuteCapture(ctx, []string{cmd}, command.Vars{}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("apt: simulate-remove %q: %w", pkgs, err)
+	}
+	seen := make(map[string]bool)
+	var removed []string
+	for line := range strings.SplitSeq(output, "\n") {
+		line = strings.TrimSpace(line)
+		// apt's simulate-mode emits one "Remv PKGNAME [VERSION]" line per
+		// package it would actually uninstall (target + cascades). Any
+		// other apt status line (Inst, Conf, Reading, etc.) is ignored.
+		if !strings.HasPrefix(line, "Remv ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pkg := fields[1]
+		if !seen[pkg] {
+			seen[pkg] = true
+			removed = append(removed, pkg)
+		}
+	}
+	sort.Strings(removed)
+	return removed, nil
+}
+
 // PackageSetInstaller installs and removes SystemPackageSet resources via
 // apt-get. It satisfies executor.Installer[*resource.SystemPackageSet,
 // *resource.SystemPackageSetState].
@@ -559,6 +619,27 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 			}
 		}
 		if len(toRemove) > 0 {
+			// Pre-flight the drain via apt-get -s to detect cascades.
+			// apt's reverse-dependency handling can pull packages we
+			// did NOT name into the removal — including packages the
+			// new spec still relies on (e.g. shrinking [cowsay, perl]
+			// → [cowsay] would normally cascade-remove cowsay because
+			// cowsay depends on perl). Catching this BEFORE the actual
+			// remove avoids a state-vs-host drift where state.json
+			// records "cowsay installed" but the host no longer has it.
+			cascade, err := p.client.SimulateRemoveCascade(ctx, toRemove)
+			if err != nil {
+				return nil, fmt.Errorf("apt: package set %q: simulate upgrade drain %v: %w", name, toRemove, err)
+			}
+			var cascadeIntoSpec []string
+			for _, pkg := range cascade {
+				if newSet[pkg] {
+					cascadeIntoSpec = append(cascadeIntoSpec, pkg)
+				}
+			}
+			if len(cascadeIntoSpec) > 0 {
+				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v would cascade-remove %v from the new spec; do not split dependent packages across SystemPackageSets (consider declaring the dependency chain in a single set)", name, toRemove, cascadeIntoSpec)
+			}
 			if err := p.runRemove(ctx, toRemove); err != nil {
 				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v: %w", name, toRemove, err)
 			}

@@ -224,6 +224,101 @@ func TestUpdate_CommandError(t *testing.T) {
 	assert.EqualError(t, err, "apt: update: exit status 100")
 }
 
+// --- SimulateRemoveCascade tests ---
+
+func TestSimulateRemoveCascade(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		pkgs      []string
+		output    string
+		runnerErr error
+		want      []string
+		wantErr   string
+		wantCmd   string
+	}{
+		{
+			name:    "empty input is no-op",
+			pkgs:    nil,
+			wantCmd: "",
+		},
+		{
+			name: "single target, no cascade",
+			pkgs: []string{"jq"},
+			output: "Reading package lists... Done\n" +
+				"Building dependency tree... Done\n" +
+				"Remv jq [1.6-2.1ubuntu3]\n",
+			want:    []string{"jq"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name: "cascade picks up dependent",
+			pkgs: []string{"perl"},
+			output: "Reading package lists... Done\n" +
+				"The following packages will be REMOVED:\n  cowsay perl\n" +
+				"Remv cowsay [3.7.0-3]\n" +
+				"Remv perl [5.34.0-3ubuntu1.3]\n",
+			want:    []string{"cowsay", "perl"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- perl",
+		},
+		{
+			name: "duplicate Remv lines deduped",
+			pkgs: []string{"jq"},
+			output: "Remv jq [1.6-2.1ubuntu3]\n" +
+				"Remv jq [1.6-2.1ubuntu3]\n",
+			want:    []string{"jq"},
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name:    "no Remv lines returns nil",
+			pkgs:    []string{"jq"},
+			output:  "Reading package lists... Done\nBuilding dependency tree... Done\n",
+			want:    nil,
+			wantCmd: "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		},
+		{
+			name:      "runner error wraps simulate context",
+			pkgs:      []string{"jq"},
+			runnerErr: errors.New("exit status 100"),
+			wantErr:   `apt: simulate-remove ["jq"]`,
+		},
+		{
+			name:    "empty package name rejected",
+			pkgs:    []string{""},
+			wantErr: "apt: empty package name in simulate-remove list",
+		},
+		{
+			name:    "shell-meta package name rejected",
+			pkgs:    []string{"jq;rm -rf /"},
+			wantErr: "contains disallowed characters",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{
+				captureOutput: tt.output,
+				captureErr:    tt.runnerErr,
+			}
+			got, err := New(runner).SimulateRemoveCascade(context.Background(), tt.pkgs)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			if tt.wantCmd != "" {
+				require.Len(t, runner.captureCmds, 1)
+				assert.Equal(t, tt.wantCmd, runner.captureCmds[0])
+			} else {
+				assert.Empty(t, runner.captureCmds, "empty input must not invoke apt-get")
+			}
+		})
+	}
+}
+
 // --- PackageSetInstaller tests ---
 
 func TestPackageSetInstaller_Install(t *testing.T) {
@@ -490,8 +585,16 @@ func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T)
 		//   index 0: pre-install IsInstalled(tree) → "installed\n".
 		//   index 1: apt-get install tree (no-op, already installed).
 		//   index 2: dpkg-query version(tree).
-		//   index 3: drainage apt-get remove jq.
-		captureOutputs: []string{"installed\n", "", "installed 1.8.0-5build1\n", ""},
+		//   index 3: apt-get -s remove jq (cascade simulation) — only
+		//            "jq" itself would be removed; no cascade.
+		//   index 4: apt-get remove jq (real drain).
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 1.8.0-5build1\n",
+			"Reading package lists... Done\nBuilding dependency tree... Done\nRemv jq [1.6-2.1ubuntu3]\n",
+			"",
+		},
 	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
@@ -504,7 +607,7 @@ func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, state)
 	assert.Equal(t, []string{"tree"}, state.Packages, "state reflects the new spec only")
-	require.Len(t, runner.captureCmds, 4)
+	require.Len(t, runner.captureCmds, 5)
 	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[0])
 	assert.Equal(t,
 		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- tree",
@@ -513,10 +616,66 @@ func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T)
 	)
 	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`, runner.captureCmds[2])
 	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get -s remove -y -o DPkg::Lock::Timeout=60 -- jq",
 		runner.captureCmds[3],
-		"drainage removes jq (in old state, not in new spec) AFTER the install+probe succeed",
+		"simulate the drain first to detect cascade-removal of new-spec packages",
 	)
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		runner.captureCmds[4],
+		"actual drain runs ONLY after the simulation confirms no cascade into new spec",
+	)
+}
+
+// TestPackageSetInstaller_Install_Upgrade_CascadeAbortsBeforeRemove
+// asserts the simulate-then-execute drain guard: if apt's pre-flight
+// simulation shows the drain would cascade-remove a package the new
+// spec still relies on, Install aborts BEFORE the real apt-get remove
+// runs. The cascade can happen when a dependency chain is split across
+// SystemPackageSets — e.g. spec shrinks [cowsay, perl] → [cowsay], and
+// removing perl would also force apt to remove cowsay (which depends
+// on perl). Without this guard, Install would record state saying
+// cowsay is installed while the host no longer has it.
+func TestPackageSetInstaller_Install_Upgrade_CascadeAbortsBeforeRemove(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{
+		// New spec = [cowsay], old packages = [cowsay, perl]. The
+		// simulation output reports that removing perl would also
+		// cascade-remove cowsay — which is in the new spec, so Install
+		// must abort BEFORE running the real apt-get remove.
+		//
+		// Sequence:
+		//   index 0: pre-install IsInstalled(cowsay) → "installed\n".
+		//   index 1: apt-get install cowsay (no-op).
+		//   index 2: dpkg-query version(cowsay).
+		//   index 3: apt-get -s remove perl → cascade includes cowsay.
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 3.7.0-3\n",
+			"Reading package lists... Done\nBuilding dependency tree... Done\nRemv cowsay [3.7.0-3]\nRemv perl [5.34.0-3ubuntu1.3]\n",
+		},
+	}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "apt",
+			Packages:     []string{"cowsay"},
+		},
+	}
+	ctx := executor.WithOldPackages(context.Background(), []string{"cowsay", "perl"})
+	state, err := New(runner).PackageSetInstaller().Install(ctx, res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(),
+		`apt: package set "cli-tools": upgrade drain [perl] would cascade-remove [cowsay] from the new spec`)
+	// Exactly 4 commands: snapshot + install + probe + simulate.
+	// The REAL apt-get remove must NOT fire.
+	require.Len(t, runner.captureCmds, 4,
+		"cascade detected by simulation must abort BEFORE the real apt-get remove")
+	for _, cmd := range runner.captureCmds {
+		assert.NotContains(t, cmd, "apt-get remove -y -o",
+			"real apt-get remove (non-simulate) must not run; got %q", cmd)
+	}
 }
 
 // TestPackageSetInstaller_Install_Upgrade_NoDrainWhenSpecGrows asserts
@@ -565,13 +724,21 @@ func TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts(t *testing.T) {
 	t.Parallel()
 	drainErr := errors.New("apt-get remove: exit status 100")
 	runner := &mockCommandRunner{
-		// Sequence: install succeeds, probe succeeds, drain fails.
+		// Sequence: install succeeds, probe succeeds, simulate
+		// succeeds (no cascade), real drain fails.
 		//   index 0: pre-install IsInstalled(tree).
 		//   index 1: apt-get install tree.
 		//   index 2: dpkg-query version(tree).
-		//   index 3: drainage apt-get remove jq → drainErr.
-		captureOutputs: []string{"installed\n", "", "installed 1.8.0-5build1\n", ""},
-		captureErrs:    []error{nil, nil, nil, drainErr},
+		//   index 3: apt-get -s remove jq (no cascade).
+		//   index 4: apt-get remove jq → drainErr.
+		captureOutputs: []string{
+			"installed\n",
+			"",
+			"installed 1.8.0-5build1\n",
+			"Remv jq [1.6-2.1ubuntu3]\n",
+			"",
+		},
+		captureErrs: []error{nil, nil, nil, nil, drainErr},
 	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
@@ -584,7 +751,7 @@ func TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, state)
 	assert.Contains(t, err.Error(), `apt: package set "cli-tools": upgrade drain`)
-	require.Len(t, runner.captureCmds, 4, "drainage failure surfaces after install+probe complete")
+	require.Len(t, runner.captureCmds, 5, "drainage failure surfaces after install+probe+simulate complete")
 }
 
 // TestPackageSetInstaller_Install_RejectsNonAPTInstallerRef asserts the
