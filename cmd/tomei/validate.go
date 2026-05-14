@@ -53,6 +53,15 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Reject manifests where the same OS package is declared by more
+	// than one SystemPackageSet. Without this gate, dropping one of the
+	// overlapping sets would uninstall the package while the other
+	// set's state still recorded it as installed — see
+	// resource.ValidateSystemPackageSetOverlap for the full rationale.
+	if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
 	// Validate each resource's spec
 	cmd.Println("Resources:")
 	validationFailed := false

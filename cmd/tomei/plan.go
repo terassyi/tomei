@@ -99,6 +99,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	// Reject overlapping SystemPackageSet declarations before plan emits
+	// an Upgrade/Remove that would tear down a multi-owner package.
+	// See resource.ValidateSystemPackageSetOverlap for the rationale.
+	if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
+		return fmt.Errorf("plan rejected: %w", err)
+	}
+
 	updateCfg := engine.UpdateConfig{
 		SyncMode:       planCfg.syncRegistry,
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,

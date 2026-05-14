@@ -114,6 +114,14 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	// Reject overlapping SystemPackageSet declarations before any host
+	// mutation. See resource.ValidateSystemPackageSetOverlap for the
+	// full rationale on why the apt installer's Remove / upgrade-drain
+	// paths are unsafe under multi-owner package state today.
+	if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
+		return fmt.Errorf("apply rejected: %w", err)
+	}
+
 	// Split resources into user-kind and system-kind
 	userResources, systemResources := resource.FilterSystemKinds(resources)
 

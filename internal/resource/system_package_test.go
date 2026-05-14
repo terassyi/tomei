@@ -5,7 +5,96 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestValidateSystemPackageSetOverlap(t *testing.T) {
+	t.Parallel()
+	mkSet := func(name string, pkgs ...string) *SystemPackageSet {
+		return &SystemPackageSet{
+			BaseResource:         BaseResource{Metadata: Metadata{Name: name}},
+			SystemPackageSetSpec: &SystemPackageSetSpec{InstallerRef: "apt", Packages: pkgs},
+		}
+	}
+	tests := []struct {
+		name      string
+		resources []Resource
+		wantErr   string
+	}{
+		{
+			name:      "empty",
+			resources: nil,
+		},
+		{
+			name: "single set",
+			resources: []Resource{
+				mkSet("dev", "curl", "jq"),
+			},
+		},
+		{
+			name: "disjoint sets",
+			resources: []Resource{
+				mkSet("dev", "curl", "jq"),
+				mkSet("ops", "htop", "iotop"),
+			},
+		},
+		{
+			name: "same package in two sets",
+			resources: []Resource{
+				mkSet("dev", "curl"),
+				mkSet("ops", "curl"),
+			},
+			wantErr: `system package overlap: package "curl" declared by SystemPackageSet [dev ops]`,
+		},
+		{
+			name: "multiple overlapping packages — error names them in stable order",
+			resources: []Resource{
+				mkSet("dev", "curl", "jq"),
+				mkSet("ops", "curl", "jq"),
+			},
+			// Both "curl" and "jq" appear twice; deterministic sort
+			// (package-name then owners) means "curl" precedes "jq".
+			wantErr: `package "curl" declared by SystemPackageSet [dev ops]; package "jq" declared by SystemPackageSet [dev ops]`,
+		},
+		{
+			name: "three-way overlap surfaces all owners sorted",
+			resources: []Resource{
+				mkSet("zeta", "curl"),
+				mkSet("alpha", "curl"),
+				mkSet("middle", "curl"),
+			},
+			wantErr: `package "curl" declared by SystemPackageSet [alpha middle zeta]`,
+		},
+		{
+			name: "nil spec is skipped (defensive)",
+			resources: []Resource{
+				&SystemPackageSet{BaseResource: BaseResource{Metadata: Metadata{Name: "broken"}}},
+				mkSet("dev", "curl"),
+			},
+		},
+		{
+			name: "non-SystemPackageSet resources are ignored",
+			resources: []Resource{
+				mkSet("dev", "curl"),
+				&Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateSystemPackageSetOverlap(tt.resources)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
 
 func TestSystemPackageSetSpec_Validate(t *testing.T) {
 	t.Parallel()

@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -398,6 +399,51 @@ type SystemPackageSetState struct {
 }
 
 func (*SystemPackageSetState) isState() {}
+
+// ValidateSystemPackageSetOverlap rejects manifests where the same OS
+// package name is declared by more than one SystemPackageSet. Without
+// this check, dropping or shrinking one overlapping set would trigger
+// PackageSetInstaller.Remove (or the Install-time upgrade drain) on a
+// package that another set still relies on; the other set's state would
+// continue to record the package as installed while it had been
+// uninstalled from the host, and subsequent applies would observe no
+// drift to repair.
+//
+// Operates on the post-ExpandSets resource list (SystemPackage → 1-
+// element SystemPackageSet, so it catches overlap regardless of which
+// sugar a manifest used). Callers should invoke this from the same
+// place they invoke ExpandSets (validate / plan / apply).
+//
+// Two SystemPackageSet resources with disjoint Packages are fine. A
+// future refcount-aware Remove/Drain could relax this constraint, but
+// until that lands the only safe model is "one package, one owner."
+func ValidateSystemPackageSetOverlap(resources []Resource) error {
+	owners := make(map[string][]string)
+	for _, r := range resources {
+		ps, ok := r.(*SystemPackageSet)
+		if !ok {
+			continue
+		}
+		if ps.SystemPackageSetSpec == nil {
+			continue
+		}
+		for _, pkg := range ps.SystemPackageSetSpec.Packages {
+			owners[pkg] = append(owners[pkg], r.Name())
+		}
+	}
+	var dupes []string
+	for pkg, names := range owners {
+		if len(names) > 1 {
+			sort.Strings(names)
+			dupes = append(dupes, fmt.Sprintf("package %q declared by SystemPackageSet %v", pkg, names))
+		}
+	}
+	if len(dupes) == 0 {
+		return nil
+	}
+	sort.Strings(dupes)
+	return fmt.Errorf("system package overlap: %s", strings.Join(dupes, "; "))
+}
 
 // GetPackages returns the package list recorded by Install. The executor
 // type-asserts this method on the state to surface the prior packages
