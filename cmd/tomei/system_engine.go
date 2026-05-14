@@ -146,8 +146,10 @@ func createSystemEngine(systemDataDir string, downloader download.Downloader) (*
 	// aptClient is constructed unconditionally: command.NewExecutor is stateless
 	// and the apt Client is the shared hub used by both the validator's
 	// VersionFunc and the repository installer. On non-apt hosts the Client
-	// exists but is never invoked (validator stays nil and selectRepoInstaller
-	// returns the placeholder).
+	// exists but is never invoked — selectRepoInstaller returns the placeholder
+	// when either (a) validator is nil because distro detection failed (macOS,
+	// minimal containers) or (b) validator is non-nil but the detected distro
+	// family does not list APT (Fedora/Arch/Alpine).
 	aptClient := apt.New(command.NewExecutor(""))
 
 	// Distro detection and validator creation are best-effort. When unavailable
