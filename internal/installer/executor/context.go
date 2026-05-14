@@ -35,3 +35,24 @@ func OldBinPathFromContext(ctx context.Context) string {
 	}
 	return ""
 }
+
+type oldPackagesKey struct{}
+
+// WithOldPackages returns a context carrying the package list recorded in
+// the prior state. Used by SystemPackageSet upgrade so the installer can
+// uninstall packages that were dropped from the new spec — without this
+// signal, the generic executor's "upgrade = install" flow leaves dropped
+// packages on the host with no state tracking.
+func WithOldPackages(ctx context.Context, packages []string) context.Context {
+	return context.WithValue(ctx, oldPackagesKey{}, packages)
+}
+
+// OldPackagesFromContext returns the prior-state package list, or nil if
+// the context does not carry one (i.e., this is a first-time Install, or
+// the state type does not expose GetPackages).
+func OldPackagesFromContext(ctx context.Context) []string {
+	if v, ok := ctx.Value(oldPackagesKey{}).([]string); ok {
+		return v
+	}
+	return nil
+}

@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -430,8 +432,10 @@ type PackageSetInstaller struct {
 var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetState] = (*PackageSetInstaller)(nil)
 
 // Install runs the apt-get install for the resource's packages and returns
-// the new state. The InstalledVersions field is left empty until the
-// dpkg-query helper lands; the install action itself is complete.
+// the new state. InstalledVersions is populated via dpkg-query per package
+// after the install completes; a probe failure aborts the Install. A
+// successful Install for which we cannot read versions is a state-store
+// consistency bug, so we surface it rather than degrade to an empty map.
 //
 // The shell command executed is:
 //
@@ -441,16 +445,103 @@ var _ executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetS
 //
 // Callers are responsible for ensuring a recent "apt-get update" has run
 // when stale package indexes would cause 404s.
-func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
+func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
+	if res == nil || res.SystemPackageSetSpec == nil {
+		return nil, fmt.Errorf("apt: package set %q: nil spec", name)
+	}
 	spec := res.SystemPackageSetSpec
+	// Validate at the apt boundary as defense-in-depth: the CUE schema
+	// and the spec's own Validate are upstream layers, but the apt
+	// installer must not assume callers ran them. Mirrors the
+	// PackageRepository installer's `apt: repository %q: %w` wrap.
+	if err := spec.Validate(); err != nil {
+		return nil, fmt.Errorf("apt: package set %q: %w", name, err)
+	}
+	// Upgrade-time package drainage: when the executor invokes Install
+	// as part of an Upgrade/Reinstall action, it surfaces the prior
+	// state's package list via executor.OldPackagesFromContext. Any
+	// package present in the old state but absent from the new spec
+	// must be uninstalled from the host — otherwise the generic
+	// "upgrade = re-run Install" flow leaves dropped packages running
+	// with no state tracking. Drainage runs BEFORE the new-spec install
+	// so a runInstall failure does not leave the host in a half-drained
+	// state with orphan packages that have already been removed.
+	if oldPkgs := executor.OldPackagesFromContext(ctx); len(oldPkgs) > 0 {
+		newSet := make(map[string]bool, len(spec.Packages))
+		for _, pkg := range spec.Packages {
+			newSet[pkg] = true
+		}
+		var toRemove []string
+		for _, pkg := range oldPkgs {
+			if !newSet[pkg] {
+				toRemove = append(toRemove, pkg)
+			}
+		}
+		if len(toRemove) > 0 {
+			if err := p.runRemove(ctx, toRemove); err != nil {
+				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v: %w", name, toRemove, err)
+			}
+		}
+	}
+	// Snapshot pre-install state so a later rollback removes ONLY the
+	// packages this Install action placed. Without this snapshot, a
+	// probe failure for one package would uninstall every package in
+	// the spec — including ones the user (or another SystemPackageSet)
+	// had on the host before this apply. apt-get install no-ops on an
+	// already-installed package, so the post-install state alone cannot
+	// distinguish "this Install placed it" from "it was already here."
+	wasInstalled := make(map[string]bool, len(spec.Packages))
+	for _, pkg := range spec.Packages {
+		installed, err := p.client.IsInstalled(ctx, pkg)
+		if err != nil {
+			return nil, fmt.Errorf("apt: package set %q: snapshot pre-install state of %q: %w", name, pkg, err)
+		}
+		wasInstalled[pkg] = installed
+	}
 	if err := p.runInstall(ctx, spec.Packages); err != nil {
 		return nil, err
+	}
+	versions := make(map[string]string, len(spec.Packages))
+	for _, pkg := range spec.Packages {
+		v, err := p.client.PackageVersion(ctx, pkg)
+		if err != nil {
+			// runInstall placed the packages on the host, but the
+			// post-install probe cannot read a consistent version map
+			// — Install must not return a state that lies about what
+			// is on the host. Mirror PackageRepositoryInstaller's
+			// best-effort rollback (repository.go) and undo only the
+			// packages this Install action newly placed.
+			//
+			// The rollback uses a fresh ctx with a bounded timeout
+			// (not the caller's ctx) so a caller cancellation that
+			// triggered the probe failure does not cascade into the
+			// undo. 60s is slightly above DPkg::Lock::Timeout=60 so a
+			// genuinely-stuck dpkg-frontend lock surfaces as a
+			// rollback failure rather than blocking apply indefinitely.
+			var toRollback []string
+			for _, p := range spec.Packages {
+				if !wasInstalled[p] {
+					toRollback = append(toRollback, p)
+				}
+			}
+			if len(toRollback) > 0 {
+				rbCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+				if rbErr := p.runRemove(rbCtx, toRollback); rbErr != nil {
+					slog.Warn("apt: package set rollback failed; host may have orphaned packages",
+						"reason", "after post-install version probe failure",
+						"name", name, "packages", toRollback, "rollback_error", rbErr, "trigger_error", err)
+				}
+				cancel()
+			}
+			return nil, fmt.Errorf("apt: package set %q: probe version of %q: %w", name, pkg, err)
+		}
+		versions[pkg] = v
 	}
 	return &resource.SystemPackageSetState{
 		InstallerRef:      spec.InstallerRef,
 		RepositoryRef:     spec.RepositoryRef,
-		Packages:          append([]string(nil), spec.Packages...),
-		InstalledVersions: map[string]string{},
+		Packages:          slices.Clone(spec.Packages),
+		InstalledVersions: versions,
 		UpdatedAt:         time.Now(),
 	}, nil
 }

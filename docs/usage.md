@@ -272,8 +272,8 @@ System resources:
 |------|---------|
 | `SystemInstaller` | Declares a host package manager (currently `apt` only). Validates the package manager is available and captures its version. |
 | `SystemPackageRepository` | Third-party APT repository (e.g., Docker, Kubernetes). Concrete installer (APT-based) places the GPG keyring at `/usr/share/keyrings/<name>.gpg`, writes the source entry to `/etc/apt/sources.list.d/<name>.list`, and runs `apt-get update`. On non-apt hosts the resource fails with a clear "platform unsupported" error. |
-| `SystemPackage` | Single-package shorthand for `SystemPackageSet`. Expands to a one-element set at load time; same skip behavior. |
-| `SystemPackageSet` | Set of system packages to install. Concrete installer is **not yet implemented** — declared resources are shown as `skip` in plan when changes would be required. |
+| `SystemPackage` | Single-package shorthand for `SystemPackageSet`. Expands to a one-element set at load time; same execution path. |
+| `SystemPackageSet` | Set of system packages to install. Concrete installer (APT-based) runs `apt-get install` / `apt-get remove` and probes installed versions via `dpkg-query`. On non-apt hosts the resource fails with a clear "platform unsupported" error. |
 
 Example manifest (no preset ships for `apt` — declare it inline):
 

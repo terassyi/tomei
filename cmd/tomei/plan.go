@@ -513,36 +513,19 @@ func addSystemResourceInfo(info map[graph.NodeID]graph.ResourceInfo, resources [
 	convertActions[*resource.SystemInstaller, *resource.SystemInstallerState](info, resource.KindSystemInstaller, installerActions)
 	convertActions[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState](info, resource.KindSystemPackageRepository, repoActions)
 	convertActions[*resource.SystemPackageSet, *resource.SystemPackageSetState](info, resource.KindSystemPackageSet, pkgActions)
-
-	// Mark SystemPackageSet resources as skip when they would require actions,
-	// since the concrete installer is not yet implemented (#198).
-	// SystemPackageRepository now has a concrete installer (#196), so it falls
-	// through with the reconciler-determined action.
-	for nodeID, ri := range info {
-		if ri.Kind == resource.KindSystemPackageSet {
-			if ri.Action != resource.ActionNone {
-				ri.Action = resource.ActionSkip
-				info[nodeID] = ri
-			}
-		}
-	}
 }
 
 // markAllSystemAsInstall marks all system resources as ActionInstall (first-run fallback).
+// All system kinds (SystemInstaller, SystemPackageRepository, SystemPackageSet)
+// have concrete installers as of #198, so every kind goes on the Install path.
 func markAllSystemAsInstall(info map[graph.NodeID]graph.ResourceInfo, resources []resource.Resource) {
 	for _, res := range resources {
 		if resource.IsSystemKind(res.Kind()) {
 			nodeID := graph.NewNodeID(res.Kind(), res.Name())
-			action := resource.ActionInstall
-			// SystemPackageSet not yet implemented (#198) — skip.
-			// SystemInstaller and SystemPackageRepository have concrete installers.
-			if res.Kind() == resource.KindSystemPackageSet {
-				action = resource.ActionSkip
-			}
 			info[nodeID] = graph.ResourceInfo{
 				Kind:   res.Kind(),
 				Name:   res.Name(),
-				Action: action,
+				Action: resource.ActionInstall,
 			}
 		}
 	}

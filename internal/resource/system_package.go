@@ -399,6 +399,19 @@ type SystemPackageSetState struct {
 
 func (*SystemPackageSetState) isState() {}
 
+// GetPackages returns the package list recorded by Install. The executor
+// type-asserts this method on the state to surface the prior packages
+// through context.WithOldPackages on upgrade/reinstall actions — the apt
+// installer uses that signal to uninstall packages dropped from the new
+// spec, which the generic "upgrade = install" executor flow would
+// otherwise leave orphaned on the host.
+func (s *SystemPackageSetState) GetPackages() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Packages
+}
+
 // SystemPackageSpec defines a single system package; sugar for a 1-element SystemPackageSet.
 type SystemPackageSpec struct {
 	InstallerRef  string `json:"installerRef"`

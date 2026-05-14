@@ -70,26 +70,47 @@ func (*unsupportedHostRepoInstaller) Remove(_ context.Context, st *resource.Syst
 	return nil
 }
 
-// skipPackageInstaller is a placeholder for SystemPackageSet operations.
-// Concrete implementations (e.g., APT apt-get install) are tracked in #198.
-type skipPackageInstaller struct{}
+// unsupportedHostPackageInstaller is the placeholder used when distro detection
+// fails or the host lacks a supported package manager. Install surfaces a
+// clear platform-availability error instead of letting raw apt exec failures
+// escape. Remove returns nil so re-imaged hosts can drop stale state entries;
+// a warn log captures the host limitation and the orphaned packages so
+// dotfile-sync users can audit the originating host.
+type unsupportedHostPackageInstaller struct{}
 
-func (*skipPackageInstaller) Install(_ context.Context, _ *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
-	return nil, fmt.Errorf("system: package %q: not yet implemented", name)
+func (*unsupportedHostPackageInstaller) Install(_ context.Context, _ *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
+	// %q Go-quotes control chars in name, defanging log-injection via a
+	// crafted manifest name.
+	return nil, fmt.Errorf("system: package %q: requires a supported Linux package manager (apt) on this host", name)
 }
 
-func (*skipPackageInstaller) Remove(_ context.Context, _ *resource.SystemPackageSetState, name string) error {
-	return fmt.Errorf("system: package %q: not yet implemented", name)
+func (*unsupportedHostPackageInstaller) Remove(_ context.Context, st *resource.SystemPackageSetState, name string) error {
+	// Allow stale state cleanup on hosts that lost (or never had) apt support.
+	// Warn so cross-host state sync (e.g., dotfile sync between a Linux box
+	// and a macOS box) does not silently leave the actual packages installed
+	// on the host that originally ran the install. Surface the recorded
+	// Packages list so a curious user can clean them up on the originating
+	// host.
+	var orphaned []string
+	if st != nil {
+		orphaned = st.Packages
+	}
+	slog.Warn("removing state entry for system package set without touching actual packages; this host cannot manage apt packages",
+		"name", name, "orphaned_packages", orphaned)
+	return nil
 }
 
 // filterSupportedSystemResources splits system resources into those that have
-// a concrete installer (SystemInstaller, SystemPackageRepository) and those
-// that do not (currently SystemPackageSet, #198). Callers warn and skip the
-// unsupported group.
+// a concrete installer (SystemInstaller, SystemPackageRepository,
+// SystemPackageSet) and those that do not. Callers warn and skip the
+// unsupported group. As of #198 all system kinds have concrete installers,
+// so the unsupported set is empty in practice — the helper is retained so
+// future system kinds can be staged through the same skip channel without
+// reshaping apply.go.
 func filterSupportedSystemResources(resources []resource.Resource) (supported, skipped []resource.Resource) {
 	for _, res := range resources {
 		switch res.Kind() {
-		case resource.KindSystemInstaller, resource.KindSystemPackageRepository:
+		case resource.KindSystemInstaller, resource.KindSystemPackageRepository, resource.KindSystemPackageSet:
 			supported = append(supported, res)
 		default:
 			skipped = append(skipped, res)
@@ -126,6 +147,34 @@ func selectRepoInstaller(
 	return aptClient.PackageRepositoryInstaller(downloader)
 }
 
+// selectPackageInstaller returns the executor.Installer for SystemPackageSet
+// resources. Mirrors selectRepoInstaller: the apt-backed installer is
+// returned only when distro detection succeeded AND the detected distro
+// family lists APT as a supported package manager. On any other host
+// (macOS, minimal containers, or non-apt Linux distros such as
+// Fedora/Arch/Alpine where DetectDistro succeeds but APT is not native)
+// the placeholder is returned, whose Install fails with the documented
+// "requires a supported Linux package manager (apt) on this host" error
+// and whose Remove permits state cleanup with a warn log.
+//
+// Extracted as a pure helper so the conditional wiring can be unit-tested
+// without depending on real distro detection. Defense-in-depth: the helper
+// falls back to the placeholder when aptClient is nil, even though
+// createSystemEngine constructs aptClient unconditionally and that path is
+// unreachable from production code.
+func selectPackageInstaller(
+	validator *system.Validator,
+	aptClient *apt.Client,
+) executor.Installer[*resource.SystemPackageSet, *resource.SystemPackageSetState] {
+	if validator == nil || aptClient == nil {
+		return &unsupportedHostPackageInstaller{}
+	}
+	if !slices.Contains(validator.SupportedInstallers(), system.PackageManagerAPT) {
+		return &unsupportedHostPackageInstaller{}
+	}
+	return aptClient.PackageSetInstaller()
+}
+
 // createSystemEngine builds a SystemEngine wired with the concrete installers
 // available on this host. The system state directory is created lazily by
 // state.NewStore — createSystemEngine itself performs no filesystem writes.
@@ -133,6 +182,11 @@ func selectRepoInstaller(
 // token wrapping) because vendor GPG keys do not require GitHub auth and
 // attaching a PAT to manifest-supplied github.com URLs would be a token-leak
 // risk.
+//
+// On non-apt hosts (macOS, minimal containers, or non-apt Linux distros such
+// as Fedora/Arch/Alpine) selectRepoInstaller and selectPackageInstaller
+// return platform-availability placeholders whose Install fails with a clear
+// error and whose Remove permits state cleanup with a warn log.
 func createSystemEngine(systemDataDir string, downloader download.Downloader) (*engine.SystemEngine, error) {
 	if downloader == nil {
 		return nil, errors.New("downloader is required")
@@ -144,12 +198,13 @@ func createSystemEngine(systemDataDir string, downloader download.Downloader) (*
 	}
 
 	// aptClient is constructed unconditionally: command.NewExecutor is stateless
-	// and the apt Client is the shared hub used by both the validator's
-	// VersionFunc and the repository installer. On non-apt hosts the Client
-	// exists but is never invoked — selectRepoInstaller returns the placeholder
-	// when either (a) validator is nil because distro detection failed (macOS,
-	// minimal containers) or (b) validator is non-nil but the detected distro
-	// family does not list APT (Fedora/Arch/Alpine).
+	// and the apt Client is the shared hub used by the validator's VersionFunc,
+	// the repository installer, and the package set installer. On non-apt
+	// hosts the Client exists but is never invoked — selectRepoInstaller and
+	// selectPackageInstaller return placeholders when either (a) validator is
+	// nil because distro detection failed (macOS, minimal containers) or (b)
+	// validator is non-nil but the detected distro family does not list APT
+	// (Fedora/Arch/Alpine).
 	aptClient := apt.New(command.NewExecutor(""))
 
 	// Distro detection and validator creation are best-effort. When unavailable
@@ -172,11 +227,12 @@ func createSystemEngine(systemDataDir string, downloader download.Downloader) (*
 	}
 
 	repoInstaller := selectRepoInstaller(validator, aptClient, downloader)
+	packageInstaller := selectPackageInstaller(validator, aptClient)
 
 	eng := engine.NewSystemEngine(
 		&validatorInstaller{validator: validator},
 		repoInstaller,
-		&skipPackageInstaller{},
+		packageInstaller,
 		store,
 	)
 	return eng, nil

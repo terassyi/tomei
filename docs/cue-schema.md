@@ -392,8 +392,6 @@ Single-package shorthand for [SystemPackageSet](#systempackageset). A `SystemPac
 
 Use `SystemPackage` when you want to declare an OS package as its own resource (one resource per package, with its own `metadata.name` and dependency edges). Use [SystemPackageSet](#systempackageset) for batched declarations.
 
-> **Note:** Like `SystemPackageSet`, the concrete installer is **not yet implemented** — declared `SystemPackage` resources expand to `SystemPackageSet` and are shown as `skip` in plan when changes would be required, then skipped at apply time with a warning.
-
 ```cue
 git: {
     apiVersion: "tomei.terassyi.net/v1beta1"
@@ -430,7 +428,7 @@ docker: {
 
 ### SystemPackageSet
 
-Set of system packages installed via a [SystemInstaller](#systeminstaller). The CUE schema accepts the resource and the reconciler computes plan actions, but the concrete installer is **not yet implemented** — declared package sets (and their shorthand [SystemPackage](#systempackage)) are shown as `skip` in plan when changes would be required, and skipped at apply time with a warning.
+Set of system packages installed via a [SystemInstaller](#systeminstaller). The concrete installer (APT-based) runs `apt-get install` / `apt-get remove` and probes installed versions via `dpkg-query` after install. On non-apt hosts the resource fails with a clear "platform unsupported" error.
 
 ```cue
 // Distribution-provided packages — no repositoryRef
