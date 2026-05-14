@@ -457,31 +457,15 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 	if err := spec.Validate(); err != nil {
 		return nil, fmt.Errorf("apt: package set %q: %w", name, err)
 	}
-	// Upgrade-time package drainage: when the executor invokes Install
-	// as part of an Upgrade/Reinstall action, it surfaces the prior
-	// state's package list via executor.OldPackagesFromContext. Any
-	// package present in the old state but absent from the new spec
-	// must be uninstalled from the host — otherwise the generic
-	// "upgrade = re-run Install" flow leaves dropped packages running
-	// with no state tracking. Drainage runs BEFORE the new-spec install
-	// so a runInstall failure does not leave the host in a half-drained
-	// state with orphan packages that have already been removed.
-	if oldPkgs := executor.OldPackagesFromContext(ctx); len(oldPkgs) > 0 {
-		newSet := make(map[string]bool, len(spec.Packages))
-		for _, pkg := range spec.Packages {
-			newSet[pkg] = true
-		}
-		var toRemove []string
-		for _, pkg := range oldPkgs {
-			if !newSet[pkg] {
-				toRemove = append(toRemove, pkg)
-			}
-		}
-		if len(toRemove) > 0 {
-			if err := p.runRemove(ctx, toRemove); err != nil {
-				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v: %w", name, toRemove, err)
-			}
-		}
+	// Pin the installer to APT at the boundary: SystemPackageSetSpec.Validate
+	// only checks that installerRef is non-empty (the CUE schema layer
+	// constrains the literal value upstream). Without this check, a non-
+	// CUE caller — or a future selectPackageInstaller mis-routing — could
+	// land a SystemPackageSet whose installerRef is "dnf" / "zypper" here
+	// and tomei would happily run apt-get on it, then persist the non-APT
+	// installerRef into state.
+	if spec.InstallerRef != resource.InstallerRefApt {
+		return nil, fmt.Errorf("apt: package set %q: installerRef %q is not %q", name, spec.InstallerRef, resource.InstallerRefApt)
 	}
 	// Snapshot pre-install state so a later rollback removes ONLY the
 	// packages this Install action placed. Without this snapshot, a
@@ -536,6 +520,44 @@ func (p *PackageSetInstaller) Install(ctx context.Context, res *resource.SystemP
 			return nil, fmt.Errorf("apt: package set %q: probe version of %q: %w", name, pkg, err)
 		}
 		versions[pkg] = v
+	}
+	// Upgrade-time package drainage runs LAST — after the new-spec install
+	// and the per-package version probes have both succeeded. Two failure
+	// modes are bounded by this ordering:
+	//
+	//   - runInstall fails → no drainage attempted, host stays at old
+	//     state (matches state.json which still records old packages).
+	//   - Version probe fails → the post-probe rollback removes only the
+	//     newly-placed packages (delta from the pre-install snapshot);
+	//     no drainage has happened yet, so dropped packages remain on the
+	//     host. State.json still records old packages, host has old
+	//     packages — state and host agree.
+	//   - Drainage fails → Install returns error; state.json keeps the
+	//     OLD package list (no save happened); host has old packages
+	//     plus any newly-placed ones (re-applying will re-emit Upgrade
+	//     and retry drainage; apt-get install is idempotent).
+	//
+	// Earlier drafts drained BEFORE install for symmetry with the
+	// pre-install snapshot, but that ordering leaves a window where the
+	// host has FEWER packages than state.json claims if install or probe
+	// fails — the inverse of the orphan-packages problem and harder to
+	// recover from because dropped packages do not auto-re-install.
+	if oldPkgs := executor.OldPackagesFromContext(ctx); len(oldPkgs) > 0 {
+		newSet := make(map[string]bool, len(spec.Packages))
+		for _, pkg := range spec.Packages {
+			newSet[pkg] = true
+		}
+		var toRemove []string
+		for _, pkg := range oldPkgs {
+			if !newSet[pkg] {
+				toRemove = append(toRemove, pkg)
+			}
+		}
+		if len(toRemove) > 0 {
+			if err := p.runRemove(ctx, toRemove); err != nil {
+				return nil, fmt.Errorf("apt: package set %q: upgrade drain %v: %w", name, toRemove, err)
+			}
+		}
 	}
 	return &resource.SystemPackageSetState{
 		InstallerRef:      spec.InstallerRef,

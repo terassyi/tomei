@@ -479,12 +479,14 @@ func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T)
 	t.Parallel()
 	runner := &mockCommandRunner{
 		// Sequence (new spec = [tree], old packages = [tree, jq] from
-		// executor ctx):
-		//   index 0: drainage apt-get remove jq.
-		//   index 1: pre-install IsInstalled(tree) → "installed\n".
-		//   index 2: apt-get install tree (no-op, already installed).
-		//   index 3: dpkg-query version(tree).
-		captureOutputs: []string{"", "installed\n", "", "installed 1.8.0-5build1\n"},
+		// executor ctx). Drainage runs LAST so install / probe failures
+		// do not leave the host with FEWER packages than state.json
+		// claims (see Install docstring for the failure-mode analysis):
+		//   index 0: pre-install IsInstalled(tree) → "installed\n".
+		//   index 1: apt-get install tree (no-op, already installed).
+		//   index 2: dpkg-query version(tree).
+		//   index 3: drainage apt-get remove jq.
+		captureOutputs: []string{"installed\n", "", "installed 1.8.0-5build1\n", ""},
 	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
@@ -498,15 +500,17 @@ func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T)
 	require.NotNil(t, state)
 	assert.Equal(t, []string{"tree"}, state.Packages, "state reflects the new spec only")
 	require.Len(t, runner.captureCmds, 4)
-	assert.Equal(t,
-		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
-		runner.captureCmds[0],
-		"drainage must remove jq (in old state, not in new spec) BEFORE the install",
-	)
-	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[1])
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status}\n' -- tree`, runner.captureCmds[0])
 	assert.Equal(t,
 		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get install -y -o DPkg::Lock::Timeout=60 -- tree",
-		runner.captureCmds[2],
+		runner.captureCmds[1],
+		"install must run BEFORE drainage so a failed install leaves the host at old state, not partially drained",
+	)
+	assert.Equal(t, `dpkg-query -W -f='${db:Status-Status} ${Version}\n' -- tree`, runner.captureCmds[2])
+	assert.Equal(t,
+		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get remove -y -o DPkg::Lock::Timeout=60 -- jq",
+		runner.captureCmds[3],
+		"drainage removes jq (in old state, not in new spec) AFTER the install+probe succeed",
 	)
 }
 
@@ -543,16 +547,26 @@ func TestPackageSetInstaller_Install_Upgrade_NoDrainWhenSpecGrows(t *testing.T) 
 }
 
 // TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts asserts
-// that a drainage failure (apt-get remove returning an error) aborts the
-// Install before any apt-get install runs. The host stays in its
-// pre-Install state if apt-get remove fails on the dropped packages.
+// that a drainage failure (apt-get remove returning an error) at the END
+// of Install causes the wrapped error to surface. The host has the new
+// install applied successfully but state.json is NOT saved (Install
+// returns an error) — on retry the reconciler emits Upgrade again and
+// drainage is re-attempted. State.json says OLD packages, host has OLD
+// (preinstalled) + NEW (just-placed) packages, with drainage pending
+// retry. See Install's drainage-order docstring for why this is preferred
+// over the inverse failure mode (drain-before-install would leave the
+// host with FEWER packages than state.json claims).
 func TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts(t *testing.T) {
 	t.Parallel()
 	drainErr := errors.New("apt-get remove: exit status 100")
 	runner := &mockCommandRunner{
-		// Drainage (index 0) fails. The pre-install probes and
-		// apt-get install MUST NOT run.
-		captureErrs: []error{drainErr},
+		// Sequence: install succeeds, probe succeeds, drain fails.
+		//   index 0: pre-install IsInstalled(tree).
+		//   index 1: apt-get install tree.
+		//   index 2: dpkg-query version(tree).
+		//   index 3: drainage apt-get remove jq → drainErr.
+		captureOutputs: []string{"installed\n", "", "installed 1.8.0-5build1\n", ""},
+		captureErrs:    []error{nil, nil, nil, drainErr},
 	}
 	res := &resource.SystemPackageSet{
 		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
@@ -565,7 +579,31 @@ func TestPackageSetInstaller_Install_Upgrade_DrainFailureAborts(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, state)
 	assert.Contains(t, err.Error(), `apt: package set "cli-tools": upgrade drain`)
-	require.Len(t, runner.captureCmds, 1, "drainage failure must abort BEFORE the install step")
+	require.Len(t, runner.captureCmds, 4, "drainage failure surfaces after install+probe complete")
+}
+
+// TestPackageSetInstaller_Install_RejectsNonAPTInstallerRef asserts the
+// APT-boundary check on spec.InstallerRef. SystemPackageSetSpec.Validate
+// only checks that installerRef is non-empty; if a SystemPackageSet
+// somehow lands here with installerRef = "dnf" (a non-CUE caller, a
+// future routing bug in selectPackageInstaller), the apt installer would
+// otherwise happily run apt-get and persist "dnf" into state — leaving
+// the engine unable to invoke the correct concrete installer on the
+// next apply.
+func TestPackageSetInstaller_Install_RejectsNonAPTInstallerRef(t *testing.T) {
+	t.Parallel()
+	runner := &mockCommandRunner{}
+	res := &resource.SystemPackageSet{
+		SystemPackageSetSpec: &resource.SystemPackageSetSpec{
+			InstallerRef: "dnf",
+			Packages:     []string{"tree"},
+		},
+	}
+	state, err := New(runner).PackageSetInstaller().Install(context.Background(), res, "cli-tools")
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(), `apt: package set "cli-tools": installerRef "dnf" is not "apt"`)
+	assert.Empty(t, runner.captureCmds, "no apt-get must run when installerRef is non-APT")
 }
 
 // TestPackageSetInstaller_Install_VersionProbeError verifies that a
