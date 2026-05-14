@@ -135,6 +135,14 @@ func TestSelectRepoInstaller(t *testing.T) {
 	aptClient := apt.New(command.NewExecutor(""))
 	downloader := download.NewDownloader()
 
+	// aptValidator and dnfValidator are constructed via system.NewValidator
+	// so SupportedInstallers() returns a real list backed by the distro
+	// family map (debian → [apt], fedora → [dnf]).
+	aptValidator, err := system.NewValidator(&system.DistroInfo{ID: "debian"}, nil)
+	require.NoError(t, err)
+	dnfValidator, err := system.NewValidator(&system.DistroInfo{ID: "fedora"}, nil)
+	require.NoError(t, err)
+
 	t.Run("validator nil returns placeholder", func(t *testing.T) {
 		t.Parallel()
 		got := selectRepoInstaller(nil, aptClient, downloader)
@@ -142,30 +150,40 @@ func TestSelectRepoInstaller(t *testing.T) {
 		assert.True(t, ok, "nil validator must return *unsupportedHostRepoInstaller, got %T", got)
 	})
 
-	t.Run("validator+aptClient+downloader returns non-placeholder", func(t *testing.T) {
+	t.Run("apt-supporting distro returns non-placeholder", func(t *testing.T) {
 		t.Parallel()
-		// Empty *system.Validator is enough: selectRepoInstaller only
-		// checks the pointer for nil-ness, it never invokes methods.
-		got := selectRepoInstaller(&system.Validator{}, aptClient, downloader)
+		got := selectRepoInstaller(aptValidator, aptClient, downloader)
 		require.NotNil(t, got)
 		// Negative assertion (rather than positive type-assert against
-		// *apt.PackageRepositoryInstaller) — keeps the test resilient to
-		// a future apt type rename. We only care that the placeholder is
-		// NOT returned when a validator exists.
+		// *apt.PackageRepositoryInstaller) keeps the test resilient to a
+		// future apt type rename. We only care that the placeholder is
+		// NOT returned on an apt host.
 		_, isPlaceholder := got.(*unsupportedHostRepoInstaller)
-		assert.False(t, isPlaceholder, "non-nil validator must not return placeholder, got %T", got)
+		assert.False(t, isPlaceholder, "apt-supporting distro must not return placeholder, got %T", got)
+	})
+
+	t.Run("non-apt distro returns placeholder", func(t *testing.T) {
+		t.Parallel()
+		// Fedora supports DNF, not APT. Distro detection succeeds, so the
+		// validator is non-nil — but the host has no APT support. Without
+		// this gate the apt installer would run on Fedora and surface raw
+		// apt/gpg errors instead of the documented platform-availability
+		// error.
+		got := selectRepoInstaller(dnfValidator, aptClient, downloader)
+		_, ok := got.(*unsupportedHostRepoInstaller)
+		assert.True(t, ok, "non-apt distro must return placeholder, got %T", got)
 	})
 
 	t.Run("nil aptClient returns placeholder (defense-in-depth)", func(t *testing.T) {
 		t.Parallel()
-		got := selectRepoInstaller(&system.Validator{}, nil, downloader)
+		got := selectRepoInstaller(aptValidator, nil, downloader)
 		_, ok := got.(*unsupportedHostRepoInstaller)
 		assert.True(t, ok, "nil aptClient must return placeholder, got %T", got)
 	})
 
 	t.Run("nil downloader returns placeholder (defense-in-depth)", func(t *testing.T) {
 		t.Parallel()
-		got := selectRepoInstaller(&system.Validator{}, aptClient, nil)
+		got := selectRepoInstaller(aptValidator, aptClient, nil)
 		_, ok := got.(*unsupportedHostRepoInstaller)
 		assert.True(t, ok, "nil downloader must return placeholder, got %T", got)
 	})

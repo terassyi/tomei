@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/terassyi/tomei/internal/installer/apt"
 	"github.com/terassyi/tomei/internal/installer/command"
@@ -98,22 +99,28 @@ func filterSupportedSystemResources(resources []resource.Resource) (supported, s
 }
 
 // selectRepoInstaller returns the executor.Installer for SystemPackageRepository
-// resources. When the host has a supported package manager (validator is non-
-// nil), the apt-backed installer is returned. Otherwise a placeholder is
-// returned whose Install fails with a clear "platform unsupported" error and
-// whose Remove permits state cleanup.
+// resources. The apt-backed installer is returned only when distro detection
+// succeeded AND the detected distro family lists APT as a supported package
+// manager. On any other host (macOS, minimal containers, or non-apt Linux
+// distros such as Fedora/Arch/Alpine where DetectDistro succeeds but APT is
+// not native) the placeholder is returned, whose Install fails with the
+// documented "requires a supported Linux package manager (apt) on this host"
+// error and whose Remove permits state cleanup with a warn log.
 //
-// Extracted as a pure helper so the validator-conditional wiring can be
-// unit-tested without depending on real distro detection. Defense-in-depth:
-// the helper falls back to the placeholder when aptClient or downloader is
-// nil, even though createSystemEngine's nil-downloader guard makes that
-// path unreachable from production code.
+// Extracted as a pure helper so the conditional wiring can be unit-tested
+// without depending on real distro detection. Defense-in-depth: the helper
+// falls back to the placeholder when aptClient or downloader is nil, even
+// though createSystemEngine's nil-downloader guard makes that path
+// unreachable from production code.
 func selectRepoInstaller(
 	validator *system.Validator,
 	aptClient *apt.Client,
 	downloader download.Downloader,
 ) executor.Installer[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState] {
 	if validator == nil || aptClient == nil || downloader == nil {
+		return &unsupportedHostRepoInstaller{}
+	}
+	if !slices.Contains(validator.SupportedInstallers(), system.PackageManagerAPT) {
 		return &unsupportedHostRepoInstaller{}
 	}
 	return aptClient.PackageRepositoryInstaller(downloader)
