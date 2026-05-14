@@ -400,41 +400,6 @@ type SystemPackageSetState struct {
 
 func (*SystemPackageSetState) isState() {}
 
-// ValidateSystemPackageSetOverlap rejects manifests where the same OS
-// package name is declared by more than one SystemPackageSet. Without
-// this check, dropping or shrinking one overlapping set would trigger
-// PackageSetInstaller.Remove (or the Install-time upgrade drain) on a
-// package that another set still relies on; the other set's state would
-// continue to record the package as installed while it had been
-// uninstalled from the host, and subsequent applies would observe no
-// drift to repair.
-//
-// Operates on the post-ExpandSets resource list (SystemPackage → 1-
-// element SystemPackageSet, so it catches overlap regardless of which
-// sugar a manifest used). Callers should invoke this from the same
-// place they invoke ExpandSets (validate / plan / apply).
-//
-// Two SystemPackageSet resources with disjoint Packages are fine. A
-// future refcount-aware Remove/Drain could relax this constraint, but
-// until that lands the only safe model is "one package, one owner."
-//
-// Known limitation — cross-set removal cascade: this check rejects
-// only DIRECT name overlap. apt's reverse-dependency handling can
-// still cascade a Remove on one set's package into a package owned by
-// another set (e.g., set A owns `perl`, set B owns `cowsay`; removing
-// set A cascades cowsay out from under set B because cowsay depends on
-// perl). The within-set variant of this hazard is caught at runtime
-// via apt-get -s simulation in PackageSetInstaller.Install's upgrade
-// drain. Cross-set cascade protection requires plumbing all-set state
-// into Install/Remove (so simulation can compare cascades against the
-// union of every other set's packages), which is tracked as a separate
-// follow-up. Until that lands, manifest authors splitting a dependency
-// chain across multiple SystemPackageSets carry the risk.
-//
-// See also ValidateSystemPackageSetStateOverlap for the companion
-// check that catches legacy state drift (state.json contains
-// overlapping entries from an older tomei version where the desired-
-// state validation did not yet exist).
 // ValidateSystemPackageSetStateOverlap is the companion to
 // ValidateSystemPackageSetOverlap for the legacy-drift case: even when
 // the *desired* resource list has no overlap, state.json may already
@@ -489,6 +454,41 @@ func ValidateSystemPackageSetStateOverlap(states map[string]*SystemPackageSetSta
 	return fmt.Errorf("system package state overlap (resolve state.json manually before re-applying): %s", strings.Join(dupes, "; "))
 }
 
+// ValidateSystemPackageSetOverlap rejects manifests where the same OS
+// package name is declared by more than one SystemPackageSet. Without
+// this check, dropping or shrinking one overlapping set would trigger
+// PackageSetInstaller.Remove (or the Install-time upgrade drain) on a
+// package that another set still relies on; the other set's state would
+// continue to record the package as installed while it had been
+// uninstalled from the host, and subsequent applies would observe no
+// drift to repair.
+//
+// Operates on the post-ExpandSets resource list (SystemPackage → 1-
+// element SystemPackageSet, so it catches overlap regardless of which
+// sugar a manifest used). Callers should invoke this from the same
+// place they invoke ExpandSets (validate / plan / apply).
+//
+// Two SystemPackageSet resources with disjoint Packages are fine. A
+// future refcount-aware Remove/Drain could relax this constraint, but
+// until that lands the only safe model is "one package, one owner."
+//
+// Known limitation — cross-set removal cascade: this check rejects
+// only DIRECT name overlap. apt's reverse-dependency handling can
+// still cascade a Remove on one set's package into a package owned by
+// another set (e.g., set A owns `perl`, set B owns `cowsay`; removing
+// set A cascades cowsay out from under set B because cowsay depends on
+// perl). The within-set variant of this hazard is caught at runtime
+// via apt-get -s simulation in PackageSetInstaller.Install's upgrade
+// drain. Cross-set cascade protection requires plumbing all-set state
+// into Install/Remove (so simulation can compare cascades against the
+// union of every other set's packages), which is tracked as a separate
+// follow-up. Until that lands, manifest authors splitting a dependency
+// chain across multiple SystemPackageSets carry the risk.
+//
+// See also ValidateSystemPackageSetStateOverlap for the companion
+// check that catches legacy state drift (state.json contains
+// overlapping entries from an older tomei version where the desired-
+// state validation did not yet exist).
 func ValidateSystemPackageSetOverlap(resources []Resource) error {
 	// owners is pkg → set-of-distinct-owner-names. Set semantics avoid
 	// a false overlap when a single SystemPackageSet's Packages list
