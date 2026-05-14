@@ -430,6 +430,52 @@ func (*SystemPackageSetState) isState() {}
 // union of every other set's packages), which is tracked as a separate
 // follow-up. Until that lands, manifest authors splitting a dependency
 // chain across multiple SystemPackageSets carry the risk.
+//
+// See also ValidateSystemPackageSetStateOverlap for the companion
+// check that catches legacy state drift (state.json contains
+// overlapping entries from an older tomei version where the desired-
+// state validation did not yet exist).
+// ValidateSystemPackageSetStateOverlap is the companion to
+// ValidateSystemPackageSetOverlap for the legacy-drift case: even when
+// the *desired* resource list has no overlap, state.json may already
+// contain overlapping SystemPackageSet entries written by an older
+// tomei version (before the desired-state validation existed) or by
+// manual edits. Removing or shrinking one of those legacy-overlapping
+// sets would then run apt-get remove on a package the other set's
+// state still claims to own, with no manifest-side gate to catch it.
+//
+// Detect the drift early — at the same boundary createSystemEngine
+// loads the SystemState store — and refuse to build the engine. The
+// user must resolve the drift manually (e.g., by editing state.json
+// so only one set claims each package) before subsequent applies.
+//
+// The signature takes the raw map rather than *state.SystemState to
+// keep the resource package free of an inverse dependency on the
+// state package (state already imports resource).
+func ValidateSystemPackageSetStateOverlap(states map[string]*SystemPackageSetState) error {
+	owners := make(map[string][]string)
+	for name, st := range states {
+		if st == nil {
+			continue
+		}
+		for _, pkg := range st.Packages {
+			owners[pkg] = append(owners[pkg], name)
+		}
+	}
+	var dupes []string
+	for pkg, names := range owners {
+		if len(names) > 1 {
+			sort.Strings(names)
+			dupes = append(dupes, fmt.Sprintf("package %q recorded as installed by SystemPackageSet %v", pkg, names))
+		}
+	}
+	if len(dupes) == 0 {
+		return nil
+	}
+	sort.Strings(dupes)
+	return fmt.Errorf("system package state overlap (resolve state.json manually before re-applying): %s", strings.Join(dupes, "; "))
+}
+
 func ValidateSystemPackageSetOverlap(resources []Resource) error {
 	owners := make(map[string][]string)
 	for _, r := range resources {

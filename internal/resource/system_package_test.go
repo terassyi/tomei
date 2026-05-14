@@ -10,6 +10,60 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestValidateSystemPackageSetStateOverlap(t *testing.T) {
+	t.Parallel()
+	mkState := func(pkgs ...string) *SystemPackageSetState {
+		return &SystemPackageSetState{InstallerRef: "apt", Packages: pkgs}
+	}
+	tests := []struct {
+		name    string
+		states  map[string]*SystemPackageSetState
+		wantErr string
+	}{
+		{name: "empty map", states: nil},
+		{
+			name: "single state entry",
+			states: map[string]*SystemPackageSetState{
+				"dev": mkState("curl"),
+			},
+		},
+		{
+			name: "disjoint states",
+			states: map[string]*SystemPackageSetState{
+				"dev": mkState("curl", "jq"),
+				"ops": mkState("htop"),
+			},
+		},
+		{
+			name: "legacy overlap (drift from older tomei version)",
+			states: map[string]*SystemPackageSetState{
+				"dev": mkState("curl"),
+				"ops": mkState("curl"),
+			},
+			wantErr: `system package state overlap (resolve state.json manually before re-applying): package "curl" recorded as installed by SystemPackageSet [dev ops]`,
+		},
+		{
+			name: "nil state entry skipped",
+			states: map[string]*SystemPackageSetState{
+				"broken": nil,
+				"dev":    mkState("curl"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateSystemPackageSetStateOverlap(tt.states)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestValidateSystemPackageSetOverlap(t *testing.T) {
 	t.Parallel()
 	mkSet := func(name string, pkgs ...string) *SystemPackageSet {

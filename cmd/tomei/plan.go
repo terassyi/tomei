@@ -101,9 +101,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	// Reject overlapping SystemPackageSet declarations before plan emits
 	// an Upgrade/Remove that would tear down a multi-owner package.
+	// Gated on systemMode because without --system the system resources
+	// are forced to ActionSkip by buildResourceInfo and overlap is moot.
 	// See resource.ValidateSystemPackageSetOverlap for the rationale.
-	if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
-		return fmt.Errorf("plan rejected: %w", err)
+	if systemMode {
+		if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
+			return fmt.Errorf("plan rejected: %w", err)
+		}
 	}
 
 	updateCfg := engine.UpdateConfig{

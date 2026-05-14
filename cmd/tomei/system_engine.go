@@ -197,6 +197,29 @@ func createSystemEngine(systemDataDir string, downloader download.Downloader) (*
 		return nil, fmt.Errorf("system: state store: %w", err)
 	}
 
+	// Detect legacy state-overlap drift before building the engine.
+	// state.json could contain overlapping SystemPackageSet entries from
+	// an older tomei version that didn't enforce desired-state overlap
+	// (or from manual edits). If we proceeded, a subsequent Remove or
+	// upgrade drain on one of the overlapping sets would tear down a
+	// package another set still claims to own — with no manifest-side
+	// gate to catch it (the desired-state validator only sees current
+	// resources). Refuse to build the engine; the user must edit
+	// state.json so each package has exactly one owner before re-running.
+	if st, err := store.LoadReadOnly(); err != nil {
+		// LoadReadOnly returns an empty state when the file is missing,
+		// so any error here is a real problem (permission, malformed
+		// JSON). Surface it as a warn — the executor will error more
+		// precisely when it tries to write, and we should not block
+		// `tomei apply --system` on a read-side hiccup the executor
+		// can recover from.
+		slog.Warn("system: failed to read state for overlap drift check; proceeding", "error", err)
+	} else if st != nil {
+		if err := resource.ValidateSystemPackageSetStateOverlap(st.SystemPackages); err != nil {
+			return nil, fmt.Errorf("system: %w", err)
+		}
+	}
+
 	// aptClient is constructed unconditionally: command.NewExecutor is stateless
 	// and the apt Client is the shared hub used by the validator's VersionFunc,
 	// the repository installer, and the package set installer. On non-apt

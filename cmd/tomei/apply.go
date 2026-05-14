@@ -114,14 +114,6 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
-	// Reject overlapping SystemPackageSet declarations before any host
-	// mutation. See resource.ValidateSystemPackageSetOverlap for the
-	// full rationale on why the apt installer's Remove / upgrade-drain
-	// paths are unsafe under multi-owner package state today.
-	if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
-		return fmt.Errorf("apply rejected: %w", err)
-	}
-
 	// Split resources into user-kind and system-kind
 	userResources, systemResources := resource.FilterSystemKinds(resources)
 
@@ -135,6 +127,15 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' to manage.\n\n", len(systemResources))
 	}
 	if system && len(systemResources) > 0 {
+		// Reject overlapping SystemPackageSet declarations before any
+		// host mutation. Gated on `system` because without --system the
+		// system resources are skipped entirely and overlap is moot.
+		// See resource.ValidateSystemPackageSetOverlap for the full
+		// rationale on why the apt installer's Remove / upgrade-drain
+		// paths are unsafe under multi-owner package state today.
+		if err := resource.ValidateSystemPackageSetOverlap(systemResources); err != nil {
+			return fmt.Errorf("apply rejected: %w", err)
+		}
 		// Filter to resources with concrete installer implementations. As
 		// of #198 all system kinds have installers; the helper is retained
 		// so future system kinds can be staged through this channel.
