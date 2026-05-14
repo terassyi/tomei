@@ -470,11 +470,16 @@ func TestPackageSetInstaller_Install_PopulatesVersions(t *testing.T) {
 // asserts the upgrade-time package drainage. When the executor invokes
 // Install with executor.WithOldPackages on the ctx (as it does for any
 // ActionUpgrade / ActionReinstall on a state implementing GetPackages),
-// the installer MUST uninstall the diff (old - new) BEFORE running
-// apt-get install for the new spec. Without this, a user shrinking the
-// spec from [tree, jq] to [tree] would leave jq installed on the host
-// with no state tracking — the executor's generic "upgrade = re-run
+// the installer MUST uninstall the diff (old - new) so a user shrinking
+// the spec from [tree, jq] to [tree] does not leave jq installed on the
+// host with no state tracking — the executor's generic "upgrade = re-run
 // Install" flow has no other place to do this cleanup.
+//
+// Ordering: drainage runs AFTER the new-spec install and per-package
+// version probes have both succeeded. Earlier drafts drained before the
+// install, but that left the host with FEWER packages than state.json
+// claimed if install/probe failed. The post-probe ordering is
+// documented in detail on PackageSetInstaller.Install in apt.go.
 func TestPackageSetInstaller_Install_Upgrade_DrainsDroppedPackages(t *testing.T) {
 	t.Parallel()
 	runner := &mockCommandRunner{

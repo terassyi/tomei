@@ -66,12 +66,22 @@ func TestPackageSetInstaller_RealSystem_InstallAndRemove(t *testing.T) {
 		// "Unable to locate package" / exit-100 on the missing ones and
 		// strand the placed ones. Per-package isolates the failure to a
 		// single binary so the others still get drained.
+		//
+		// --auto-remove diverges from the production Remove path on
+		// purpose: the test packages (e.g. cowsay) can pull in
+		// transitive deps that the preinstall guard at the top of this
+		// test will already have classified as "not preinstalled by the
+		// developer." Without --auto-remove, apt-get remove would leave
+		// those deps lingering and the test would mutate a developer's
+		// host beyond the preinstall-guard contract. Production Remove
+		// omits --auto-remove because tomei does not own the deps; here
+		// the test transactionally owns everything new that landed.
 		for _, pkg := range pkgs {
 			cleanup := exec.Command("sudo",
 				"-n", "env", "DEBIAN_FRONTEND=noninteractive",
-				"apt-get", "remove", "-y", "-o", "DPkg::Lock::Timeout=60", "--", pkg)
+				"apt-get", "remove", "-y", "--auto-remove", "-o", "DPkg::Lock::Timeout=60", "--", pkg)
 			if err := cleanup.Run(); err != nil {
-				t.Logf("cleanup: apt-get remove %s: %v", pkg, err)
+				t.Logf("cleanup: apt-get remove --auto-remove %s: %v", pkg, err)
 			}
 		}
 	})
