@@ -196,6 +196,18 @@ func (e *nativeExecutor) Setup() error {
 	return nil
 }
 
+// e2eConfigPath returns the absolute path of a fixture under e2e/config/.
+// The path is anchored on this source file via runtime.Caller(0), so the
+// resolution is independent of the runner's cwd — `go test ./e2e`, `dlv
+// test`, and pre-built test binaries all resolve to the repo's checked-in
+// e2e/config tree. Tests that need to read raw fixture bytes (e.g. drift
+// detectors over manifest.cue pins) should use this helper rather than
+// duplicating the runtime.Caller dance.
+func e2eConfigPath(parts ...string) string {
+	_, filename, _, _ := runtime.Caller(0)
+	return filepath.Join(append([]string{filepath.Dir(filename), "config"}, parts...)...)
+}
+
 func (e *nativeExecutor) copyTestConfigs() error {
 	// Find e2e/config directory relative to test file location
 	_, filename, _, ok := runtime.Caller(0)
