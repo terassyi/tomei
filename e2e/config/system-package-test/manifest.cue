@@ -9,8 +9,8 @@ apt: {
 		privileged: true
 		commands: {
 			install: {command: "sudo apt-get install -y"}
-			remove:  {command: "sudo apt-get remove -y"}
-			check:   {command: "dpkg -s"}
+			remove: {command: "sudo apt-get remove -y"}
+			check: {command: "dpkg -s"}
 		}
 	}
 }
@@ -25,13 +25,24 @@ tree: {
 	}
 }
 
+// cliTools is the multi-package SystemPackageSet fixture. Packages here
+// MUST NOT be preinstalled in e2e/containers/ubuntu/Dockerfile — a
+// dpkg-query check that passes because of preinstall would hide any
+// silent no-op regression in the installer. bc (main) and cowsay
+// (universe) are small, daemon-free, and not in the Dockerfile preinstall
+// list. cowsay's runtime Depends are libtext-charwidth-perl and perl:any
+// (both already part of the Ubuntu base via essential dependencies);
+// cowsay-off is Suggests, not Recommends, and is therefore NOT pulled by
+// apt's default install. The apply-time Context in
+// e2e/system_package_test.go re-checks the preinstall invariant in
+// BeforeAll as defence-in-depth against future Dockerfile drift.
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackageSet"
 	metadata: name: "cli-tools"
 	spec: {
 		installerRef: "apt"
-		packages: ["jq", "curl"]
+		packages: ["bc", "cowsay"]
 	}
 }
 
