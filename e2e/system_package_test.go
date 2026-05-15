@@ -389,6 +389,19 @@ func systemPackageTests() {
 		if os.Getenv("TOMEI_E2E_CONTAINER") == "" && os.Getenv("TOMEI_E2E_NATIVE") == "" {
 			Skip("real-apply SystemPackageSet mutates host apt state; set TOMEI_E2E_CONTAINER or TOMEI_E2E_NATIVE to opt in (both are set automatically by `make test-e2e` / CI; a bare `go test ./e2e/...` skips by design)")
 		}
+		// Toolchain probe: "Linux" alone is not enough — the specs
+		// below invoke `apt-get install/remove` and `dpkg-query`, which
+		// only exist on Debian-family distros. A TOMEI_E2E_NATIVE=true
+		// run on Fedora/Arch/Alpine/etc. would otherwise hit
+		// command-not-found mid-spec and surface as a misleading test
+		// failure. We probe via `command -v` (POSIX-portable, no
+		// dependency on bash specifics) so the skip message is precise
+		// about which tool is missing.
+		_, errApt := testExec.ExecBash("command -v apt-get >/dev/null 2>&1")
+		_, errDpkg := testExec.ExecBash("command -v dpkg-query >/dev/null 2>&1")
+		if errApt != nil || errDpkg != nil {
+			Skip("real-apply SystemPackageSet requires apt-get and dpkg-query (Debian-family); not available on this Linux host")
+		}
 	}
 
 	// installCfgPath / removalCfgPath are sibling manifests under /tmp/
@@ -415,14 +428,21 @@ func systemPackageTests() {
 	// touching this list would silently leak host state.
 	fixturePackages := []string{"cowsay", "sl", "tree"}
 
-	// fixtureManaged is set to true at the very end of Context A's
-	// BeforeAll, after tomei has had a chance to take ownership of the
-	// fixture packages. Outer AfterAll consults it: if BeforeAll aborted
-	// midway (e.g. the preflight remove-first step failed and the spec
-	// short-circuited), we MUST NOT then unconditionally apt-get remove
-	// the user's pre-existing packages. The flag is the explicit
-	// "we own these now" signal that gates destructive cleanup.
-	var fixtureManaged bool
+	// preflightComplete is set to true at the very end of Context A's
+	// BeforeAll, after the remove-first preflight has succeeded and
+	// `apt-get update` has run. It does NOT mean tomei has installed
+	// anything yet — the first It block is what drives `apply --system`
+	// — but it DOES mean Context A's preflight removed any
+	// pre-existing fixture package from the host, so the outer AfterAll
+	// is free to apt-get remove the same set without risk of clobbering
+	// state that was on the host before this Context ran.
+	//
+	// Outer AfterAll consults it: if BeforeAll aborted before the
+	// preflight completed (e.g. apt-get update failed, or the
+	// remove-first step left a package installed), the flag stays false
+	// and cleanup is a no-op so the user's pre-existing packages are
+	// preserved exactly as they were.
+	var preflightComplete bool
 
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
 	// SystemInstaller/apt + SystemPackage/tree sugar + SystemPackageSet
@@ -432,10 +452,11 @@ func systemPackageTests() {
 	// reserved for future CUE template syntax) are inert.
 	//
 	// pkgs is rendered as a CUE list literal; callers MUST pass safe
-	// values (the only call sites are static literals "bc"/"cowsay"). We
-	// validate each entry against a conservative regex so a future caller
-	// with dynamic input cannot break the heredoc terminator or inject
-	// CUE syntax.
+	// values (the only call sites are static literals "cowsay"/"sl",
+	// with "tree" carried by the SystemPackage sugar resource). We
+	// validate each entry against a conservative regex so a future
+	// caller with dynamic input cannot break the heredoc terminator or
+	// inject CUE syntax.
 	writeSystemPackageManifest := func(dir string, pkgs []string) {
 		Expect(systemPackageTestDirRE.MatchString(dir)).To(BeTrue(),
 			"dir %q does not match the absolute-path allowlist; only static /tmp paths are accepted by this helper", dir)
@@ -527,29 +548,41 @@ EOF`, dir, strings.Join(quoted, ", "))
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
 				return
 			}
-			// Ownership gate: only apt-get remove the fixture packages
-			// if Context A's BeforeAll completed (and therefore tomei,
-			// not the runner/developer, is the owner of these packages
-			// post-test). If the preflight remove-first step or any
-			// earlier setup aborted, fixtureManaged stays false and we
-			// MUST NOT touch packages we did not install — that was the
-			// concrete risk Copilot flagged: a failed preinstall
-			// invariant followed by an unconditional apt-get remove of
-			// the user's pre-existing package. /tmp scratch dirs are
-			// always safe to remove (regex-allowlisted single-segment
-			// paths created by this suite only).
-			if fixtureManaged {
-				// `apt-get autoremove` is intentionally included after
-				// the remove step. cowsay's runtime Depends pulled in
-				// libtext-charwidth-perl (and similar transitive
-				// auto-installed packages); without --autoremove,
-				// `apt-get remove` leaves those orphaned on the runner
-				// across suite invocations, which is exactly the
-				// "still leave host package state changed after the
-				// suite" concern Copilot raised. Best-effort: ignore
-				// non-zero exit so a failure in cleanup never masks a
-				// real spec failure.
-				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1; sudo -n apt-get autoremove -y 2>&1; true")
+			// Preflight gate: only apt-get remove the fixture packages
+			// if Context A's BeforeAll preflight succeeded. The
+			// preflight uninstalled any pre-existing copy, so removing
+			// them again here is at worst a no-op rather than a
+			// destructive uninstall of state that predates this
+			// Context. If the preflight aborted, preflightComplete
+			// stays false and we MUST NOT touch host packages — that
+			// was the concrete risk Copilot flagged on the earlier
+			// version. /tmp scratch dirs are always safe to remove
+			// (regex-allowlisted single-segment paths created by this
+			// suite only).
+			if preflightComplete {
+				// apt-get remove targets only the fixture packages, by
+				// explicit name — no chance of broadening the blast
+				// radius.
+				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
+				// autoremove is scoped to TOMEI_E2E_CONTAINER ONLY.
+				// `apt-get autoremove` is a host-global operation: it
+				// removes ANY package currently marked auto-removable,
+				// not just transitive Depends introduced by this
+				// suite. On an ephemeral CI container we own the
+				// filesystem and the broader cleanup is desirable; on
+				// a native runner or developer laptop (even with
+				// TOMEI_E2E_NATIVE=true), it could remove unrelated
+				// auto-installed packages the user expects to keep.
+				// The trade-off: native mode may leave cowsay's
+				// transitive Depends (e.g. libtext-charwidth-perl)
+				// orphaned across suite runs. That's acceptable
+				// because the ephemeral CI native runner is wiped
+				// between jobs anyway, and a developer running with
+				// TOMEI_E2E_NATIVE=true has opted in to host mutation
+				// being best-effort rather than perfect.
+				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+					_, _ = testExec.ExecBash("sudo -n apt-get autoremove -y 2>&1 || true")
+				}
 			}
 			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 		})
@@ -616,13 +649,13 @@ EOF`, dir, strings.Join(quoted, ", "))
 				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
 				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
 
-				// Take ownership: from this point, the outer AfterAll is
-				// authorized to apt-get remove the fixture packages.
-				// Setting this AFTER all preflight steps complete means a
-				// preflight failure leaves it false and the AfterAll
-				// becomes a no-op — preserving the user/runner's
-				// pre-existing host state in that scenario.
-				fixtureManaged = true
+				// Mark preflight as complete: from this point the outer
+				// AfterAll is allowed to run apt-get remove against the
+				// fixture packages. The preflight already uninstalled any
+				// pre-existing copies, so even if no spec runs to install
+				// them, the AfterAll is a safe no-op rather than a
+				// destructive uninstall.
+				preflightComplete = true
 			})
 
 			It("apply --system installs the manifest packages on the host", func() {
