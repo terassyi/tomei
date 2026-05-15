@@ -26,23 +26,33 @@ tree: {
 }
 
 // cliTools is the multi-package SystemPackageSet fixture. Packages here
-// MUST NOT be preinstalled in e2e/containers/ubuntu/Dockerfile — a
-// dpkg-query check that passes because of preinstall would hide any
-// silent no-op regression in the installer. bc (main) and cowsay
-// (universe) are small, daemon-free, and not in the Dockerfile preinstall
-// list. cowsay's runtime Depends are libtext-charwidth-perl and perl:any
-// (both already part of the Ubuntu base via essential dependencies);
-// cowsay-off is Suggests, not Recommends, and is therefore NOT pulled by
-// apt's default install. The apply-time Context in
-// e2e/system_package_test.go re-checks the preinstall invariant in
-// BeforeAll as defence-in-depth against future Dockerfile drift.
+// are chosen so that the real-apply E2E in system_package_test.go can
+// verify that tomei actually mutated the host. Selection criteria:
+//
+//   - leaf packages with no reverse dependencies (so a post-suite
+//     apt-get remove cannot cascade into uninstalling unrelated host
+//     packages on the runner);
+//   - in the `universe` pocket (NOT `main`), so the GitHub-hosted
+//     ubuntu-24.04 runner image — which preinstalls essentially every
+//     `main` utility, including bc and other obvious candidates — does
+//     NOT ship them by default;
+//   - small, daemon-free, deterministic;
+//   - NOT in e2e/containers/ubuntu/Dockerfile preinstall list.
+//
+// cowsay and sl satisfy all four. bc was the first attempt and broke
+// the CI native legs (`fixture invariant violated: bc is preinstalled
+// on the runner`) — see the GitHub runner image inventory at
+// actions/runner-images. The real-apply Context in
+// e2e/system_package_test.go also runs `apt-get remove` for these
+// packages in BeforeAll as a defence-in-depth against a future
+// preinstall regression on either side.
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackageSet"
 	metadata: name: "cli-tools"
 	spec: {
 		installerRef: "apt"
-		packages: ["bc", "cowsay"]
+		packages: ["cowsay", "sl"]
 	}
 }
 

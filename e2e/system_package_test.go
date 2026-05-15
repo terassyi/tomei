@@ -61,19 +61,23 @@ var ubuntuReleaseToCodename = map[string]string{
 // disallowed characters which accepts a wider set of Debian-legal names
 // (e.g., uppercase, longer punctuation); this test-helper allowlist is
 // intentionally narrower — it only needs to admit the small fixture set
-// ("bc", "cowsay", "tree") and refuses anything riskier even if that
+// ("cowsay", "sl", "tree") and refuses anything riskier even if that
 // rejects names production would happily accept. Compiled once at
 // package init to avoid re-parsing per call.
 var systemPackageTestPkgNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9+\-.]*$`)
 
 // systemPackageTestDirRE is a path allowlist for writeSystemPackageManifest's
-// dir argument. Callers currently pass only static literals under /tmp/,
-// but Sprintf-into-shell-heredoc semantics mean any future caller passing
-// a path with shell metacharacters (`$`, backticks, `;`) would break out
-// of the heredoc. Defense-in-depth: refuse anything that isn't an
-// alphanumeric/`/`/`-`/`_`/`.` path so the failure mode is a loud
-// Expect rather than silent code execution.
-var systemPackageTestDirRE = regexp.MustCompile(`^/[A-Za-z0-9._/\-]+$`)
+// dir argument. The helper documents a `/tmp`-only safety boundary and
+// uses Sprintf-into-shell-heredoc semantics, so the regex must enforce
+// BOTH constraints: the path must live under /tmp/, AND the segment after
+// `/tmp/` must not contain path-traversal components or shell
+// metacharacters. The earlier `^/[A-Za-z0-9._/\-]+$` allowed any absolute
+// path (e.g. `/etc/tomei`) and admitted `..` via the dot character — a
+// caller passing `/tmp/../../etc/tomei` would escape the scratch area.
+// This tighter form pins the prefix to `/tmp/`, forbids consecutive dots
+// (`\.\.`), and forbids embedded slashes inside the segment so a single
+// flat `/tmp/<name>` is the only shape that passes.
+var systemPackageTestDirRE = regexp.MustCompile(`^/tmp/[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)*/?$`)
 
 // pgdgKeyHashSHA256 is the pinned SHA256 of the PostgreSQL APT signing
 // key referenced from e2e/config/system-package-test/manifest.cue. The
@@ -356,7 +360,7 @@ func systemPackageTests() {
 		out, err := testExec.ExecBash("set -o pipefail; sha256sum ~/.local/share/tomei/system/state.json | awk '{print $1}'")
 		Expect(err).NotTo(HaveOccurred(), "sha256sum on system state.json failed: %s", out)
 		hash := strings.TrimSpace(out)
-		// Defence-in-depth in case pipefail is somehow disabled by a
+		// Defense-in-depth in case pipefail is somehow disabled by a
 		// future shell wrapper change: a real sha256sum hash is exactly
 		// 64 lowercase hex chars. Anything else means we got stderr,
 		// "No such file", an awk error, or an empty pipe — fail loudly
@@ -404,6 +408,22 @@ func systemPackageTests() {
 	const installCfgPath = "/tmp/tomei-system-package-install/"
 	const removalCfgPath = "/tmp/tomei-system-package-removal/"
 
+	// fixturePackages enumerates every package this Context's BeforeAll
+	// may install on the host. Centralized so the BeforeAll remove-first
+	// step, the outer AfterAll cleanup, and any future drift detector
+	// stay in lockstep — adding a fourth package in the manifest without
+	// touching this list would silently leak host state.
+	fixturePackages := []string{"cowsay", "sl", "tree"}
+
+	// fixtureManaged is set to true at the very end of Context A's
+	// BeforeAll, after tomei has had a chance to take ownership of the
+	// fixture packages. Outer AfterAll consults it: if BeforeAll aborted
+	// midway (e.g. the preflight remove-first step failed and the spec
+	// short-circuited), we MUST NOT then unconditionally apt-get remove
+	// the user's pre-existing packages. The flag is the explicit
+	// "we own these now" signal that gates destructive cleanup.
+	var fixtureManaged bool
+
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
 	// SystemInstaller/apt + SystemPackage/tree sugar + SystemPackageSet
 	// cli-tools with the given package list. The single-quoted heredoc
@@ -427,7 +447,16 @@ func systemPackageTests() {
 		for i, p := range pkgs {
 			quoted[i] = `"` + p + `"`
 		}
-		script := fmt.Sprintf(`mkdir -p %[1]s/cue.mod && cat > %[1]s/cue.mod/module.cue <<'EOF'
+		// Clear the target directory before recreating cue.mod /
+		// manifest.cue. The CUE loader reads EVERY *.cue file in the
+		// directory; a stale manifest left by a failed previous run
+		// (or by a developer iterating on the helper) would be loaded
+		// alongside the fresh one and silently shift these assertions.
+		// `rm -rf` of the whole dir is safe here because the regex
+		// allowlist above restricts dir to a flat single-segment
+		// /tmp/<name> path — no risk of clobbering anything outside
+		// the scratch area.
+		script := fmt.Sprintf(`rm -rf %[1]s && mkdir -p %[1]s/cue.mod && cat > %[1]s/cue.mod/module.cue <<'EOF'
 module: "tomei.local@v0"
 language: version: "v0.9.0"
 EOF
@@ -491,16 +520,37 @@ EOF`, dir, strings.Join(quoted, ", "))
 			if os.Getenv("TOMEI_E2E_CONTAINER") == "" && os.Getenv("TOMEI_E2E_NATIVE") == "" {
 				return
 			}
-			// Native-mode safety: on a CI native runner the runner is
-			// ephemeral and apt cleanup is safe. We still keep the
-			// TOMEI_E2E_NATIVE=true short-circuit as an emergency
-			// escape hatch documented for developers who explicitly
-			// opted in to native-mode-with-cleanup-disabled.
+			// Emergency escape hatch for developers who opt in to
+			// native mode but want host state preserved for inspection
+			// after a failed run.
 			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") == "true" {
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
 				return
 			}
-			_, _ = testExec.ExecBash("sudo -n apt-get remove -y bc cowsay tree 2>&1 || true")
+			// Ownership gate: only apt-get remove the fixture packages
+			// if Context A's BeforeAll completed (and therefore tomei,
+			// not the runner/developer, is the owner of these packages
+			// post-test). If the preflight remove-first step or any
+			// earlier setup aborted, fixtureManaged stays false and we
+			// MUST NOT touch packages we did not install — that was the
+			// concrete risk Copilot flagged: a failed preinstall
+			// invariant followed by an unconditional apt-get remove of
+			// the user's pre-existing package. /tmp scratch dirs are
+			// always safe to remove (regex-allowlisted single-segment
+			// paths created by this suite only).
+			if fixtureManaged {
+				// `apt-get autoremove` is intentionally included after
+				// the remove step. cowsay's runtime Depends pulled in
+				// libtext-charwidth-perl (and similar transitive
+				// auto-installed packages); without --autoremove,
+				// `apt-get remove` leaves those orphaned on the runner
+				// across suite invocations, which is exactly the
+				// "still leave host package state changed after the
+				// suite" concern Copilot raised. Best-effort: ignore
+				// non-zero exit so a failure in cleanup never masks a
+				// real spec failure.
+				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1; sudo -n apt-get autoremove -y 2>&1; true")
+			}
 			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 		})
 
@@ -522,17 +572,38 @@ EOF`, dir, strings.Join(quoted, ", "))
 				_, err := testExec.ExecBash(`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ~/.local/share/tomei/system/state.json`)
 				Expect(err).NotTo(HaveOccurred(), "failed to reset system state.json")
 
-				// Defense-in-depth: if a future Dockerfile change adds any
-				// fixture pkg to the preinstall list, a post-apply dpkg-query
-				// check would pass even if tomei did nothing. Detect that drift
-				// at BeforeAll time with a precise error message.
-				for _, pkg := range []string{"bc", "cowsay", "tree"} {
-					out, _ := testExec.ExecBash("dpkg-query -W -f='${Status}\\n' " + pkg + " 2>&1 || true")
+				// Preflight remove-first: ensure the fixture packages are
+				// NOT installed before tomei runs, so the subsequent
+				// `apply --system` actually exercises the install path
+				// rather than passing because the package happened to
+				// already be on the runner.
+				//
+				// History: an earlier version of this Context used a hard
+				// fail-on-preinstalled invariant ("pick a different
+				// package") which broke the linux/arm64 native CI leg
+				// because GitHub-hosted ubuntu-24.04 runners preinstall
+				// `bc`. Switching to cowsay/sl (universe, leaf, NOT in
+				// any known runner-image preinstall list) plus this
+				// remove-first step makes the spec robust against future
+				// preinstall drift on either side — if a future runner
+				// image starts shipping cowsay or sl, the remove step
+				// uninstalls it cleanly and the test still validates a
+				// fresh install. We use NOT-purge here so /etc/cowsay
+				// (none exist, but futureproof) is preserved; the outer
+				// AfterAll handles the final removal.
+				//
+				// `2>&1 || true` swallows the failure for packages that
+				// are not installed (apt-get remove exits non-zero) so
+				// the BeforeAll proceeds; the assertNotInstalled checks
+				// below are the real assertion that the host is clean.
+				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
+				for _, pkg := range fixturePackages {
+					out, _ := testExec.Exec("dpkg-query", "-W", "-f=${Status}\n", "--", pkg)
 					Expect(out).NotTo(ContainSubstring("install ok installed"),
-						"fixture invariant violated: %s is preinstalled on the runner — pick a different package", pkg)
+						"preflight failed: %s is still installed after apt-get remove (dpkg-query Status: %q) — the apply spec below would not be exercising a real install", pkg, out)
 				}
 
-				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"bc", "cowsay"})
+				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"cowsay", "sl"})
 
 				// PackageSetInstaller.Install does not refresh the apt index
 				// (PackageRepositoryInstaller does, but only that one). CI
@@ -544,6 +615,14 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// mirror outage surfaces in GinkgoWriter alongside the output.
 				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
 				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
+
+				// Take ownership: from this point, the outer AfterAll is
+				// authorized to apt-get remove the fixture packages.
+				// Setting this AFTER all preflight steps complete means a
+				// preflight failure leaves it false and the AfterAll
+				// becomes a no-op — preserving the user/runner's
+				// pre-existing host state in that scenario.
+				fixtureManaged = true
 			})
 
 			It("apply --system installs the manifest packages on the host", func() {
@@ -551,8 +630,8 @@ EOF`, dir, strings.Join(quoted, ", "))
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
 				Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
-				assertInstalled("bc")
 				assertInstalled("cowsay")
+				assertInstalled("sl")
 				assertInstalled("tree")
 			})
 
@@ -583,24 +662,30 @@ EOF`, dir, strings.Join(quoted, ", "))
 				Expect(ok).To(BeTrue(),
 					"systemPackages.cli-tools must exist after --system apply; systemPackages contained: %v",
 					parsed.SystemPackages)
-				Expect(cliTools.InstalledVersions).To(HaveKey("bc"),
-					"systemPackages.cli-tools.installedVersions must record bc; got: %v", cliTools.InstalledVersions)
 				Expect(cliTools.InstalledVersions).To(HaveKey("cowsay"),
 					"systemPackages.cli-tools.installedVersions must record cowsay; got: %v", cliTools.InstalledVersions)
+				Expect(cliTools.InstalledVersions).To(HaveKey("sl"),
+					"systemPackages.cli-tools.installedVersions must record sl; got: %v", cliTools.InstalledVersions)
 				// Sanity-check the version field too — an empty version string
 				// would mean InstalledVersions is populated with empty values,
 				// which is a likely regression mode if PackageVersion() ever
 				// silently fails. Non-empty proves we recorded a real version.
-				Expect(cliTools.InstalledVersions["bc"]).NotTo(BeEmpty(),
-					"cli-tools.installedVersions.bc must be a non-empty version string")
 				Expect(cliTools.InstalledVersions["cowsay"]).NotTo(BeEmpty(),
 					"cli-tools.installedVersions.cowsay must be a non-empty version string")
+				Expect(cliTools.InstalledVersions["sl"]).NotTo(BeEmpty(),
+					"cli-tools.installedVersions.sl must be a non-empty version string")
 
 				tree, ok := parsed.SystemPackages["tree"]
 				Expect(ok).To(BeTrue(),
 					"systemPackages.tree (sugar) must exist after --system apply")
 				Expect(tree.InstalledVersions).To(HaveKey("tree"),
 					"systemPackages.tree.installedVersions must record the desugared package; got: %v", tree.InstalledVersions)
+				// Parity with the SystemPackageSet assertions above — an
+				// empty version string here would indicate PackageVersion()
+				// returned "" on the desugared path even though dpkg state
+				// was fine, masking a sugar-specific regression.
+				Expect(tree.InstalledVersions["tree"]).NotTo(BeEmpty(),
+					"tree.installedVersions.tree must be a non-empty version string (sugar path)")
 			})
 
 			It("apply WITHOUT --system is a no-op (system resources skip-downgraded)", func() {
@@ -618,8 +703,8 @@ EOF`, dir, strings.Join(quoted, ", "))
 				out, err := ExecApply(testExec, installCfgPath)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-				assertInstalled("bc")
 				assertInstalled("cowsay")
+				assertInstalled("sl")
 				assertInstalled("tree")
 				Expect(stateHash()).To(Equal(hashBefore),
 					"apply without --system must not rewrite system state.json")
@@ -649,20 +734,23 @@ EOF`, dir, strings.Join(quoted, ", "))
 				skipIfNotLinux()
 
 				// Pre-flight: anchor Context A's post-install state. If
-				// Context A succeeded, bc/cowsay/tree are installed and the
+				// Context A succeeded, cowsay/sl/tree are installed and the
 				// system state.json holds entries for cli-tools/tree. Without
 				// this guard, a silent failure upstream would let Context B's
 				// "WITH --system runs apt-get remove" spec pass trivially
 				// (nothing to remove → state already matches removal target).
-				assertInstalled("bc")
 				assertInstalled("cowsay")
+				assertInstalled("sl")
 				assertInstalled("tree")
 
-				// Reduced manifest under /tmp/ — do NOT edit the canonical
-				// fixture at ~/system-package-test/manifest.cue in place; the
-				// prior Contexts (validate / plan / Apply A) depend on it
-				// being byte-stable.
-				writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"bc"})
+				// Reduced manifest under /tmp/: cli-tools shrinks from
+				// {cowsay, sl} to {cowsay}, so the removal driven by
+				// `apply --system` is exactly the sl package. We
+				// generate this as a sibling to the canonical fixture so
+				// prior Contexts (validate / plan / Apply A) that read
+				// ~/system-package-test/manifest.cue keep seeing a
+				// byte-stable manifest.
+				writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"cowsay"})
 			})
 
 			// Host cleanup is registered at the outer Context scope (see
@@ -671,13 +759,44 @@ EOF`, dir, strings.Join(quoted, ", "))
 			// triggers cleanup — an inner AfterAll here would not run in
 			// that case under Ginkgo's Ordered semantics.
 
-			It("apply removal manifest WITHOUT --system retains cowsay in state (no-op)", func() {
+			// parseStateInstalled is a Context-B-local helper that parses
+			// state.json into the same struct shape Context A uses for
+			// installedVersions, so the removal-state assertions can
+			// inspect map membership instead of falling back to substring
+			// matches (which were the trap Copilot flagged on the install
+			// path — package names in the resource spec's `packages`
+			// array can satisfy a substring check even when
+			// installedVersions is empty).
+			parseStateInstalled := func() map[string]map[string]string {
+				raw, err := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
+				Expect(err).NotTo(HaveOccurred())
+				var parsed struct {
+					SystemPackages map[string]struct {
+						InstalledVersions map[string]string `json:"installedVersions"`
+					} `json:"systemPackages"`
+				}
+				Expect(json.Unmarshal([]byte(raw), &parsed)).To(Succeed(),
+					"state.json must be valid JSON; got:\n%s", raw)
+				out := map[string]map[string]string{}
+				for name, sp := range parsed.SystemPackages {
+					out[name] = sp.InstalledVersions
+				}
+				return out
+			}
+
+			It("apply removal manifest WITHOUT --system retains sl in state (no-op)", func() {
 				hashBefore := stateHash()
 				_, err := ExecApply(testExec, removalCfgPath)
 				Expect(err).NotTo(HaveOccurred())
-				raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-				Expect(raw).To(ContainSubstring(`"cowsay"`))
-				assertInstalled("cowsay")
+				installed := parseStateInstalled()
+				// Without --system, cli-tools.installedVersions must
+				// still record sl from Context A's install — system
+				// resources are skip-downgraded and the state shrink
+				// MUST NOT have happened yet.
+				Expect(installed).To(HaveKey("cli-tools"))
+				Expect(installed["cli-tools"]).To(HaveKey("sl"),
+					"sl must still be recorded under cli-tools.installedVersions before --system removal; got: %v", installed["cli-tools"])
+				assertInstalled("sl")
 				Expect(stateHash()).To(Equal(hashBefore),
 					"removal manifest applied without --system must not rewrite state.json")
 			})
@@ -686,16 +805,24 @@ EOF`, dir, strings.Join(quoted, ", "))
 				out, err := ExecApply(testExec, "--system", removalCfgPath)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-				assertNotInstalled("cowsay")
-				assertInstalled("bc")
+				assertNotInstalled("sl")
+				assertInstalled("cowsay")
 				assertInstalled("tree")
-				raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-				Expect(raw).To(ContainSubstring(`"cli-tools"`))
-				Expect(raw).To(ContainSubstring(`"bc"`))
-				// The SystemPackage sugar entry must survive a sibling set's
-				// shrink — confirms removal scope is per-resource, not global.
-				Expect(raw).To(ContainSubstring(`"tree"`))
-				Expect(raw).NotTo(ContainSubstring(`"cowsay"`))
+				installed := parseStateInstalled()
+				Expect(installed).To(HaveKey("cli-tools"),
+					"cli-tools must remain in systemPackages after shrink; got keys: %v", installed)
+				Expect(installed["cli-tools"]).To(HaveKey("cowsay"),
+					"cowsay must remain under cli-tools.installedVersions; got: %v", installed["cli-tools"])
+				Expect(installed["cli-tools"]["cowsay"]).NotTo(BeEmpty(),
+					"cli-tools.installedVersions.cowsay must keep its non-empty version across the shrink")
+				Expect(installed["cli-tools"]).NotTo(HaveKey("sl"),
+					"sl must be removed from cli-tools.installedVersions after --system removal; got: %v", installed["cli-tools"])
+				// The SystemPackage sugar entry must survive a sibling
+				// set's shrink — confirms removal scope is per-resource,
+				// not global.
+				Expect(installed).To(HaveKey("tree"),
+					"sugar entry tree must survive a sibling set's shrink; got keys: %v", installed)
+				Expect(installed["tree"]).To(HaveKey("tree"))
 			})
 
 			It("re-apply removal manifest WITH --system is idempotent", func() {
