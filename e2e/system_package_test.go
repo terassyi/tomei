@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -293,9 +294,21 @@ func systemPackageTests() {
 	})
 
 	// SystemPackageSet apply coverage (#200). Mutates host packages, so
-	// gated to linux (apt). The two Contexts below are Ordered: Context A
-	// installs from the canonical fixture; Context B reduces the manifest
-	// to drive an apt-get remove. Context B's AfterAll cleans up the host.
+	// gated to linux (apt) AND to orchestrated e2e runs (TOMEI_E2E_CONTAINER
+	// or TOMEI_E2E_NATIVE — see skipIfNotLinux). The two inner Contexts
+	// below are Ordered (inherited from the suite-level `Describe(...,
+	// Ordered, ...)` in suite_test.go): Context A applies a generated
+	// /tmp/tomei-system-package-install/ manifest and asserts install +
+	// state-record + no-op + idempotency; Context B applies a reduced
+	// /tmp/tomei-system-package-removal/ manifest and asserts remove +
+	// state-shrink + idempotency.
+	//
+	// Wrapped in an outer Context so that the host-cleanup AfterAll
+	// (apt-get remove + rm -rf /tmp) lives at a scope that covers BOTH
+	// inner contexts: if Context A's BeforeAll or any Context A spec
+	// fails partway, an inner Context-B-scoped AfterAll would either be
+	// skipped or run with a misleading host state. Outer-scope AfterAll
+	// guarantees host cleanup even when Context A aborts before B starts.
 	//
 	// dpkg-query -W -f='${Status}' is preferred over dpkg -l because
 	// `dpkg -l` exits 0 for the `rc` ("removed but config present") state
@@ -334,9 +347,24 @@ func systemPackageTests() {
 	// check. sha256sum exits non-zero if the file is missing, which the
 	// Expect surfaces as a clear failure.
 	stateHash := func() string {
-		out, err := testExec.ExecBash("sha256sum ~/.local/share/tomei/system/state.json | awk '{print $1}'")
+		// `set -o pipefail` is required: without it, the pipeline's exit
+		// status is awk's (almost always 0), so a missing or unreadable
+		// state.json would return awk's stderr instead of a hash and the
+		// downstream byte-stability assertions would pass for the wrong
+		// reason. With pipefail, sha256sum's non-zero exit propagates and
+		// the Expect surfaces the real failure.
+		out, err := testExec.ExecBash("set -o pipefail; sha256sum ~/.local/share/tomei/system/state.json | awk '{print $1}'")
 		Expect(err).NotTo(HaveOccurred(), "sha256sum on system state.json failed: %s", out)
-		return strings.TrimSpace(out)
+		hash := strings.TrimSpace(out)
+		// Defence-in-depth in case pipefail is somehow disabled by a
+		// future shell wrapper change: a real sha256sum hash is exactly
+		// 64 lowercase hex chars. Anything else means we got stderr,
+		// "No such file", an awk error, or an empty pipe — fail loudly
+		// instead of silently returning a non-hash that would compare
+		// equal across two equally-broken calls.
+		Expect(hash).To(MatchRegexp(`^[0-9a-f]{64}$`),
+			"stateHash did not return a sha256 hex digest; got %q (state.json may be missing or unreadable)", hash)
+		return hash
 	}
 
 	skipIfNotLinux := func() {
@@ -346,6 +374,16 @@ func systemPackageTests() {
 		}
 		if targetOS != "linux" {
 			Skip("real-apply SystemPackageSet requires apt; current OS is " + targetOS)
+		}
+		// Opt-in gate: a bare `go test ./e2e/...` on a Linux developer
+		// laptop would otherwise run `sudo apt-get install/remove` and
+		// mutate the dev's host packages — surprising and destructive.
+		// The orchestrated e2e modes (`make test-e2e` containerised, and
+		// the CI native legs) both set one of these env vars, so
+		// requiring at least one is opt-in for orchestrated runs while
+		// fail-safe for ad-hoc local invocations.
+		if os.Getenv("TOMEI_E2E_CONTAINER") == "" && os.Getenv("TOMEI_E2E_NATIVE") == "" {
+			Skip("real-apply SystemPackageSet mutates host apt state; set TOMEI_E2E_CONTAINER or TOMEI_E2E_NATIVE to opt in (both are set automatically by `make test-e2e` / CI; a bare `go test ./e2e/...` skips by design)")
 		}
 	}
 
@@ -435,190 +473,245 @@ EOF`, dir, strings.Join(quoted, ", "))
 		Expect(err).NotTo(HaveOccurred(), "writing manifest for %s failed", dir)
 	}
 
-	Context("Apply --system (real install)", func() {
-		BeforeAll(func() {
-			skipIfNotLinux()
-
-			// Ensure tomei is initialized — `tomei apply` aborts early with
-			// "tomei is not initialized" otherwise. --force makes the call
-			// idempotent across prior Contexts (some of which may have
-			// already run init). Pattern: e2e/privileged_test.go:16.
-			_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
-
-			// Reset SYSTEM state only — user-store belongs to other suites.
-			// Top-level JSON keys match internal/state/state.go SystemState.
-			// Failure here means the home directory is misconfigured and
-			// every downstream spec would surface a misleading error, so
-			// fail loudly instead of swallowing the error.
-			_, err := testExec.ExecBash(`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ~/.local/share/tomei/system/state.json`)
-			Expect(err).NotTo(HaveOccurred(), "failed to reset system state.json")
-
-			// Defense-in-depth: if a future Dockerfile change adds any
-			// fixture pkg to the preinstall list, a post-apply dpkg-query
-			// check would pass even if tomei did nothing. Detect that drift
-			// at BeforeAll time with a precise error message.
-			for _, pkg := range []string{"bc", "cowsay", "tree"} {
-				out, _ := testExec.ExecBash("dpkg-query -W -f='${Status}\\n' " + pkg + " 2>&1 || true")
-				Expect(out).NotTo(ContainSubstring("install ok installed"),
-					"fixture invariant violated: %s is preinstalled on the runner — pick a different package", pkg)
-			}
-
-			writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"bc", "cowsay"})
-
-			// PackageSetInstaller.Install does not refresh the apt index
-			// (PackageRepositoryInstaller does, but only that one). CI
-			// images carry stale indexes; refresh once. Tolerate non-zero
-			// exit — apt exits non-zero on any mirror failure, but a
-			// partial refresh is usually enough for the apply step to
-			// produce a clearer downstream error than `update` would.
-			// The err is captured (not silently dropped) so a complete
-			// mirror outage surfaces in GinkgoWriter alongside the output.
-			out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
-			fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
-		})
-
-		It("apply --system installs the manifest packages on the host", func() {
-			out, err := ExecApply(testExec, "--system", installCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-			Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
-			assertInstalled("bc")
-			assertInstalled("cowsay")
-			assertInstalled("tree")
-		})
-
-		It("records InstalledVersions for the sugar and the set in state.json", func() {
-			raw, err := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(raw).To(ContainSubstring(`"cli-tools"`))
-			Expect(raw).To(ContainSubstring(`"tree"`))
-			Expect(raw).To(ContainSubstring(`"installedVersions"`))
-			Expect(raw).To(ContainSubstring(`"bc"`))
-			Expect(raw).To(ContainSubstring(`"cowsay"`))
-		})
-
-		It("apply WITHOUT --system is a no-op (system resources skip-downgraded)", func() {
-			// Anchor the prior install: if the previous It silently failed,
-			// the state would be empty and "no rewrite" would trivially
-			// pass. MatchRegexp pins the structural shape — systemPackages
-			// is a non-empty map with cli-tools as a top-level key — so a
-			// stray "cli-tools" substring elsewhere in the JSON (e.g. in a
-			// later nested ref) can't satisfy the assertion.
-			rawBefore, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-			Expect(rawBefore).To(MatchRegexp(`"systemPackages"\s*:\s*\{[^}]*"cli-tools"`),
-				"prerequisite: prior --system apply must have populated systemPackages.cli-tools in state.json before testing no-op semantics; got:\n%s", rawBefore)
-
-			hashBefore := stateHash()
-			out, err := ExecApply(testExec, installCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-			assertInstalled("bc")
-			assertInstalled("cowsay")
-			assertInstalled("tree")
-			Expect(stateHash()).To(Equal(hashBefore),
-				"apply without --system must not rewrite system state.json")
-		})
-
-		It("re-apply --system is idempotent (plan shows zero work)", func() {
-			// Plan summary is matched by regex so harmless cosmetic
-			// changes to the tree.go printer (color codes, spacing) do not
-			// break the assertion; the four-counter structure is the
-			// invariant. The trailing `, N disabled` segment only renders
-			// when ActionSkip > 0, which is not the case here post-#216
-			// (SystemPackageSet is no longer skip-downgraded with --system).
-			out, err := testExec.Exec("tomei", "plan", "--system", installCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
-
-			hashBefore := stateHash()
-			_, err = ExecApply(testExec, "--system", installCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(stateHash()).To(Equal(hashBefore),
-				"idempotent re-apply must not rewrite state.json")
-		})
-	})
-
-	Context("Apply --system removal and idempotency", func() {
-		BeforeAll(func() {
-			skipIfNotLinux()
-
-			// Pre-flight: anchor Context A's post-install state. If
-			// Context A succeeded, bc/cowsay/tree are installed and the
-			// system state.json holds entries for cli-tools/tree. Without
-			// this guard, a silent failure upstream would let Context B's
-			// "WITH --system runs apt-get remove" spec pass trivially
-			// (nothing to remove → state already matches removal target).
-			assertInstalled("bc")
-			assertInstalled("cowsay")
-			assertInstalled("tree")
-
-			// Reduced manifest under /tmp/ — do NOT edit the canonical
-			// fixture at ~/system-package-test/manifest.cue in place; the
-			// prior Contexts (validate / plan / Apply A) depend on it
-			// being byte-stable.
-			writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"bc"})
-		})
-
+	Context("Apply --system mutates host packages (#200)", func() {
+		// Outer-scope cleanup. Runs after every inner spec in both
+		// Context A and Context B has completed (or been skipped),
+		// regardless of which inner Context failed. Best-effort:
+		// tolerate non-zero exits so a failure inside cleanup never
+		// masks the spec failure that surfaced the real bug. apt-get
+		// remove (NOT --purge) is enough — we don't care about
+		// lingering config files on an ephemeral CI runner.
 		AfterAll(func() {
-			// Native-mode safety: on a developer laptop (TOMEI_E2E_NATIVE)
-			// the AfterAll would otherwise apt-get remove packages the
-			// developer might use day-to-day, and rm -rf predictable /tmp/
-			// paths that a parallel suite or other tooling could be
-			// writing to. In containerised CI we own the entire FS, so
-			// cleanup is safe and beneficial (run-to-run isolation).
-			if os.Getenv("TOMEI_E2E_NATIVE") == "true" {
-				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE=true: skipping host package + /tmp cleanup")
+			// Outer cleanup gates on the same opt-in env vars that
+			// gate the inner specs (see skipIfNotLinux). Without one
+			// of them, the inner specs Skip()'d and there is nothing
+			// to clean up; running apt-get remove anyway would be
+			// surprising and potentially destructive on a developer
+			// laptop that happens to share this binary.
+			if os.Getenv("TOMEI_E2E_CONTAINER") == "" && os.Getenv("TOMEI_E2E_NATIVE") == "" {
 				return
 			}
-			// Best-effort cleanup. Tolerate non-zero exit so a failure
-			// inside cleanup never masks the spec failure that surfaced
-			// the real bug. apt-get remove (NOT --purge) is enough — we
-			// don't care about lingering config files on an ephemeral CI
-			// runner.
+			// Native-mode safety: on a CI native runner the runner is
+			// ephemeral and apt cleanup is safe. We still keep the
+			// TOMEI_E2E_NATIVE=true short-circuit as an emergency
+			// escape hatch documented for developers who explicitly
+			// opted in to native-mode-with-cleanup-disabled.
+			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") == "true" {
+				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
+				return
+			}
 			_, _ = testExec.ExecBash("sudo -n apt-get remove -y bc cowsay tree 2>&1 || true")
 			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 		})
 
-		It("apply removal manifest WITHOUT --system retains cowsay in state (no-op)", func() {
-			hashBefore := stateHash()
-			_, err := ExecApply(testExec, removalCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-			Expect(raw).To(ContainSubstring(`"cowsay"`))
-			assertInstalled("cowsay")
-			Expect(stateHash()).To(Equal(hashBefore),
-				"removal manifest applied without --system must not rewrite state.json")
+		Context("Apply --system (real install)", func() {
+			BeforeAll(func() {
+				skipIfNotLinux()
+
+				// Ensure tomei is initialized — `tomei apply` aborts early with
+				// "tomei is not initialized" otherwise. --force makes the call
+				// idempotent across prior Contexts (some of which may have
+				// already run init). Pattern: e2e/privileged_test.go:16.
+				_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
+
+				// Reset SYSTEM state only — user-store belongs to other suites.
+				// Top-level JSON keys match internal/state/state.go SystemState.
+				// Failure here means the home directory is misconfigured and
+				// every downstream spec would surface a misleading error, so
+				// fail loudly instead of swallowing the error.
+				_, err := testExec.ExecBash(`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ~/.local/share/tomei/system/state.json`)
+				Expect(err).NotTo(HaveOccurred(), "failed to reset system state.json")
+
+				// Defense-in-depth: if a future Dockerfile change adds any
+				// fixture pkg to the preinstall list, a post-apply dpkg-query
+				// check would pass even if tomei did nothing. Detect that drift
+				// at BeforeAll time with a precise error message.
+				for _, pkg := range []string{"bc", "cowsay", "tree"} {
+					out, _ := testExec.ExecBash("dpkg-query -W -f='${Status}\\n' " + pkg + " 2>&1 || true")
+					Expect(out).NotTo(ContainSubstring("install ok installed"),
+						"fixture invariant violated: %s is preinstalled on the runner — pick a different package", pkg)
+				}
+
+				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"bc", "cowsay"})
+
+				// PackageSetInstaller.Install does not refresh the apt index
+				// (PackageRepositoryInstaller does, but only that one). CI
+				// images carry stale indexes; refresh once. Tolerate non-zero
+				// exit — apt exits non-zero on any mirror failure, but a
+				// partial refresh is usually enough for the apply step to
+				// produce a clearer downstream error than `update` would.
+				// The err is captured (not silently dropped) so a complete
+				// mirror outage surfaces in GinkgoWriter alongside the output.
+				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
+				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
+			})
+
+			It("apply --system installs the manifest packages on the host", func() {
+				out, err := ExecApply(testExec, "--system", installCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+				Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+				assertInstalled("bc")
+				assertInstalled("cowsay")
+				assertInstalled("tree")
+			})
+
+			It("records InstalledVersions for the sugar and the set in state.json", func() {
+				// Parse the JSON rather than substring-matching "bc" / "cowsay":
+				// the package names also appear in the `packages` array of the
+				// resource spec snapshot, so a substring match would pass even
+				// if `installedVersions` were empty or missing — exactly the
+				// regression this spec is meant to catch. Scope the assertion
+				// to systemPackages[name].installedVersions and check map
+				// membership so a future renaming or relocation of the field
+				// surfaces as a real failure rather than a green test.
+				raw, err := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
+				Expect(err).NotTo(HaveOccurred())
+
+				// Anonymous struct mirrors only the fields under test; unknown
+				// fields are ignored by encoding/json so this assertion stays
+				// stable as the state schema evolves around it.
+				var parsed struct {
+					SystemPackages map[string]struct {
+						InstalledVersions map[string]string `json:"installedVersions"`
+					} `json:"systemPackages"`
+				}
+				Expect(json.Unmarshal([]byte(raw), &parsed)).To(Succeed(),
+					"state.json must be valid JSON; got:\n%s", raw)
+
+				cliTools, ok := parsed.SystemPackages["cli-tools"]
+				Expect(ok).To(BeTrue(),
+					"systemPackages.cli-tools must exist after --system apply; systemPackages contained: %v",
+					parsed.SystemPackages)
+				Expect(cliTools.InstalledVersions).To(HaveKey("bc"),
+					"systemPackages.cli-tools.installedVersions must record bc; got: %v", cliTools.InstalledVersions)
+				Expect(cliTools.InstalledVersions).To(HaveKey("cowsay"),
+					"systemPackages.cli-tools.installedVersions must record cowsay; got: %v", cliTools.InstalledVersions)
+				// Sanity-check the version field too — an empty version string
+				// would mean InstalledVersions is populated with empty values,
+				// which is a likely regression mode if PackageVersion() ever
+				// silently fails. Non-empty proves we recorded a real version.
+				Expect(cliTools.InstalledVersions["bc"]).NotTo(BeEmpty(),
+					"cli-tools.installedVersions.bc must be a non-empty version string")
+				Expect(cliTools.InstalledVersions["cowsay"]).NotTo(BeEmpty(),
+					"cli-tools.installedVersions.cowsay must be a non-empty version string")
+
+				tree, ok := parsed.SystemPackages["tree"]
+				Expect(ok).To(BeTrue(),
+					"systemPackages.tree (sugar) must exist after --system apply")
+				Expect(tree.InstalledVersions).To(HaveKey("tree"),
+					"systemPackages.tree.installedVersions must record the desugared package; got: %v", tree.InstalledVersions)
+			})
+
+			It("apply WITHOUT --system is a no-op (system resources skip-downgraded)", func() {
+				// Anchor the prior install: if the previous It silently failed,
+				// the state would be empty and "no rewrite" would trivially
+				// pass. MatchRegexp pins the structural shape — systemPackages
+				// is a non-empty map with cli-tools as a top-level key — so a
+				// stray "cli-tools" substring elsewhere in the JSON (e.g. in a
+				// later nested ref) can't satisfy the assertion.
+				rawBefore, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
+				Expect(rawBefore).To(MatchRegexp(`"systemPackages"\s*:\s*\{[^}]*"cli-tools"`),
+					"prerequisite: prior --system apply must have populated systemPackages.cli-tools in state.json before testing no-op semantics; got:\n%s", rawBefore)
+
+				hashBefore := stateHash()
+				out, err := ExecApply(testExec, installCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+				assertInstalled("bc")
+				assertInstalled("cowsay")
+				assertInstalled("tree")
+				Expect(stateHash()).To(Equal(hashBefore),
+					"apply without --system must not rewrite system state.json")
+			})
+
+			It("re-apply --system is idempotent (plan shows zero work)", func() {
+				// Plan summary is matched by regex so harmless cosmetic
+				// changes to the tree.go printer (color codes, spacing) do not
+				// break the assertion; the four-counter structure is the
+				// invariant. The trailing `, N disabled` segment only renders
+				// when ActionSkip > 0, which is not the case here post-#216
+				// (SystemPackageSet is no longer skip-downgraded with --system).
+				out, err := testExec.Exec("tomei", "plan", "--system", installCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
+
+				hashBefore := stateHash()
+				_, err = ExecApply(testExec, "--system", installCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stateHash()).To(Equal(hashBefore),
+					"idempotent re-apply must not rewrite state.json")
+			})
 		})
 
-		It("apply removal manifest WITH --system runs apt-get remove and updates state.json", func() {
-			out, err := ExecApply(testExec, "--system", removalCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-			assertNotInstalled("cowsay")
-			assertInstalled("bc")
-			assertInstalled("tree")
-			raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
-			Expect(raw).To(ContainSubstring(`"cli-tools"`))
-			Expect(raw).To(ContainSubstring(`"bc"`))
-			// The SystemPackage sugar entry must survive a sibling set's
-			// shrink — confirms removal scope is per-resource, not global.
-			Expect(raw).To(ContainSubstring(`"tree"`))
-			Expect(raw).NotTo(ContainSubstring(`"cowsay"`))
-		})
+		Context("Apply --system removal and idempotency", func() {
+			BeforeAll(func() {
+				skipIfNotLinux()
 
-		It("re-apply removal manifest WITH --system is idempotent", func() {
-			// Mirrors Context A's idempotency: once the removal has
-			// converged, a second --system apply against the same reduced
-			// manifest must be a plan-zero / state-byte-stable no-op.
-			out, err := testExec.Exec("tomei", "plan", "--system", removalCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
+				// Pre-flight: anchor Context A's post-install state. If
+				// Context A succeeded, bc/cowsay/tree are installed and the
+				// system state.json holds entries for cli-tools/tree. Without
+				// this guard, a silent failure upstream would let Context B's
+				// "WITH --system runs apt-get remove" spec pass trivially
+				// (nothing to remove → state already matches removal target).
+				assertInstalled("bc")
+				assertInstalled("cowsay")
+				assertInstalled("tree")
 
-			hashBefore := stateHash()
-			_, err = ExecApply(testExec, "--system", removalCfgPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(stateHash()).To(Equal(hashBefore),
-				"idempotent re-apply of the removal manifest must not rewrite state.json")
+				// Reduced manifest under /tmp/ — do NOT edit the canonical
+				// fixture at ~/system-package-test/manifest.cue in place; the
+				// prior Contexts (validate / plan / Apply A) depend on it
+				// being byte-stable.
+				writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"bc"})
+			})
+
+			// Host cleanup is registered at the outer Context scope (see
+			// the parent Context's AfterAll). Keeping it there means a
+			// Context A failure that prevents Context B from starting still
+			// triggers cleanup — an inner AfterAll here would not run in
+			// that case under Ginkgo's Ordered semantics.
+
+			It("apply removal manifest WITHOUT --system retains cowsay in state (no-op)", func() {
+				hashBefore := stateHash()
+				_, err := ExecApply(testExec, removalCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
+				Expect(raw).To(ContainSubstring(`"cowsay"`))
+				assertInstalled("cowsay")
+				Expect(stateHash()).To(Equal(hashBefore),
+					"removal manifest applied without --system must not rewrite state.json")
+			})
+
+			It("apply removal manifest WITH --system runs apt-get remove and updates state.json", func() {
+				out, err := ExecApply(testExec, "--system", removalCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
+				assertNotInstalled("cowsay")
+				assertInstalled("bc")
+				assertInstalled("tree")
+				raw, _ := testExec.ExecBash("cat ~/.local/share/tomei/system/state.json")
+				Expect(raw).To(ContainSubstring(`"cli-tools"`))
+				Expect(raw).To(ContainSubstring(`"bc"`))
+				// The SystemPackage sugar entry must survive a sibling set's
+				// shrink — confirms removal scope is per-resource, not global.
+				Expect(raw).To(ContainSubstring(`"tree"`))
+				Expect(raw).NotTo(ContainSubstring(`"cowsay"`))
+			})
+
+			It("re-apply removal manifest WITH --system is idempotent", func() {
+				// Mirrors Context A's idempotency: once the removal has
+				// converged, a second --system apply against the same reduced
+				// manifest must be a plan-zero / state-byte-stable no-op.
+				out, err := testExec.Exec("tomei", "plan", "--system", removalCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
+
+				hashBefore := stateHash()
+				_, err = ExecApply(testExec, "--system", removalCfgPath)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(stateHash()).To(Equal(hashBefore),
+					"idempotent re-apply of the removal manifest must not rewrite state.json")
+			})
 		})
 	})
 }
