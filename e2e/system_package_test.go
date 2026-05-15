@@ -314,12 +314,15 @@ func systemPackageTests() {
 	// skipped or run with a misleading host state. Outer-scope AfterAll
 	// guarantees host cleanup even when Context A aborts before B starts.
 	//
-	// dpkg-query -W -f='${Status}' is preferred over dpkg -l because
-	// `dpkg -l` exits 0 for the `rc` ("removed but config present") state
-	// after `apt-get remove` without --purge — a false-positive trap for
-	// post-remove assertions. `install ok installed` is the only state
-	// that counts as "installed"; `deinstall ok config-files` (the
-	// post-remove state) is correctly excluded by NotTo ContainSubstring.
+	// dpkg-query -W is preferred over dpkg -l because `dpkg -l` exits 0
+	// for the `rc` ("removed but config present") state after `apt-get
+	// remove` without --purge — a false-positive trap for post-remove
+	// assertions. The helper below queries `${db:Status-Status}` (the
+	// current-state sub-field) and matches `installed` exactly, so
+	// `config-files` (post-remove) and the half-installed transitional
+	// states cleanly fail the installed check; held-installed packages
+	// (`hold ok installed` in the full Status triple) also collapse to
+	// `installed` here and are correctly classified as installed.
 
 	// dpkg-query is invoked via argv form (testExec.Exec) rather than
 	// shell-string concatenation: the package name lives in its own argv
@@ -329,20 +332,37 @@ func systemPackageTests() {
 	// matching package is in the dpkg DB (the post-purge state); for
 	// assertInstalled this is a failure, for assertNotInstalled it counts
 	// as "removed".
+	//
+	// Format string uses `${db:Status-Status}` (the third sub-field of
+	// Status — the *current* state) rather than the full `${Status}`
+	// triple. The full triple is `<DesiredState> <ErrorFlag>
+	// <CurrentState>` so a substring match on "install ok installed"
+	// would miss `hold ok installed` (held packages, which ARE
+	// installed) and misclassify them as removed. Pinning on the
+	// current-state sub-field collapses the answer to a single token
+	// (`installed`, `not-installed`, `config-files`, `half-installed`,
+	// etc.) so the assertion is exact regardless of the desired-state
+	// dimension.
+	pkgCurrentState := func(pkg string) (string, error) {
+		out, err := testExec.Exec("dpkg-query", "-W", "-f=${db:Status-Status}\n", "--", pkg)
+		return strings.TrimSpace(out), err
+	}
 	assertInstalled := func(pkg string) {
-		out, err := testExec.Exec("dpkg-query", "-W", "-f=${Status}\n", "--", pkg)
-		Expect(err).NotTo(HaveOccurred(), "dpkg-query failed for %s: %s", pkg, out)
-		Expect(strings.TrimSpace(out)).To(Equal("install ok installed"),
-			"package %s should be installed; dpkg-query Status: %q", pkg, out)
+		state, err := pkgCurrentState(pkg)
+		Expect(err).NotTo(HaveOccurred(), "dpkg-query failed for %s: %s", pkg, state)
+		Expect(state).To(Equal("installed"),
+			"package %s should be installed; dpkg-query current-state: %q", pkg, state)
 	}
 	assertNotInstalled := func(pkg string) {
-		// apt-get remove (NOT --purge) leaves dpkg in
-		// "deinstall ok config-files"; a never-installed or purged package
-		// produces an exit-1 with empty stdout from dpkg-query. Both count
-		// as "removed"; only "install ok installed" is forbidden.
-		out, _ := testExec.Exec("dpkg-query", "-W", "-f=${Status}\n", "--", pkg)
-		Expect(out).NotTo(ContainSubstring("install ok installed"),
-			"package %s must not be in installed state; dpkg-query: %q", pkg, out)
+		// apt-get remove (NOT --purge) leaves dpkg current-state
+		// as `config-files`; a never-installed or purged package
+		// returns an exit-1 with empty current-state. Both count as
+		// "removed"; `installed` and the half-installed transitional
+		// states are the only values forbidden — anything else means
+		// the package is not currently runnable on the host.
+		state, _ := pkgCurrentState(pkg)
+		Expect(state).NotTo(Equal("installed"),
+			"package %s must not be in installed state; dpkg-query current-state: %q", pkg, state)
 	}
 
 	// stateHash returns sha256 of the system state.json. Used over mtime
@@ -438,10 +458,13 @@ func systemPackageTests() {
 	// state that was on the host before this Context ran.
 	//
 	// Outer AfterAll consults it: if BeforeAll aborted before the
-	// preflight completed (e.g. apt-get update failed, or the
-	// remove-first step left a package installed), the flag stays false
-	// and cleanup is a no-op so the user's pre-existing packages are
-	// preserved exactly as they were.
+	// preflight completed (e.g. the remove-first step left a package
+	// installed and the Expect surfaced the failure), the flag stays
+	// false and cleanup is a no-op so the user's pre-existing packages
+	// are preserved exactly as they were. (`apt-get update` failures
+	// are logged via GinkgoWriter and do NOT abort BeforeAll — a stale
+	// index is usually still functional — so they are deliberately not
+	// in the list of preflight aborts.)
 	var preflightComplete bool
 
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
@@ -631,9 +654,15 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// below are the real assertion that the host is clean.
 				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
 				for _, pkg := range fixturePackages {
-					out, _ := testExec.Exec("dpkg-query", "-W", "-f=${Status}\n", "--", pkg)
-					Expect(out).NotTo(ContainSubstring("install ok installed"),
-						"preflight failed: %s is still installed after apt-get remove (dpkg-query Status: %q) — the apply spec below would not be exercising a real install", pkg, out)
+					// Mirror the assertNotInstalled helper above: query the
+					// current-state sub-field so a held installed package
+					// (Status `hold ok installed`) cannot pass the
+					// not-installed assertion. Without this, `apt-mark
+					// hold cowsay` on a runner image would slip past the
+					// preflight and make the install spec a no-op.
+					state, _ := pkgCurrentState(pkg)
+					Expect(state).NotTo(Equal("installed"),
+						"preflight failed: %s is still installed after apt-get remove (dpkg-query current-state: %q) — the apply spec below would not be exercising a real install", pkg, state)
 				}
 
 				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"cowsay", "sl"})
@@ -669,7 +698,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 			})
 
 			It("records InstalledVersions for the sugar and the set in state.json", func() {
-				// Parse the JSON rather than substring-matching "bc" / "cowsay":
+				// Parse the JSON rather than substring-matching "cowsay" / "sl":
 				// the package names also appear in the `packages` array of the
 				// resource spec snapshot, so a substring match would pass even
 				// if `installedVersions` were empty or missing — exactly the
