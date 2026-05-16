@@ -503,15 +503,30 @@ func systemPackageTests() {
 	// deliberately not in the list of preflight aborts.)
 	var preflightComplete bool
 
-	// scratchDirsCreated tracks /tmp scratch-dir ownership independently
-	// from package-preflight ownership. Set to true as soon as
-	// writeSystemPackageManifest writes the install dir, so even if a
-	// later BeforeAll step fails (and preflightComplete stays false),
-	// the outer AfterAll can still rm -rf the dirs the suite created.
-	// Earlier code gated both cleanups on preflightComplete, which left
-	// the scratch dir leaked when the preflight remove or assertion
-	// failed between manifest-write and flag-set.
-	var scratchDirsCreated bool
+	// scratchDirs is a per-directory ownership ledger. writeSystemPackage
+	// Manifest records each scratch path it has successfully written;
+	// the outer AfterAll iterates the recorded keys and rm -rf's only
+	// those — never the other suite's path nor a pre-existing /tmp
+	// directory the suite did not create. Earlier code used a single
+	// boolean flag covering both fixed paths, so a Context A failure
+	// before Context B's manifest was written could still trigger an
+	// rm -rf of /tmp/tomei-system-package-removal even though this
+	// suite never touched it.
+	scratchDirs := map[string]bool{}
+
+	// preflightMutationStarted is set RIGHT BEFORE the host-mutating
+	// `apt-get remove` runs in Context A's BeforeAll, and stays true
+	// even if the subsequent assertions fail. This is the gate for
+	// the restore path in the outer AfterAll: we MUST restore any
+	// pre-test installed fixture package if the preflight remove was
+	// attempted, regardless of whether the assertion loop later passed.
+	//
+	// Earlier code gated restore on preflightComplete (set only after
+	// the assertion loop succeeded), which meant a partial remove
+	// followed by a failing assertion would leave pre-existing fixture
+	// packages uninstalled with no restore — exactly the host-pollution
+	// path the snapshot-and-restore design is meant to close.
+	var preflightMutationStarted bool
 
 	// preTestInstalled records which fixture packages were ALREADY
 	// installed on the host at BeforeAll time, before the preflight
@@ -559,7 +574,15 @@ func systemPackageTests() {
 		// allowlist above restricts dir to a flat single-segment
 		// /tmp/<name> path — no risk of clobbering anything outside
 		// the scratch area.
-		script := fmt.Sprintf(`rm -rf %[1]s && mkdir -p %[1]s/cue.mod && cat > %[1]s/cue.mod/module.cue <<'EOF'
+		// `set -euo pipefail` so any setup failure (rm -rf refusal, mkdir
+		// failure, heredoc write failure) aborts the script. Without it,
+		// the implicit `; cat > manifest.cue ...` between heredocs would
+		// run even if the earlier rm or module.cue write failed,
+		// returning success while stale `.cue` files remain in place.
+		script := fmt.Sprintf(`set -euo pipefail
+rm -rf %[1]s
+mkdir -p %[1]s/cue.mod
+cat > %[1]s/cue.mod/module.cue <<'EOF'
 module: "tomei.local@v0"
 language: version: "v0.9.0"
 EOF
@@ -603,11 +626,12 @@ cliTools: {
 EOF`, dir, strings.Join(quoted, ", "))
 		_, err := testExec.ExecBash(script)
 		Expect(err).NotTo(HaveOccurred(), "writing manifest for %s failed", dir)
-		// Flip ownership for /tmp cleanup. The outer AfterAll's rm -rf
-		// is gated on this flag, so once we've successfully written
-		// the manifest dir we promise to clean it up regardless of
-		// what happens later in BeforeAll.
-		scratchDirsCreated = true
+		// Record this specific dir for AfterAll cleanup. The outer
+		// AfterAll iterates the ledger so it only removes paths this
+		// suite actually wrote — never a pre-existing /tmp directory
+		// nor the OTHER fixture's dir if this BeforeAll didn't write
+		// it (e.g. Context B's removal dir if Context A aborted).
+		scratchDirs[strings.TrimRight(dir, "/")] = true
 	}
 
 	Context("Apply --system mutates host packages (#200)", func() {
@@ -652,9 +676,11 @@ EOF`, dir, strings.Join(quoted, ", "))
 			//     would otherwise delete a pre-existing host
 			//     directory that happens to share the path.
 			if preflightComplete {
-				// apt-get remove targets only the fixture packages, by
-				// explicit name — no chance of broadening the blast
-				// radius.
+				// Full cleanup path: the preflight succeeded AND specs
+				// may have run apply, so tomei may have installed the
+				// fixture packages. Remove them by explicit name (no
+				// blast-radius broadening) before the restore step
+				// re-installs the host's pre-test set.
 				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
 				// autoremove is scoped to TOMEI_E2E_CONTAINER ONLY.
 				// `apt-get autoremove` is a host-global operation: it
@@ -668,11 +694,13 @@ EOF`, dir, strings.Join(quoted, ", "))
 				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
 					_, _ = testExec.ExecBash("sudo -n apt-get autoremove -y 2>&1 || true")
 				}
-				// Restore packages that were already installed on the
-				// host BEFORE the preflight remove ran. Without this,
-				// a native opt-in run that started with cowsay/sl/tree
-				// already installed would have them uninstalled after
-				// the suite. Iterate in fixturePackages order (rather
+			}
+			if preflightMutationStarted {
+				// Restore path runs whenever the preflight remove was
+				// ATTEMPTED — not only when the full preflight succeeded.
+				// A partial remove + failed assertion would otherwise
+				// leave pre-existing fixture packages uninstalled with
+				// no restore. Iterate in fixturePackages order (rather
 				// than map iteration order) so the apt-get install
 				// command line is deterministic across runs.
 				var toRestore []string
@@ -694,13 +722,22 @@ EOF`, dir, strings.Join(quoted, ", "))
 					}
 				}
 			}
-			if scratchDirsCreated {
-				// Scratch-dir cleanup is gated independently from
-				// host-package cleanup. If writeSystemPackageManifest
-				// succeeded but a later BeforeAll step failed, the
-				// scratch dir exists but preflightComplete is false —
-				// we still need to clean up the dir this suite wrote.
-				_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
+			// Scratch-dir cleanup iterates the per-dir ownership ledger
+			// (scratchDirs) rather than blindly removing both fixed
+			// paths. So if Context A wrote its dir and aborted before
+			// Context B wrote its own, only Context A's dir is removed
+			// — a pre-existing /tmp/tomei-system-package-removal owned
+			// by something else is not touched.
+			for dir := range scratchDirs {
+				// Defense-in-depth: re-validate the recorded dir against
+				// the helper's regex before rm -rf. scratchDirs is only
+				// ever populated by writeSystemPackageManifest after the
+				// regex check passes, but a future refactor could route
+				// a different writer to this map; the re-check makes the
+				// rm safe regardless.
+				if systemPackageTestDirRE.MatchString(dir) {
+					_, _ = testExec.ExecBash("rm -rf " + dir)
+				}
 			}
 		})
 
@@ -795,6 +832,17 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// use NOT-purge so /etc/cowsay (none exist, but futureproof)
 				// is preserved; the outer AfterAll handles final removal.
 				//
+				// Mark mutation-started BEFORE the remove runs. This
+				// authorizes the AfterAll restore path independently of
+				// whether the post-remove assertions pass — if apt
+				// removes one pre-existing fixture package and then
+				// fails on another, preflightComplete stays false but
+				// preflightMutationStarted is true, so the restore loop
+				// still re-installs whatever preTestInstalled recorded.
+				// Without this split, a partially-failed preflight could
+				// leave the host with a permanently uninstalled package
+				// that was there before the suite ran.
+				preflightMutationStarted = true
 				// `2>&1 || true` swallows the failure for packages that are
 				// not installed (apt-get remove exits non-zero); the
 				// pkgCurrentState assertions below are the real assertion.

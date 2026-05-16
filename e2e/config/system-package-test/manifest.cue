@@ -44,7 +44,7 @@ tree: {
 // on the runner`) — see the GitHub runner image inventory at
 // actions/runner-images. The real-apply Context in
 // e2e/system_package_test.go also runs `apt-get remove` for these
-// packages in BeforeAll as a defence-in-depth against a future
+// packages in BeforeAll as a defense-in-depth against a future
 // preinstall regression on either side.
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
