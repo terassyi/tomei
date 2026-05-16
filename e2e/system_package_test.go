@@ -490,23 +490,41 @@ func systemPackageTests() {
 	fixturePackages := []string{"cowsay", "sl", "tree"}
 
 	// preflightComplete is set to true at the very end of Context A's
-	// BeforeAll, after the remove-first preflight has succeeded and
-	// `apt-get update` has run. It does NOT mean tomei has installed
-	// anything yet — the first It block is what drives `apply --system`
-	// — but it DOES mean Context A's preflight removed any
-	// pre-existing fixture package from the host, so the outer AfterAll
-	// is free to apt-get remove the same set without risk of clobbering
-	// state that was on the host before this Context ran.
+	// BeforeAll, after the remove-first preflight has succeeded. It is
+	// the gate that authorizes the outer AfterAll to apt-get remove the
+	// fixture packages from the host.
 	//
 	// Outer AfterAll consults it: if BeforeAll aborted before the
 	// preflight completed (e.g. the remove-first step left a package
 	// installed and the Expect surfaced the failure), the flag stays
-	// false and cleanup is a no-op so the user's pre-existing packages
-	// are preserved exactly as they were. (`apt-get update` failures
-	// are logged via GinkgoWriter and do NOT abort BeforeAll — a stale
-	// index is usually still functional — so they are deliberately not
-	// in the list of preflight aborts.)
+	// false and host-package cleanup is a no-op. (`apt-get update`
+	// failures are logged via GinkgoWriter and do NOT abort BeforeAll —
+	// a stale index is usually still functional — so they are
+	// deliberately not in the list of preflight aborts.)
 	var preflightComplete bool
+
+	// scratchDirsCreated tracks /tmp scratch-dir ownership independently
+	// from package-preflight ownership. Set to true as soon as
+	// writeSystemPackageManifest writes the install dir, so even if a
+	// later BeforeAll step fails (and preflightComplete stays false),
+	// the outer AfterAll can still rm -rf the dirs the suite created.
+	// Earlier code gated both cleanups on preflightComplete, which left
+	// the scratch dir leaked when the preflight remove or assertion
+	// failed between manifest-write and flag-set.
+	var scratchDirsCreated bool
+
+	// preTestInstalled records which fixture packages were ALREADY
+	// installed on the host at BeforeAll time, before the preflight
+	// remove ran. The outer AfterAll uses it to distinguish packages
+	// the test owns (install them; remove on cleanup) from packages
+	// the host owned pre-test (remove then re-install on cleanup, so
+	// the developer's host state survives the suite). Capture-and-
+	// restore is intentionally best-effort: a reinstall after the
+	// suite has run apt-get autoremove may be a no-op if the package
+	// disappeared from the cache, but that failure mode is more
+	// transparent (log + leave-uninstalled) than silently letting the
+	// suite uninstall a package the user expected to keep.
+	preTestInstalled := map[string]bool{}
 
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
 	// SystemInstaller/apt + SystemPackage/tree sugar + SystemPackageSet
@@ -585,6 +603,11 @@ cliTools: {
 EOF`, dir, strings.Join(quoted, ", "))
 		_, err := testExec.ExecBash(script)
 		Expect(err).NotTo(HaveOccurred(), "writing manifest for %s failed", dir)
+		// Flip ownership for /tmp cleanup. The outer AfterAll's rm -rf
+		// is gated on this flag, so once we've successfully written
+		// the manifest dir we promise to clean it up regardless of
+		// what happens later in BeforeAll.
+		scratchDirsCreated = true
 	}
 
 	Context("Apply --system mutates host packages (#200)", func() {
@@ -642,16 +665,41 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// a native runner or developer laptop (even with
 				// TOMEI_E2E_NATIVE=true), it could remove unrelated
 				// auto-installed packages the user expects to keep.
-				// The trade-off: native mode may leave cowsay's
-				// transitive Depends (e.g. libtext-charwidth-perl)
-				// orphaned across suite runs. That's acceptable
-				// because the ephemeral CI native runner is wiped
-				// between jobs anyway, and a developer running with
-				// TOMEI_E2E_NATIVE=true has opted in to host mutation
-				// being best-effort rather than perfect.
 				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
 					_, _ = testExec.ExecBash("sudo -n apt-get autoremove -y 2>&1 || true")
 				}
+				// Restore packages that were already installed on the
+				// host BEFORE the preflight remove ran. Without this,
+				// a native opt-in run that started with cowsay/sl/tree
+				// already installed would have them uninstalled after
+				// the suite. Iterate in fixturePackages order (rather
+				// than map iteration order) so the apt-get install
+				// command line is deterministic across runs.
+				var toRestore []string
+				for _, pkg := range fixturePackages {
+					if preTestInstalled[pkg] {
+						toRestore = append(toRestore, pkg)
+					}
+				}
+				if len(toRestore) > 0 {
+					out, err := testExec.ExecBash("sudo -n apt-get install -y --no-install-recommends " + strings.Join(toRestore, " ") + " 2>&1")
+					if err != nil {
+						// Best-effort: log and continue. A reinstall
+						// failure (e.g. mirror outage, package vanished
+						// from the index between BeforeAll and AfterAll)
+						// is more transparent than failing the whole
+						// suite at cleanup time; the developer can
+						// re-run apt-get install manually if needed.
+						fmt.Fprintf(GinkgoWriter, "WARNING: failed to restore pre-test packages %v (err=%v):\n%s\n", toRestore, err, out)
+					}
+				}
+			}
+			if scratchDirsCreated {
+				// Scratch-dir cleanup is gated independently from
+				// host-package cleanup. If writeSystemPackageManifest
+				// succeeded but a later BeforeAll step failed, the
+				// scratch dir exists but preflightComplete is false —
+				// we still need to clean up the dir this suite wrote.
 				_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 			}
 		})
@@ -660,11 +708,28 @@ EOF`, dir, strings.Join(quoted, ", "))
 			BeforeAll(func() {
 				skipIfNotLinux()
 
-				// Ensure tomei is initialized — `tomei apply` aborts early with
-				// "tomei is not initialized" otherwise. --force makes the call
-				// idempotent across prior Contexts (some of which may have
-				// already run init). Pattern: e2e/privileged_test.go:16.
-				_, _ = testExec.Exec("tomei", "init", "--yes", "--force")
+				// Probe non-interactive sudo BEFORE touching host state.
+				// Outer AfterAll's apt-get remove uses `sudo -n` and
+				// swallows errors (cleanup is best-effort by design); on
+				// a native opt-in run with interactive-only sudo, that
+				// cleanup would silently no-op and leave cowsay/sl/tree
+				// installed. By failing the spec up-front when sudo is
+				// not passwordless, we trade a clean fail-fast for the
+				// alternative of silent host pollution.
+				_, sudoErr := testExec.ExecBash("sudo -n true 2>&1")
+				Expect(sudoErr).NotTo(HaveOccurred(),
+					"non-interactive sudo (NOPASSWD) is required: the AfterAll cleanup uses `sudo -n` and would silently leave fixture packages installed without it")
+
+				// Ensure tomei is initialized — `tomei apply` aborts early
+				// with "tomei is not initialized" otherwise. --force makes
+				// the call idempotent across prior Contexts. Assert
+				// success here: silently ignoring the error would let the
+				// host-mutating preflight below run even when the
+				// downstream apply spec is guaranteed to fail with
+				// "tomei is not initialized", uninstalling fixture
+				// packages without ever exercising the install path.
+				initOut, initErr := testExec.Exec("tomei", "init", "--yes", "--force")
+				Expect(initErr).NotTo(HaveOccurred(), "tomei init failed before preflight: %s", initOut)
 
 				// Reset SYSTEM state only — user-store belongs to other suites.
 				// Top-level JSON keys match internal/state/state.go SystemState.
@@ -701,7 +766,21 @@ EOF`, dir, strings.Join(quoted, ", "))
 				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
 				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
 
-				// (3) Mutating: preflight remove-first. Ensures the fixture
+				// (3a) Snapshot which fixture packages are already installed
+				// on the host BEFORE the preflight remove runs. The outer
+				// AfterAll uses this to reinstall any package that was
+				// here pre-test, so a native opt-in run leaves the
+				// developer/runner's host state untouched on net
+				// (uninstall + reinstall = no-op modulo version drift).
+				// Captured before the remove so we can distinguish
+				// "tomei installed this" from "the host had this before".
+				for _, pkg := range fixturePackages {
+					if pkgCurrentState(pkg) == "installed" {
+						preTestInstalled[pkg] = true
+					}
+				}
+
+				// (3b) Mutating: preflight remove-first. Ensures the fixture
 				// packages are NOT installed before tomei runs, so the
 				// subsequent `apply --system` actually exercises the install
 				// path rather than passing because the package happened to
