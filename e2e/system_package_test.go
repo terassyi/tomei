@@ -742,14 +742,14 @@ func systemPackageTests() {
 		// it up rather than leaking the partial scratch dir.
 		//
 		// Phase 1 — claim. Refuse to rm -rf an existing dir that
-		// doesn't carry our ownership marker. The fixed /tmp paths
-		// used here are predictable across runs, so a concurrent
-		// process or another user could theoretically own a
-		// directory at the same path — without this check, a bare
-		// `rm -rf` would silently clobber it. The marker file
-		// `.tomei-e2e-system-package-test` lives at the dir root;
-		// on a previous suite run we wrote it ourselves, so re-
-		// running the suite is still idempotent.
+		// doesn't carry our ownership marker. With the PID/timestamp
+		// suffix on installCfgPath/removalCfgPath, a fresh suite run
+		// computes an unguessable path so no other process can race
+		// for it; the marker check stays as defense-in-depth against
+		// (a) a future refactor that drops the suffix and reverts to
+		// fixed names, and (b) the edge case of two suite runs from
+		// the same PID with the same nanosecond timestamp (effectively
+		// impossible, but the marker keeps the safety net cheap).
 		// `set -euo pipefail` so any setup failure (rm -rf refusal,
 		// mkdir failure, marker touch failure) aborts the script.
 		claim := fmt.Sprintf(`set -euo pipefail
