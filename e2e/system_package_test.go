@@ -562,15 +562,31 @@ func systemPackageTests() {
 	installCfgPath := "/tmp/tomei-system-package-install-" + scratchSuffix + "/"
 	removalCfgPath := "/tmp/tomei-system-package-removal-" + scratchSuffix + "/"
 
-	// fixturePackages enumerates every package the apply specs may
-	// install on the host (via `tomei apply --system` against the
-	// generated install manifest). BeforeAll itself does NOT install
-	// these — it only snapshots their pre-test state and runs the
-	// preflight remove. The apply spec is the install site; this list
-	// is what BeforeAll snapshots, what the outer AfterAll cleans up,
-	// and what any future drift detector for the fixture set should
-	// stay in lockstep with.
-	fixturePackages := []string{"cowsay", "sl", "tree"}
+	// Source-of-truth constants for the fixture set. The earlier
+	// design had three separate hand-maintained lists (fixturePackages
+	// for cleanup, the install manifest's hard-coded packages, the
+	// removal manifest's hard-coded packages) — those could drift
+	// from each other and silently let the preflight/cleanup operate
+	// on a different set than the apply specs install. Routing every
+	// list through these constants makes drift impossible.
+	//
+	//   fixtureSetInstall — cli-tools SystemPackageSet members at
+	//     install time. Passed to writeSystemPackageManifest for the
+	//     install manifest, used by the apply install spec.
+	//   fixtureSetRemoval — cli-tools members after the shrink (the
+	//     "remove sl, keep cowsay" Context).
+	//   fixtureSugarPkg — the SystemPackage sugar entry (a single
+	//     package, currently `tree`). Embedded into the generated
+	//     manifest's SystemPackage stanza.
+	//
+	// fixturePackages is the derived union of all packages the apply
+	// specs may install — what BeforeAll snapshots, what the outer
+	// AfterAll cleans up, and what the cascade-removal simulator
+	// passes to apt-get -s remove.
+	fixtureSetInstall := []string{"cowsay", "sl"}
+	fixtureSetRemoval := []string{"cowsay"}
+	const fixtureSugarPkg = "tree"
+	fixturePackages := append(append([]string{}, fixtureSetInstall...), fixtureSugarPkg)
 
 	// preflightComplete is set to true at the very end of Context A's
 	// BeforeAll, after the remove-first preflight has succeeded. It is
@@ -779,13 +795,13 @@ apt: {
 	}
 }
 
-tree: {
+%[3]s: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackage"
-	metadata: name: "tree"
+	metadata: name: "%[3]s"
 	spec: {
 		installerRef: "apt"
-		package:      "tree"
+		package:      "%[3]s"
 	}
 }
 
@@ -798,7 +814,7 @@ cliTools: {
 		packages: [%[2]s]
 	}
 }
-EOF`, dir, strings.Join(quoted, ", "))
+EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 		_, err = testExec.ExecBash(content)
 		Expect(err).NotTo(HaveOccurred(), "writing manifest content for %s failed", dir)
 	}
@@ -1061,7 +1077,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// with no record of what to restore.
 
 				// (1) Non-mutating: write the generated /tmp manifest.
-				writeSystemPackageManifest(strings.TrimRight(installCfgPath, "/"), []string{"cowsay", "sl"})
+				writeSystemPackageManifest(strings.TrimRight(installCfgPath, "/"), fixtureSetInstall)
 
 				// (2) Non-mutating from the host-package perspective: refresh
 				// the apt index. PackageSetInstaller.Install does not refresh
@@ -1374,7 +1390,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// byte-stable manifest. (Context A applies its own
 				// generated /tmp/tomei-system-package-install/, not the
 				// canonical fixture, so it doesn't appear in this list.)
-				writeSystemPackageManifest(strings.TrimRight(removalCfgPath, "/"), []string{"cowsay"})
+				writeSystemPackageManifest(strings.TrimRight(removalCfgPath, "/"), fixtureSetRemoval)
 			})
 
 			// Host cleanup is registered at the outer Context scope (see

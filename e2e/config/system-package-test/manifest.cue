@@ -25,9 +25,22 @@ tree: {
 	}
 }
 
-// cliTools is the multi-package SystemPackageSet fixture. Packages here
-// are chosen so that the real-apply E2E in system_package_test.go can
-// verify that tomei actually mutated the host. Selection criteria:
+// cliTools is the multi-package SystemPackageSet fixture used by the
+// validate / plan E2E coverage in e2e/system_package_test.go.
+//
+// IMPORTANT — the real-apply E2E does NOT read this fixture. The
+// apply Contexts generate their own /tmp manifests with
+// hard-coded package lists at runtime; this file is only consumed
+// by `tomei validate ~/system-package-test/` and `tomei plan
+// ~/system-package-test/`. The duplication is intentional (the
+// apply path needs to mutate /tmp without touching the canonical
+// fixture used by other Contexts), but it means that adding a
+// fourth package here does NOT automatically extend the apply
+// coverage — you also need to update fixtureSetInstall /
+// fixtureSetRemoval / fixtureSugarPkg in system_package_test.go.
+//
+// Package selection criteria (applied to BOTH this fixture and the
+// apply-side list):
 //
 //   - leaf packages with no reverse dependencies (so a post-suite
 //     apt-get remove cannot cascade into uninstalling unrelated host
@@ -42,10 +55,7 @@ tree: {
 // cowsay and sl satisfy all four. bc was the first attempt and broke
 // the CI native legs (`fixture invariant violated: bc is preinstalled
 // on the runner`) — see the GitHub runner image inventory at
-// actions/runner-images. The real-apply Context in
-// e2e/system_package_test.go also runs `apt-get remove` for these
-// packages in BeforeAll as a defense-in-depth against a future
-// preinstall regression on either side.
+// actions/runner-images.
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackageSet"
