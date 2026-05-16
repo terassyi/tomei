@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -364,20 +365,59 @@ func systemPackageTests() {
 	// the wrong reason. We now match the specific stderr message format
 	// dpkg-query uses for the not-found case and Fail() on anything else.
 	pkgCurrentState := func(pkg string) string {
-		out, err := testExec.Exec("dpkg-query", "-W", "-f=${db:Status-Status}\n", "--", pkg)
+		// pkg is vetted against systemPackageTestPkgNameRE before
+		// reaching this helper: callers come from fixturePackages
+		// (static literals) and from the apply specs (also static),
+		// and writeSystemPackageManifest validates the same set
+		// against the regex. The regex `^[a-z0-9][a-z0-9+\-.]*$`
+		// rejects every shell-meaningful character, so embedding
+		// `pkg` into an ExecBash script is safe here.
+		//
+		// Force C locale: dpkg-query's "no packages found matching"
+		// message is localized on hosts with LANG=ja_JP.UTF-8 / etc.
+		// — without pinning the locale, this English-substring match
+		// would fail on a non-C runner and we'd Fail() on a clean
+		// host that actually had the package absent.
+		Expect(systemPackageTestPkgNameRE.MatchString(pkg)).To(BeTrue(),
+			"pkgCurrentState called with disallowed pkg name %q", pkg)
+		out, err := testExec.ExecBash(`LC_ALL=C LANGUAGE=C dpkg-query -W -f='${db:Status-Status}` + "\n" + `' -- ` + pkg)
 		if err == nil {
 			return strings.TrimSpace(out)
 		}
-		// dpkg-query's stable format for the never-installed /
-		// purged case: `dpkg-query: no packages found matching <pkg>`
-		// (with exit 1). Any other err+output combination indicates
-		// a real failure that must surface — fail the spec rather
-		// than silently treating it as "not installed".
+		// dpkg-query's stable C-locale format for the never-
+		// installed / purged case: `dpkg-query: no packages found
+		// matching <pkg>` (exit 1). Any other err+output combination
+		// indicates a real failure that must surface — fail the
+		// spec rather than silently treating it as "not installed".
 		if strings.Contains(out, "no packages found matching") {
 			return ""
 		}
 		Fail(fmt.Sprintf("dpkg-query failed unexpectedly for %s (not the documented 'no packages found' case): err=%v, output=%q", pkg, err, out))
 		return "" // unreachable: Fail() panics
+	}
+
+	// snapshotInstalledPackages returns the set of currently-installed
+	// package names on the host. Used by the outer AfterAll to detect
+	// any packages added since BeforeAll (typically transitive Depends
+	// pulled in by `apt-get install` for cowsay etc.) so cleanup can
+	// remove them explicitly rather than leaking them onto a native
+	// opt-in runner. Generic + fixture-agnostic: works no matter which
+	// fixture packages we choose or what their Depends graph looks like.
+	//
+	// Locale is forced to C so the dpkg-query Status-Status field
+	// always emits the un-translated tokens (`installed`,
+	// `not-installed`, etc.) the awk filter below matches against.
+	snapshotInstalledPackages := func() map[string]bool {
+		out, err := testExec.ExecBash(`LC_ALL=C LANGUAGE=C dpkg-query -W -f='${db:Status-Status} ${binary:Package}` + "\n" + `' 2>/dev/null`)
+		Expect(err).NotTo(HaveOccurred(), "dpkg-query enumeration failed: %s", out)
+		set := map[string]bool{}
+		for line := range strings.SplitSeq(out, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[0] == "installed" {
+				set[fields[1]] = true
+			}
+		}
+		return set
 	}
 	assertInstalled := func(pkg string) {
 		// pkgCurrentState now collapses dpkg-query's documented exit-1
@@ -555,6 +595,17 @@ func systemPackageTests() {
 	// suite uninstall a package the user expected to keep.
 	preTestInstalled := map[string]bool{}
 
+	// preTestPackageSet is a snapshot of EVERY package installed on
+	// the host at BeforeAll time (not just the fixture set). The
+	// outer AfterAll diffs this against the post-test snapshot to
+	// identify transitive dependencies pulled in by tomei's apt-get
+	// install (e.g. libtext-charwidth-perl for cowsay) and removes
+	// them explicitly. This replaces the earlier blanket
+	// `apt-get autoremove` which Copilot flagged as too broad — the
+	// diff approach only touches packages whose presence is
+	// attributable to this suite's BeforeAll/It path.
+	var preTestPackageSet map[string]bool
+
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
 	// SystemInstaller/apt + SystemPackage/tree sugar + SystemPackageSet
 	// cli-tools with the given package list. The single-quoted heredoc
@@ -579,26 +630,25 @@ func systemPackageTests() {
 		for i, p := range pkgs {
 			quoted[i] = `"` + p + `"`
 		}
-		// Clear the target directory before recreating cue.mod /
-		// manifest.cue. The CUE loader reads EVERY *.cue file in the
-		// directory; a stale manifest left by a failed previous run
-		// (or by a developer iterating on the helper) would be loaded
-		// alongside the fresh one and silently shift these assertions.
-		// `rm -rf` of the whole dir is safe here because the regex
-		// allowlist above restricts dir to a flat single-segment
-		// /tmp/<name> path — no risk of clobbering anything outside
-		// the scratch area.
-		// Refuse to rm -rf an existing dir that doesn't carry our
-		// ownership marker. The fixed /tmp paths used here are
-		// predictable across runs, so a concurrent process or another
-		// user could theoretically own a directory at the same path
-		// — without this check, a bare `rm -rf` would silently clobber
-		// it. The marker file `.tomei-e2e-system-package-test` lives
-		// at the dir root; on a previous suite run we wrote it
-		// ourselves, so re-running the suite is still idempotent.
+		// Two-phase setup: claim ownership (rm-if-marker + mkdir +
+		// marker touch), record in scratchDirs, then write content.
+		// Recording the ledger entry BETWEEN the two phases means a
+		// failure during content write (module.cue or manifest.cue
+		// heredoc) still leaves the dir tracked, so AfterAll cleans
+		// it up rather than leaking the partial scratch dir.
+		//
+		// Phase 1 — claim. Refuse to rm -rf an existing dir that
+		// doesn't carry our ownership marker. The fixed /tmp paths
+		// used here are predictable across runs, so a concurrent
+		// process or another user could theoretically own a
+		// directory at the same path — without this check, a bare
+		// `rm -rf` would silently clobber it. The marker file
+		// `.tomei-e2e-system-package-test` lives at the dir root;
+		// on a previous suite run we wrote it ourselves, so re-
+		// running the suite is still idempotent.
 		// `set -euo pipefail` so any setup failure (rm -rf refusal,
-		// mkdir failure, heredoc write failure) aborts the script.
-		script := fmt.Sprintf(`set -euo pipefail
+		// mkdir failure, marker touch failure) aborts the script.
+		claim := fmt.Sprintf(`set -euo pipefail
 if [ -e %[1]s ] && [ ! -f %[1]s/.tomei-e2e-system-package-test ]; then
 	echo "refusing to remove %[1]s: directory exists but lacks the .tomei-e2e-system-package-test ownership marker — another process may own this path" >&2
 	exit 1
@@ -606,6 +656,19 @@ fi
 rm -rf %[1]s
 mkdir -p %[1]s/cue.mod
 touch %[1]s/.tomei-e2e-system-package-test
+`, dir)
+		_, err := testExec.ExecBash(claim)
+		Expect(err).NotTo(HaveOccurred(), "claiming scratch dir %s failed", dir)
+
+		// Record ownership in the ledger BEFORE writing content. If
+		// the subsequent heredoc writes fail, the dir is still
+		// tracked and AfterAll will clean it up.
+		scratchDirs[strings.TrimRight(dir, "/")] = true
+
+		// Phase 2 — content. Heredoc-write module.cue + manifest.cue.
+		// Failure here is surfaced via Expect; the ledger entry above
+		// guarantees AfterAll still cleans up the partial dir.
+		content := fmt.Sprintf(`set -euo pipefail
 cat > %[1]s/cue.mod/module.cue <<'EOF'
 module: "tomei.local@v0"
 language: version: "v0.9.0"
@@ -648,14 +711,8 @@ cliTools: {
 	}
 }
 EOF`, dir, strings.Join(quoted, ", "))
-		_, err := testExec.ExecBash(script)
-		Expect(err).NotTo(HaveOccurred(), "writing manifest for %s failed", dir)
-		// Record this specific dir for AfterAll cleanup. The outer
-		// AfterAll iterates the ledger so it only removes paths this
-		// suite actually wrote — never a pre-existing /tmp directory
-		// nor the OTHER fixture's dir if this BeforeAll didn't write
-		// it (e.g. Context B's removal dir if Context A aborted).
-		scratchDirs[strings.TrimRight(dir, "/")] = true
+		_, err = testExec.ExecBash(content)
+		Expect(err).NotTo(HaveOccurred(), "writing manifest content for %s failed", dir)
 	}
 
 	Context("Apply --system mutates host packages (#200)", func() {
@@ -712,17 +769,26 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// blast-radius broadening) before the restore step
 				// re-installs the host's pre-test set.
 				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
-				// autoremove is scoped to TOMEI_E2E_CONTAINER ONLY.
-				// `apt-get autoremove` is a host-global operation: it
-				// removes ANY package currently marked auto-removable,
-				// not just transitive Depends introduced by this
-				// suite. On an ephemeral CI container we own the
-				// filesystem and the broader cleanup is desirable; on
-				// a native runner or developer laptop (even with
-				// TOMEI_E2E_NATIVE=true), it could remove unrelated
-				// auto-installed packages the user expects to keep.
-				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
-					_, _ = testExec.ExecBash("sudo -n apt-get autoremove -y 2>&1 || true")
+			}
+			if preflightMutationStarted && preTestPackageSet != nil {
+				// Diff-based dep cleanup: any package currently
+				// installed that was NOT in preTestPackageSet was
+				// introduced by tomei's apt-get install (cowsay pulls
+				// libtext-charwidth-perl, etc.). Remove only those —
+				// no host-global autoremove, no risk of clobbering
+				// packages the user opted to keep. Iterate sorted so
+				// the apt-get remove command line is deterministic.
+				currentSet := snapshotInstalledPackages()
+				var leaked []string
+				for pkg := range currentSet {
+					if !preTestPackageSet[pkg] {
+						leaked = append(leaked, pkg)
+					}
+				}
+				sort.Strings(leaked)
+				if len(leaked) > 0 {
+					fmt.Fprintf(GinkgoWriter, "removing %d package(s) introduced by the suite: %v\n", len(leaked), leaked)
+					_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(leaked, " ") + " 2>&1 || true")
 				}
 			}
 			if preflightMutationStarted {
@@ -759,15 +825,27 @@ EOF`, dir, strings.Join(quoted, ", "))
 			// — a pre-existing /tmp/tomei-system-package-removal owned
 			// by something else is not touched.
 			for dir := range scratchDirs {
-				// Defense-in-depth: re-validate the recorded dir against
-				// the helper's regex before rm -rf. scratchDirs is only
-				// ever populated by writeSystemPackageManifest after the
-				// regex check passes, but a future refactor could route
-				// a different writer to this map; the re-check makes the
-				// rm safe regardless.
-				if systemPackageTestDirRE.MatchString(dir) {
-					_, _ = testExec.ExecBash("rm -rf " + dir)
+				// Defense-in-depth: re-validate the recorded dir
+				// against the helper's regex before rm -rf.
+				if !systemPackageTestDirRE.MatchString(dir) {
+					continue
 				}
+				// Marker re-check: only rm if our ownership marker
+				// is still present at the recorded path. If a
+				// concurrent process replaced the directory between
+				// BeforeAll and AfterAll, the marker is gone and we
+				// skip cleanup rather than clobbering a directory the
+				// suite no longer owns. The marker was written under
+				// `set -euo pipefail` in writeSystemPackageManifest
+				// immediately after mkdir, so any successful entry in
+				// scratchDirs implies the marker was there at write
+				// time — re-checking here closes the TOCTOU window.
+				_, markerErr := testExec.ExecBash(`test -f ` + dir + `/.tomei-e2e-system-package-test`)
+				if markerErr != nil {
+					fmt.Fprintf(GinkgoWriter, "skipping rm -rf %s: ownership marker missing (dir may have been replaced by another process)\n", dir)
+					continue
+				}
+				_, _ = testExec.ExecBash("rm -rf " + dir)
 			}
 		})
 
@@ -846,6 +924,15 @@ EOF`, dir, strings.Join(quoted, ", "))
 						preTestInstalled[pkg] = true
 					}
 				}
+
+				// (3a') Take a full host-wide installed-packages
+				// snapshot too, for the dep-leak diff in AfterAll.
+				// Captured here (after fixture preflight snapshot but
+				// before remove) so the post-test diff isolates packages
+				// added by tomei's install step — including transitive
+				// Depends like libtext-charwidth-perl that apt-get
+				// remove without autoremove would otherwise leak.
+				preTestPackageSet = snapshotInstalledPackages()
 
 				// (3b) Mutating: preflight remove-first. Ensures the fixture
 				// packages are NOT installed before tomei runs, so the
