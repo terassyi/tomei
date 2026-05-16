@@ -401,20 +401,30 @@ func systemPackageTests() {
 	}
 
 	// snapshotInstalledPackages returns the set of currently-installed
-	// package names on the host. Used by the outer AfterAll to detect
-	// any packages added since BeforeAll (typically transitive Depends
-	// pulled in by `apt-get install` for cowsay etc.) so cleanup can
-	// remove them explicitly rather than leaking them onto a native
-	// opt-in runner. Generic + fixture-agnostic: works no matter which
-	// fixture packages we choose or what their Depends graph looks like.
+	// package names on the host. Used by the outer AfterAll (in
+	// TOMEI_E2E_CONTAINER mode only) to detect any packages added
+	// since BeforeAll — typically transitive Depends pulled in by
+	// `apt-get install` for cowsay etc. — so container-mode cleanup
+	// can remove them explicitly. Native mode does not run the diff
+	// (see the gated block in AfterAll) so a native opt-in run may
+	// leak transitive deps; that's an intentional trade-off documented
+	// alongside the diff-cleanup site.
+	//
+	// Returns (set, error) rather than calling Expect so the outer
+	// AfterAll's best-effort cleanup contract is preserved: a
+	// dpkg-query failure during cleanup is logged and the diff step is
+	// skipped, instead of failing the spec (which would mask the
+	// underlying assertion that triggered the cleanup).
 	//
 	// Locale is forced to C so the dpkg-query Status-Status field
 	// always emits the un-translated tokens (`installed`,
 	// `not-installed`, etc.) the Go strings.Fields filter below
 	// matches against.
-	snapshotInstalledPackages := func() map[string]bool {
+	snapshotInstalledPackages := func() (map[string]bool, error) {
 		out, err := testExec.ExecBash(`LC_ALL=C LANGUAGE=C dpkg-query -W -f='${db:Status-Status} ${binary:Package}` + "\n" + `' 2>/dev/null`)
-		Expect(err).NotTo(HaveOccurred(), "dpkg-query enumeration failed: %s", out)
+		if err != nil {
+			return nil, fmt.Errorf("dpkg-query enumeration failed: %s: %w", out, err)
+		}
 		set := map[string]bool{}
 		for line := range strings.SplitSeq(out, "\n") {
 			fields := strings.Fields(line)
@@ -422,7 +432,7 @@ func systemPackageTests() {
 				set[fields[1]] = true
 			}
 		}
-		return set
+		return set, nil
 	}
 	assertInstalled := func(pkg string) {
 		// pkgCurrentState now collapses dpkg-query's documented exit-1
@@ -602,14 +612,20 @@ func systemPackageTests() {
 	preTestInstalled := map[string]bool{}
 
 	// preTestPackageSet is a snapshot of EVERY package installed on
-	// the host at BeforeAll time (not just the fixture set). The
-	// outer AfterAll diffs this against the post-test snapshot to
-	// identify transitive dependencies pulled in by tomei's apt-get
-	// install (e.g. libtext-charwidth-perl for cowsay) and removes
-	// them explicitly. This replaces the earlier blanket
-	// `apt-get autoremove` which Copilot flagged as too broad — the
-	// diff approach only touches packages whose presence is
-	// attributable to this suite's BeforeAll/It path.
+	// the host at BeforeAll time (not just the fixture set). In
+	// TOMEI_E2E_CONTAINER mode the outer AfterAll diffs this against
+	// the post-test snapshot to identify transitive dependencies
+	// pulled in by tomei's apt-get install (e.g. libtext-charwidth-
+	// perl for cowsay) and removes them explicitly. This replaces the
+	// earlier blanket `apt-get autoremove` which Copilot flagged as
+	// too broad.
+	//
+	// In native mode the diff is intentionally NOT run — a user/
+	// system could install packages concurrently during the E2E
+	// window and the diff cannot distinguish those from suite-
+	// introduced deps. Native mode therefore may leak cowsay's
+	// transitive Depends; that's an opt-in trade-off (CI native is
+	// ephemeral, dev laptop signed up for best-effort host mutation).
 	var preTestPackageSet map[string]bool
 
 	// writeSystemPackageManifest writes a minimal CUE manifest under dir:
@@ -792,17 +808,28 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// runner is ephemeral and a developer on
 				// TOMEI_E2E_NATIVE=true has opted in to best-effort
 				// host mutation.
-				currentSet := snapshotInstalledPackages()
-				var leaked []string
-				for pkg := range currentSet {
-					if !preTestPackageSet[pkg] {
-						leaked = append(leaked, pkg)
+				//
+				// snapshotInstalledPackages returns an error here
+				// instead of calling Expect, so a dpkg-query failure
+				// inside cleanup is logged and the diff step is
+				// skipped — never failing the spec from within
+				// AfterAll (which would mask the original assertion
+				// failure that triggered the cleanup).
+				currentSet, snapErr := snapshotInstalledPackages()
+				if snapErr != nil {
+					fmt.Fprintf(GinkgoWriter, "WARNING: diff-based dep cleanup skipped: %v\n", snapErr)
+				} else {
+					var leaked []string
+					for pkg := range currentSet {
+						if !preTestPackageSet[pkg] {
+							leaked = append(leaked, pkg)
+						}
 					}
-				}
-				sort.Strings(leaked)
-				if len(leaked) > 0 {
-					fmt.Fprintf(GinkgoWriter, "removing %d package(s) introduced by the suite: %v\n", len(leaked), leaked)
-					_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(leaked, " ") + " 2>&1 || true")
+					sort.Strings(leaked)
+					if len(leaked) > 0 {
+						fmt.Fprintf(GinkgoWriter, "removing %d package(s) introduced by the suite: %v\n", len(leaked), leaked)
+						_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(leaked, " ") + " 2>&1 || true")
+					}
 				}
 			}
 			if preflightMutationStarted {
@@ -943,10 +970,14 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// snapshot too, for the dep-leak diff in AfterAll.
 				// Captured here (after fixture preflight snapshot but
 				// before remove) so the post-test diff isolates packages
-				// added by tomei's install step — including transitive
-				// Depends like libtext-charwidth-perl that apt-get
-				// remove without autoremove would otherwise leak.
-				preTestPackageSet = snapshotInstalledPackages()
+				// added by tomei's install step. BeforeAll Expects on
+				// the error: a failed baseline snapshot would silently
+				// disable the diff cleanup, defeating the purpose, so
+				// fail fast here rather than at AfterAll time.
+				var snapErr error
+				preTestPackageSet, snapErr = snapshotInstalledPackages()
+				Expect(snapErr).NotTo(HaveOccurred(),
+					"baseline snapshotInstalledPackages failed — cannot establish a pre-test package set for the AfterAll diff cleanup")
 
 				// (3b) Mutating: preflight remove-first. Ensures the fixture
 				// packages are NOT installed before tomei runs, so the
@@ -973,7 +1004,18 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// is defense-in-depth for any future fixture change.
 				// Matches the production PackageSetInstaller's pre-
 				// remove simulation.
-				simOut, _ := testExec.ExecBash("LC_ALL=C LANGUAGE=C sudo -n apt-get -s remove -y " + strings.Join(fixturePackages, " ") + " 2>&1")
+				//
+				// Capture the simulation's exit code: a non-zero exit
+				// means apt failed to even compute the plan (lock held,
+				// broken dependency DB, etc.) and the output cannot be
+				// trusted as "no cascade detected". Abort the spec
+				// before the real mutating remove runs. (apt-get -s
+				// remove returns 0 even when packages are not
+				// installed — that case is benign and produces no Remv
+				// lines, so we don't need to special-case it.)
+				simOut, simErr := testExec.ExecBash("LC_ALL=C LANGUAGE=C sudo -n apt-get -s remove -y " + strings.Join(fixturePackages, " ") + " 2>&1")
+				Expect(simErr).NotTo(HaveOccurred(),
+					"apt-get -s remove simulation failed — cannot verify the real remove will not cascade. Aborting before host mutation. Full output:\n%s", simOut)
 				fixtureSet := map[string]bool{}
 				for _, p := range fixturePackages {
 					fixtureSet[p] = true
@@ -1168,9 +1210,11 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// {cowsay, sl} to {cowsay}, so the removal driven by
 				// `apply --system` is exactly the sl package. We
 				// generate this as a sibling to the canonical fixture so
-				// prior Contexts (validate / plan / Apply A) that read
+				// the prior validate / plan Contexts that read
 				// ~/system-package-test/manifest.cue keep seeing a
-				// byte-stable manifest.
+				// byte-stable manifest. (Context A applies its own
+				// generated /tmp/tomei-system-package-install/, not the
+				// canonical fixture, so it doesn't appear in this list.)
 				writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"cowsay"})
 			})
 
