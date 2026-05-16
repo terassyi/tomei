@@ -52,10 +52,12 @@ tree: {
 //   - small, daemon-free, deterministic;
 //   - NOT in e2e/containers/ubuntu/Dockerfile preinstall list.
 //
-// cowsay and sl satisfy all four. bc was the first attempt and broke
-// the CI native legs (`fixture invariant violated: bc is preinstalled
-// on the runner`) — see the GitHub runner image inventory at
-// actions/runner-images.
+// cowsay, sl, and tree all satisfy the four criteria. bc was the
+// first attempt and broke the CI native legs (`fixture invariant
+// violated: bc is preinstalled on the runner`) — see the GitHub
+// runner image inventory at actions/runner-images. tree is carried
+// by the SystemPackage sugar resource generated alongside cliTools
+// (see fixtureSugarPkg in system_package_test.go).
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackageSet"

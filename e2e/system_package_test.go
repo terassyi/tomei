@@ -816,7 +816,7 @@ apt: {
 	}
 }
 
-%[3]s: {
+"%[3]s": {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackage"
 	metadata: name: "%[3]s"
@@ -1135,19 +1135,27 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 				// locale not strictly needed (output is package-name
 				// list with no localized phrases) but kept for parity.
 				autoOut, autoErr := testExec.ExecBash("LC_ALL=C LANGUAGE=C apt-mark showauto 2>&1")
-				if autoErr != nil {
-					fmt.Fprintf(GinkgoWriter, "WARNING: apt-mark showauto failed (auto-marks will not be restored): %v\n%s\n", autoErr, autoOut)
-				} else {
-					autoSet := map[string]bool{}
-					for line := range strings.SplitSeq(autoOut, "\n") {
-						if name := strings.TrimSpace(line); name != "" {
-							autoSet[name] = true
-						}
+				// Fail fast (rather than log-and-continue) if the
+				// auto-mark snapshot can't be taken: continuing with
+				// an empty preTestAutoMarked would let the AfterAll
+				// restore re-install pre-existing fixture packages as
+				// MANUAL, silently changing apt's auto/manual metadata
+				// on a native opt-in host that had them auto-marked.
+				// Aborting BeforeAll here happens BEFORE the preflight
+				// remove runs, so no host package state has been
+				// touched yet — preflightMutationStarted stays false
+				// and AfterAll is a no-op.
+				Expect(autoErr).NotTo(HaveOccurred(),
+					"apt-mark showauto failed before preflight remove: %s\nrefusing to mutate host packages without a complete auto-mark snapshot for restore", autoOut)
+				autoSet := map[string]bool{}
+				for line := range strings.SplitSeq(autoOut, "\n") {
+					if name := strings.TrimSpace(line); name != "" {
+						autoSet[name] = true
 					}
-					for _, pkg := range fixturePackages {
-						if preTestInstalled[pkg] && autoSet[pkg] {
-							preTestAutoMarked[pkg] = true
-						}
+				}
+				for _, pkg := range fixturePackages {
+					if preTestInstalled[pkg] && autoSet[pkg] {
+						preTestAutoMarked[pkg] = true
 					}
 				}
 
