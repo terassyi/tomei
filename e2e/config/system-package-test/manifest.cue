@@ -31,13 +31,19 @@ tree: {
 // IMPORTANT — the real-apply E2E does NOT read this fixture. The
 // apply Contexts generate their own /tmp manifests with
 // hard-coded package lists at runtime; this file is only consumed
-// by `tomei validate ~/system-package-test/` and `tomei plan
-// ~/system-package-test/`. The duplication is intentional (the
-// apply path needs to mutate /tmp without touching the canonical
-// fixture used by other Contexts), but it means that adding a
-// fourth package here does NOT automatically extend the apply
-// coverage — you also need to update fixtureSetInstall /
-// fixtureSetRemoval / fixtureSugarPkg in system_package_test.go.
+// by the validate + plan E2E coverage:
+//
+//   - `tomei validate ~/system-package-test/`
+//   - `tomei plan ~/system-package-test/`           (skip-downgrade)
+//   - `tomei plan --system ~/system-package-test/`  (with installer)
+//
+// (Both plan modes read the same canonical fixture; only the apply
+// path forks to /tmp.) The duplication is intentional — the apply
+// path needs to mutate /tmp without touching the canonical fixture
+// used by other Contexts — but it means that adding a fourth
+// package here does NOT automatically extend the apply coverage:
+// you also need to update fixtureSetInstall / fixtureSetRemoval /
+// fixtureSugarPkg in system_package_test.go.
 //
 // Package selection criteria (applied to BOTH this fixture and the
 // apply-side list):

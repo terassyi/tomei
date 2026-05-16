@@ -590,11 +590,12 @@ func systemPackageTests() {
 	const fixtureSugarPkg = "tree"
 	// Build fixturePackages as a deduplicated union. A naive
 	// `append(..., fixtureSugarPkg)` would emit duplicates if a future
-	// change makes the sugar package name overlap with fixtureSet
-	// Install (e.g. someone renames the sugar to "cowsay"). Duplicates
-	// in the cleanup/preflight command line would not cause incorrect
-	// behaviour with apt-get (it tolerates them), but would violate
-	// the documented "union" contract and could surprise log readers.
+	// change makes the sugar package name overlap with
+	// fixtureSetInstall (e.g. someone renames the sugar to "cowsay").
+	// Duplicates in the cleanup/preflight command line would not
+	// cause incorrect behaviour with apt-get (it tolerates them), but
+	// would violate the documented "union" contract and could
+	// surprise log readers.
 	fixturePackages := func() []string {
 		seen := map[string]bool{}
 		var out []string
@@ -905,9 +906,44 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 				// expired between specs and AfterAll, etc.) is logged
 				// to GinkgoWriter rather than silently leaving fixture
 				// packages installed.
-				out, err := testExec.ExecBash(aptCmd("remove", fixturePackages) + " 2>&1")
-				if err != nil {
-					fmt.Fprintf(GinkgoWriter, "WARNING: fixture-package cleanup failed (err=%v):\n%s\n", err, out)
+				//
+				// Re-run the cascade-removal simulation BEFORE the
+				// actual remove. On a long-running native opt-in host,
+				// a package installed CONCURRENTLY with the e2e test
+				// could have started depending on cowsay/sl/tree
+				// between the BeforeAll simulation and this AfterAll
+				// (the BeforeAll check was a snapshot, not a hold).
+				// If the cleanup remove would now cascade onto a non-
+				// fixture package, the restore path doesn't track it
+				// and would leave the host worse off than pre-test —
+				// log the cascade and skip the cleanup remove instead.
+				simOut, simErr := testExec.ExecBash(aptCmd("-s remove", fixturePackages) + " 2>&1")
+				if simErr != nil {
+					fmt.Fprintf(GinkgoWriter, "WARNING: cascade simulation in AfterAll failed (err=%v), skipping fixture remove to avoid host damage:\n%s\n", simErr, simOut)
+				} else {
+					fixtureSet := map[string]bool{}
+					for _, p := range fixturePackages {
+						fixtureSet[p] = true
+					}
+					var cascade []string
+					for line := range strings.SplitSeq(simOut, "\n") {
+						if !strings.HasPrefix(line, "Remv ") {
+							continue
+						}
+						fields := strings.Fields(line)
+						if len(fields) >= 2 && !fixtureSet[fields[1]] {
+							cascade = append(cascade, fields[1])
+						}
+					}
+					sort.Strings(cascade)
+					if len(cascade) > 0 {
+						fmt.Fprintf(GinkgoWriter, "WARNING: AfterAll fixture-package remove would cascade-remove non-fixture package(s) %v — skipping cleanup remove. The restore path will still re-install preTestInstalled. Full simulation output:\n%s\n", cascade, simOut)
+					} else {
+						out, err := testExec.ExecBash(aptCmd("remove", fixturePackages) + " 2>&1")
+						if err != nil {
+							fmt.Fprintf(GinkgoWriter, "WARNING: fixture-package cleanup failed (err=%v):\n%s\n", err, out)
+						}
+					}
 				}
 			}
 			if preflightMutationStarted && preTestPackageSet != nil && os.Getenv("TOMEI_E2E_CONTAINER") != "" {
