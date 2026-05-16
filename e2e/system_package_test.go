@@ -304,10 +304,12 @@ func systemPackageTests() {
 	// or TOMEI_E2E_NATIVE — see skipIfNotLinux). The two inner Contexts
 	// below are Ordered (inherited from the suite-level `Describe(...,
 	// Ordered, ...)` in suite_test.go): Context A applies a generated
-	// /tmp/tomei-system-package-install/ manifest and asserts install +
-	// state-record + no-op + idempotency; Context B applies a reduced
-	// /tmp/tomei-system-package-removal/ manifest and asserts remove +
-	// state-shrink + idempotency.
+	// /tmp/tomei-system-package-install-<pid>-<ns>/ manifest and
+	// asserts install + state-record + no-op + idempotency; Context B
+	// applies a reduced /tmp/tomei-system-package-removal-<pid>-<ns>/
+	// manifest and asserts remove + state-shrink + idempotency. The
+	// <pid>-<ns> suffix is the per-process scratch suffix described
+	// in the scratchSuffix block below.
 	//
 	// Wrapped in an outer Context so that the host-cleanup AfterAll
 	// (apt-get remove + rm -rf /tmp) lives at a scope that covers BOTH
@@ -1417,8 +1419,9 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 				// the prior validate / plan Contexts that read
 				// ~/system-package-test/manifest.cue keep seeing a
 				// byte-stable manifest. (Context A applies its own
-				// generated /tmp/tomei-system-package-install/, not the
-				// canonical fixture, so it doesn't appear in this list.)
+				// generated /tmp/tomei-system-package-install-<pid>-<ns>/
+				// path, not the canonical fixture, so it doesn't appear
+				// in this list.)
 				writeSystemPackageManifest(strings.TrimRight(removalCfgPath, "/"), fixtureSetRemoval)
 			})
 
