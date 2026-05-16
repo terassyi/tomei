@@ -353,16 +353,33 @@ func systemPackageTests() {
 		Expect(state).To(Equal("installed"),
 			"package %s should be installed; dpkg-query current-state: %q", pkg, state)
 	}
+	// removedStates is the explicit allowlist of dpkg current-states that
+	// count as "removed" for the purposes of this suite:
+	//
+	//   - `""`             — dpkg-query exit-1 with empty stdout, meaning
+	//                        the package is not in the dpkg DB at all
+	//                        (never installed, or purged).
+	//   - `not-installed`  — known to dpkg but not currently installed.
+	//   - `config-files`   — apt-get remove (without --purge) leaves
+	//                        config files behind; binaries are gone.
+	//
+	// Other current-states (`installed`, `half-installed`, `unpacked`,
+	// `half-configured`, `triggers-awaited`, `triggers-pending`) all
+	// indicate the package is in a transitional or broken-but-present
+	// state on the host — none of those should count as "removed", and
+	// the earlier `NotTo(Equal("installed"))` predicate would have let
+	// `half-installed` / `unpacked` slip through and mask a failed
+	// removal. The explicit allowlist makes the contract one-way:
+	// anything not on the list is a failure.
+	removedStates := map[string]bool{
+		"":              true,
+		"not-installed": true,
+		"config-files":  true,
+	}
 	assertNotInstalled := func(pkg string) {
-		// apt-get remove (NOT --purge) leaves dpkg current-state
-		// as `config-files`; a never-installed or purged package
-		// returns an exit-1 with empty current-state. Both count as
-		// "removed"; `installed` and the half-installed transitional
-		// states are the only values forbidden — anything else means
-		// the package is not currently runnable on the host.
 		state, _ := pkgCurrentState(pkg)
-		Expect(state).NotTo(Equal("installed"),
-			"package %s must not be in installed state; dpkg-query current-state: %q", pkg, state)
+		Expect(removedStates).To(HaveKey(state),
+			"package %s must be in a known-removed dpkg state (one of %v), got current-state: %q", pkg, removedStates, state)
 	}
 
 	// stateHash returns sha256 of the system state.json. Used over mtime
@@ -628,59 +645,67 @@ EOF`, dir, strings.Join(quoted, ", "))
 				_, err := testExec.ExecBash(`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ~/.local/share/tomei/system/state.json`)
 				Expect(err).NotTo(HaveOccurred(), "failed to reset system state.json")
 
-				// Preflight remove-first: ensure the fixture packages are
-				// NOT installed before tomei runs, so the subsequent
-				// `apply --system` actually exercises the install path
-				// rather than passing because the package happened to
-				// already be on the runner.
-				//
-				// History: an earlier version of this Context used a hard
-				// fail-on-preinstalled invariant ("pick a different
-				// package") which broke the linux/arm64 native CI leg
-				// because GitHub-hosted ubuntu-24.04 runners preinstall
-				// `bc`. Switching to cowsay/sl (universe, leaf, NOT in
-				// any known runner-image preinstall list) plus this
-				// remove-first step makes the spec robust against future
-				// preinstall drift on either side — if a future runner
-				// image starts shipping cowsay or sl, the remove step
-				// uninstalls it cleanly and the test still validates a
-				// fresh install. We use NOT-purge here so /etc/cowsay
-				// (none exist, but futureproof) is preserved; the outer
-				// AfterAll handles the final removal.
-				//
-				// `2>&1 || true` swallows the failure for packages that
-				// are not installed (apt-get remove exits non-zero) so
-				// the BeforeAll proceeds; the assertNotInstalled checks
-				// below are the real assertion that the host is clean.
-				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
-				for _, pkg := range fixturePackages {
-					// Mirror the assertNotInstalled helper above: query the
-					// current-state sub-field so a held installed package
-					// (Status `hold ok installed`) cannot pass the
-					// not-installed assertion. Without this, `apt-mark
-					// hold cowsay` on a runner image would slip past the
-					// preflight and make the install spec a no-op.
-					state, _ := pkgCurrentState(pkg)
-					Expect(state).NotTo(Equal("installed"),
-						"preflight failed: %s is still installed after apt-get remove (dpkg-query current-state: %q) — the apply spec below would not be exercising a real install", pkg, state)
-				}
+				// Ordering matters: do every non-mutating setup step FIRST,
+				// THEN the host-mutating preflight remove, THEN set
+				// preflightComplete. If a non-mutating step fails it does so
+				// before any host package has been touched, so
+				// preflightComplete stays false, the outer AfterAll skips
+				// cleanup, and a pre-existing host install of cowsay/sl/tree
+				// survives. The earlier ordering performed the remove BEFORE
+				// writing the manifest and running apt-get update — a write
+				// or update failure between those two steps would have left
+				// a developer's previously-installed package uninstalled
+				// with no record of what to restore.
 
+				// (1) Non-mutating: write the generated /tmp manifest.
 				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"cowsay", "sl"})
 
-				// PackageSetInstaller.Install does not refresh the apt index
-				// (PackageRepositoryInstaller does, but only that one). CI
-				// images carry stale indexes; refresh once. Tolerate non-zero
-				// exit — apt exits non-zero on any mirror failure, but a
-				// partial refresh is usually enough for the apply step to
-				// produce a clearer downstream error than `update` would.
+				// (2) Non-mutating from the host-package perspective: refresh
+				// the apt index. PackageSetInstaller.Install does not refresh
+				// it itself (PackageRepositoryInstaller does, but only that
+				// one). CI images carry stale indexes; refresh once. Tolerate
+				// non-zero exit — apt exits non-zero on any mirror failure,
+				// but a partial refresh is usually enough for the apply step
+				// to produce a clearer downstream error than `update` would.
 				// The err is captured (not silently dropped) so a complete
 				// mirror outage surfaces in GinkgoWriter alongside the output.
 				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
 				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
 
-				// Mark preflight as complete: from this point the outer
+				// (3) Mutating: preflight remove-first. Ensures the fixture
+				// packages are NOT installed before tomei runs, so the
+				// subsequent `apply --system` actually exercises the install
+				// path rather than passing because the package happened to
+				// already be on the runner.
+				//
+				// History: an earlier version used a hard fail-on-preinstalled
+				// invariant which broke the linux/arm64 native CI leg because
+				// GH-hosted ubuntu-24.04 runners preinstall `bc`. Switching
+				// to cowsay/sl (universe, leaf, NOT in any known runner-image
+				// preinstall list) plus this remove-first step makes the spec
+				// robust against future preinstall drift on either side. We
+				// use NOT-purge so /etc/cowsay (none exist, but futureproof)
+				// is preserved; the outer AfterAll handles final removal.
+				//
+				// `2>&1 || true` swallows the failure for packages that are
+				// not installed (apt-get remove exits non-zero); the
+				// pkgCurrentState assertions below are the real assertion.
+				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
+				for _, pkg := range fixturePackages {
+					// Query the current-state sub-field and check it against
+					// the same removedStates allowlist assertNotInstalled
+					// uses — a held installed package (Status `hold ok
+					// installed`) or a broken half-installed state both fail
+					// here, so neither can slip past the preflight and make
+					// the install spec a no-op.
+					state, _ := pkgCurrentState(pkg)
+					Expect(removedStates).To(HaveKey(state),
+						"preflight failed: %s is not in a known-removed dpkg state after apt-get remove (current-state: %q, expected one of %v) — the apply spec below would not be exercising a real install", pkg, state, removedStates)
+				}
+
+				// (4) Mark preflight complete. From this point the outer
 				// AfterAll is allowed to run apt-get remove against the
-				// fixture packages. The preflight already uninstalled any
+				// fixture packages — the preflight already uninstalled any
 				// pre-existing copies, so even if no spec runs to install
 				// them, the AfterAll is a safe no-op rather than a
 				// destructive uninstall.
@@ -781,7 +806,19 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// (SystemPackageSet is no longer skip-downgraded with --system).
 				out, err := testExec.Exec("tomei", "plan", "--system", installCfgPath)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
+				// Anchor to end-of-line with `(?m)$`. The earlier
+				// `\b` form matched at the comma boundary, so a
+				// trailing `, N disabled` segment (rendered only when
+				// ActionSkip > 0) would have satisfied the regex —
+				// meaning a regression where SystemPackageSet starts
+				// being skip-downgraded again with --system would pass
+				// silently. Adding a separate ContainSubstring
+				// negation on "disabled" closes the loop in case the
+				// printer rephrases the suffix.
+				Expect(out).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
+					"plan summary must end at '0 to remove' with no trailing ', N disabled' counter; got:\n%s", out)
+				Expect(out).NotTo(ContainSubstring("disabled"),
+					"plan output must not contain 'disabled' (SystemPackageSet must not be skip-downgraded with --system); got:\n%s", out)
 
 				hashBefore := stateHash()
 				_, err = ExecApply(testExec, "--system", installCfgPath)
@@ -893,7 +930,19 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// manifest must be a plan-zero / state-byte-stable no-op.
 				out, err := testExec.Exec("tomei", "plan", "--system", removalCfgPath)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(out).To(MatchRegexp(`Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\b`))
+				// Anchor to end-of-line with `(?m)$`. The earlier
+				// `\b` form matched at the comma boundary, so a
+				// trailing `, N disabled` segment (rendered only when
+				// ActionSkip > 0) would have satisfied the regex —
+				// meaning a regression where SystemPackageSet starts
+				// being skip-downgraded again with --system would pass
+				// silently. Adding a separate ContainSubstring
+				// negation on "disabled" closes the loop in case the
+				// printer rephrases the suffix.
+				Expect(out).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
+					"plan summary must end at '0 to remove' with no trailing ', N disabled' counter; got:\n%s", out)
+				Expect(out).NotTo(ContainSubstring("disabled"),
+					"plan output must not contain 'disabled' (SystemPackageSet must not be skip-downgraded with --system); got:\n%s", out)
 
 				hashBefore := stateHash()
 				_, err = ExecApply(testExec, "--system", removalCfgPath)
