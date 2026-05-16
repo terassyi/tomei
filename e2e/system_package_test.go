@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -548,14 +549,27 @@ func systemPackageTests() {
 	// with the canonical fixture (add pgdgRepo) and either promote the
 	// existing PIts to It or fold the SystemPackageRepository apply
 	// coverage into this Context.
-	const installCfgPath = "/tmp/tomei-system-package-install/"
-	const removalCfgPath = "/tmp/tomei-system-package-removal/"
+	// Scratch paths carry a per-process unguessable suffix
+	// (PID + ns timestamp). The earlier fixed paths
+	// (`/tmp/tomei-system-package-install/`, etc.) were predictable
+	// across runs and across users on the same host, so a same-user
+	// process could race between the marker check and the rm -rf in
+	// writeSystemPackageManifest. With the suffix, no other process
+	// can guess the path before this BeforeAll runs, so the TOCTOU
+	// window between marker validation and removal collapses — the
+	// path is suite-private from the moment of computation.
+	scratchSuffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+	installCfgPath := "/tmp/tomei-system-package-install-" + scratchSuffix + "/"
+	removalCfgPath := "/tmp/tomei-system-package-removal-" + scratchSuffix + "/"
 
-	// fixturePackages enumerates every package this Context's BeforeAll
-	// may install on the host. Centralized so the BeforeAll remove-first
-	// step, the outer AfterAll cleanup, and any future drift detector
-	// stay in lockstep — adding a fourth package in the manifest without
-	// touching this list would silently leak host state.
+	// fixturePackages enumerates every package the apply specs may
+	// install on the host (via `tomei apply --system` against the
+	// generated install manifest). BeforeAll itself does NOT install
+	// these — it only snapshots their pre-test state and runs the
+	// preflight remove. The apply spec is the install site; this list
+	// is what BeforeAll snapshots, what the outer AfterAll cleans up,
+	// and what any future drift detector for the fixture set should
+	// stay in lockstep with.
 	fixturePackages := []string{"cowsay", "sl", "tree"}
 
 	// preflightComplete is set to true at the very end of Context A's
@@ -563,13 +577,18 @@ func systemPackageTests() {
 	// the gate that authorizes the outer AfterAll to apt-get remove the
 	// fixture packages from the host.
 	//
-	// Outer AfterAll consults it: if BeforeAll aborted before the
-	// preflight completed (e.g. the remove-first step left a package
-	// installed and the Expect surfaced the failure), the flag stays
-	// false and host-package cleanup is a no-op. (`apt-get update`
-	// failures are logged via GinkgoWriter and do NOT abort BeforeAll —
-	// a stale index is usually still functional — so they are
-	// deliberately not in the list of preflight aborts.)
+	// Outer AfterAll consults it: with preflightComplete=false, the
+	// fixture-package remove path is skipped (no `apt-get remove`
+	// against the fixture set). However, the RESTORE path is gated
+	// independently on preflightMutationStarted (set before the
+	// remove-first), so a partial-remove + failed-assertion case
+	// still re-installs anything preTestInstalled recorded. So the
+	// host-package cleanup is not a wholesale no-op when
+	// preflightComplete is false — only the bulk-remove leg is.
+	//
+	// (`apt-get update` failures are logged via GinkgoWriter and do
+	// NOT abort BeforeAll — a stale index is usually still functional
+	// — so they are deliberately not in the list of preflight aborts.)
 	var preflightComplete bool
 
 	// scratchDirs is a per-directory ownership ledger. writeSystemPackage
@@ -644,6 +663,19 @@ func systemPackageTests() {
 	// than silently letting the suite uninstall a package the user
 	// expected to keep.
 	preTestInstalled := map[string]bool{}
+
+	// preTestAutoMarked records which preTestInstalled packages were
+	// in apt's "auto-installed" set at BeforeAll time (i.e. apt-mark
+	// showauto would list them — these are packages apt brought in
+	// as transitive Depends rather than ones the user installed
+	// directly). The outer AfterAll's restore path runs `apt-get
+	// install`, which marks restored packages as MANUALLY installed
+	// by default; without this snapshot, a native opt-in host that
+	// originally had cowsay auto-marked would come back with cowsay
+	// flagged manual, eligible for the user's next `apt autoremove`
+	// to keep when it shouldn't be. Restore therefore also runs
+	// `apt-mark auto <pkg>` for the packages recorded here.
+	preTestAutoMarked := map[string]bool{}
 
 	// preTestPackageSet is a snapshot of EVERY package installed on
 	// the host at BeforeAll time (not just the fixture set). In
@@ -905,6 +937,14 @@ EOF`, dir, strings.Join(quoted, ", "))
 					// reliably reconstructed. The flag goes inside the
 					// verb so it lands BEFORE the `--` end-of-options
 					// separator added by aptCmd.
+					//
+					// After reinstall, re-apply apt's "auto" mark for
+					// packages that were auto-installed pre-test
+					// (apt-get install marks restored packages as
+					// MANUAL by default, which would otherwise change
+					// the host's apt-mark state on net even though the
+					// installed set is restored). Determined from
+					// preTestAutoMarked captured at BeforeAll.
 					out, err := testExec.ExecBash(aptCmd("install --no-install-recommends", toRestore) + " 2>&1")
 					if err != nil {
 						// Best-effort: log and continue. A reinstall
@@ -914,6 +954,25 @@ EOF`, dir, strings.Join(quoted, ", "))
 						// suite at cleanup time; the developer can
 						// re-run apt-get install manually if needed.
 						fmt.Fprintf(GinkgoWriter, "WARNING: failed to restore pre-test packages %v (err=%v):\n%s\n", toRestore, err, out)
+					}
+					// Re-apply auto marks for packages that were
+					// auto-installed pre-test. apt-mark auto is
+					// idempotent and unprivileged-friendly under sudo
+					// (no -n needed because apt-mark itself doesn't
+					// touch the dpkg lock the way apt-get does, but we
+					// keep -n for parity). Iterate in fixturePackages
+					// order for deterministic output.
+					var toAutoMark []string
+					for _, pkg := range fixturePackages {
+						if preTestAutoMarked[pkg] {
+							toAutoMark = append(toAutoMark, pkg)
+						}
+					}
+					if len(toAutoMark) > 0 {
+						mOut, mErr := testExec.ExecBash("sudo -n apt-mark auto -- " + strings.Join(toAutoMark, " ") + " 2>&1")
+						if mErr != nil {
+							fmt.Fprintf(GinkgoWriter, "WARNING: failed to re-apply auto marks for %v (err=%v):\n%s\n", toAutoMark, mErr, mOut)
+						}
 					}
 				}
 			}
@@ -1002,7 +1061,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// with no record of what to restore.
 
 				// (1) Non-mutating: write the generated /tmp manifest.
-				writeSystemPackageManifest("/tmp/tomei-system-package-install", []string{"cowsay", "sl"})
+				writeSystemPackageManifest(strings.TrimRight(installCfgPath, "/"), []string{"cowsay", "sl"})
 
 				// (2) Non-mutating from the host-package perspective: refresh
 				// the apt index. PackageSetInstaller.Install does not refresh
@@ -1027,6 +1086,31 @@ EOF`, dir, strings.Join(quoted, ", "))
 				for _, pkg := range fixturePackages {
 					if pkgCurrentState(pkg) == "installed" {
 						preTestInstalled[pkg] = true
+					}
+				}
+
+				// (3a*) Also snapshot apt-mark auto state for the
+				// pre-installed packages, so the AfterAll restore can
+				// re-apply auto-marks. apt-mark showauto is unprivileged
+				// and never prompts; failures here are non-fatal (no
+				// auto-marks captured → restore re-installs as manual,
+				// closer to but not exactly the pre-test state). C
+				// locale not strictly needed (output is package-name
+				// list with no localized phrases) but kept for parity.
+				autoOut, autoErr := testExec.ExecBash("LC_ALL=C LANGUAGE=C apt-mark showauto 2>&1")
+				if autoErr != nil {
+					fmt.Fprintf(GinkgoWriter, "WARNING: apt-mark showauto failed (auto-marks will not be restored): %v\n%s\n", autoErr, autoOut)
+				} else {
+					autoSet := map[string]bool{}
+					for line := range strings.SplitSeq(autoOut, "\n") {
+						if name := strings.TrimSpace(line); name != "" {
+							autoSet[name] = true
+						}
+					}
+					for _, pkg := range fixturePackages {
+						if preTestInstalled[pkg] && autoSet[pkg] {
+							preTestAutoMarked[pkg] = true
+						}
 					}
 				}
 
@@ -1290,7 +1374,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// byte-stable manifest. (Context A applies its own
 				// generated /tmp/tomei-system-package-install/, not the
 				// canonical fixture, so it doesn't appear in this list.)
-				writeSystemPackageManifest("/tmp/tomei-system-package-removal", []string{"cowsay"})
+				writeSystemPackageManifest(strings.TrimRight(removalCfgPath, "/"), []string{"cowsay"})
 			})
 
 			// Host cleanup is registered at the outer Context scope (see
