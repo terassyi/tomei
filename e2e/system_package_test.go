@@ -410,7 +410,8 @@ func systemPackageTests() {
 	//
 	// Locale is forced to C so the dpkg-query Status-Status field
 	// always emits the un-translated tokens (`installed`,
-	// `not-installed`, etc.) the awk filter below matches against.
+	// `not-installed`, etc.) the Go strings.Fields filter below
+	// matches against.
 	snapshotInstalledPackages := func() map[string]bool {
 		out, err := testExec.ExecBash(`LC_ALL=C LANGUAGE=C dpkg-query -W -f='${db:Status-Status} ${binary:Package}` + "\n" + `' 2>/dev/null`)
 		Expect(err).NotTo(HaveOccurred(), "dpkg-query enumeration failed: %s", out)
@@ -592,11 +593,12 @@ func systemPackageTests() {
 	// the test owns (install them; remove on cleanup) from packages
 	// the host owned pre-test (remove then re-install on cleanup, so
 	// the developer's host state survives the suite). Capture-and-
-	// restore is intentionally best-effort: a reinstall after the
-	// suite has run apt-get autoremove may be a no-op if the package
-	// disappeared from the cache, but that failure mode is more
-	// transparent (log + leave-uninstalled) than silently letting the
-	// suite uninstall a package the user expected to keep.
+	// restore is intentionally best-effort: a reinstall failure (e.g.
+	// mirror outage, package vanished from the apt cache between
+	// BeforeAll and AfterAll) is logged via GinkgoWriter rather than
+	// failing the suite at cleanup time, which is more transparent
+	// than silently letting the suite uninstall a package the user
+	// expected to keep.
 	preTestInstalled := map[string]bool{}
 
 	// preTestPackageSet is a snapshot of EVERY package installed on
@@ -747,14 +749,14 @@ EOF`, dir, strings.Join(quoted, ", "))
 			// Three independent cleanup paths follow, each with its
 			// own ownership-tracking flag:
 			//
-			//   1. preflightComplete → fixture-package remove +
-			//      optional autoremove. Acts only when the apply
-			//      specs may have run install.
-			//   2. preflightMutationStarted → restore preTestInstalled.
-			//      Acts whenever the mutating preflight was attempted
-			//      (even if the post-remove assertions failed), so a
-			//      partial remove still re-installs pre-existing
-			//      fixture packages.
+			//   1. preflightComplete → fixture-package remove. Acts
+			//      only when the apply specs may have run install.
+			//   2. preflightMutationStarted → diff-based dep cleanup
+			//      (snapshotInstalledPackages before/after) + restore
+			//      of preTestInstalled. Acts whenever the mutating
+			//      preflight was attempted, so a partial remove still
+			//      re-installs pre-existing fixture packages and the
+			//      dep diff still removes packages tomei pulled in.
 			//   3. scratchDirs (per-dir ledger) → rm -rf the scratch
 			//      directories. Acts only on paths the suite wrote, so
 			//      a pre-existing /tmp dir owned by another process is
@@ -774,14 +776,22 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// re-installs the host's pre-test set.
 				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
 			}
-			if preflightMutationStarted && preTestPackageSet != nil {
-				// Diff-based dep cleanup: any package currently
-				// installed that was NOT in preTestPackageSet was
-				// introduced by tomei's apt-get install (cowsay pulls
-				// libtext-charwidth-perl, etc.). Remove only those —
-				// no host-global autoremove, no risk of clobbering
-				// packages the user opted to keep. Iterate sorted so
-				// the apt-get remove command line is deterministic.
+			if preflightMutationStarted && preTestPackageSet != nil && os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+				// Diff-based dep cleanup, scoped to TOMEI_E2E_CONTAINER
+				// ONLY. In container mode we own the entire FS, so any
+				// package now present that wasn't pre-test is by
+				// definition something tomei installed (cowsay pulled
+				// libtext-charwidth-perl, etc.) — safe to remove.
+				//
+				// In native mode (CI native legs OR developer laptop)
+				// the user/system could install packages concurrently
+				// during the E2E window, and the diff would falsely
+				// attribute those to the suite. The trade-off: native
+				// mode may leak cowsay's transitive Depends across
+				// suite runs. That's acceptable because the CI native
+				// runner is ephemeral and a developer on
+				// TOMEI_E2E_NATIVE=true has opted in to best-effort
+				// host mutation.
 				currentSet := snapshotInstalledPackages()
 				var leaked []string
 				for pkg := range currentSet {
@@ -953,6 +963,41 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// use NOT-purge so /etc/cowsay (none exist, but futureproof)
 				// is preserved; the outer AfterAll handles final removal.
 				//
+				// Cascade-removal probe. Simulate the remove (`apt-get
+				// -s`) BEFORE mutating anything: if apt reports any
+				// non-fixture package would be removed as a reverse-
+				// dependency of cowsay/sl/tree, abort the spec rather
+				// than uninstalling host state the restore path
+				// doesn't track. cowsay/sl/tree are leaf packages today,
+				// so the simulation reports only the fixture set; this
+				// is defense-in-depth for any future fixture change.
+				// Matches the production PackageSetInstaller's pre-
+				// remove simulation.
+				simOut, _ := testExec.ExecBash("LC_ALL=C LANGUAGE=C sudo -n apt-get -s remove -y " + strings.Join(fixturePackages, " ") + " 2>&1")
+				fixtureSet := map[string]bool{}
+				for _, p := range fixturePackages {
+					fixtureSet[p] = true
+				}
+				var cascade []string
+				for line := range strings.SplitSeq(simOut, "\n") {
+					// `apt-get -s remove` prints `Remv <pkg> [<version>]`
+					// for each package that would actually be removed.
+					if !strings.HasPrefix(line, "Remv ") {
+						continue
+					}
+					fields := strings.Fields(line)
+					if len(fields) < 2 {
+						continue
+					}
+					if !fixtureSet[fields[1]] {
+						cascade = append(cascade, fields[1])
+					}
+				}
+				sort.Strings(cascade)
+				Expect(cascade).To(BeEmpty(),
+					"preflight remove would cascade-remove non-fixture package(s) %v — aborting before any host mutation so the restore path (which only knows about fixturePackages) cannot lose unrelated host state. Full apt-get -s remove output:\n%s",
+					cascade, simOut)
+
 				// Mark mutation-started BEFORE the remove runs. This
 				// authorizes the AfterAll restore path independently of
 				// whether the post-remove assertions pass — if apt
