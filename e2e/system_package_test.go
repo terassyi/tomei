@@ -325,14 +325,18 @@ func systemPackageTests() {
 	// (`hold ok installed` in the full Status triple) also collapse to
 	// `installed` here and are correctly classified as installed.
 
-	// dpkg-query is invoked via argv form (testExec.Exec) rather than
-	// shell-string concatenation: the package name lives in its own argv
-	// slot, eliminating the shell-injection footgun even if a future
-	// caller passes a dynamic pkg string. `--` defends against pkg names
-	// that could look like options. dpkg-query exits non-zero when no
-	// matching package is in the dpkg DB (the post-purge state); for
-	// assertInstalled this is a failure, for assertNotInstalled it counts
-	// as "removed".
+	// pkgCurrentState below uses ExecBash (not argv-form Exec) because
+	// it needs to set LC_ALL=C / LANGUAGE=C on the dpkg-query
+	// invocation — the not-found stderr message is localized otherwise.
+	// Shell-injection safety relies on a regex allowlist enforced
+	// inside the helper itself (`systemPackageTestPkgNameRE`, the same
+	// pattern used by writeSystemPackageManifest): the regex rejects
+	// every shell-meaningful character so embedding pkg into the script
+	// is safe. The earlier argv-form invocation lost the locale lever
+	// and was replaced by the ExecBash + regex pattern documented here.
+	// dpkg-query exits non-zero when no matching package is in the
+	// dpkg DB (the post-purge state); for assertInstalled this is a
+	// failure, for assertNotInstalled it counts as "removed".
 	//
 	// Format string uses `${db:Status-Status}` (the third sub-field of
 	// Status — the *current* state) rather than the full `${Status}`
