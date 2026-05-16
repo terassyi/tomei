@@ -597,6 +597,30 @@ func systemPackageTests() {
 	// path the snapshot-and-restore design is meant to close.
 	var preflightMutationStarted bool
 
+	// aptCmd wraps an apt-get verb in the same shell prefix the
+	// production apt installer uses (see internal/installer/apt/apt.go
+	// aptGetEnvPrefix + Client.Install/Remove/SimulateRemoveCascade).
+	// The wrapper:
+	//   - sudo -n: non-interactive (same NOPASSWD requirement the
+	//     SystemInstaller spec commands carry)
+	//   - env DEBIAN_FRONTEND=noninteractive: no interactive prompts
+	//     from configuration packages (matters for installs that
+	//     replace conffiles)
+	//   - env LC_ALL=C LANGUAGE=C: stable English output; sudoers with
+	//     reset_env would otherwise lose these if set as shell env
+	//     vars rather than via `env`
+	//   - DPkg::Lock::Timeout=60: wait up to 60s for the dpkg lock
+	//     instead of failing immediately on transient apt contention
+	//   - --: end-of-options so package names that look like flags
+	//     cannot be misinterpreted
+	// Keeping the e2e wrapper byte-identical to production means a
+	// future change to the wrapper (different timeout, additional env
+	// var, etc.) lands in one place and both the suite and the code
+	// under test stay aligned.
+	aptCmd := func(verb string, pkgs []string) string {
+		return "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get " + verb + " -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(pkgs, " ")
+	}
+
 	// preTestInstalled records which fixture packages were ALREADY
 	// installed on the host at BeforeAll time, before the preflight
 	// remove ran. The outer AfterAll uses it to distinguish packages
@@ -767,12 +791,18 @@ EOF`, dir, strings.Join(quoted, ", "))
 			//
 			//   1. preflightComplete → fixture-package remove. Acts
 			//      only when the apply specs may have run install.
-			//   2. preflightMutationStarted → diff-based dep cleanup
-			//      (snapshotInstalledPackages before/after) + restore
-			//      of preTestInstalled. Acts whenever the mutating
-			//      preflight was attempted, so a partial remove still
-			//      re-installs pre-existing fixture packages and the
-			//      dep diff still removes packages tomei pulled in.
+			//   2. preflightMutationStarted + TOMEI_E2E_CONTAINER →
+			//      diff-based dep cleanup (snapshotInstalledPackages
+			//      before/after). Acts only in container mode where
+			//      newly-installed packages are unambiguously tomei's.
+			//      Native mode intentionally skips this step (concurrent
+			//      installs during the E2E window cannot be distinguished
+			//      from suite-introduced deps).
+			//   3. preflightMutationStarted → restore preTestInstalled.
+			//      Acts whenever the mutating preflight was attempted,
+			//      so a partial remove still re-installs pre-existing
+			//      fixture packages even when post-remove assertions
+			//      failed and preflightComplete stayed false.
 			//   3. scratchDirs (per-dir ledger) → rm -rf the scratch
 			//      directories. Acts only on paths the suite wrote, so
 			//      a pre-existing /tmp dir owned by another process is
@@ -789,8 +819,15 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// may have run apply, so tomei may have installed the
 				// fixture packages. Remove them by explicit name (no
 				// blast-radius broadening) before the restore step
-				// re-installs the host's pre-test set.
-				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
+				// re-installs the host's pre-test set. Capture stdout
+				// + err so a remove failure (apt lock, sudo timestamp
+				// expired between specs and AfterAll, etc.) is logged
+				// to GinkgoWriter rather than silently leaving fixture
+				// packages installed.
+				out, err := testExec.ExecBash(aptCmd("remove", fixturePackages) + " 2>&1")
+				if err != nil {
+					fmt.Fprintf(GinkgoWriter, "WARNING: fixture-package cleanup failed (err=%v):\n%s\n", err, out)
+				}
 			}
 			if preflightMutationStarted && preTestPackageSet != nil && os.Getenv("TOMEI_E2E_CONTAINER") != "" {
 				// Diff-based dep cleanup, scoped to TOMEI_E2E_CONTAINER
@@ -828,7 +865,10 @@ EOF`, dir, strings.Join(quoted, ", "))
 					sort.Strings(leaked)
 					if len(leaked) > 0 {
 						fmt.Fprintf(GinkgoWriter, "removing %d package(s) introduced by the suite: %v\n", len(leaked), leaked)
-						_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(leaked, " ") + " 2>&1 || true")
+						out, err := testExec.ExecBash(aptCmd("remove", leaked) + " 2>&1")
+						if err != nil {
+							fmt.Fprintf(GinkgoWriter, "WARNING: diff-based dep cleanup remove failed (err=%v):\n%s\n", err, out)
+						}
 					}
 				}
 			}
@@ -847,7 +887,15 @@ EOF`, dir, strings.Join(quoted, ", "))
 					}
 				}
 				if len(toRestore) > 0 {
-					out, err := testExec.ExecBash("sudo -n apt-get install -y --no-install-recommends " + strings.Join(toRestore, " ") + " 2>&1")
+					// Restore uses the production wrapper too (same env,
+					// same lock timeout). --no-install-recommends keeps
+					// reinstall scope narrow: we restore exactly what
+					// was on the host pre-test, not Recommends that
+					// might also have been there but cannot be
+					// reliably reconstructed. The flag goes inside the
+					// verb so it lands BEFORE the `--` end-of-options
+					// separator added by aptCmd.
+					out, err := testExec.ExecBash(aptCmd("install --no-install-recommends", toRestore) + " 2>&1")
 					if err != nil {
 						// Best-effort: log and continue. A reinstall
 						// failure (e.g. mirror outage, package vanished
@@ -895,16 +943,22 @@ EOF`, dir, strings.Join(quoted, ", "))
 				skipIfNotLinux()
 
 				// Probe non-interactive sudo BEFORE touching host state.
-				// Outer AfterAll's apt-get remove uses `sudo -n` and
-				// swallows errors (cleanup is best-effort by design); on
-				// a native opt-in run with interactive-only sudo, that
-				// cleanup would silently no-op and leave cowsay/sl/tree
-				// installed. By failing the spec up-front when sudo is
-				// not passwordless, we trade a clean fail-fast for the
-				// alternative of silent host pollution.
-				_, sudoErr := testExec.ExecBash("sudo -n true 2>&1")
+				// Outer AfterAll's apt-get remove uses `sudo -n`; on a
+				// native opt-in run with interactive-only sudo, that
+				// cleanup would no-op and leave cowsay/sl/tree
+				// installed. Fail fast here instead.
+				//
+				// `sudo -k && sudo -n true` is the correct probe: a
+				// bare `sudo -n true` succeeds when the user has a
+				// cached sudo timestamp from earlier in the session,
+				// which would falsely pass on a host that actually
+				// requires a password. -k invalidates the cache first,
+				// so the subsequent -n true exercises the NOPASSWD
+				// policy that the apply specs (which themselves call
+				// `sudo -k` between runs) actually depend on.
+				_, sudoErr := testExec.ExecBash("sudo -k && sudo -n true 2>&1")
 				Expect(sudoErr).NotTo(HaveOccurred(),
-					"non-interactive sudo (NOPASSWD) is required: the AfterAll cleanup uses `sudo -n` and would silently leave fixture packages installed without it")
+					"non-interactive sudo (NOPASSWD) is required: the AfterAll cleanup uses `sudo -n` and would silently leave fixture packages installed without it. The probe ran `sudo -k && sudo -n true` to invalidate any cached timestamp first.")
 
 				// Ensure tomei is initialized — `tomei apply` aborts early
 				// with "tomei is not initialized" otherwise. --force makes
@@ -949,7 +1003,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// to produce a clearer downstream error than `update` would.
 				// The err is captured (not silently dropped) so a complete
 				// mirror outage surfaces in GinkgoWriter alongside the output.
-				out, err := testExec.ExecBash("sudo -n apt-get update -qq 2>&1")
+				out, err := testExec.ExecBash("sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update -qq -o DPkg::Lock::Timeout=60 2>&1")
 				fmt.Fprintf(GinkgoWriter, "apt-get update (err=%v):\n%s\n", err, out)
 
 				// (3a) Snapshot which fixture packages are already installed
@@ -1013,7 +1067,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// remove returns 0 even when packages are not
 				// installed — that case is benign and produces no Remv
 				// lines, so we don't need to special-case it.)
-				simOut, simErr := testExec.ExecBash("LC_ALL=C LANGUAGE=C sudo -n apt-get -s remove -y " + strings.Join(fixturePackages, " ") + " 2>&1")
+				simOut, simErr := testExec.ExecBash(aptCmd("-s remove", fixturePackages) + " 2>&1")
 				Expect(simErr).NotTo(HaveOccurred(),
 					"apt-get -s remove simulation failed — cannot verify the real remove will not cascade. Aborting before host mutation. Full output:\n%s", simOut)
 				fixtureSet := map[string]bool{}
@@ -1054,7 +1108,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				// `2>&1 || true` swallows the failure for packages that are
 				// not installed (apt-get remove exits non-zero); the
 				// pkgCurrentState assertions below are the real assertion.
-				_, _ = testExec.ExecBash("sudo -n apt-get remove -y " + strings.Join(fixturePackages, " ") + " 2>&1 || true")
+				_, _ = testExec.ExecBash(aptCmd("remove", fixturePackages) + " 2>&1 || true")
 				for _, pkg := range fixturePackages {
 					// Query the current-state sub-field and check it against
 					// the same removedStates allowlist assertNotInstalled
@@ -1185,8 +1239,19 @@ EOF`, dir, strings.Join(quoted, ", "))
 					"plan output must not contain 'disabled' (SystemPackageSet must not be skip-downgraded with --system); got:\n%s", out)
 
 				hashBefore := stateHash()
-				_, err = ExecApply(testExec, "--system", installCfgPath)
+				idempOut, err := ExecApply(testExec, "--system", installCfgPath)
 				Expect(err).NotTo(HaveOccurred())
+				// runApplyWithProgressManager (cmd/tomei/apply.go) logs
+				// system-engine errors as `Warning: system resource
+				// apply failed: ...` and returns the user-engine
+				// result. So err == nil does NOT prove the system
+				// engine succeeded; a silent system-apply regression
+				// would otherwise sail through this idempotency check
+				// because state.json would also remain unchanged on
+				// failure. Anchoring on the absence of the warning
+				// substring closes that gap.
+				Expect(idempOut).NotTo(ContainSubstring("system resource apply failed"),
+					"idempotent re-apply must not surface a system-engine warning; got:\n%s", idempOut)
 				Expect(stateHash()).To(Equal(hashBefore),
 					"idempotent re-apply must not rewrite state.json")
 			})
@@ -1319,8 +1384,15 @@ EOF`, dir, strings.Join(quoted, ", "))
 					"plan output must not contain 'disabled' (SystemPackageSet must not be skip-downgraded with --system); got:\n%s", out)
 
 				hashBefore := stateHash()
-				_, err = ExecApply(testExec, "--system", removalCfgPath)
+				idempOut, err := ExecApply(testExec, "--system", removalCfgPath)
 				Expect(err).NotTo(HaveOccurred())
+				// Same system-engine warning check as the install
+				// idempotency spec above — runApplyWithProgressManager
+				// returns the user-engine result, so a silent system
+				// apply failure would also leave state.json unchanged
+				// and falsely pass the byte-stability assertion.
+				Expect(idempOut).NotTo(ContainSubstring("system resource apply failed"),
+					"idempotent re-apply of the removal manifest must not surface a system-engine warning; got:\n%s", idempOut)
 				Expect(stateHash()).To(Equal(hashBefore),
 					"idempotent re-apply of the removal manifest must not rewrite state.json")
 			})
