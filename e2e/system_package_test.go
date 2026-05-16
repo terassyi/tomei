@@ -343,13 +343,37 @@ func systemPackageTests() {
 	// (`installed`, `not-installed`, `config-files`, `half-installed`,
 	// etc.) so the assertion is exact regardless of the desired-state
 	// dimension.
-	pkgCurrentState := func(pkg string) (string, error) {
+	// pkgCurrentState returns the dpkg current-state for pkg ("installed",
+	// "not-installed", "config-files", "half-installed", etc.) or "" when
+	// the package is not in the dpkg database at all.
+	//
+	// testExec.Exec captures via CombinedOutput, so stderr is mixed into
+	// the output buffer. When dpkg-query can't find a package (the
+	// never-installed / purged case), it writes "dpkg-query: no packages
+	// found matching <pkg>" to stderr and exits 1 with EMPTY stdout.
+	// Returning the raw combined output here would surface that
+	// diagnostic string as the "state", which is NOT in the removedStates
+	// allowlist — the preflight on a clean runner would fail before any
+	// apply spec ran. Detect the not-found case via err != nil (dpkg-
+	// query's documented exit-1 contract for unknown packages) and
+	// collapse it to the empty-string "never installed in DB" token that
+	// removedStates explicitly admits.
+	pkgCurrentState := func(pkg string) string {
 		out, err := testExec.Exec("dpkg-query", "-W", "-f=${db:Status-Status}\n", "--", pkg)
-		return strings.TrimSpace(out), err
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(out)
 	}
 	assertInstalled := func(pkg string) {
-		state, err := pkgCurrentState(pkg)
-		Expect(err).NotTo(HaveOccurred(), "dpkg-query failed for %s: %s", pkg, state)
+		// pkgCurrentState now collapses dpkg-query's documented exit-1
+		// not-found case to "" (rather than surfacing the stderr
+		// diagnostic string CombinedOutput would otherwise yield), so
+		// the state-equality check is the single source of truth: any
+		// failure to find the package — not-found, dpkg DB error,
+		// transient — fails this Expect rather than slipping past via
+		// a non-error path.
+		state := pkgCurrentState(pkg)
 		Expect(state).To(Equal("installed"),
 			"package %s should be installed; dpkg-query current-state: %q", pkg, state)
 	}
@@ -377,7 +401,7 @@ func systemPackageTests() {
 		"config-files":  true,
 	}
 	assertNotInstalled := func(pkg string) {
-		state, _ := pkgCurrentState(pkg)
+		state := pkgCurrentState(pkg)
 		Expect(removedStates).To(HaveKey(state),
 			"package %s must be in a known-removed dpkg state (one of %v), got current-state: %q", pkg, removedStates, state)
 	}
@@ -588,17 +612,22 @@ EOF`, dir, strings.Join(quoted, ", "))
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
 				return
 			}
-			// Preflight gate: only apt-get remove the fixture packages
-			// if Context A's BeforeAll preflight succeeded. The
-			// preflight uninstalled any pre-existing copy, so removing
-			// them again here is at worst a no-op rather than a
-			// destructive uninstall of state that predates this
-			// Context. If the preflight aborted, preflightComplete
-			// stays false and we MUST NOT touch host packages — that
-			// was the concrete risk Copilot flagged on the earlier
-			// version. /tmp scratch dirs are always safe to remove
-			// (regex-allowlisted single-segment paths created by this
-			// suite only).
+			// Preflight gate: only act if Context A's BeforeAll
+			// preflight succeeded. Two reasons:
+			//   - apt-get remove: the preflight uninstalled any
+			//     pre-existing copy, so re-removing here is at worst
+			//     a no-op rather than a destructive uninstall of
+			//     state that predates this Context. With
+			//     preflightComplete=false, we MUST NOT touch host
+			//     packages — that was the concrete risk Copilot
+			//     flagged on the earlier version.
+			//   - rm -rf /tmp/...: when skipIfNotLinux skips the
+			//     inner specs (macOS native CI, or non-Debian Linux
+			//     with TOMEI_E2E_NATIVE=true), Context A's BeforeAll
+			//     never runs and these scratch dirs are never
+			//     created by this suite. An unconditional rm -rf
+			//     would otherwise delete a pre-existing host
+			//     directory that happens to share the path.
 			if preflightComplete {
 				// apt-get remove targets only the fixture packages, by
 				// explicit name — no chance of broadening the blast
@@ -623,8 +652,8 @@ EOF`, dir, strings.Join(quoted, ", "))
 				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
 					_, _ = testExec.ExecBash("sudo -n apt-get autoremove -y 2>&1 || true")
 				}
+				_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 			}
-			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-system-package-install /tmp/tomei-system-package-removal")
 		})
 
 		Context("Apply --system (real install)", func() {
@@ -698,7 +727,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 					// installed`) or a broken half-installed state both fail
 					// here, so neither can slip past the preflight and make
 					// the install spec a no-op.
-					state, _ := pkgCurrentState(pkg)
+					state := pkgCurrentState(pkg)
 					Expect(removedStates).To(HaveKey(state),
 						"preflight failed: %s is not in a known-removed dpkg state after apt-get remove (current-state: %q, expected one of %v) — the apply spec below would not be exercising a real install", pkg, state, removedStates)
 				}
