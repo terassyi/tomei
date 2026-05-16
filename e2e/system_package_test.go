@@ -353,17 +353,31 @@ func systemPackageTests() {
 	// found matching <pkg>" to stderr and exits 1 with EMPTY stdout.
 	// Returning the raw combined output here would surface that
 	// diagnostic string as the "state", which is NOT in the removedStates
-	// allowlist — the preflight on a clean runner would fail before any
-	// apply spec ran. Detect the not-found case via err != nil (dpkg-
-	// query's documented exit-1 contract for unknown packages) and
-	// collapse it to the empty-string "never installed in DB" token that
-	// removedStates explicitly admits.
+	// allowlist.
+	//
+	// CRITICAL: we MUST distinguish the documented exit-1 "no packages
+	// found" case from any other dpkg-query failure (DB lock, corruption,
+	// dpkg-query binary missing, etc.). Earlier code collapsed every
+	// err != nil to "" — which meant a real dpkg failure looked
+	// identical to "package absent" and would silently let a pre-test
+	// snapshot record the wrong state OR let assertNotInstalled pass for
+	// the wrong reason. We now match the specific stderr message format
+	// dpkg-query uses for the not-found case and Fail() on anything else.
 	pkgCurrentState := func(pkg string) string {
 		out, err := testExec.Exec("dpkg-query", "-W", "-f=${db:Status-Status}\n", "--", pkg)
-		if err != nil {
+		if err == nil {
+			return strings.TrimSpace(out)
+		}
+		// dpkg-query's stable format for the never-installed /
+		// purged case: `dpkg-query: no packages found matching <pkg>`
+		// (with exit 1). Any other err+output combination indicates
+		// a real failure that must surface — fail the spec rather
+		// than silently treating it as "not installed".
+		if strings.Contains(out, "no packages found matching") {
 			return ""
 		}
-		return strings.TrimSpace(out)
+		Fail(fmt.Sprintf("dpkg-query failed unexpectedly for %s (not the documented 'no packages found' case): err=%v, output=%q", pkg, err, out))
+		return "" // unreachable: Fail() panics
 	}
 	assertInstalled := func(pkg string) {
 		// pkgCurrentState now collapses dpkg-query's documented exit-1
@@ -574,14 +588,24 @@ func systemPackageTests() {
 		// allowlist above restricts dir to a flat single-segment
 		// /tmp/<name> path — no risk of clobbering anything outside
 		// the scratch area.
-		// `set -euo pipefail` so any setup failure (rm -rf refusal, mkdir
-		// failure, heredoc write failure) aborts the script. Without it,
-		// the implicit `; cat > manifest.cue ...` between heredocs would
-		// run even if the earlier rm or module.cue write failed,
-		// returning success while stale `.cue` files remain in place.
+		// Refuse to rm -rf an existing dir that doesn't carry our
+		// ownership marker. The fixed /tmp paths used here are
+		// predictable across runs, so a concurrent process or another
+		// user could theoretically own a directory at the same path
+		// — without this check, a bare `rm -rf` would silently clobber
+		// it. The marker file `.tomei-e2e-system-package-test` lives
+		// at the dir root; on a previous suite run we wrote it
+		// ourselves, so re-running the suite is still idempotent.
+		// `set -euo pipefail` so any setup failure (rm -rf refusal,
+		// mkdir failure, heredoc write failure) aborts the script.
 		script := fmt.Sprintf(`set -euo pipefail
+if [ -e %[1]s ] && [ ! -f %[1]s/.tomei-e2e-system-package-test ]; then
+	echo "refusing to remove %[1]s: directory exists but lacks the .tomei-e2e-system-package-test ownership marker — another process may own this path" >&2
+	exit 1
+fi
 rm -rf %[1]s
 mkdir -p %[1]s/cue.mod
+touch %[1]s/.tomei-e2e-system-package-test
 cat > %[1]s/cue.mod/module.cue <<'EOF'
 module: "tomei.local@v0"
 language: version: "v0.9.0"
@@ -659,22 +683,28 @@ EOF`, dir, strings.Join(quoted, ", "))
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
 				return
 			}
-			// Preflight gate: only act if Context A's BeforeAll
-			// preflight succeeded. Two reasons:
-			//   - apt-get remove: the preflight uninstalled any
-			//     pre-existing copy, so re-removing here is at worst
-			//     a no-op rather than a destructive uninstall of
-			//     state that predates this Context. With
-			//     preflightComplete=false, we MUST NOT touch host
-			//     packages — that was the concrete risk Copilot
-			//     flagged on the earlier version.
-			//   - rm -rf /tmp/...: when skipIfNotLinux skips the
-			//     inner specs (macOS native CI, or non-Debian Linux
-			//     with TOMEI_E2E_NATIVE=true), Context A's BeforeAll
-			//     never runs and these scratch dirs are never
-			//     created by this suite. An unconditional rm -rf
-			//     would otherwise delete a pre-existing host
-			//     directory that happens to share the path.
+			// Three independent cleanup paths follow, each with its
+			// own ownership-tracking flag:
+			//
+			//   1. preflightComplete → fixture-package remove +
+			//      optional autoremove. Acts only when the apply
+			//      specs may have run install.
+			//   2. preflightMutationStarted → restore preTestInstalled.
+			//      Acts whenever the mutating preflight was attempted
+			//      (even if the post-remove assertions failed), so a
+			//      partial remove still re-installs pre-existing
+			//      fixture packages.
+			//   3. scratchDirs (per-dir ledger) → rm -rf the scratch
+			//      directories. Acts only on paths the suite wrote, so
+			//      a pre-existing /tmp dir owned by another process is
+			//      never touched.
+			//
+			// Splitting the gates was Copilot's repeated ask: the
+			// earlier single-flag design either leaked dirs (when the
+			// preflight failed after the manifest was written) or
+			// failed to restore pre-test host packages (when the
+			// preflight removed some but not all, then assertion-
+			// failed).
 			if preflightComplete {
 				// Full cleanup path: the preflight succeeded AND specs
 				// may have run apply, so tomei may have installed the
@@ -1078,6 +1108,14 @@ EOF`, dir, strings.Join(quoted, ", "))
 				Expect(installed).To(HaveKey("tree"),
 					"sugar entry tree must survive a sibling set's shrink; got keys: %v", installed)
 				Expect(installed["tree"]).To(HaveKey("tree"))
+				// Parity with the install-path coverage: a sibling
+				// SystemPackageSet shrink must not corrupt the
+				// surviving SystemPackage sugar entry's recorded
+				// version. An empty version here would indicate the
+				// shrink path rewrote tree.installedVersions["tree"]
+				// to "" instead of leaving it byte-stable.
+				Expect(installed["tree"]["tree"]).NotTo(BeEmpty(),
+					"tree.installedVersions.tree must remain a non-empty version string across a sibling set's shrink")
 			})
 
 			It("re-apply removal manifest WITH --system is idempotent", func() {
