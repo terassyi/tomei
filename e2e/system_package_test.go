@@ -613,10 +613,20 @@ func systemPackageTests() {
 	//     instead of failing immediately on transient apt contention
 	//   - --: end-of-options so package names that look like flags
 	//     cannot be misinterpreted
-	// Keeping the e2e wrapper byte-identical to production means a
-	// future change to the wrapper (different timeout, additional env
-	// var, etc.) lands in one place and both the suite and the code
-	// under test stay aligned.
+	//
+	// DUPLICATION NOTE: this string is intentionally a copy of the
+	// production wrapper rather than a shared call into internal/
+	// installer/apt. The e2e binary is built with the `e2e` tag and
+	// must not depend on the production installer's runtime types
+	// (Client, executor.Runner, etc.) to avoid pulling in cmd/tomei
+	// engine wiring. A future change to the production wrapper
+	// (different lock timeout, additional env var, etc.) therefore
+	// requires updating BOTH internal/installer/apt/apt.go aptGetEnv
+	// Prefix AND this helper in lockstep — there is no compile-time
+	// check enforcing the link. The drift detector for that contract
+	// is: if production ever stops being NOPASSWD or stops using
+	// LC_ALL=C, the apt invocations in this suite would diverge and
+	// the CI native legs would surface the inconsistency first.
 	aptCmd := func(verb string, pkgs []string) string {
 		return "sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get " + verb + " -y -o DPkg::Lock::Timeout=60 -- " + strings.Join(pkgs, " ")
 	}
@@ -786,7 +796,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping host package + /tmp cleanup")
 				return
 			}
-			// Three independent cleanup paths follow, each with its
+			// Four independent cleanup paths follow, each with its
 			// own ownership-tracking flag:
 			//
 			//   1. preflightComplete → fixture-package remove. Acts
@@ -803,7 +813,7 @@ EOF`, dir, strings.Join(quoted, ", "))
 			//      so a partial remove still re-installs pre-existing
 			//      fixture packages even when post-remove assertions
 			//      failed and preflightComplete stayed false.
-			//   3. scratchDirs (per-dir ledger) → rm -rf the scratch
+			//   4. scratchDirs (per-dir ledger) → rm -rf the scratch
 			//      directories. Acts only on paths the suite wrote, so
 			//      a pre-existing /tmp dir owned by another process is
 			//      never touched.
