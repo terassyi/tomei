@@ -586,7 +586,27 @@ func systemPackageTests() {
 	fixtureSetInstall := []string{"cowsay", "sl"}
 	fixtureSetRemoval := []string{"cowsay"}
 	const fixtureSugarPkg = "tree"
-	fixturePackages := append(append([]string{}, fixtureSetInstall...), fixtureSugarPkg)
+	// Build fixturePackages as a deduplicated union. A naive
+	// `append(..., fixtureSugarPkg)` would emit duplicates if a future
+	// change makes the sugar package name overlap with fixtureSet
+	// Install (e.g. someone renames the sugar to "cowsay"). Duplicates
+	// in the cleanup/preflight command line would not cause incorrect
+	// behaviour with apt-get (it tolerates them), but would violate
+	// the documented "union" contract and could surprise log readers.
+	fixturePackages := func() []string {
+		seen := map[string]bool{}
+		var out []string
+		for _, p := range fixtureSetInstall {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+		if !seen[fixtureSugarPkg] {
+			out = append(out, fixtureSugarPkg)
+		}
+		return out
+	}()
 
 	// preflightComplete is set to true at the very end of Context A's
 	// BeforeAll, after the remove-first preflight has succeeded. It is
@@ -607,8 +627,9 @@ func systemPackageTests() {
 	// — so they are deliberately not in the list of preflight aborts.)
 	var preflightComplete bool
 
-	// scratchDirs is a per-directory ownership ledger. writeSystemPackage
-	// Manifest records each scratch path it has successfully written;
+	// scratchDirs is a per-directory ownership ledger.
+	// writeSystemPackageManifest records each scratch path it has
+	// successfully written;
 	// the outer AfterAll iterates the recorded keys and rm -rf's only
 	// those — never the other suite's path nor a pre-existing /tmp
 	// directory the suite did not create. Earlier code used a single
