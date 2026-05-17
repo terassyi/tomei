@@ -9,8 +9,8 @@ apt: {
 		privileged: true
 		commands: {
 			install: {command: "sudo apt-get install -y"}
-			remove:  {command: "sudo apt-get remove -y"}
-			check:   {command: "dpkg -s"}
+			remove: {command: "sudo apt-get remove -y"}
+			check: {command: "dpkg -s"}
 		}
 	}
 }
@@ -25,13 +25,52 @@ tree: {
 	}
 }
 
+// cliTools is the multi-package SystemPackageSet fixture used by the
+// validate / plan E2E coverage in e2e/system_package_test.go.
+//
+// IMPORTANT — the real-apply E2E does NOT read this fixture. The
+// apply Contexts generate their own /tmp manifests with
+// hard-coded package lists at runtime; this file is only consumed
+// by the validate + plan E2E coverage:
+//
+//   - `tomei validate ~/system-package-test/`
+//   - `tomei plan ~/system-package-test/`           (skip-downgrade)
+//   - `tomei plan --system ~/system-package-test/`  (with installer)
+//
+// (Both plan modes read the same canonical fixture; only the apply
+// path forks to /tmp.) The duplication is intentional — the apply
+// path needs to mutate /tmp without touching the canonical fixture
+// used by other Contexts — but it means that adding a fourth
+// package here does NOT automatically extend the apply coverage:
+// you also need to update fixtureSetInstall / fixtureSetRemoval /
+// fixtureSugarPkg in system_package_test.go.
+//
+// Package selection criteria (applied to BOTH this fixture and the
+// apply-side list):
+//
+//   - leaf packages with no reverse dependencies (so a post-suite
+//     apt-get remove cannot cascade into uninstalling unrelated host
+//     packages on the runner);
+//   - in the `universe` pocket (NOT `main`), so the GitHub-hosted
+//     ubuntu-24.04 runner image — which preinstalls essentially every
+//     `main` utility, including bc and other obvious candidates — does
+//     NOT ship them by default;
+//   - small, daemon-free, deterministic;
+//   - NOT in e2e/containers/ubuntu/Dockerfile preinstall list.
+//
+// cowsay, sl, and tree all satisfy the four criteria. bc was the
+// first attempt and broke the CI native legs (`fixture invariant
+// violated: bc is preinstalled on the runner`) — see the GitHub
+// runner image inventory at actions/runner-images. tree is carried
+// by the SystemPackage sugar resource generated alongside cliTools
+// (see fixtureSugarPkg in system_package_test.go).
 cliTools: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemPackageSet"
 	metadata: name: "cli-tools"
 	spec: {
 		installerRef: "apt"
-		packages: ["jq", "curl"]
+		packages: ["cowsay", "sl"]
 	}
 }
 
