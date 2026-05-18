@@ -809,24 +809,41 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 	// Used by the #218 Ordered Context's BeforeAll to capture pre-test state
 	// so AfterAll can distinguish "file we created" from "file that already
 	// existed on the host" and only rm -f the former.
-	// Returns (hash, exists). hash is empty when the path is absent;
-	// callers must check `exists` to distinguish "absent" from "present
-	// but unhashable" — the latter aborts the test rather than silently
-	// returning "" and letting the AfterAll treat a transient sha256sum
-	// failure as permission to rm a pre-existing host file.
+	// Returns (hash, exists). exists is true iff *any* filesystem entry
+	// is present at the path — regular file, directory, or symlink
+	// (dangling or otherwise). Callers must check `exists` to decide
+	// whether they are looking at an existing host artifact; in that
+	// case `hash` is the sha256 of the file (for symlinks: of the
+	// target), or "" if the path is not a hashable regular file (e.g.
+	// a dangling symlink, a directory). Hashing/probing errors are
+	// surfaced via Expect rather than silently collapsing to "absent",
+	// so a transient sha256sum or permission failure on a pre-existing
+	// path cannot make the AfterAll mistake that path for one we wrote.
 	fileSha256IfExists := func(path string) (string, bool) {
-		// Stage 1: probe existence. `test -e` exits 0/1 cleanly; any other
-		// exit code (e.g. permission error on the parent dir) is fatal.
+		// Stage 1: existence probe. `-e` follows symlinks (and so
+		// returns false for a dangling symlink); pair with `-L` so a
+		// dangling symlink at this path is still classified as
+		// "exists" — BeforeAll uses this helper to decide whether it's
+		// safe to overwrite the path, and a leftover dangling symlink
+		// at /usr/share/keyrings/pgdg.gpg from a previous botched
+		// install must NOT be treated as a clean slate.
 		existsOut, existsErr := testExec.ExecBash(fmt.Sprintf(
-			"if [ -e %[1]s ]; then echo yes; else echo no; fi", path))
+			"if [ -e %[1]s ] || [ -L %[1]s ]; then echo yes; else echo no; fi", path))
 		Expect(existsErr).NotTo(HaveOccurred(),
 			"probing existence of %s failed: %s", path, existsOut)
 		if strings.TrimSpace(existsOut) == "no" {
 			return "", false
 		}
-		// Stage 2: hash. `set -o pipefail` so a sha256sum failure
-		// surfaces past awk; Expect aborts the test rather than masking
-		// the failure as "absent".
+		// Stage 2: hash. Only hash regular files (or symlinks resolving
+		// to one); dangling symlinks / directories return ("", true)
+		// so callers can still see the path exists without us
+		// fabricating a hash. Hashing failures on a regular file are
+		// fatal — see helper docstring.
+		regOut, _ := testExec.ExecBash(fmt.Sprintf(
+			"if [ -f %[1]s ]; then echo yes; else echo no; fi", path))
+		if strings.TrimSpace(regOut) != "yes" {
+			return "", true
+		}
 		out, err := testExec.ExecBash(fmt.Sprintf(
 			"set -euo pipefail; sha256sum -- %[1]s | awk '{print $1}'", path))
 		Expect(err).NotTo(HaveOccurred(),
@@ -1663,9 +1680,15 @@ EOF`, dir, repoBlock)
 	//   3. retain-without-flag (#169 scenario 7) — depends on spec 1's mutation
 	//   4. removal         — tears down what spec 1 built
 	//
-	// AfterAll restores only paths it created (BeforeAll snapshots
-	// pre-existing keyring/sources.list to avoid clobbering a host that
-	// had PGDG installed before this suite ran).
+	// BeforeAll Skips the Context if either pgdgKeyringPath or
+	// pgdgSourcePath already exists on the host (including as a
+	// dangling symlink) — see the fileSha256IfExists guard. With that
+	// gate in place, any file present at AfterAll time was written by
+	// this Context and is unconditionally safe to remove; no restore
+	// step is needed. TOMEI_E2E_NATIVE_SKIP_CLEANUP=true bypasses the
+	// AfterAll cleanup to preserve host state for inspection after a
+	// failed native opt-in run (same semantics as the sibling #200
+	// Context).
 	Context("Apply --system installs SystemPackageRepository (#218)", Ordered, func() {
 		const (
 			pgdgKeyringPath = "/usr/share/keyrings/pgdg.gpg"
@@ -1729,13 +1752,13 @@ EOF`, dir, repoBlock)
 				"non-interactive sudo (NOPASSWD) is required: apply --system invokes apt under sudo")
 
 			// Refuse to run on a host that already has pgdg configured.
-			// Hashing-with-restore would let us coexist with a developer
-			// machine that uses PGDG, but spec 1's install would still
-			// overwrite the live keyring/sources.list mid-run, and any
-			// failure between overwrite and restore would leave the host
-			// in a worse state than skipping. The container e2e runner
-			// always starts from a clean image, so this gate only fires
-			// in native opt-in runs.
+			// Skipping is simpler and safer than snapshot-and-restore:
+			// spec 1's install overwrites the live keyring/sources.list,
+			// so any failure between overwrite and restore would leave
+			// the host worse off than just skipping. The container e2e
+			// runner always starts from a clean image, so this gate only
+			// fires on native opt-in runs (or a reused container with
+			// leftover pgdg files from a botched previous run).
 			for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
 				if _, exists := fileSha256IfExists(p); exists {
 					Skip(fmt.Sprintf("pre-existing %s on host: refusing to clobber a real PGDG setup (re-run this Context in the container e2e runner instead)", p))
@@ -1755,16 +1778,28 @@ EOF`, dir, repoBlock)
 			scratchSuffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 			repoCfgPath = "/tmp/tomei-system-package-repository-" + scratchSuffix + "/"
 			installerOnlyCfgPath = "/tmp/tomei-system-package-repository-removal-" + scratchSuffix + "/"
+			// Append to repoScratchDirs immediately after each helper
+			// returns, NOT in one shot after both. If the second helper
+			// aborts BeforeAll (Expect inside), the AfterAll still needs
+			// to know about the first dir we already created.
 			writeSystemPackageRepositoryManifest(repoCfgPath, true)
+			repoScratchDirs = append(repoScratchDirs, strings.TrimRight(repoCfgPath, "/"))
 			writeSystemPackageRepositoryManifest(installerOnlyCfgPath, false)
-			repoScratchDirs = []string{
-				strings.TrimRight(repoCfgPath, "/"),
-				strings.TrimRight(installerOnlyCfgPath, "/"),
-			}
+			repoScratchDirs = append(repoScratchDirs, strings.TrimRight(installerOnlyCfgPath, "/"))
 		})
 
 		AfterAll(func() {
 			if !pgdgPreflightComplete {
+				return
+			}
+			// Honor the same native-mode escape hatch the sibling #200
+			// AfterAll uses (see L939-944): a native opt-in run that
+			// sets TOMEI_E2E_NATIVE_SKIP_CLEANUP=true to inspect host
+			// state after a failure must apply consistently here too,
+			// or this Context would silently re-clean what the sibling
+			// preserved.
+			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") == "true" {
+				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping #218 PGDG file + /tmp cleanup")
 				return
 			}
 			// Scratch-dir cleanup: this Context's helper records its
@@ -1831,9 +1866,16 @@ EOF`, dir, repoBlock)
 					Expect(err).NotTo(HaveOccurred(), "missing %s", pgdgSourcePath)
 					_, err = testExec.ExecBash("test -s " + pgdgKeyringPath)
 					Expect(err).NotTo(HaveOccurred(), "%s is empty", pgdgKeyringPath)
+					// Exact-equality (not ContainSubstring): GNU stat
+					// renders the special bits as a leading digit
+					// (`1644 root:root` for sticky, `2644 root:root`
+					// for setgid). ContainSubstring("644 root:root")
+					// would pass for those, but the 0644 contract
+					// (install -D -m 0644 -o root -g root) means a
+					// regression that flips a special bit must fail.
 					modeOut, err := testExec.ExecBash("stat -c '%a %U:%G' -- " + pgdgKeyringPath)
 					Expect(err).NotTo(HaveOccurred(), "stat on %s failed", pgdgKeyringPath)
-					Expect(modeOut).To(ContainSubstring("644 root:root"),
+					Expect(strings.TrimSpace(modeOut)).To(Equal("644 root:root"),
 						"keyring mode/ownership mismatch; stat: %s", strings.TrimSpace(modeOut))
 					// sources.list is also installed via `install -D -m
 					// 0644 -o root -g root` (see
@@ -1842,7 +1884,7 @@ EOF`, dir, repoBlock)
 					// for the sources.list path is caught.
 					srcModeOut, err := testExec.ExecBash("stat -c '%a %U:%G' -- " + pgdgSourcePath)
 					Expect(err).NotTo(HaveOccurred(), "stat on %s failed", pgdgSourcePath)
-					Expect(srcModeOut).To(ContainSubstring("644 root:root"),
+					Expect(strings.TrimSpace(srcModeOut)).To(Equal("644 root:root"),
 						"sources.list mode/ownership mismatch; stat: %s", strings.TrimSpace(srcModeOut))
 					// Validate keyring is a real GPG keyring. Uses --with-colons
 					// machine-readable output (stable across gpg 2.x versions,
@@ -2011,12 +2053,14 @@ EOF`, dir, repoBlock)
 				Expect(out).NotTo(ContainSubstring("system resource apply failed"))
 
 				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
-					// `test ! -e` (not `! test -f`): the removal
-					// contract is total non-existence, so a leftover
-					// directory or dangling symlink at this path must
-					// also fail the assertion. `test -f` would pass for
-					// either of those failure modes.
-					_, err := testExec.ExecBash("test ! -e " + p)
+					// Removal contract: NO filesystem entry of any kind
+					// at this path. Both `-e` and `-L` are required —
+					// `-e` follows symlinks (so a dangling symlink
+					// passes `! -e`), and `-L` checks the link itself
+					// without following. Pairing them rejects regular
+					// files, directories, dangling symlinks, and live
+					// symlinks alike.
+					_, err := testExec.ExecBash("test ! -e " + p + " && test ! -L " + p)
 					Expect(err).NotTo(HaveOccurred(), "%s should have been removed (file, directory, or symlink left behind)", p)
 				}
 				st := readState()
