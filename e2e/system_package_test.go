@@ -1817,7 +1817,7 @@ EOF`, dir, repoBlock)
 				return
 			}
 			// Honor the same native-mode escape hatch the sibling #200
-			// AfterAll uses (see L939-944): a native opt-in run that
+			// AfterAll uses: a native opt-in run that
 			// sets TOMEI_E2E_NATIVE_SKIP_CLEANUP=true to inspect host
 			// state after a failure must apply consistently here too,
 			// or this Context would silently re-clean what the sibling
