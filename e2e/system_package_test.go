@@ -493,18 +493,13 @@ func systemPackageTests() {
 
 	// installCfgPath / removalCfgPath are sibling manifests under /tmp/
 	// that exercise the SystemPackageSet apply path WITHOUT pgdgRepo.
-	// pgdg's installer needs `gpg --dearmor` and `gnupg` is intentionally
-	// not in the runner image (#197 follow-up will add it together with a
-	// network mock). The canonical fixture at ~/system-package-test/ keeps
-	// pgdgRepo so the prior validate/plan/PIt Contexts continue to assert
-	// against it; the apply Contexts here use their own sibling manifests
-	// to isolate the SystemPackageSet apply path.
-	//
-	// TODO(#197-followup): once gnupg lands in the runner image and PGDG
-	// network access can be mocked, re-align the install/removal heredocs
-	// with the canonical fixture (add pgdgRepo) and either promote the
-	// existing PIts to It or fold the SystemPackageRepository apply
-	// coverage into this Context.
+	// SystemPackageRepository apply now lives in the sibling
+	// "Apply --system installs SystemPackageRepository (#218)" Context
+	// below (gnupg is now installed in the runner image; see
+	// e2e/containers/ubuntu/Dockerfile). Keeping the SystemPackageSet
+	// apply heredocs PGDG-free lets that Context exercise the package-
+	// install path in isolation, without reaching apt.postgresql.org
+	// over the network on every run.
 	// Scratch paths carry a per-process unguessable suffix
 	// (PID + ns timestamp). The earlier fixed paths
 	// (`/tmp/tomei-system-package-install/`, etc.) were predictable
@@ -797,18 +792,34 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 		Expect(err).NotTo(HaveOccurred(), "writing manifest content for %s failed", dir)
 	}
 
-	// stateJSONPath returns the literal path string with a leading `~`. Shell
-	// `~` expansion happens in ExecBash (the user's $HOME inside the container
-	// may differ from the host test process's $HOME, so locally os.ExpandEnv
-	// would compute the wrong path). Callers must pass it to a shell builtin
-	// that supports tilde expansion (cat, ls, sha256sum, test, etc.).
+	// stateJSONPath is the literal path string with a leading `~`.
+	// Tilde expansion is a shell feature performed at parse time on
+	// the command line, not by individual commands — so the path must
+	// be interpolated into a shell command via ExecBash (where the
+	// user's $HOME inside the container may differ from the host test
+	// process's $HOME, so locally os.ExpandEnv would compute the wrong
+	// path). It is safe with any command that consumes argv from a
+	// shell parse (cat, ls, sha256sum, test, etc.); it is NOT safe
+	// passed directly as an argv element to argv-form Exec.
 	const stateJSONPath = "~/.local/share/tomei/system/state.json"
 
-	// fileSha256IfExists returns the sha256 hex digest of the file at path,
-	// or "" if the file does not exist (or any cleanup-step error occurs).
-	// Used by the #218 Ordered Context's BeforeAll to capture pre-test state
-	// so AfterAll can distinguish "file we created" from "file that already
-	// existed on the host" and only rm -f the former.
+	// pathExistsAny reports whether ANY filesystem entry sits at path
+	// (regular file, directory, live symlink, or dangling symlink). It
+	// does NOT read the file, so an unreadable root-owned file or a
+	// dangling symlink whose target is missing still classifies as
+	// "exists". Use this in safety guards that only need the existence
+	// bit and must not abort on hash/permission errors — e.g. the
+	// pre-test "refuse to clobber" check in the #218 BeforeAll.
+	pathExistsAny := func(path string) bool {
+		out, err := testExec.ExecBash(fmt.Sprintf(
+			"if [ -e %[1]s ] || [ -L %[1]s ]; then echo yes; else echo no; fi", path))
+		Expect(err).NotTo(HaveOccurred(),
+			"probing existence of %s failed: %s", path, out)
+		return strings.TrimSpace(out) == "yes"
+	}
+
+	// fileSha256IfExists.
+	//
 	// Returns (hash, exists). exists is true iff *any* filesystem entry
 	// is present at the path — regular file, directory, or symlink
 	// (dangling or otherwise). Callers must check `exists` to decide
@@ -1707,8 +1718,17 @@ EOF`, dir, repoBlock)
 			// checks would miss a regression that rewrites the files
 			// while preserving their paths).
 			postInstallFileHashes map[string]string
-			repoScratchDirs       []string // /tmp dirs this Context owns, for AfterAll cleanup
 		)
+		// repoScratchDirPrefix matches /tmp scratch dirs registered by
+		// writeSystemPackageRepositoryManifest into the suite-level
+		// scratchDirs ledger. AfterAll filters scratchDirs by this
+		// prefix instead of maintaining a parallel ledger — the helper
+		// registers each dir at claim time (before content write), so a
+		// content-write failure mid-helper still leaves a registered
+		// entry for cleanup to consume. The sibling #200 Context's
+		// AfterAll only iterates scratchDirs entries that were present
+		// when it ran, so #218 entries (added after) are still here.
+		const repoScratchDirPrefix = "/tmp/tomei-system-package-repository"
 
 		// readState parses ~/.local/share/tomei/system/state.json via shell
 		// cat (state.json lives inside the container, not on the host where
@@ -1759,8 +1779,12 @@ EOF`, dir, repoBlock)
 			// runner always starts from a clean image, so this gate only
 			// fires on native opt-in runs (or a reused container with
 			// leftover pgdg files from a botched previous run).
+			// Use pathExistsAny (existence-only, never hashes) so a
+			// pre-existing unreadable root-owned PGDG file gets us a
+			// clean Skip instead of an Expect failure inside the hash
+			// step of fileSha256IfExists.
 			for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
-				if _, exists := fileSha256IfExists(p); exists {
+				if pathExistsAny(p) {
 					Skip(fmt.Sprintf("pre-existing %s on host: refusing to clobber a real PGDG setup (re-run this Context in the container e2e runner instead)", p))
 				}
 			}
@@ -1778,14 +1802,14 @@ EOF`, dir, repoBlock)
 			scratchSuffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
 			repoCfgPath = "/tmp/tomei-system-package-repository-" + scratchSuffix + "/"
 			installerOnlyCfgPath = "/tmp/tomei-system-package-repository-removal-" + scratchSuffix + "/"
-			// Append to repoScratchDirs immediately after each helper
-			// returns, NOT in one shot after both. If the second helper
-			// aborts BeforeAll (Expect inside), the AfterAll still needs
-			// to know about the first dir we already created.
+			// The helper registers each dir into the suite-level
+			// scratchDirs ledger at claim time (right after the marker
+			// touch, before the content write). So even if the second
+			// call's content write aborts BeforeAll, AfterAll's prefix-
+			// filtered cleanup will still find and remove the partial
+			// dir — no separate per-Context ledger needed.
 			writeSystemPackageRepositoryManifest(repoCfgPath, true)
-			repoScratchDirs = append(repoScratchDirs, strings.TrimRight(repoCfgPath, "/"))
 			writeSystemPackageRepositoryManifest(installerOnlyCfgPath, false)
-			repoScratchDirs = append(repoScratchDirs, strings.TrimRight(installerOnlyCfgPath, "/"))
 		})
 
 		AfterAll(func() {
@@ -1802,13 +1826,17 @@ EOF`, dir, repoBlock)
 				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping #218 PGDG file + /tmp cleanup")
 				return
 			}
-			// Scratch-dir cleanup: this Context's helper records its
-			// dirs in the suite-level scratchDirs map, but that ledger's
-			// rm-loop is scoped to the sibling #200 Context's AfterAll
-			// — which has already run by the time we land here. Iterate
-			// our own list so /tmp/tomei-system-package-repository-*
-			// does not leak after the suite.
-			for _, dir := range repoScratchDirs {
+			// Scratch-dir cleanup: filter the suite-level scratchDirs
+			// ledger by the #218 repo prefix. The sibling #200
+			// AfterAll's cleanup loop has already run, but it didn't
+			// delete map entries — and the helper registers our dirs at
+			// claim time (right after marker touch), so a partial
+			// content-write failure inside writeSystemPackageRepository-
+			// Manifest still leaves an entry for us to remove.
+			for dir := range scratchDirs {
+				if !strings.HasPrefix(dir, repoScratchDirPrefix) {
+					continue
+				}
 				if !systemPackageTestDirRE.MatchString(dir) {
 					continue
 				}
@@ -1844,15 +1872,23 @@ EOF`, dir, repoBlock)
 			if removedAny {
 				_, _ = testExec.ExecBash("sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update -y 2>&1 || true")
 			}
-			resetSystemState()
+			// Best-effort: bypass resetSystemState (which Expects) and
+			// directly overwrite state.json, tolerating non-zero exits.
+			// The rest of this AfterAll is best-effort so a cleanup-only
+			// failure does not mask the spec failure that drove cleanup
+			// here in the first place; the strict resetSystemState would
+			// add an extra failure on a temporarily-unwritable path.
+			_, _ = testExec.ExecBash(
+				`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ` + stateJSONPath + ` || true`)
 		})
 
 		It("apply --system installs the repository on the host",
 			Label("needs-gnupg", "needs-network"), func() {
-				// Irreversible gate: once set, the AfterAll cleanup (L1745)
-				// is mandatory because some host mutation MAY have already
-				// happened, even if ExecApply below returns non-zero. Best-
-				// effort rm -f means partial cleanup never cascades.
+				// Irreversible gate: once set, the AfterAll cleanup
+				// (above) is mandatory because some host mutation MAY
+				// have already happened, even if ExecApply below
+				// returns non-zero. Best-effort rm -f means partial
+				// cleanup never cascades.
 				pgdgMutationStarted = true
 				out, err := ExecApply(testExec, "--system", repoCfgPath)
 				Expect(err).NotTo(HaveOccurred(), "apply --system failed; output:\n%s", out)
