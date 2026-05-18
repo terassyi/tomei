@@ -820,24 +820,21 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 
 	// fileSha256IfExists.
 	//
-	// Returns (hash, exists). exists is true iff *any* filesystem entry
-	// is present at the path — regular file, directory, or symlink
-	// (dangling or otherwise). Callers must check `exists` to decide
-	// whether they are looking at an existing host artifact; in that
-	// case `hash` is the sha256 of the file (for symlinks: of the
-	// target), or "" if the path is not a hashable regular file (e.g.
-	// a dangling symlink, a directory). Hashing/probing errors are
-	// surfaced via Expect rather than silently collapsing to "absent",
-	// so a transient sha256sum or permission failure on a pre-existing
-	// path cannot make the AfterAll mistake that path for one we wrote.
+	// Returns (hash, exists) for a file the SUITE itself wrote and
+	// expects to be present. Current use is the post-install snapshot
+	// in the #218 install spec, which captures the just-installed
+	// keyring/sources.list bytes so the no-flag retention spec can
+	// later assert byte-identity. Pre-existing-path safety guards in
+	// BeforeAll use pathExistsAny instead — that path must NEVER hash
+	// a host-owned file. Hashing/probing errors here are surfaced via
+	// Expect (not collapsed to "absent") so a regression in the suite-
+	// owned file is loud rather than silent.
 	fileSha256IfExists := func(path string) (string, bool) {
 		// Stage 1: existence probe. `-e` follows symlinks (and so
 		// returns false for a dangling symlink); pair with `-L` so a
 		// dangling symlink at this path is still classified as
-		// "exists" — BeforeAll uses this helper to decide whether it's
-		// safe to overwrite the path, and a leftover dangling symlink
-		// at /usr/share/keyrings/pgdg.gpg from a previous botched
-		// install must NOT be treated as a clean slate.
+		// "exists" — defensive against an out-of-band tampering of
+		// the suite-owned file between install and snapshot.
 		existsOut, existsErr := testExec.ExecBash(fmt.Sprintf(
 			"if [ -e %[1]s ] || [ -L %[1]s ]; then echo yes; else echo no; fi", path))
 		Expect(existsErr).NotTo(HaveOccurred(),
@@ -1693,10 +1690,10 @@ EOF`, dir, repoBlock)
 	//
 	// BeforeAll Skips the Context if either pgdgKeyringPath or
 	// pgdgSourcePath already exists on the host (including as a
-	// dangling symlink) — see the fileSha256IfExists guard. With that
-	// gate in place, any file present at AfterAll time was written by
-	// this Context and is unconditionally safe to remove; no restore
-	// step is needed. TOMEI_E2E_NATIVE_SKIP_CLEANUP=true bypasses the
+	// dangling symlink) — see the pathExistsAny guard. With that gate
+	// in place, any file present at AfterAll time was written by this
+	// Context and is unconditionally safe to remove; no restore step
+	// is needed. TOMEI_E2E_NATIVE_SKIP_CLEANUP=true bypasses the
 	// AfterAll cleanup to preserve host state for inspection after a
 	// failed native opt-in run (same semantics as the sibling #200
 	// Context).
@@ -1995,10 +1992,41 @@ EOF`, dir, repoBlock)
 				before := readState()
 				zeroTimestamps(&before)
 
+				// PRE-apply plan must already show zero work — this
+				// catches a regression where the second apply WOULD
+				// re-run install (rewriting bytes to the same content)
+				// even though the post-apply structural state-equality
+				// below would still pass. Without this guard, an
+				// unnecessary re-install would only surface as a flaky
+				// network-traffic spike.
+				preplanOut, err := testExec.Exec("tomei", "plan", "--system", repoCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "pre-apply plan failed: %s", preplanOut)
+				Expect(preplanOut).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
+					"pre-second-apply plan must already show zero work; got:\n%s", preplanOut)
+
+				// Byte snapshot of the on-disk files going into the
+				// second apply. After the apply we re-hash and assert
+				// the bytes are identical, so an unnecessary re-write
+				// (same content, new mtime) is still caught even
+				// though state.json structural equality would survive.
+				preApplyFileHashes := map[string]string{}
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "pre-apply: %s missing", p)
+					preApplyFileHashes[p] = h
+				}
+
 				out, err := ExecApply(testExec, "--system", repoCfgPath)
 				Expect(err).NotTo(HaveOccurred(), "second apply failed; output:\n%s", out)
 				Expect(out).NotTo(ContainSubstring("system resource apply failed"),
 					"idempotent re-apply surfaced system-engine warning; got:\n%s", out)
+
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "post-second-apply: %s missing", p)
+					Expect(h).To(Equal(preApplyFileHashes[p]),
+						"%s contents changed across idempotent re-apply (sha256 mismatch); the install path re-ran when it should have no-op'd", p)
+				}
 
 				after := readState()
 				zeroTimestamps(&after)
