@@ -98,6 +98,19 @@ var systemPackageTestDirRE = regexp.MustCompile(`^/tmp/[A-Za-z0-9_\-]+(\.[A-Za-z
 // unverified key.
 const pgdgKeyHashSHA256 = "sha256:0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76"
 
+// pgdgURL / pgdgKeyURL / pgdgComponent pin the remaining AptSource
+// fields. The drift detector below asserts each against the canonical
+// fixture at e2e/config/system-package-test/manifest.cue so the scratch
+// /tmp manifest emitted by writeSystemPackageRepositoryManifest cannot
+// silently diverge from what validate/plan exercise. Without these
+// pins, the apply path could test against a different repo URL than
+// the validate/plan coverage and a fixture edit would not be caught.
+const (
+	pgdgURL       = "https://apt.postgresql.org/pub/repos/apt"
+	pgdgKeyURL    = "https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc"
+	pgdgComponent = "main"
+)
+
 func systemPackageTests() {
 	const cfgPath = "~/system-package-test/"
 
@@ -179,6 +192,18 @@ func systemPackageTests() {
 				"manifest.cue spec.apt.keyHash and the Go const pgdgKeyHashSHA256 must stay in lockstep — see the manifest header comment for the rotation procedure")
 			Expect(string(raw)).To(ContainSubstring(`suite:   "`+pgdgSuite+`"`),
 				"manifest.cue spec.apt.suite and the Go const pgdgSuite must stay in lockstep — PGDG uses the <codename>-pgdg convention, a bare codename would 404 at apt-get update")
+			// Pin the remaining AptSource fields against the canonical
+			// fixture: the apply path's scratch /tmp manifest uses
+			// these Go consts directly, so without these drift checks
+			// the fixture could be edited (e.g. mirror URL change) and
+			// the validate/plan vs. apply coverage would silently
+			// exercise different repository definitions.
+			Expect(string(raw)).To(ContainSubstring(`url:     "`+pgdgURL+`"`),
+				"manifest.cue spec.apt.url and the Go const pgdgURL must stay in lockstep")
+			Expect(string(raw)).To(ContainSubstring(`keyUrl:  "`+pgdgKeyURL+`"`),
+				"manifest.cue spec.apt.keyUrl and the Go const pgdgKeyURL must stay in lockstep")
+			Expect(string(raw)).To(ContainSubstring(`components: ["`+pgdgComponent+`"]`),
+				"manifest.cue spec.apt.components and the Go const pgdgComponent must stay in lockstep")
 		})
 
 		It("Dockerfile Ubuntu release matches pgdgUbuntuRelease and pgdgSuite codename (rotation contract)", func() {
@@ -904,15 +929,15 @@ pgdgRepo: {
 	spec: {
 		installerRef: "apt"
 		apt: {
-			url:     "https://apt.postgresql.org/pub/repos/apt"
-			keyUrl:  "https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc"
+			url:     "%[3]s"
+			keyUrl:  "%[4]s"
 			keyHash: "%[1]s"
 			suite:   "%[2]s"
-			components: ["main"]
+			components: ["%[5]s"]
 		}
 	}
 }
-`, pgdgKeyHashSHA256, pgdgSuite)
+`, pgdgKeyHashSHA256, pgdgSuite, pgdgURL, pgdgKeyURL, pgdgComponent)
 		}
 
 		content := fmt.Sprintf(`set -euo pipefail
@@ -1758,8 +1783,19 @@ EOF`, dir, repoBlock)
 			// native opt-in run on a minimal Debian/Ubuntu host without
 			// gnupg would fail mid-apply with a confusing error instead
 			// of skipping with a clear prerequisite message.
+			//
+			// In TOMEI_E2E_CONTAINER mode the Dockerfile is supposed to
+			// install gnupg (see e2e/containers/ubuntu/Dockerfile). A
+			// regression that drops the gnupg apt-get line must FAIL
+			// CI rather than turn this whole Context into a silent
+			// skip, so the missing-gpg branch only Skips for native
+			// opt-in runs and Expects in container mode.
 			_, gpgErr := testExec.ExecBash("command -v gpg >/dev/null 2>&1")
 			if gpgErr != nil {
+				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+					Expect(gpgErr).NotTo(HaveOccurred(),
+						"gpg missing in TOMEI_E2E_CONTAINER mode: the runner image is supposed to install gnupg via e2e/containers/ubuntu/Dockerfile — a regression there silently turned repository apply coverage into a skip")
+				}
 				Skip("gpg not found on PATH: SystemPackageRepository apply requires gnupg (install `gnupg` or use the container e2e runner)")
 			}
 
@@ -1929,8 +1965,16 @@ EOF`, dir, repoBlock)
 					// to /dev/null so a real gpg failure (corrupt keyring,
 					// missing agent socket) surfaces in test logs instead of
 					// being silenced — pipefail propagates the non-zero exit.
+					// Isolate gpg from the host's GNUPGHOME / gpg.conf:
+					// `--homedir` to a fresh /tmp directory, `--no-options`
+					// so a developer's gpg.conf can't change command
+					// semantics, and `--batch` to prevent any pinentry/
+					// agent prompt. Mirrors the dearmor isolation done by
+					// the installer in internal/installer/apt/repository.go.
+					// trap-cleanup removes the homedir on success or
+					// failure so a leaked /tmp/gpghome-* does not pile up.
 					gpgOut, err := testExec.ExecBash(
-						"set -o pipefail; gpg --no-default-keyring --keyring " + pgdgKeyringPath + " --with-colons --list-keys 2>&1")
+						"set -o pipefail; H=$(mktemp -d -t tomei-e2e-gpg-XXXXXX); trap 'rm -rf -- \"$H\"' EXIT; gpg --homedir \"$H\" --no-options --batch --no-default-keyring --keyring " + pgdgKeyringPath + " --with-colons --list-keys 2>&1")
 					Expect(err).NotTo(HaveOccurred(),
 						"gpg --list-keys on %s failed; output:\n%s", pgdgKeyringPath, gpgOut)
 					Expect(gpgOut).To(MatchRegexp(`(?m)^pub:`),
@@ -1982,11 +2026,15 @@ EOF`, dir, repoBlock)
 				}
 			})
 
-		// Known limitation: a transient 5xx from apt.postgresql.org during
-		// the second apply causes apt-get update inside the Install path to
-		// fail, surfaced via the "system resource apply failed" warning
-		// guard below. That is a network-flake failure mode, not a code
-		// regression — `needs-network` label allows opt-out filtering.
+		// A truly idempotent second apply does NOT enter Install at
+		// all — the pre-apply plan-zero-work guard below proves the
+		// reconciler agrees there's nothing to do, and the post-apply
+		// sha256 check proves no rewrite happened. If a second apply
+		// reaches apt.postgresql.org / apt-get update at all, that is
+		// the regression this spec catches, NOT a network flake to
+		// dismiss. The `needs-network` label only documents that the
+		// upstream install spec (which this depends on via Ordered)
+		// hits the network — not that this spec is allowed to.
 		It("apply --system twice is idempotent",
 			Label("needs-gnupg", "needs-network"), func() {
 				before := readState()
@@ -2004,16 +2052,27 @@ EOF`, dir, repoBlock)
 				Expect(preplanOut).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
 					"pre-second-apply plan must already show zero work; got:\n%s", preplanOut)
 
-				// Byte snapshot of the on-disk files going into the
-				// second apply. After the apply we re-hash and assert
-				// the bytes are identical, so an unnecessary re-write
-				// (same content, new mtime) is still caught even
-				// though state.json structural equality would survive.
+				// Byte + mtime snapshot of the on-disk files going
+				// into the second apply. After the apply we re-check
+				// both: a same-content rewrite (e.g. `install -D`
+				// run again with identical bytes) leaves the sha256
+				// unchanged but advances mtime/ctime, so we need
+				// both legs to actually catch an unnecessary
+				// re-install.
 				preApplyFileHashes := map[string]string{}
+				preApplyFileMtimes := map[string]string{}
 				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
 					h, exists := fileSha256IfExists(p)
 					Expect(exists).To(BeTrue(), "pre-apply: %s missing", p)
 					preApplyFileHashes[p] = h
+					// `stat -c %Y` is mtime in seconds since epoch.
+					// `%Z` (ctime) would also catch ownership/mode
+					// rewrites, but apply re-running install would
+					// touch mtime regardless of whether it changed
+					// ownership — mtime is sufficient and stable.
+					mtimeOut, err := testExec.ExecBash("stat -c '%Y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "pre-apply: stat %Y on %s failed", p)
+					preApplyFileMtimes[p] = strings.TrimSpace(mtimeOut)
 				}
 
 				out, err := ExecApply(testExec, "--system", repoCfgPath)
@@ -2026,6 +2085,10 @@ EOF`, dir, repoBlock)
 					Expect(exists).To(BeTrue(), "post-second-apply: %s missing", p)
 					Expect(h).To(Equal(preApplyFileHashes[p]),
 						"%s contents changed across idempotent re-apply (sha256 mismatch); the install path re-ran when it should have no-op'd", p)
+					mtimeOut, err := testExec.ExecBash("stat -c '%Y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "post-apply: stat %Y on %s failed", p)
+					Expect(strings.TrimSpace(mtimeOut)).To(Equal(preApplyFileMtimes[p]),
+						"%s mtime advanced across idempotent re-apply; the install path re-wrote identical bytes when it should have no-op'd", p)
 				}
 
 				after := readState()
