@@ -1992,8 +1992,8 @@ EOF`, dir, repoBlock)
 					src, err := testExec.ExecBash("cat -- " + pgdgSourcePath)
 					Expect(err).NotTo(HaveOccurred(), "cat %s failed", pgdgSourcePath)
 					Expect(src).To(ContainSubstring("signed-by=" + pgdgKeyringPath))
-					Expect(src).To(ContainSubstring("https://apt.postgresql.org/pub/repos/apt"))
-					Expect(src).To(ContainSubstring(pgdgSuite + " main"))
+					Expect(src).To(ContainSubstring(pgdgURL))
+					Expect(src).To(ContainSubstring(pgdgSuite + " " + pgdgComponent))
 				})
 
 				By("state.json records the repository", func() {
@@ -2060,19 +2060,25 @@ EOF`, dir, repoBlock)
 				// both legs to actually catch an unnecessary
 				// re-install.
 				preApplyFileHashes := map[string]string{}
-				preApplyFileMtimes := map[string]string{}
+				preApplyFileIdents := map[string]string{}
 				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
 					h, exists := fileSha256IfExists(p)
 					Expect(exists).To(BeTrue(), "pre-apply: %s missing", p)
 					preApplyFileHashes[p] = h
-					// `stat -c %Y` is mtime in seconds since epoch.
-					// `%Z` (ctime) would also catch ownership/mode
-					// rewrites, but apply re-running install would
-					// touch mtime regardless of whether it changed
-					// ownership — mtime is sufficient and stable.
-					mtimeOut, err := testExec.ExecBash("stat -c '%Y' -- " + p)
-					Expect(err).NotTo(HaveOccurred(), "pre-apply: stat %Y on %s failed", p)
-					preApplyFileMtimes[p] = strings.TrimSpace(mtimeOut)
+					// Identify the file by inode + full-precision
+					// mtime (`%y` includes nanoseconds). The installer
+					// uses `install -D` which writes to a tmpfile and
+					// renames into place, producing a NEW inode on
+					// every run — so an inode change is a definitive
+					// "install path re-ran" signal even when the
+					// rewrite happens within the same wall-clock
+					// second (whole-second `%Y` would miss that). The
+					// nanosecond mtime is a redundant second leg in
+					// case a filesystem (e.g. tmpfs without strictatime)
+					// somehow recycles inodes.
+					identOut, err := testExec.ExecBash("stat -c '%i|%y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "pre-apply: stat on %s failed", p)
+					preApplyFileIdents[p] = strings.TrimSpace(identOut)
 				}
 
 				out, err := ExecApply(testExec, "--system", repoCfgPath)
@@ -2085,10 +2091,10 @@ EOF`, dir, repoBlock)
 					Expect(exists).To(BeTrue(), "post-second-apply: %s missing", p)
 					Expect(h).To(Equal(preApplyFileHashes[p]),
 						"%s contents changed across idempotent re-apply (sha256 mismatch); the install path re-ran when it should have no-op'd", p)
-					mtimeOut, err := testExec.ExecBash("stat -c '%Y' -- " + p)
-					Expect(err).NotTo(HaveOccurred(), "post-apply: stat %Y on %s failed", p)
-					Expect(strings.TrimSpace(mtimeOut)).To(Equal(preApplyFileMtimes[p]),
-						"%s mtime advanced across idempotent re-apply; the install path re-wrote identical bytes when it should have no-op'd", p)
+					identOut, err := testExec.ExecBash("stat -c '%i|%y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "post-apply: stat on %s failed", p)
+					Expect(strings.TrimSpace(identOut)).To(Equal(preApplyFileIdents[p]),
+						"%s inode or mtime changed across idempotent re-apply; the install path re-wrote identical bytes (likely via install -D) when it should have no-op'd", p)
 				}
 
 				after := readState()
