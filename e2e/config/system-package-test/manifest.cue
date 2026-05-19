@@ -82,10 +82,11 @@ cliTools: {
 // sha256sum` and the e2e Go const pgdgKeyHashSHA256 updated in lockstep.
 //
 // Validate and plan only read the manifest — they do NOT fetch keyUrl or
-// hit the network. apply (currently declared as Ginkgo Pending via PIt in
-// e2e/system_package_test.go, awaiting gnupg in the runner image) is the
-// only path that fetches the key, verifies the hash, and reaches the
-// suite. The suite below uses the PGDG-specific naming convention
+// hit the network. apply (exercised against the host in the
+// "Apply --system installs SystemPackageRepository (#218)" Ordered
+// Context in e2e/system_package_test.go; gnupg ships in the runner
+// image via e2e/containers/ubuntu/Dockerfile) is the only path that
+// fetches the key, verifies the hash, and reaches the suite. The suite below uses the PGDG-specific naming convention
 // `<codename>-pgdg` (not bare `<codename>`): the PostgreSQL project ships
 // distributions under e.g. `noble-pgdg`, `jammy-pgdg`, `bookworm-pgdg`.
 // Using a bare suite name would 404 the moment apply lands.

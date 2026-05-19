@@ -14,6 +14,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/terassyi/tomei/internal/state"
 )
 
 // pgdgSuite is the second half of the rotation contract: the suite name
@@ -96,6 +98,19 @@ var systemPackageTestDirRE = regexp.MustCompile(`^/tmp/[A-Za-z0-9_\-]+(\.[A-Za-z
 // unverified key.
 const pgdgKeyHashSHA256 = "sha256:0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76"
 
+// pgdgURL / pgdgKeyURL / pgdgComponent pin the remaining AptSource
+// fields. The drift detector below asserts each against the canonical
+// fixture at e2e/config/system-package-test/manifest.cue so the scratch
+// /tmp manifest emitted by writeSystemPackageRepositoryManifest cannot
+// silently diverge from what validate/plan exercise. Without these
+// pins, the apply path could test against a different repo URL than
+// the validate/plan coverage and a fixture edit would not be caught.
+const (
+	pgdgURL       = "https://apt.postgresql.org/pub/repos/apt"
+	pgdgKeyURL    = "https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc"
+	pgdgComponent = "main"
+)
+
 func systemPackageTests() {
 	const cfgPath = "~/system-package-test/"
 
@@ -140,22 +155,10 @@ func systemPackageTests() {
 	// determined action passes through to the printer, so plan shows
 	// "[+ install]" for an uninstalled pgdg.
 	//
-	// The apply / removal / idempotency arms of the spec are declared as
-	// Ginkgo Pending specs (PIt) rather than running real apply against
-	// the host. Rationale:
-	//
-	//   - The e2e runner image (e2e/containers/ubuntu/Dockerfile) does
-	//     not currently install gnupg, so apt.PackageRepositoryInstaller's
-	//     `gpg --dearmor` step would fail. Adding gnupg is out of scope
-	//     for this PR; #197 follow-up will land the Dockerfile bump plus
-	//     promote these PIt specs to It with real assertions.
-	//   - Even with gnupg present, apply --system mutates host state
-	//     (/usr/share/keyrings/pgdg.gpg and /etc/apt/sources.list.d/pgdg.list)
-	//     which would persist across containerised tests if the runner is
-	//     reused, and would reach apt.postgresql.org over the network at
-	//     test time — a brittle dependency for CI. The PIt bodies
-	//     document the expected post-apply invariants so the follow-up
-	//     PR has a single place to flip PIt -> It.
+	// The apply / removal / idempotency arms of the spec are exercised
+	// against the host in the sibling Ordered Context "Apply --system
+	// installs SystemPackageRepository (#218)" below (gnupg now ships in
+	// the e2e runner image; see e2e/containers/ubuntu/Dockerfile).
 	Context("SystemPackageRepository (#197)", func() {
 		It("validates the manifest", func() {
 			out, err := testExec.Exec("tomei", "validate", cfgPath)
@@ -189,6 +192,18 @@ func systemPackageTests() {
 				"manifest.cue spec.apt.keyHash and the Go const pgdgKeyHashSHA256 must stay in lockstep — see the manifest header comment for the rotation procedure")
 			Expect(string(raw)).To(ContainSubstring(`suite:   "`+pgdgSuite+`"`),
 				"manifest.cue spec.apt.suite and the Go const pgdgSuite must stay in lockstep — PGDG uses the <codename>-pgdg convention, a bare codename would 404 at apt-get update")
+			// Pin the remaining AptSource fields against the canonical
+			// fixture: the apply path's scratch /tmp manifest uses
+			// these Go consts directly, so without these drift checks
+			// the fixture could be edited (e.g. mirror URL change) and
+			// the validate/plan vs. apply coverage would silently
+			// exercise different repository definitions.
+			Expect(string(raw)).To(ContainSubstring(`url:     "`+pgdgURL+`"`),
+				"manifest.cue spec.apt.url and the Go const pgdgURL must stay in lockstep")
+			Expect(string(raw)).To(ContainSubstring(`keyUrl:  "`+pgdgKeyURL+`"`),
+				"manifest.cue spec.apt.keyUrl and the Go const pgdgKeyURL must stay in lockstep")
+			Expect(string(raw)).To(ContainSubstring(`components: ["`+pgdgComponent+`"]`),
+				"manifest.cue spec.apt.components and the Go const pgdgComponent must stay in lockstep")
 		})
 
 		It("Dockerfile Ubuntu release matches pgdgUbuntuRelease and pgdgSuite codename (rotation contract)", func() {
@@ -254,49 +269,13 @@ func systemPackageTests() {
 				"plan output must show SystemPackageRepository/pgdg with the [+ install] marker on the same line; got:\n%s", out)
 		})
 
-		// The three apply / idempotency / removal arms are PENDING rather
-		// than Skip()'d-with-a-message. Ginkgo's PIt reports the spec as
-		// "P" (pending, distinct from "S" skipped) in the suite summary,
-		// preserves the Label() for `ginkgo --label-filter` opt-in, and
-		// — crucially — distinguishes a stub-pending-implementation from
-		// an environment-gated Skip (a Skip() reading "needs gnupg" would
-		// silently disappear if the next contributor adds gnupg but
-		// forgets to flip the spec, while a PIt body remains a no-op
-		// until promoted to It). The follow-up PR will flip PIt -> It
-		// once gnupg lands in the runner image and the assertions are
-		// wired against real host state.
-		PIt("apply --system installs the repository on the host",
-			Label("needs-gnupg", "needs-network", "pending-197-followup"),
-			func() {
-				// Pending follow-up. When flipped to It, this spec must:
-				//   - assert /usr/share/keyrings/pgdg.gpg is present with
-				//     mode 0644 root:root,
-				//   - assert /etc/apt/sources.list.d/pgdg.list is present
-				//     and contains signed-by=/usr/share/keyrings/pgdg.gpg,
-				//     the spec URL, and "noble-pgdg main",
-				//   - assert ~/.local/share/tomei/system/state.json contains
-				//     a systemPackageRepositories.pgdg entry pinning
-				//     pgdgKeyHashSHA256.
-				_ = pgdgKeyHashSHA256
-			})
-
-		PIt("apply --system twice is idempotent",
-			Label("needs-gnupg", "needs-network", "pending-197-followup"),
-			func() {
-				// Pending follow-up. When flipped to It, run apply twice
-				// and assert the second `tomei plan --system` between runs
-				// shows no changes for SystemPackageRepository/pgdg.
-			})
-
-		PIt("removing the repo from the manifest cleans up files and state",
-			Label("needs-gnupg", "needs-network", "pending-197-followup"),
-			func() {
-				// Pending follow-up. When flipped to It, write a sibling
-				// manifest without pgdgRepo, re-apply, and assert that
-				//   - /usr/share/keyrings/pgdg.gpg is gone,
-				//   - /etc/apt/sources.list.d/pgdg.list is gone, and
-				//   - state.json no longer mentions pgdg.
-			})
+		// Apply / idempotency / removal / retain-without-flag specs for
+		// SystemPackageRepository live in the sibling Ordered Context
+		// `Apply --system installs SystemPackageRepository (#218)` below.
+		// They are host-mutating (touch /usr/share/keyrings/ and
+		// /etc/apt/sources.list.d/) so they gate on TOMEI_E2E_CONTAINER /
+		// TOMEI_E2E_NATIVE via skipIfNotLinux, whereas the validate/plan
+		// specs in this Context run unconditionally.
 	})
 
 	// SystemPackageSet apply coverage (#200). Mutates host packages, so
@@ -539,18 +518,13 @@ func systemPackageTests() {
 
 	// installCfgPath / removalCfgPath are sibling manifests under /tmp/
 	// that exercise the SystemPackageSet apply path WITHOUT pgdgRepo.
-	// pgdg's installer needs `gpg --dearmor` and `gnupg` is intentionally
-	// not in the runner image (#197 follow-up will add it together with a
-	// network mock). The canonical fixture at ~/system-package-test/ keeps
-	// pgdgRepo so the prior validate/plan/PIt Contexts continue to assert
-	// against it; the apply Contexts here use their own sibling manifests
-	// to isolate the SystemPackageSet apply path.
-	//
-	// TODO(#197-followup): once gnupg lands in the runner image and PGDG
-	// network access can be mocked, re-align the install/removal heredocs
-	// with the canonical fixture (add pgdgRepo) and either promote the
-	// existing PIts to It or fold the SystemPackageRepository apply
-	// coverage into this Context.
+	// SystemPackageRepository apply now lives in the sibling
+	// "Apply --system installs SystemPackageRepository (#218)" Context
+	// below (gnupg is now installed in the runner image; see
+	// e2e/containers/ubuntu/Dockerfile). Keeping the SystemPackageSet
+	// apply heredocs PGDG-free lets that Context exercise the package-
+	// install path in isolation, without reaching apt.postgresql.org
+	// over the network on every run.
 	// Scratch paths carry a per-process unguessable suffix
 	// (PID + ns timestamp). The earlier fixed paths
 	// (`/tmp/tomei-system-package-install/`, etc.) were predictable
@@ -841,6 +815,157 @@ cliTools: {
 EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 		_, err = testExec.ExecBash(content)
 		Expect(err).NotTo(HaveOccurred(), "writing manifest content for %s failed", dir)
+	}
+
+	// stateJSONPath is the literal path string with a leading `~`.
+	// Tilde expansion is a shell feature performed at parse time on
+	// the command line, not by individual commands — so the path must
+	// be interpolated into a shell command via ExecBash (where the
+	// user's $HOME inside the container may differ from the host test
+	// process's $HOME, so locally os.ExpandEnv would compute the wrong
+	// path). It is safe with any command that consumes argv from a
+	// shell parse (cat, ls, sha256sum, test, etc.); it is NOT safe
+	// passed directly as an argv element to argv-form Exec.
+	const stateJSONPath = "~/.local/share/tomei/system/state.json"
+
+	// pathExistsAny reports whether ANY filesystem entry sits at path
+	// (regular file, directory, live symlink, or dangling symlink). It
+	// does NOT read the file, so an unreadable root-owned file or a
+	// dangling symlink whose target is missing still classifies as
+	// "exists". Use this in safety guards that only need the existence
+	// bit and must not abort on hash/permission errors — e.g. the
+	// pre-test "refuse to clobber" check in the #218 BeforeAll.
+	pathExistsAny := func(path string) bool {
+		out, err := testExec.ExecBash(fmt.Sprintf(
+			"if [ -e %[1]s ] || [ -L %[1]s ]; then echo yes; else echo no; fi", path))
+		Expect(err).NotTo(HaveOccurred(),
+			"probing existence of %s failed: %s", path, out)
+		return strings.TrimSpace(out) == "yes"
+	}
+
+	// fileSha256IfExists.
+	//
+	// Returns (hash, exists) for a file the SUITE itself wrote and
+	// expects to be present. Current use is the post-install snapshot
+	// in the #218 install spec, which captures the just-installed
+	// keyring/sources.list bytes so the no-flag retention spec can
+	// later assert byte-identity. Pre-existing-path safety guards in
+	// BeforeAll use pathExistsAny instead — that path must NEVER hash
+	// a host-owned file. Hashing/probing errors here are surfaced via
+	// Expect (not collapsed to "absent") so a regression in the suite-
+	// owned file is loud rather than silent.
+	fileSha256IfExists := func(path string) (string, bool) {
+		// Stage 1: existence probe. `-e` follows symlinks (and so
+		// returns false for a dangling symlink); pair with `-L` so a
+		// dangling symlink at this path is still classified as
+		// "exists" — defensive against an out-of-band tampering of
+		// the suite-owned file between install and snapshot.
+		existsOut, existsErr := testExec.ExecBash(fmt.Sprintf(
+			"if [ -e %[1]s ] || [ -L %[1]s ]; then echo yes; else echo no; fi", path))
+		Expect(existsErr).NotTo(HaveOccurred(),
+			"probing existence of %s failed: %s", path, existsOut)
+		if strings.TrimSpace(existsOut) == "no" {
+			return "", false
+		}
+		// Stage 2: hash. Only hash regular files (or symlinks resolving
+		// to one); dangling symlinks / directories return ("", true)
+		// so callers can still see the path exists without us
+		// fabricating a hash. Hashing failures on a regular file are
+		// fatal — see helper docstring.
+		regOut, _ := testExec.ExecBash(fmt.Sprintf(
+			"if [ -f %[1]s ]; then echo yes; else echo no; fi", path))
+		if strings.TrimSpace(regOut) != "yes" {
+			return "", true
+		}
+		out, err := testExec.ExecBash(fmt.Sprintf(
+			"set -euo pipefail; sha256sum -- %[1]s | awk '{print $1}'", path))
+		Expect(err).NotTo(HaveOccurred(),
+			"%s exists but sha256sum failed: %s", path, out)
+		return strings.TrimSpace(out), true
+	}
+
+	// resetSystemState writes a minimal valid empty SystemState to the
+	// system state.json. Used by Ordered Contexts that need a clean slate
+	// without doing a full `tomei init --force` (which would also touch the
+	// user state.json owned by other suites).
+	resetSystemState := func() {
+		_, err := testExec.ExecBash(
+			`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ` + stateJSONPath)
+		Expect(err).NotTo(HaveOccurred(), "resetSystemState: failed to overwrite %s", stateJSONPath)
+	}
+
+	// writeSystemPackageRepositoryManifest writes a /tmp scratch manifest
+	// containing the canonical apt SystemInstaller and, when withRepo=true,
+	// the pgdgRepo SystemPackageRepository (matching the keyHash + suite
+	// pinned in the rotation-contract consts). withRepo=false emits the
+	// installer only — used by the removal and retain-without-flag specs.
+	//
+	// Mirrors writeSystemPackageManifest's two-phase TOCTOU-safe setup:
+	// claim ownership via marker file, record in scratchDirs, then write
+	// content. Validates dir against systemPackageTestDirRE.
+	writeSystemPackageRepositoryManifest := func(dir string, withRepo bool) {
+		Expect(systemPackageTestDirRE.MatchString(dir)).To(BeTrue(),
+			"dir %q does not match the absolute-path allowlist; only static /tmp paths are accepted by this helper", dir)
+		claim := fmt.Sprintf(`set -euo pipefail
+if [ -e %[1]s ] && [ ! -f %[1]s/.tomei-e2e-system-package-test ]; then
+	echo "refusing to remove %[1]s: directory exists but lacks the .tomei-e2e-system-package-test ownership marker — another process may own this path" >&2
+	exit 1
+fi
+rm -rf %[1]s
+mkdir -p %[1]s/cue.mod
+touch %[1]s/.tomei-e2e-system-package-test
+`, dir)
+		_, err := testExec.ExecBash(claim)
+		Expect(err).NotTo(HaveOccurred(), "claiming scratch dir %s failed", dir)
+		scratchDirs[strings.TrimRight(dir, "/")] = true
+
+		repoBlock := ""
+		if withRepo {
+			repoBlock = fmt.Sprintf(`
+pgdgRepo: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "SystemPackageRepository"
+	metadata: name: "pgdg"
+	spec: {
+		installerRef: "apt"
+		apt: {
+			url:     "%[3]s"
+			keyUrl:  "%[4]s"
+			keyHash: "%[1]s"
+			suite:   "%[2]s"
+			components: ["%[5]s"]
+		}
+	}
+}
+`, pgdgKeyHashSHA256, pgdgSuite, pgdgURL, pgdgKeyURL, pgdgComponent)
+		}
+
+		content := fmt.Sprintf(`set -euo pipefail
+cat > %[1]s/cue.mod/module.cue <<'EOF'
+module: "tomei.local@v0"
+language: version: "v0.9.0"
+EOF
+cat > %[1]s/manifest.cue <<'EOF'
+package tomei
+
+apt: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "SystemInstaller"
+	metadata: name: "apt"
+	spec: {
+		pattern:    "delegation"
+		privileged: true
+		commands: {
+			install: {command: "sudo apt-get install -y"}
+			remove:  {command: "sudo apt-get remove -y"}
+			check:   {command: "dpkg -s"}
+		}
+	}
+}
+%[2]s
+EOF`, dir, repoBlock)
+		_, err = testExec.ExecBash(content)
+		Expect(err).NotTo(HaveOccurred(), "writing repository manifest content for %s failed", dir)
 	}
 
 	Context("Apply --system mutates host packages (#200)", func() {
@@ -1575,5 +1700,505 @@ EOF`, dir, strings.Join(quoted, ", "), fixtureSugarPkg)
 					"idempotent re-apply of the removal manifest must not rewrite state.json")
 			})
 		})
+	})
+
+	// SystemPackageRepository apply coverage (#218). Sibling to #200 above;
+	// mutates host state (/usr/share/keyrings/pgdg.gpg + /etc/apt/sources.list.d/pgdg.list)
+	// and reaches apt.postgresql.org on apply, so gated to linux + opt-in
+	// e2e (TOMEI_E2E_CONTAINER / TOMEI_E2E_NATIVE) via skipIfNotLinux.
+	//
+	// Spec ordering under Ordered Context is cumulative:
+	//   1. install         — writes pgdg files + state.json entry
+	//   2. idempotency     — depends on spec 1's mutation
+	//   3. retain-without-flag (#169 scenario 7) — depends on spec 1's mutation
+	//   4. removal         — tears down what spec 1 built
+	//
+	// BeforeAll Skips the Context if either pgdgKeyringPath or
+	// pgdgSourcePath already exists on the host (including as a
+	// dangling symlink) — see the pathExistsAny guard. With that gate
+	// in place, any file present at AfterAll time was written by this
+	// Context and is unconditionally safe to remove; no restore step
+	// is needed. TOMEI_E2E_NATIVE_SKIP_CLEANUP=true bypasses the
+	// AfterAll cleanup to preserve host state for inspection after a
+	// failed native opt-in run (same semantics as the sibling #200
+	// Context).
+	Context("Apply --system installs SystemPackageRepository (#218)", Ordered, func() {
+		const (
+			pgdgKeyringPath = "/usr/share/keyrings/pgdg.gpg"
+			pgdgSourcePath  = "/etc/apt/sources.list.d/pgdg.list"
+		)
+
+		var (
+			repoCfgPath           string // manifest WITH pgdgRepo (specs 1 & 2)
+			installerOnlyCfgPath  string // manifest WITHOUT pgdgRepo (specs 3 & 4)
+			pgdgPreflightComplete bool   // gate for AfterAll: BeforeAll ran far enough to need cleanup
+			pgdgMutationStarted   bool   // gate for AfterAll: spec 1 actually invoked apply --system
+			// Post-install file hashes captured at the end of spec 1.
+			// Spec 3 ("apply WITHOUT --system retains state") compares
+			// against these to verify a no-flag apply truly leaves the
+			// keyring + sources.list bytes untouched (existence-only
+			// checks would miss a regression that rewrites the files
+			// while preserving their paths).
+			postInstallFileHashes map[string]string
+		)
+		// repoScratchDirPrefix matches /tmp scratch dirs registered by
+		// writeSystemPackageRepositoryManifest into the suite-level
+		// scratchDirs ledger. AfterAll filters scratchDirs by this
+		// prefix instead of maintaining a parallel ledger — the helper
+		// registers each dir at claim time (before content write), so a
+		// content-write failure mid-helper still leaves a registered
+		// entry for cleanup to consume. The sibling #200 Context's
+		// AfterAll only iterates scratchDirs entries that were present
+		// when it ran, so #218 entries (added after) are still here.
+		const repoScratchDirPrefix = "/tmp/tomei-system-package-repository"
+
+		// readState parses ~/.local/share/tomei/system/state.json via shell
+		// cat (state.json lives inside the container, not on the host where
+		// the Go test process runs — os.ReadFile would fail).
+		readState := func() state.SystemState {
+			out, err := testExec.ExecBash("cat -- " + stateJSONPath)
+			Expect(err).NotTo(HaveOccurred(), "reading %s failed: %s", stateJSONPath, out)
+			var st state.SystemState
+			Expect(json.Unmarshal([]byte(out), &st)).To(Succeed(),
+				"state.json is not valid JSON; contents:\n%s", out)
+			return st
+		}
+
+		// zeroTimestamps strips the per-apply UpdatedAt field so the
+		// idempotency spec can compare structural equality. The map value
+		// type is `*resource.SystemPackageRepositoryState` (pointer), so
+		// direct mutation suffices — no reassignment to the map is needed.
+		zeroTimestamps := func(s *state.SystemState) {
+			for _, v := range s.SystemPackageRepositories {
+				v.UpdatedAt = time.Time{}
+			}
+		}
+
+		BeforeAll(func() {
+			skipIfNotLinux()
+
+			// gpg is required by apt.PackageRepositoryInstaller (gpg
+			// --dearmor) AND by the keyring assertion in spec 1.
+			// skipIfNotLinux only probes apt-get / dpkg-query, so a
+			// native opt-in run on a minimal Debian/Ubuntu host without
+			// gnupg would fail mid-apply with a confusing error instead
+			// of skipping with a clear prerequisite message.
+			//
+			// In TOMEI_E2E_CONTAINER mode the Dockerfile is supposed to
+			// install gnupg (see e2e/containers/ubuntu/Dockerfile). A
+			// regression that drops the gnupg apt-get line must FAIL
+			// CI rather than turn this whole Context into a silent
+			// skip, so the missing-gpg branch only Skips for native
+			// opt-in runs and Expects in container mode.
+			_, gpgErr := testExec.ExecBash("command -v gpg >/dev/null 2>&1")
+			if gpgErr != nil {
+				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
+					Expect(gpgErr).NotTo(HaveOccurred(),
+						"gpg missing in TOMEI_E2E_CONTAINER mode: the runner image is supposed to install gnupg via e2e/containers/ubuntu/Dockerfile — a regression there silently turned repository apply coverage into a skip")
+				}
+				Skip("gpg not found on PATH: SystemPackageRepository apply requires gnupg (install `gnupg` or use the container e2e runner)")
+			}
+
+			// NOPASSWD probe — same rationale as the #200 BeforeAll.
+			_, sudoErr := testExec.ExecBash("sudo -k && sudo -n true 2>&1")
+			Expect(sudoErr).NotTo(HaveOccurred(),
+				"non-interactive sudo (NOPASSWD) is required: apply --system invokes apt under sudo")
+
+			// Refuse to run on a host that already has pgdg configured.
+			// Skipping is simpler and safer than snapshot-and-restore:
+			// spec 1's install overwrites the live keyring/sources.list,
+			// so any failure between overwrite and restore would leave
+			// the host worse off than just skipping. The container e2e
+			// runner always starts from a clean image, so this gate only
+			// fires on native opt-in runs (or a reused container with
+			// leftover pgdg files from a botched previous run).
+			// Use pathExistsAny (existence-only, never hashes) so a
+			// pre-existing unreadable root-owned PGDG file gets us a
+			// clean Skip instead of an Expect failure inside the hash
+			// step of fileSha256IfExists.
+			for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+				if pathExistsAny(p) {
+					Skip(fmt.Sprintf("pre-existing %s on host: refusing to clobber a real PGDG setup (re-run this Context in the container e2e runner instead)", p))
+				}
+			}
+
+			// `tomei init --force` is idempotent across Contexts.
+			initOut, initErr := testExec.Exec("tomei", "init", "--yes", "--force")
+			Expect(initErr).NotTo(HaveOccurred(), "tomei init failed before preflight: %s", initOut)
+
+			// Gate the AfterAll cleanup ASAP — partial-failure paths past
+			// this point still need the cleanup branch.
+			pgdgPreflightComplete = true
+
+			resetSystemState()
+
+			scratchSuffix := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+			repoCfgPath = "/tmp/tomei-system-package-repository-" + scratchSuffix + "/"
+			installerOnlyCfgPath = "/tmp/tomei-system-package-repository-removal-" + scratchSuffix + "/"
+			// The helper registers each dir into the suite-level
+			// scratchDirs ledger at claim time (right after the marker
+			// touch, before the content write). So even if the second
+			// call's content write aborts BeforeAll, AfterAll's prefix-
+			// filtered cleanup will still find and remove the partial
+			// dir — no separate per-Context ledger needed.
+			writeSystemPackageRepositoryManifest(repoCfgPath, true)
+			writeSystemPackageRepositoryManifest(installerOnlyCfgPath, false)
+		})
+
+		AfterAll(func() {
+			if !pgdgPreflightComplete {
+				return
+			}
+			// Honor the same native-mode escape hatch the sibling #200
+			// AfterAll uses: a native opt-in run that
+			// sets TOMEI_E2E_NATIVE_SKIP_CLEANUP=true to inspect host
+			// state after a failure must apply consistently here too,
+			// or this Context would silently re-clean what the sibling
+			// preserved.
+			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") == "true" {
+				fmt.Fprintln(GinkgoWriter, "TOMEI_E2E_NATIVE_SKIP_CLEANUP=true: skipping #218 PGDG file + /tmp cleanup")
+				return
+			}
+			// Scratch-dir cleanup: filter the suite-level scratchDirs
+			// ledger by the #218 repo prefix. The sibling #200
+			// AfterAll's cleanup loop has already run, but it didn't
+			// delete map entries — and the helper registers our dirs at
+			// claim time (right after marker touch), so a partial
+			// content-write failure inside writeSystemPackageRepository-
+			// Manifest still leaves an entry for us to remove.
+			for dir := range scratchDirs {
+				if !strings.HasPrefix(dir, repoScratchDirPrefix) {
+					continue
+				}
+				if !systemPackageTestDirRE.MatchString(dir) {
+					continue
+				}
+				_, markerErr := testExec.ExecBash(`test -f ` + dir + `/.tomei-e2e-system-package-test`)
+				if markerErr != nil {
+					continue
+				}
+				_, _ = testExec.ExecBash("rm -rf " + dir)
+			}
+			// pgdgMutationStarted gates the host cleanup — if no spec
+			// ever invoked apply --system, the keyring/sources.list
+			// files were never created by this suite. The BeforeAll
+			// Skip guarantees both paths were absent pre-test, so any
+			// surviving file here was written by this Context and is
+			// safe to remove unconditionally.
+			if !pgdgMutationStarted {
+				return
+			}
+			removedAny := false
+			for _, path := range []string{pgdgKeyringPath, pgdgSourcePath} {
+				// Best-effort: tolerate non-zero exits so cleanup
+				// failures never mask the spec-failure that surfaced
+				// the real bug.
+				_, _ = testExec.ExecBash("sudo -n rm -f -- " + path)
+				removedAny = true
+			}
+			// If we touched apt sources, flush the apt cache so subsequent
+			// apt operations in the same container don't 404 trying to
+			// fetch from the now-removed pgdg source. Best-effort: failure
+			// here would only manifest as a confusing apt error later, not
+			// as a masked test-failure now. apt-get update uses APT::Lock
+			// (not DPkg::Lock), so no Lock::Timeout override is meaningful.
+			if removedAny {
+				_, _ = testExec.ExecBash("sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update -y 2>&1 || true")
+			}
+			// Best-effort: bypass resetSystemState (which Expects) and
+			// directly overwrite state.json, tolerating non-zero exits.
+			// The rest of this AfterAll is best-effort so a cleanup-only
+			// failure does not mask the spec failure that drove cleanup
+			// here in the first place; the strict resetSystemState would
+			// add an extra failure on a temporarily-unwritable path.
+			_, _ = testExec.ExecBash(
+				`mkdir -p ~/.local/share/tomei/system && echo '{"version":"1","systemInstallers":{},"systemPackageRepositories":{},"systemPackages":{}}' > ` + stateJSONPath + ` || true`)
+		})
+
+		It("apply --system installs the repository on the host",
+			Label("needs-gnupg", "needs-network"), func() {
+				// Irreversible gate: once set, the AfterAll cleanup
+				// (above) is mandatory because some host mutation MAY
+				// have already happened, even if ExecApply below
+				// returns non-zero. Best-effort rm -f means partial
+				// cleanup never cascades.
+				pgdgMutationStarted = true
+				out, err := ExecApply(testExec, "--system", repoCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "apply --system failed; output:\n%s", out)
+				Expect(out).NotTo(ContainSubstring("system resource apply failed"),
+					"apply --system surfaced a system-engine error as a warning; got:\n%s", out)
+
+				By("keyring + sources.list files exist with correct mode/ownership", func() {
+					_, err := testExec.ExecBash("test -f " + pgdgKeyringPath)
+					Expect(err).NotTo(HaveOccurred(), "missing %s", pgdgKeyringPath)
+					_, err = testExec.ExecBash("test -f " + pgdgSourcePath)
+					Expect(err).NotTo(HaveOccurred(), "missing %s", pgdgSourcePath)
+					_, err = testExec.ExecBash("test -s " + pgdgKeyringPath)
+					Expect(err).NotTo(HaveOccurred(), "%s is empty", pgdgKeyringPath)
+					// Exact-equality (not ContainSubstring): GNU stat
+					// renders the special bits as a leading digit
+					// (`1644 root:root` for sticky, `2644 root:root`
+					// for setgid). ContainSubstring("644 root:root")
+					// would pass for those, but the 0644 contract
+					// (install -D -m 0644 -o root -g root) means a
+					// regression that flips a special bit must fail.
+					modeOut, err := testExec.ExecBash("stat -c '%a %U:%G' -- " + pgdgKeyringPath)
+					Expect(err).NotTo(HaveOccurred(), "stat on %s failed", pgdgKeyringPath)
+					Expect(strings.TrimSpace(modeOut)).To(Equal("644 root:root"),
+						"keyring mode/ownership mismatch; stat: %s", strings.TrimSpace(modeOut))
+					// sources.list is also installed via `install -D -m
+					// 0644 -o root -g root` (see
+					// internal/installer/apt/repository.go) — assert the
+					// same so a regression that drops the install flags
+					// for the sources.list path is caught.
+					srcModeOut, err := testExec.ExecBash("stat -c '%a %U:%G' -- " + pgdgSourcePath)
+					Expect(err).NotTo(HaveOccurred(), "stat on %s failed", pgdgSourcePath)
+					Expect(strings.TrimSpace(srcModeOut)).To(Equal("644 root:root"),
+						"sources.list mode/ownership mismatch; stat: %s", strings.TrimSpace(srcModeOut))
+					// Validate keyring is a real GPG keyring. Uses --with-colons
+					// machine-readable output (stable across gpg 2.x versions,
+					// no locale dependency) so `^pub:` matches predictably.
+					// Plain `--list-keys` text format varies (`pub `, `pub:`,
+					// indented variants) across gpg versions.
+					//
+					// stderr is merged into stdout (2>&1) rather than dropped
+					// to /dev/null so a real gpg failure (corrupt keyring,
+					// missing agent socket) surfaces in test logs instead of
+					// being silenced — pipefail propagates the non-zero exit.
+					// Isolate gpg from the host's GNUPGHOME / gpg.conf:
+					// `--homedir` to a fresh /tmp directory, `--no-options`
+					// so a developer's gpg.conf can't change command
+					// semantics, and `--batch` to prevent any pinentry/
+					// agent prompt. Mirrors the dearmor isolation done by
+					// the installer in internal/installer/apt/repository.go.
+					// trap-cleanup removes the homedir on success or
+					// failure so a leaked /tmp/gpghome-* does not pile up.
+					gpgOut, err := testExec.ExecBash(
+						"set -o pipefail; H=$(mktemp -d -t tomei-e2e-gpg-XXXXXX); trap 'rm -rf -- \"$H\"' EXIT; gpg --homedir \"$H\" --no-options --batch --no-default-keyring --keyring " + pgdgKeyringPath + " --with-colons --list-keys 2>&1")
+					Expect(err).NotTo(HaveOccurred(),
+						"gpg --list-keys on %s failed; output:\n%s", pgdgKeyringPath, gpgOut)
+					Expect(gpgOut).To(MatchRegexp(`(?m)^pub:`),
+						"%s does not list any public key via gpg --with-colons; output:\n%s", pgdgKeyringPath, gpgOut)
+					// A corrupt dearmor that produces a keyring with a pub
+					// record but no associated user-id is hard to surface
+					// downstream — apt-get update would fetch it and only
+					// complain at first package install with a vague
+					// "NO_PUBKEY" message. Pin the uid presence here.
+					Expect(gpgOut).To(MatchRegexp(`(?m)^uid:`),
+						"%s lists pub but no uid — keyring appears corrupt; output:\n%s", pgdgKeyringPath, gpgOut)
+				})
+
+				By("sources.list references the keyring + suite + url", func() {
+					src, err := testExec.ExecBash("cat -- " + pgdgSourcePath)
+					Expect(err).NotTo(HaveOccurred(), "cat %s failed", pgdgSourcePath)
+					Expect(src).To(ContainSubstring("signed-by=" + pgdgKeyringPath))
+					Expect(src).To(ContainSubstring(pgdgURL))
+					Expect(src).To(ContainSubstring(pgdgSuite + " " + pgdgComponent))
+				})
+
+				By("state.json records the repository", func() {
+					st := readState()
+					Expect(st.SystemPackageRepositories).To(HaveKey("pgdg"))
+					pgdg := st.SystemPackageRepositories["pgdg"]
+					Expect(pgdg.InstallerRef).To(Equal("apt"))
+					Expect(pgdg.Apt).NotTo(BeNil(), "state entry missing Apt details")
+					Expect(pgdg.Apt.KeyHash).To(Equal(pgdgKeyHashSHA256))
+					Expect(pgdg.Apt.Suite).To(Equal(pgdgSuite))
+					// InstalledFiles order is deterministic per
+					// internal/installer/apt/repository.go — keyring first,
+					// sources.list second. The Remove path uses a separate
+					// orderedPaths list, in reverse.
+					Expect(pgdg.InstalledFiles).To(Equal([]string{pgdgKeyringPath, pgdgSourcePath}))
+					Expect(pgdg.UpdatedAt).To(BeTemporally("~", time.Now(), 60*time.Second),
+						"UpdatedAt must be set to apply time, not zero or stale")
+				})
+
+				// Snapshot the post-install file bytes so the no-flag
+				// retention spec (#169 scenario 7) can prove the files
+				// are not silently rewritten. Capturing here avoids
+				// re-running spec 1 from the retention spec just to
+				// know the "expected" content.
+				postInstallFileHashes = map[string]string{}
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "post-install snapshot: %s should exist", p)
+					postInstallFileHashes[p] = h
+				}
+			})
+
+		// A truly idempotent second apply does NOT enter Install at
+		// all — the pre-apply plan-zero-work guard below proves the
+		// reconciler agrees there's nothing to do, and the post-apply
+		// sha256 check proves no rewrite happened. If a second apply
+		// reaches apt.postgresql.org / apt-get update at all, that is
+		// the regression this spec catches, NOT a network flake to
+		// dismiss. The `needs-network` label only documents that the
+		// upstream install spec (which this depends on via Ordered)
+		// hits the network — not that this spec is allowed to.
+		It("apply --system twice is idempotent",
+			Label("needs-gnupg", "needs-network"), func() {
+				before := readState()
+				zeroTimestamps(&before)
+
+				// PRE-apply plan must already show zero work — this
+				// catches a regression where the second apply WOULD
+				// re-run install (rewriting bytes to the same content)
+				// even though the post-apply structural state-equality
+				// below would still pass. Without this guard, an
+				// unnecessary re-install would only surface as a flaky
+				// network-traffic spike.
+				preplanOut, err := testExec.Exec("tomei", "plan", "--system", repoCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "pre-apply plan failed: %s", preplanOut)
+				Expect(preplanOut).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
+					"pre-second-apply plan must already show zero work; got:\n%s", preplanOut)
+
+				// Byte + mtime snapshot of the on-disk files going
+				// into the second apply. After the apply we re-check
+				// both: a same-content rewrite (e.g. `install -D`
+				// run again with identical bytes) leaves the sha256
+				// unchanged but advances mtime/ctime, so we need
+				// both legs to actually catch an unnecessary
+				// re-install.
+				preApplyFileHashes := map[string]string{}
+				preApplyFileIdents := map[string]string{}
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "pre-apply: %s missing", p)
+					preApplyFileHashes[p] = h
+					// Identify the file by inode + full-precision
+					// mtime (`%y` includes nanoseconds). The installer
+					// uses `install -D` which writes to a tmpfile and
+					// renames into place, producing a NEW inode on
+					// every run — so an inode change is a definitive
+					// "install path re-ran" signal even when the
+					// rewrite happens within the same wall-clock
+					// second (whole-second `%Y` would miss that). The
+					// nanosecond mtime is a redundant second leg in
+					// case a filesystem (e.g. tmpfs without strictatime)
+					// somehow recycles inodes.
+					identOut, err := testExec.ExecBash("stat -c '%i|%y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "pre-apply: stat on %s failed", p)
+					preApplyFileIdents[p] = strings.TrimSpace(identOut)
+				}
+
+				out, err := ExecApply(testExec, "--system", repoCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "second apply failed; output:\n%s", out)
+				Expect(out).NotTo(ContainSubstring("system resource apply failed"),
+					"idempotent re-apply surfaced system-engine warning; got:\n%s", out)
+
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "post-second-apply: %s missing", p)
+					Expect(h).To(Equal(preApplyFileHashes[p]),
+						"%s contents changed across idempotent re-apply (sha256 mismatch); the install path re-ran when it should have no-op'd", p)
+					identOut, err := testExec.ExecBash("stat -c '%i|%y' -- " + p)
+					Expect(err).NotTo(HaveOccurred(), "post-apply: stat on %s failed", p)
+					Expect(strings.TrimSpace(identOut)).To(Equal(preApplyFileIdents[p]),
+						"%s inode or mtime changed across idempotent re-apply; the install path re-wrote identical bytes (likely via install -D) when it should have no-op'd", p)
+				}
+
+				after := readState()
+				zeroTimestamps(&after)
+				Expect(after).To(Equal(before),
+					"idempotent re-apply mutated state.json beyond UpdatedAt")
+
+				// Explicit slice-order pin: structural Equal above already
+				// covers this transitively, but a future regression that
+				// shuffles InstalledFiles non-deterministically (e.g. via
+				// map iteration) is easier to diagnose when the failure
+				// names the slice rather than reading as "state differs".
+				// HaveKey guard prevents a nil-pointer deref if a separate
+				// regression made spec 1's install silently no-op.
+				Expect(after.SystemPackageRepositories).To(HaveKey("pgdg"))
+				Expect(after.SystemPackageRepositories["pgdg"].InstalledFiles).To(
+					Equal([]string{pgdgKeyringPath, pgdgSourcePath}),
+					"InstalledFiles order regressed after idempotent re-apply")
+
+				// Second layer of idempotency: a fresh plan must show no
+				// pending changes. Catches the case where state-write was
+				// correctly skipped but the engine still queued install
+				// actions that just no-op'd.
+				planOut, err := testExec.Exec("tomei", "plan", "--system", repoCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "plan --system failed: %s", planOut)
+				Expect(planOut).To(MatchRegexp(`(?m)^Summary:\s+0 to install,\s+0 to upgrade,\s+0 to reinstall,\s+0 to remove\s*$`),
+					"post-apply plan must show zero pending actions; got:\n%s", planOut)
+			})
+
+		It("apply WITHOUT --system skips system resources and retains state (#169 scenario 7)",
+			// needs-network: this spec reads state populated by the
+			// upstream install spec in the same Ordered Context. A
+			// label filter that excludes network tests must therefore
+			// exclude this one too, or the prior install will not run
+			// and `before.SystemPackageRepositories` is empty.
+			Label("needs-gnupg", "needs-network"), func() {
+				// Spec intent: even though installerOnlyCfgPath drops
+				// pgdgRepo from the manifest, omitting --system makes
+				// apply ignore system resources entirely — state.json and
+				// on-disk files must stay untouched.
+				//
+				// Scope: filesystem drift between applies (manual keyring
+				// deletion by a user) is intentionally out of scope here
+				// and deferred to a future audit feature.
+				before := readState()
+				Expect(before.SystemPackageRepositories).To(HaveKey("pgdg"))
+				Expect(postInstallFileHashes).NotTo(BeEmpty(),
+					"postInstallFileHashes must have been captured by the upstream install spec")
+
+				out, err := ExecApply(testExec, installerOnlyCfgPath) // NOTE: no --system
+				Expect(err).NotTo(HaveOccurred(), "apply (no --system) failed: %s", out)
+				Expect(out).NotTo(ContainSubstring("system resource apply failed"))
+				// User-visible warning from cmd/tomei/apply.go.
+				// NOTE: this exact string is UX-coupling — if the wording
+				// in apply.go changes, update both in lockstep.
+				Expect(out).To(ContainSubstring("system resource(s) skipped. Use 'tomei apply --system' to manage"),
+					"expected the skip warning to be printed; got:\n%s", out)
+
+				// Files and state must be byte-identical to the
+				// post-install snapshot. Existence-only checks would
+				// miss a regression that rewrites the keyring or
+				// sources.list while keeping the path.
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					h, exists := fileSha256IfExists(p)
+					Expect(exists).To(BeTrue(), "%s missing after no-flag apply", p)
+					Expect(h).To(Equal(postInstallFileHashes[p]),
+						"%s contents changed after no-flag apply (sha256 mismatch); the no-flag path must not touch system files", p)
+				}
+				after := readState()
+				Expect(after.SystemPackageRepositories).To(HaveKey("pgdg"))
+				// Structural state equality. Same rationale as files:
+				// a no-flag apply must not perturb state.json either.
+				Expect(after).To(Equal(before),
+					"state.json changed after no-flag apply; system resources must not be reconciled")
+			})
+
+		It("removing the repo from the manifest cleans up files and state",
+			// needs-network: depends on the upstream install spec to
+			// have populated state.json with pgdg. Without it, the
+			// reconciler would have nothing to remove and the test
+			// would fail for setup reasons rather than testing removal.
+			Label("needs-gnupg", "needs-network"), func() {
+				// Spec intent: same installerOnlyCfgPath manifest as the
+				// scenario-7 spec above, but WITH --system this time. The
+				// engine reconciler treats pgdg missing-from-manifest +
+				// present-in-state as an implicit remove signal.
+				out, err := ExecApply(testExec, "--system", installerOnlyCfgPath)
+				Expect(err).NotTo(HaveOccurred(), "removal apply failed: %s", out)
+				Expect(out).NotTo(ContainSubstring("system resource apply failed"))
+
+				for _, p := range []string{pgdgKeyringPath, pgdgSourcePath} {
+					// Removal contract: NO filesystem entry of any kind
+					// at this path. Both `-e` and `-L` are required —
+					// `-e` follows symlinks (so a dangling symlink
+					// passes `! -e`), and `-L` checks the link itself
+					// without following. Pairing them rejects regular
+					// files, directories, dangling symlinks, and live
+					// symlinks alike.
+					_, err := testExec.ExecBash("test ! -e " + p + " && test ! -L " + p)
+					Expect(err).NotTo(HaveOccurred(), "%s should have been removed (file, directory, or symlink left behind)", p)
+				}
+				st := readState()
+				Expect(st.SystemPackageRepositories).NotTo(HaveKey("pgdg"),
+					"state.json must no longer reference pgdg after removal apply")
+			})
 	})
 }
