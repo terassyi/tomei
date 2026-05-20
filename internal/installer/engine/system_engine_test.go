@@ -62,6 +62,26 @@ func defaultInstallerInstallFn(_ context.Context, _ *resource.SystemInstaller, _
 	return &resource.SystemInstallerState{Version: "1.0.0", UpdatedAt: time.Now()}, nil
 }
 
+// cloneAptSource returns a deep copy of spec.Apt with independent slice/map
+// backing, matching the slices.Clone / maps.Clone invariant maintained by the
+// real apt.PackageRepositoryInstaller. Centralizing this so that adding a new
+// AptSource field (e.g., SignedBy, Architectures) requires only one edit and
+// cannot leave a shallow-mock site behind that silently hides regressions.
+// Returns nil when src is nil.
+func cloneAptSource(src *resource.AptSource) *resource.AptSource {
+	if src == nil {
+		return nil
+	}
+	return &resource.AptSource{
+		URL:        src.URL,
+		KeyURL:     src.KeyURL,
+		KeyHash:    src.KeyHash,
+		Suite:      src.Suite,
+		Components: slices.Clone(src.Components),
+		Options:    maps.Clone(src.Options),
+	}
+}
+
 func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
 	// Match the real apt PackageRepositoryInstaller contract on two
 	// axes:
@@ -72,29 +92,16 @@ func defaultRepoInstallFn(_ context.Context, res *resource.SystemPackageReposito
 	//      both paths keeps engine tests honest about that contract
 	//      (a stub that only set one would silently hide ordering /
 	//      reverse-iteration regressions in the real installer).
-	//   2. state.Apt is a deep copy of spec.Apt (independent slice/map
-	//      backing) so subsequent in-test mutations of the resource spec
-	//      cannot leak into the persisted state — same invariant the
-	//      real installer maintains via slices.Clone / maps.Clone.
-	state := &resource.SystemPackageRepositoryState{
+	//   2. state.Apt is a deep copy of spec.Apt (see cloneAptSource).
+	return &resource.SystemPackageRepositoryState{
 		InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
 		InstalledFiles: []string{
 			"/usr/share/keyrings/" + name + ".gpg",
 			"/etc/apt/sources.list.d/" + name + ".list",
 		},
+		Apt:       cloneAptSource(res.SystemPackageRepositorySpec.Apt),
 		UpdatedAt: time.Now(),
-	}
-	if src := res.SystemPackageRepositorySpec.Apt; src != nil {
-		state.Apt = &resource.AptSource{
-			URL:        src.URL,
-			KeyURL:     src.KeyURL,
-			KeyHash:    src.KeyHash,
-			Suite:      src.Suite,
-			Components: slices.Clone(src.Components),
-			Options:    maps.Clone(src.Options),
-		}
-	}
-	return state, nil
+	}, nil
 }
 
 func defaultPackageInstallFn(_ context.Context, res *resource.SystemPackageSet, _ string) (*resource.SystemPackageSetState, error) {
@@ -109,6 +116,77 @@ func defaultPackageInstallFn(_ context.Context, res *resource.SystemPackageSet, 
 		InstalledVersions: versions,
 		UpdatedAt:         time.Now(),
 	}, nil
+}
+
+// --- Call recorder for ordering tests ---
+
+// callRecorder bundles the three System installer mocks wired to a shared,
+// lock-guarded call log. Each mock records "<kind>:<name>" before delegating
+// to its installFn — the "<kind>:<name>" format is the public contract and
+// tests assert against it directly.
+//
+// Defaults:
+//   - installer returns a stub SystemInstallerState
+//   - repo returns a deep-copied repo state via cloneAptSource
+//   - pkg returns a stub SystemPackageSetState
+//
+// Failure injection: tests REPLACE (not chain) installFn on the relevant mock
+// before passing the mocks to NewSystemEngine. The replacement is responsible
+// for calling .record itself — this keeps the failure-mode Given visible at
+// the call site.
+type callRecorder struct {
+	installer *mockSysInstallerInstaller
+	repo      *mockSysRepoInstaller
+	pkg       *mockSysPackageInstaller
+	record    func(string)    // append to the log; safe under t.Parallel
+	snapshot  func() []string // lock-safe copy of the log
+}
+
+func newCallRecorder() *callRecorder {
+	var mu sync.Mutex
+	var allCalls []string
+	record := func(call string) {
+		mu.Lock()
+		allCalls = append(allCalls, call)
+		mu.Unlock()
+	}
+	snapshot := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), allCalls...)
+	}
+
+	return &callRecorder{
+		record:   record,
+		snapshot: snapshot,
+		installer: &mockSysInstallerInstaller{
+			installFn: func(_ context.Context, _ *resource.SystemInstaller, name string) (*resource.SystemInstallerState, error) {
+				record("installer:" + name)
+				return &resource.SystemInstallerState{Version: "1.0.0", UpdatedAt: time.Now()}, nil
+			},
+		},
+		repo: &mockSysRepoInstaller{
+			installFn: func(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
+				record("repo:" + name)
+				return &resource.SystemPackageRepositoryState{
+					InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
+					Apt:          cloneAptSource(res.SystemPackageRepositorySpec.Apt),
+					UpdatedAt:    time.Now(),
+				}, nil
+			},
+		},
+		pkg: &mockSysPackageInstaller{
+			installFn: func(_ context.Context, res *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
+				record("package:" + name)
+				return &resource.SystemPackageSetState{
+					InstallerRef:  res.SystemPackageSetSpec.InstallerRef,
+					RepositoryRef: res.SystemPackageSetSpec.RepositoryRef,
+					Packages:      res.SystemPackageSetSpec.Packages,
+					UpdatedAt:     time.Now(),
+				}, nil
+			},
+		},
+	}
 }
 
 // --- Mock privilege handler ---
@@ -288,62 +366,12 @@ func TestSystemEngine_Apply(t *testing.T) {
 func TestSystemEngine_Apply_DAGOrder(t *testing.T) {
 	t.Parallel()
 
-	// Use a shared call log to track cross-installer ordering
-	var mu sync.Mutex
-	var allCalls []string
-	recordCall := func(call string) {
-		mu.Lock()
-		allCalls = append(allCalls, call)
-		mu.Unlock()
-	}
-
 	stateDir := t.TempDir()
 	store, err := state.NewStore[state.SystemState](stateDir)
 	require.NoError(t, err)
 
-	installerMock := &mockSysInstallerInstaller{
-		installFn: func(_ context.Context, _ *resource.SystemInstaller, name string) (*resource.SystemInstallerState, error) {
-			recordCall("installer:" + name)
-			return &resource.SystemInstallerState{Version: "1.0.0", UpdatedAt: time.Now()}, nil
-		},
-	}
-	repoMock := &mockSysRepoInstaller{
-		installFn: func(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
-			recordCall("repo:" + name)
-			st := &resource.SystemPackageRepositoryState{
-				InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
-				UpdatedAt:    time.Now(),
-			}
-			// Deep-copy spec.Apt to match the deep-copy invariant the
-			// real apt PackageRepositoryInstaller and defaultRepoInstallFn
-			// both maintain; aliasing the pointer here would let later
-			// spec mutations leak into the persisted state.
-			if src := res.SystemPackageRepositorySpec.Apt; src != nil {
-				st.Apt = &resource.AptSource{
-					URL:        src.URL,
-					KeyURL:     src.KeyURL,
-					KeyHash:    src.KeyHash,
-					Suite:      src.Suite,
-					Components: slices.Clone(src.Components),
-					Options:    maps.Clone(src.Options),
-				}
-			}
-			return st, nil
-		},
-	}
-	packageMock := &mockSysPackageInstaller{
-		installFn: func(_ context.Context, res *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
-			recordCall("package:" + name)
-			return &resource.SystemPackageSetState{
-				InstallerRef:  res.SystemPackageSetSpec.InstallerRef,
-				RepositoryRef: res.SystemPackageSetSpec.RepositoryRef,
-				Packages:      res.SystemPackageSetSpec.Packages,
-				UpdatedAt:     time.Now(),
-			}, nil
-		},
-	}
-
-	engine := NewSystemEngine(installerMock, repoMock, packageMock, store)
+	rec := newCallRecorder()
+	engine := NewSystemEngine(rec.installer, rec.repo, rec.pkg, store)
 	engine.SetPrivilegeHandler(&mockPrivilegeHandler{})
 
 	resources := []resource.Resource{
@@ -355,12 +383,9 @@ func TestSystemEngine_Apply_DAGOrder(t *testing.T) {
 	err = engine.Apply(context.Background(), resources)
 	require.NoError(t, err)
 
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, allCalls, 3)
-	assert.Equal(t, "installer:apt", allCalls[0])
-	assert.Equal(t, "repo:docker", allCalls[1])
-	assert.Equal(t, "package:docker-pkgs", allCalls[2])
+	assert.Equal(t,
+		[]string{"installer:apt", "repo:docker", "package:docker-pkgs"},
+		rec.snapshot())
 }
 
 func TestSystemEngine_Apply_NoChanges(t *testing.T) {
@@ -916,4 +941,251 @@ func TestSystemEngine_Apply_RemoveErrorFlushesSuccessful(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, st.SystemPackages["good-pkg"], "successful removal should be persisted even when later batch fails")
 	assert.NotNil(t, st.SystemPackageRepositories["bad-repo"], "failed removal should leave state intact")
+}
+
+// Given:  one installer ("apt") + three SystemPackageRepository ({alpha,mid,zeta}-repo)
+//   - three SystemPackageSet bound to each.
+//
+// When:   engine.Apply runs once for each of the 6 permutations (3!) of the input slice.
+// Then:   per-resource install calls are emitted in three layers (installer -> repo -> package),
+//
+//	and within each multi-node layer the calls are ascending by name — the recorded
+//	allCalls slice is byte-identical across all 6 permutations.
+//
+// Guards (engine-determinism contract):
+//   - cross-layer order: installer before repos before package sets
+//   - intra-layer order: alphabetical by name (for log / state / rollback predictability)
+//
+// Does NOT guard:
+//   - APT precedence (governed by Pin-Priority; APT scans /etc/apt/sources.list.d/ in
+//     C-collation order independent of write order)
+//   - filesystem sequencing inside PackageRepositoryInstaller.Install (covered by apt-installer tests)
+//   - apt-get update timing; dpkg-frontend lock (taken only by the apt-get update step,
+//     NOT by keyring / sources.list file writes — the latter would race under parallelism,
+//     but the engine is sequential today, so this is not a regression risk)
+//   - parallel intra-layer apply (not a current code path)
+//   - mid-layer abort / partial-layer rollback semantics (covered by the sibling
+//     TestSystemEngine_Apply_PartialLayerFailure_SkipsDependents below and by
+//     TestSystemEngine_Apply_ErrorMidLayer above)
+//   - removal-path ordering / Apply -> handleSystemRemovals — out of scope
+func TestSystemEngine_Apply_IntraLayerAlphabeticalOrder(t *testing.T) {
+	t.Parallel()
+
+	wantAlphabetical := []string{
+		"installer:apt",
+		"repo:alpha-repo", "repo:mid-repo", "repo:zeta-repo",
+		"package:alpha-pkgs", "package:mid-pkgs", "package:zeta-pkgs",
+	}
+
+	// All 6 permutations of the three repo+package pairs.
+	// Each pair (repo + matching package) moves together since the package
+	// depends on its repo; we only permute the pair order in the input slice.
+	pairOrders := [][]string{
+		{"alpha", "mid", "zeta"},
+		{"alpha", "zeta", "mid"},
+		{"mid", "alpha", "zeta"},
+		{"mid", "zeta", "alpha"},
+		{"zeta", "alpha", "mid"},
+		{"zeta", "mid", "alpha"},
+	}
+
+	for _, perm := range pairOrders {
+		t.Run("input="+perm[0]+","+perm[1]+","+perm[2], func(t *testing.T) {
+			t.Parallel()
+
+			stateDir := t.TempDir()
+			store, err := state.NewStore[state.SystemState](stateDir)
+			require.NoError(t, err)
+
+			rec := newCallRecorder()
+			engine := NewSystemEngine(rec.installer, rec.repo, rec.pkg, store)
+			engine.SetPrivilegeHandler(&mockPrivilegeHandler{})
+
+			resources := []resource.Resource{testSystemInstaller("apt")}
+			for _, p := range perm {
+				resources = append(resources,
+					testSystemPackageRepository(p+"-repo", "apt"),
+					testSystemPackageSet(p+"-pkgs", "apt", p+"-repo", []string{p + "-binary"}),
+				)
+			}
+
+			err = engine.Apply(context.Background(), resources)
+			require.NoError(t, err)
+
+			gotCalls := rec.snapshot()
+			assert.Equalf(t, wantAlphabetical, gotCalls,
+				"apply order mismatch (input perm=%v); entries are '<kind>:<name>'; "+
+					"contract: layers installer->repo->package, intra-layer ascending by name",
+				perm)
+
+			// Structural invariants — survive future slice-length changes.
+			assert.Less(t, slices.Index(gotCalls, "repo:alpha-repo"), slices.Index(gotCalls, "repo:mid-repo"))
+			assert.Less(t, slices.Index(gotCalls, "repo:mid-repo"), slices.Index(gotCalls, "repo:zeta-repo"))
+			assert.Less(t, slices.Index(gotCalls, "repo:zeta-repo"), slices.Index(gotCalls, "package:alpha-pkgs"),
+				"intra-layer boundary: every repo must precede every package")
+		})
+	}
+}
+
+// TestSystemEngine_Apply_PartialLayerFailure_SkipsDependents covers the case
+// where one repo in a same-layer pair fails. The single-repo
+// TestSystemEngine_Apply_ErrorMidLayer cannot exercise this because it has no
+// sibling at the failing layer.
+//
+// Engine failure semantics (system_engine.go layer loop): Apply iterates
+// layer.Nodes sequentially in sortNodesByKind order (alphabetical for System
+// kinds); the first error returns from the layer loop, all remaining nodes in
+// the same layer are skipped, and all subsequent layers are skipped.
+//
+// The contract this test guards is engine-level: a layer error skips the
+// dependent package layer wholesale. The downstream APT correctness property
+// ("no apt-get install runs against a missing keyring") is a property of
+// internal/installer/apt/ tests, not this test.
+func TestSystemEngine_Apply_PartialLayerFailure_SkipsDependents(t *testing.T) {
+	t.Parallel()
+
+	// Known fixture repo names; any other name reaching the repoMock means a
+	// future edit added a third repo without extending this test — fail loud.
+	knownRepos := map[string]struct{}{"alpha-repo": {}, "zeta-repo": {}}
+
+	cases := []struct {
+		failingRepo string
+		want        []string
+		// alphaPersisted: true => fails=zeta-repo (alpha already succeeded),
+		//                  false => fails=alpha-repo (alpha was the failure).
+		alphaPersisted bool
+	}{
+		{
+			failingRepo:    "alpha-repo",
+			want:           []string{"installer:apt", "repo:alpha-repo"},
+			alphaPersisted: false,
+		},
+		{
+			failingRepo:    "zeta-repo",
+			want:           []string{"installer:apt", "repo:alpha-repo", "repo:zeta-repo"},
+			alphaPersisted: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run("fails="+tc.failingRepo, func(t *testing.T) {
+			t.Parallel()
+
+			stateDir := t.TempDir()
+			store, err := state.NewStore[state.SystemState](stateDir)
+			require.NoError(t, err)
+
+			rec := newCallRecorder()
+
+			// Override rec.repo to inject the per-name failure. The default
+			// installFn from newCallRecorder is replaced wholesale so the
+			// failure Given is visible at the call site.
+			rec.repo.installFn = func(_ context.Context, res *resource.SystemPackageRepository, name string) (*resource.SystemPackageRepositoryState, error) {
+				if _, ok := knownRepos[name]; !ok {
+					// Fail loud: defeats silent typo-degradation if a future
+					// edit adds a repo to the fixture without extending the
+					// failure-injection table.
+					t.Errorf("repoMock saw unexpected repo %q; extend knownRepos / cases", name)
+				}
+				rec.record("repo:" + name)
+				if name == tc.failingRepo {
+					// --- Mock error rationale ---
+					// Mock error mirrors a real PackageRepositoryInstaller failure:
+					//   - "verify key" wrap from apt/repository.go (verify-key step)
+					//   - "checksum mismatch" substring from internal/checksum/checksum.go
+					// This is the no-side-effect failure mode (hash verification refuses
+					// to write the keyring). The engine treats any non-nil error
+					// identically, so the exact text is illustrative, not part of the
+					// engine contract.
+					return nil, fmt.Errorf("apt: repository %q: verify key: checksum mismatch: expected sha256:aaa, got sha256:bbb", name)
+				}
+				return &resource.SystemPackageRepositoryState{
+					InstallerRef: res.SystemPackageRepositorySpec.InstallerRef,
+					Apt:          cloneAptSource(res.SystemPackageRepositorySpec.Apt),
+					UpdatedAt:    time.Now(),
+				}, nil
+			}
+
+			// Override rec.pkg to fail loud if the package layer is ever
+			// entered. This is a security canary: the layer-error contract
+			// requires the package layer to be skipped wholesale on any
+			// repo-layer error. A non-nil error here causes engine.Apply to
+			// propagate it, but the assert.Equal on rec.snapshot() catches the
+			// "package:*" entry first and gives a clearer diagnostic.
+			rec.pkg.installFn = func(_ context.Context, _ *resource.SystemPackageSet, name string) (*resource.SystemPackageSetState, error) {
+				rec.record("package:" + name)
+				return nil, fmt.Errorf("package layer must not be entered after repo-layer abort; got package:%s", name)
+			}
+
+			engine := NewSystemEngine(rec.installer, rec.repo, rec.pkg, store)
+			engine.SetPrivilegeHandler(&mockPrivilegeHandler{})
+
+			resources := []resource.Resource{
+				testSystemInstaller("apt"),
+				testSystemPackageRepository("alpha-repo", "apt"),
+				testSystemPackageRepository("zeta-repo", "apt"),
+				testSystemPackageSet("alpha-pkgs", "apt", "alpha-repo", []string{"alpha-binary"}),
+				testSystemPackageSet("zeta-pkgs", "apt", "zeta-repo", []string{"zeta-binary"}),
+			}
+
+			err = engine.Apply(context.Background(), resources)
+
+			// BDD assertion order: did it fail -> which -> why -> what ran -> what persisted.
+			require.Error(t, err)                         // (1) failure occurred
+			require.ErrorContains(t, err, tc.failingRepo) // (2) identification
+			require.ErrorContains(t, err, "verify key")   // (3) failure class
+			gotCalls := rec.snapshot()
+			assert.Equal(t, tc.want, gotCalls) // (4) observed calls (Equal also asserts length and absence of package:* entries)
+			// Anti-typo guard: the failing repo MUST have been observed; defeats
+			// silent degradation if tc.failingRepo gets out of sync with the fixture.
+			assert.Contains(t, gotCalls, "repo:"+tc.failingRepo,
+				"failing repo never reached repoMock; failure injection is unreachable")
+
+			// --- State after partial-layer failure ---
+			// (mirrors TestSystemEngine_Apply_ErrorMidLayer state-store pattern)
+			require.NoError(t, store.Lock())
+			defer func() { _ = store.Unlock() }()
+			st, err := store.Load()
+			require.NoError(t, err)
+
+			assert.NotNil(t, st.SystemInstallers["apt"], "prior installer layer must be persisted")
+			assert.Nil(t, st.SystemPackageRepositories[tc.failingRepo], "failed repo must not be persisted")
+			assert.Nil(t, st.SystemPackages["alpha-pkgs"], "package layer was never entered")
+			assert.Nil(t, st.SystemPackages["zeta-pkgs"], "package layer was never entered")
+
+			if tc.alphaPersisted {
+				// --- Non-transactional semantics ---
+				// IMPORTANT: Apply is non-transactional. When a sibling repo in a
+				// layer fails, any previously-successful sibling's side effects
+				// are NOT rolled back:
+				//   - in this test: state-store record for alpha-repo persists
+				//     via flushAndReturn calling stateCache.Flush() before
+				//     returning on error
+				//   - in production: keyring files at /usr/share/keyrings/<name>.gpg
+				//     and source list entries at /etc/apt/sources.list.d/<name>.list
+				//     also remain on disk
+				//   - the failing node's OWN partial writes (if any) are likewise
+				//     not rolled back; this test asserts state-store absence for
+				//     the failing node, NOT filesystem absence — the mock returns
+				//     (nil, error) before any persistence call
+				//
+				// SECURITY IMPLICATION: a non-nil error from Apply does NOT imply
+				// an unchanged system. Trust-store entries (APT keyrings, sources
+				// lists) for earlier-succeeded siblings remain on disk. An
+				// operator interpreting "apply failed" as "no changes" may miss
+				// that a third-party APT source was added.
+				//
+				// This is intentional engine semantics — rollback is the
+				// operator's responsibility. If a future change introduces
+				// rollback-on-error, the following assertion is the regression
+				// canary.
+				assert.NotNil(t, st.SystemPackageRepositories["alpha-repo"],
+					"partial-layer persistence canary: alpha-repo succeeded before zeta-repo failed; must remain in state")
+			} else {
+				assert.Nil(t, st.SystemPackageRepositories["alpha-repo"],
+					"alpha-repo failed first; zeta-repo never attempted; neither persisted")
+				assert.Nil(t, st.SystemPackageRepositories["zeta-repo"])
+			}
+		})
+	}
 }
