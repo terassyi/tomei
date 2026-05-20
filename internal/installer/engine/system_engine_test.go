@@ -1019,9 +1019,17 @@ func TestSystemEngine_Apply_IntraLayerAlphabeticalOrder(t *testing.T) {
 				perm)
 
 			// Structural invariants — survive future slice-length changes.
-			assert.Less(t, slices.Index(gotCalls, "repo:alpha-repo"), slices.Index(gotCalls, "repo:mid-repo"))
-			assert.Less(t, slices.Index(gotCalls, "repo:mid-repo"), slices.Index(gotCalls, "repo:zeta-repo"))
-			assert.Less(t, slices.Index(gotCalls, "repo:zeta-repo"), slices.Index(gotCalls, "package:alpha-pkgs"),
+			// indexOf wraps slices.Index with require.Contains so a missing
+			// entry surfaces as a clear "<entry> missing from call log" failure
+			// rather than letting slices.Index return -1 and producing a
+			// false-pass on a downstream assert.Less(-1, ...) comparison.
+			indexOf := func(entry string) int {
+				require.Containsf(t, gotCalls, entry, "call log missing required entry %q", entry)
+				return slices.Index(gotCalls, entry)
+			}
+			assert.Less(t, indexOf("repo:alpha-repo"), indexOf("repo:mid-repo"))
+			assert.Less(t, indexOf("repo:mid-repo"), indexOf("repo:zeta-repo"))
+			assert.Less(t, indexOf("repo:zeta-repo"), indexOf("package:alpha-pkgs"),
 				"intra-layer boundary: every repo must precede every package")
 		})
 	}
