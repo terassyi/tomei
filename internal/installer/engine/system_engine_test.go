@@ -121,19 +121,18 @@ func defaultPackageInstallFn(_ context.Context, res *resource.SystemPackageSet, 
 // --- Call recorder for ordering tests ---
 
 // callRecorder bundles the three System installer mocks wired to a shared,
-// lock-guarded call log. Each mock records "<kind>:<name>" before delegating
-// to its installFn — the "<kind>:<name>" format is the public contract and
-// tests assert against it directly.
+// lock-guarded call log. The "<kind>:<name>" log-entry format is the public
+// contract and tests assert against it directly.
 //
-// Defaults:
-//   - installer returns a stub SystemInstallerState
-//   - repo returns a deep-copied repo state via cloneAptSource
-//   - pkg returns a stub SystemPackageSetState
+// Default installFns:
+//   - installer records "installer:<name>" then returns a stub SystemInstallerState
+//   - repo records "repo:<name>" then returns a deep-copied repo state via cloneAptSource
+//   - pkg records "package:<name>" then returns a stub SystemPackageSetState
 //
 // Failure injection: tests REPLACE (not chain) installFn on the relevant mock
-// before passing the mocks to NewSystemEngine. The replacement is responsible
-// for calling .record itself — this keeps the failure-mode Given visible at
-// the call site.
+// before passing the mocks to NewSystemEngine. Because recording lives INSIDE
+// each default installFn, replacements are responsible for calling .record
+// themselves — this keeps the failure-mode Given visible at the call site.
 type callRecorder struct {
 	installer *mockSysInstallerInstaller
 	repo      *mockSysRepoInstaller
@@ -1092,8 +1091,11 @@ func TestSystemEngine_Apply_PartialLayerFailure_SkipsDependents(t *testing.T) {
 				if _, ok := knownRepos[name]; !ok {
 					// Fail loud: defeats silent typo-degradation if a future
 					// edit adds a repo to the fixture without extending the
-					// failure-injection table.
-					t.Errorf("repoMock saw unexpected repo %q; extend knownRepos / cases", name)
+					// failure-injection table. Use t.Fatalf so the first
+					// mismatch points directly at the offending call rather
+					// than letting the test continue and produce noisy
+					// downstream failures.
+					t.Fatalf("repoMock saw unexpected repo %q; extend knownRepos / cases", name)
 				}
 				rec.record("repo:" + name)
 				if name == tc.failingRepo {
