@@ -15,6 +15,9 @@ const (
 	defaultUserCacheSuffix = ".cache/tomei"
 )
 
+// defaultSystemBinDir is absolute (not a $HOME-joined suffix). Used as-is.
+const defaultSystemBinDir = "/usr/local/bin"
+
 // Paths holds configurable paths for tomei.
 type Paths struct {
 	userDataDir   string
@@ -22,6 +25,7 @@ type Paths struct {
 	userCacheDir  string
 	envDir        string
 	systemDataDir string
+	systemBinDir  string
 }
 
 // Option is a functional option for configuring Paths.
@@ -48,6 +52,13 @@ func WithSystemDataDir(dir string) Option {
 	}
 }
 
+// WithSystemBinDir sets a custom system bin directory.
+func WithSystemBinDir(dir string) Option {
+	return func(p *Paths) {
+		p.systemBinDir = dir
+	}
+}
+
 // New creates a new Paths with optional custom configuration.
 func New(opts ...Option) (*Paths, error) {
 	home, err := os.UserHomeDir()
@@ -60,6 +71,7 @@ func New(opts ...Option) (*Paths, error) {
 		userBinDir:    filepath.Join(home, defaultUserBinSuffix),
 		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
 		systemDataDir: filepath.Join(home, defaultUserDataSuffix, "system"),
+		systemBinDir:  defaultSystemBinDir,
 	}
 
 	for _, opt := range opts {
@@ -92,6 +104,11 @@ func (p *Paths) EnvDir() string {
 // SystemDataDir returns the system data directory.
 func (p *Paths) SystemDataDir() string {
 	return p.systemDataDir
+}
+
+// SystemBinDir returns the system bin directory.
+func (p *Paths) SystemBinDir() string {
+	return p.systemBinDir
 }
 
 // ToolInstallDir returns the installation directory for a tool.
@@ -163,6 +180,7 @@ func NewFromConfig(cfg *config.Config) (*Paths, error) {
 		userCacheDir:  filepath.Join(home, defaultUserCacheSuffix),
 		envDir:        envDir,
 		systemDataDir: filepath.Join(dataDir, "system"),
+		systemBinDir:  defaultSystemBinDir, // host-wide default; cfg.BinDir is user-scoped
 	}, nil
 }
 

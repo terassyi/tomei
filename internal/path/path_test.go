@@ -17,39 +17,52 @@ func TestNew(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name            string
-		opts            []Option
-		wantUserDataDir string
-		wantUserBinDir  string
-		wantSystemDir   string
+		name             string
+		opts             []Option
+		wantUserDataDir  string
+		wantUserBinDir   string
+		wantSystemDir    string
+		wantSystemBinDir string
 	}{
 		{
-			name:            "default paths",
-			opts:            nil,
-			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
-			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
+			name:             "default paths",
+			opts:             nil,
+			wantUserDataDir:  filepath.Join(home, ".local/share/tomei"),
+			wantUserBinDir:   filepath.Join(home, ".local/bin"),
+			wantSystemDir:    filepath.Join(home, ".local/share/tomei/system"),
+			wantSystemBinDir: "/usr/local/bin",
 		},
 		{
-			name:            "with custom user data dir",
-			opts:            []Option{WithUserDataDir("/custom/data")},
-			wantUserDataDir: "/custom/data",
-			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
+			name:             "with custom user data dir",
+			opts:             []Option{WithUserDataDir("/custom/data")},
+			wantUserDataDir:  "/custom/data",
+			wantUserBinDir:   filepath.Join(home, ".local/bin"),
+			wantSystemDir:    filepath.Join(home, ".local/share/tomei/system"),
+			wantSystemBinDir: "/usr/local/bin",
 		},
 		{
-			name:            "with custom user bin dir",
-			opts:            []Option{WithUserBinDir("/custom/bin")},
-			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
-			wantUserBinDir:  "/custom/bin",
-			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
+			name:             "with custom user bin dir",
+			opts:             []Option{WithUserBinDir("/custom/bin")},
+			wantUserDataDir:  filepath.Join(home, ".local/share/tomei"),
+			wantUserBinDir:   "/custom/bin",
+			wantSystemDir:    filepath.Join(home, ".local/share/tomei/system"),
+			wantSystemBinDir: "/usr/local/bin",
 		},
 		{
-			name:            "with custom system data dir",
-			opts:            []Option{WithSystemDataDir("/custom/system")},
-			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
-			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   "/custom/system",
+			name:             "with custom system data dir",
+			opts:             []Option{WithSystemDataDir("/custom/system")},
+			wantUserDataDir:  filepath.Join(home, ".local/share/tomei"),
+			wantUserBinDir:   filepath.Join(home, ".local/bin"),
+			wantSystemDir:    "/custom/system",
+			wantSystemBinDir: "/usr/local/bin",
+		},
+		{
+			name:             "with custom system bin dir",
+			opts:             []Option{WithSystemBinDir("/opt/bin")},
+			wantUserDataDir:  filepath.Join(home, ".local/share/tomei"),
+			wantUserBinDir:   filepath.Join(home, ".local/bin"),
+			wantSystemDir:    filepath.Join(home, ".local/share/tomei/system"),
+			wantSystemBinDir: "/opt/bin",
 		},
 		{
 			name: "with all custom dirs",
@@ -57,10 +70,12 @@ func TestNew(t *testing.T) {
 				WithUserDataDir("/custom/data"),
 				WithUserBinDir("/custom/bin"),
 				WithSystemDataDir("/custom/system"),
+				WithSystemBinDir("/custom/system-bin"),
 			},
-			wantUserDataDir: "/custom/data",
-			wantUserBinDir:  "/custom/bin",
-			wantSystemDir:   "/custom/system",
+			wantUserDataDir:  "/custom/data",
+			wantUserBinDir:   "/custom/bin",
+			wantSystemDir:    "/custom/system",
+			wantSystemBinDir: "/custom/system-bin",
 		},
 	}
 
@@ -74,6 +89,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, tt.wantUserDataDir, p.UserDataDir())
 			assert.Equal(t, tt.wantUserBinDir, p.UserBinDir())
 			assert.Equal(t, tt.wantSystemDir, p.SystemDataDir())
+			assert.Equal(t, tt.wantSystemBinDir, p.SystemBinDir())
 		})
 	}
 }
@@ -292,11 +308,12 @@ func TestNewFromConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name            string
-		cfg             *config.Config
-		wantUserDataDir string
-		wantUserBinDir  string
-		wantSystemDir   string
+		name             string
+		cfg              *config.Config
+		wantUserDataDir  string
+		wantUserBinDir   string
+		wantSystemDir    string
+		wantSystemBinDir string
 	}{
 		{
 			name: "default config",
@@ -304,9 +321,10 @@ func TestNewFromConfig(t *testing.T) {
 				DataDir: config.DefaultDataDir,
 				BinDir:  config.DefaultBinDir,
 			},
-			wantUserDataDir: filepath.Join(home, ".local/share/tomei"),
-			wantUserBinDir:  filepath.Join(home, ".local/bin"),
-			wantSystemDir:   filepath.Join(home, ".local/share/tomei/system"),
+			wantUserDataDir:  filepath.Join(home, ".local/share/tomei"),
+			wantUserBinDir:   filepath.Join(home, ".local/bin"),
+			wantSystemDir:    filepath.Join(home, ".local/share/tomei/system"),
+			wantSystemBinDir: "/usr/local/bin",
 		},
 		{
 			name: "custom config with tilde",
@@ -314,9 +332,10 @@ func TestNewFromConfig(t *testing.T) {
 				DataDir: "~/my-data",
 				BinDir:  "~/my-bin",
 			},
-			wantUserDataDir: filepath.Join(home, "my-data"),
-			wantUserBinDir:  filepath.Join(home, "my-bin"),
-			wantSystemDir:   filepath.Join(home, "my-data/system"),
+			wantUserDataDir:  filepath.Join(home, "my-data"),
+			wantUserBinDir:   filepath.Join(home, "my-bin"),
+			wantSystemDir:    filepath.Join(home, "my-data/system"),
+			wantSystemBinDir: "/usr/local/bin",
 		},
 		{
 			name: "absolute paths",
@@ -324,9 +343,10 @@ func TestNewFromConfig(t *testing.T) {
 				DataDir: "/opt/tomei/data",
 				BinDir:  "/opt/tomei/bin",
 			},
-			wantUserDataDir: "/opt/tomei/data",
-			wantUserBinDir:  "/opt/tomei/bin",
-			wantSystemDir:   "/opt/tomei/data/system",
+			wantUserDataDir:  "/opt/tomei/data",
+			wantUserBinDir:   "/opt/tomei/bin",
+			wantSystemDir:    "/opt/tomei/data/system",
+			wantSystemBinDir: "/usr/local/bin",
 		},
 	}
 
@@ -340,6 +360,7 @@ func TestNewFromConfig(t *testing.T) {
 			assert.Equal(t, tt.wantUserDataDir, p.UserDataDir())
 			assert.Equal(t, tt.wantUserBinDir, p.UserBinDir())
 			assert.Equal(t, tt.wantSystemDir, p.SystemDataDir())
+			assert.Equal(t, tt.wantSystemBinDir, p.SystemBinDir())
 		})
 	}
 }
