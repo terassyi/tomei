@@ -12,10 +12,13 @@ import (
 	"strings"
 )
 
-// errSudoFallback is wrapped into errors when the direct syscall hit
-// fs.ErrPermission and the helper fell back to `sudo -n`. Tests use
-// errors.Is to detect "this operation required privilege escalation."
-// Stays unexported until callers outside this package actually need it.
+// errSudoFallback is wrapped into the returned error only when the helper
+// fell back to `sudo -n` AND that sudo invocation itself failed. A successful
+// sudo fallback returns nil (callers can't tell from the return value that
+// escalation occurred). Tests assert errors.Is(err, errSudoFallback) to
+// distinguish "sudo path was taken but failed" from "direct syscall failed
+// for a non-permission reason." Stays unexported until callers outside this
+// package actually need it.
 var errSudoFallback = errors.New("sudo fallback")
 
 // symlinkOverrides groups the three swappable function dependencies of the
@@ -51,10 +54,11 @@ func defaultSudoRun(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// installSymlink creates linkPath -> target, escalating to `sudo -n ln -sf`
-// on permission error. Existing symlinks at linkPath are replaced; existing
-// non-symlinks (regular files, directories) are refused to avoid silently
-// clobbering operator-installed binaries.
+// installSymlink creates linkPath -> target, escalating to `sudo -n ln -snf`
+// on permission error (-s symbolic, -n no-deref to avoid the symlink-to-dir
+// foot-gun, -f force-replace). Existing symlinks at linkPath are replaced;
+// existing non-symlinks (regular files, directories) are refused to avoid
+// silently clobbering operator-installed binaries.
 //
 // Assumes the caller has already cached a sudo ticket via sudoHandler
 // (cmd/tomei/apply.go); the -n flag never prompts.
@@ -84,7 +88,7 @@ func installSymlink(ctx context.Context, target, linkPath string) error {
 		if errors.Is(err, fs.ErrPermission) {
 			return sudoInstallSymlink(ctx, target, linkPath)
 		}
-		return fmt.Errorf("install symlink %q -> %q: %w", target, linkPath, err)
+		return fmt.Errorf("install symlink %q -> %q: %w", linkPath, target, err)
 	}
 	return nil
 }
@@ -140,7 +144,7 @@ func sudoInstallSymlink(ctx context.Context, target, linkPath string) error {
 	// if it's a symlink to a directory (without this, ln dereferences and
 	// creates the new link *inside* the directory).
 	if err := symlinkOverrides.sudoRun(ctx, "ln", "-snf", "--", target, linkPath); err != nil {
-		return fmt.Errorf("install symlink %q -> %q: %w: %w", target, linkPath, errSudoFallback, err)
+		return fmt.Errorf("install symlink %q -> %q: %w: %w", linkPath, target, errSudoFallback, err)
 	}
 	return nil
 }
