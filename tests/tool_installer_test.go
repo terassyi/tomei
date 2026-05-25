@@ -49,8 +49,8 @@ func TestToolInstaller_Install_HTTP(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 
 	dl := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := toolpkg.NewInstaller(dl, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := toolpkg.NewInstaller(dl, placer, binDir)
 
 	tool := &resource.Tool{
 		BaseResource: resource.BaseResource{
@@ -121,8 +121,8 @@ func TestToolInstaller_InstallFromRegistry_HTTP(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 
 	dl := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := toolpkg.NewInstaller(dl, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := toolpkg.NewInstaller(dl, placer, binDir)
 
 	resolver := aqua.NewResolverWithBaseURL(cacheDir, server.URL)
 	installer.SetResolver(resolver, "v4.465.0")
@@ -179,8 +179,8 @@ func TestToolInstaller_Install_HTTP_BinaryName(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 
 	dl := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := toolpkg.NewInstaller(dl, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := toolpkg.NewInstaller(dl, placer, binDir)
 
 	tool := &resource.Tool{
 		BaseResource: resource.BaseResource{
@@ -251,8 +251,8 @@ func TestToolInstaller_InstallFromRegistry_HTTP_BinaryName(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 
 	dl := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := toolpkg.NewInstaller(dl, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := toolpkg.NewInstaller(dl, placer, binDir)
 
 	resolver := aqua.NewResolverWithBaseURL(cacheDir, server.URL)
 	installer.SetResolver(resolver, "v4.465.0")
@@ -302,8 +302,8 @@ func TestToolInstaller_Install_HTTP_BinaryName_OldSymlinkCleanup(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 
 	dl := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := toolpkg.NewInstaller(dl, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := toolpkg.NewInstaller(dl, placer, binDir)
 
 	// First install: no binaryName override → symlink at binDir/krew
 	tool1 := &resource.Tool{

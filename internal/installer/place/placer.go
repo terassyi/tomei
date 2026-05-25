@@ -52,8 +52,8 @@ type Placer interface {
 	// BinaryPath returns the full path where the binary would be placed.
 	BinaryPath(target Target) string
 
-	// LinkPath returns the full path where the symlink would be created.
-	LinkPath(target Target) string
+	// LinkPath returns the full path where the symlink would be created in binDir.
+	LinkPath(target Target, binDir string) string
 
 	// Validate checks the binary state and returns the required action.
 	// expectedHash is the expected SHA256 hash of the binary.
@@ -64,8 +64,9 @@ type Placer interface {
 	Place(srcDir string, target Target) (*Result, error)
 
 	// Symlink creates a symlink in binDir pointing to the placed binary.
-	// Returns the path to the created symlink.
-	Symlink(target Target) (string, error)
+	// Returns the path to the created symlink. Rejects empty, relative, or
+	// root binDir values to prevent silent cwd-relative symlinks.
+	Symlink(target Target, binDir string) (string, error)
 
 	// Cleanup removes a file or directory.
 	// Does not return error if path does not exist.
@@ -80,15 +81,12 @@ var _ Placer = (*filePlacer)(nil)
 // filePlacer implements Placer.
 type filePlacer struct {
 	toolsDir string // e.g., ~/.local/share/tomei/tools
-	binDir   string // e.g., ~/.local/bin
 }
 
-// NewPlacer creates a new Placer.
-func NewPlacer(toolsDir, binDir string) Placer {
-	return &filePlacer{
-		toolsDir: toolsDir,
-		binDir:   binDir,
-	}
+// NewPlacer creates a new Placer. The bin directory is per-call; the placer
+// holds no default — see LinkPath / Symlink.
+func NewPlacer(toolsDir string) Placer {
+	return &filePlacer{toolsDir: toolsDir}
 }
 
 // BinaryPath returns the full path where the binary would be placed.
@@ -96,9 +94,11 @@ func (p *filePlacer) BinaryPath(target Target) string {
 	return filepath.Join(p.toolsDir, target.Name, target.Version, target.BinaryName)
 }
 
-// LinkPath returns the full path where the symlink would be created.
-func (p *filePlacer) LinkPath(target Target) string {
-	return filepath.Join(p.binDir, target.BinaryName)
+// LinkPath returns the full path where the symlink would be created in binDir.
+// Pure path arithmetic — no validation; Symlink is where the syscall happens
+// and where bad binDir values are rejected.
+func (p *filePlacer) LinkPath(target Target, binDir string) string {
+	return filepath.Join(binDir, target.BinaryName)
 }
 
 // Validate checks the binary state and returns the required action.
@@ -183,9 +183,17 @@ func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
 }
 
 // Symlink creates a symlink in binDir pointing to the placed binary.
-func (p *filePlacer) Symlink(target Target) (string, error) {
+func (p *filePlacer) Symlink(target Target, binDir string) (string, error) {
+	// Reject empty / relative / root binDir before any syscall — a relative
+	// linkPath would resolve against the cwd of `tomei apply`, silently
+	// planting the symlink in whatever directory the operator ran from.
+	// Reuses the same checks #226's privileged path enforces.
+	if err := validateLinkPath(binDir); err != nil {
+		return "", err
+	}
+
 	srcPath := filepath.Join(p.toolsDir, target.Name, target.Version, target.BinaryName)
-	slog.Debug("creating symlink", "src", srcPath, "binDir", p.binDir, "linkName", target.BinaryName)
+	slog.Debug("creating symlink", "src", srcPath, "binDir", binDir, "linkName", target.BinaryName)
 
 	// Verify source exists
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
@@ -193,11 +201,11 @@ func (p *filePlacer) Symlink(target Target) (string, error) {
 	}
 
 	// Create binDir
-	if err := os.MkdirAll(p.binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create bin directory: %w", err)
 	}
 
-	linkPath := filepath.Join(p.binDir, target.BinaryName)
+	linkPath := filepath.Join(binDir, target.BinaryName)
 
 	// Remove existing symlink if present
 	if _, err := os.Lstat(linkPath); err == nil {
