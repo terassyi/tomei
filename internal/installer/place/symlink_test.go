@@ -97,9 +97,10 @@ func TestInstallSymlink_FallsBackOnPermissionError(t *testing.T) {
 		},
 	)
 
-	err := installSymlink(context.Background(), "/some/target", "/usr/local/bin/foo")
+	linkPath := filepath.Join(t.TempDir(), "foo")
+	err := installSymlink(context.Background(), "/some/target", linkPath)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"ln", "-snf", "--", "/some/target", "/usr/local/bin/foo"}, capturedArgs)
+	assert.Equal(t, []string{"ln", "-snf", "--", "/some/target", linkPath}, capturedArgs)
 }
 
 func TestInstallSymlink_NonPermissionErrorNotEscalated(t *testing.T) {
@@ -132,10 +133,11 @@ func TestInstallSymlink_SudoFallbackFailurePropagates(t *testing.T) {
 		},
 	)
 
-	err := installSymlink(context.Background(), "/t", "/usr/local/bin/foo")
+	linkPath := filepath.Join(t.TempDir(), "foo")
+	err := installSymlink(context.Background(), "/t", linkPath)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errSudoFallback)
-	assert.Contains(t, err.Error(), "/usr/local/bin/foo")
+	assert.Contains(t, err.Error(), linkPath)
 	assert.Contains(t, err.Error(), "sudo: a password is required")
 }
 
