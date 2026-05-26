@@ -3,6 +3,7 @@ package place
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -187,8 +188,7 @@ func (p *filePlacer) Symlink(target Target, binDir string) (string, error) {
 	// Reject empty / relative / root binDir before any syscall — a relative
 	// linkPath would resolve against the cwd of `tomei apply`, silently
 	// planting the symlink in whatever directory the operator ran from.
-	// Reuses the same checks #226's privileged path enforces.
-	if err := validateLinkPath(binDir); err != nil {
+	if err := validateBinDir(binDir); err != nil {
 		return "", err
 	}
 
@@ -237,6 +237,22 @@ func (p *filePlacer) Cleanup(path string) error {
 // ToolsDir returns the root tools directory path.
 func (p *filePlacer) ToolsDir() string {
 	return p.toolsDir
+}
+
+// validateBinDir rejects empty / non-absolute / "/" binDir values before any
+// syscall. Mirrors the three checks in validateLinkPath (symlink.go) but with
+// binDir-named error messages so failures from Placer methods are unambiguous.
+func validateBinDir(binDir string) error {
+	if binDir == "" {
+		return errors.New("placer: binDir is empty")
+	}
+	if !filepath.IsAbs(binDir) {
+		return fmt.Errorf("placer: binDir %q is not absolute", binDir)
+	}
+	if filepath.Clean(binDir) == "/" {
+		return errors.New("placer: binDir resolves to root directory")
+	}
+	return nil
 }
 
 // findBinary searches for a binary in srcDir and its subdirectories.
