@@ -13,7 +13,7 @@ import (
 
 func TestNewPlacer(t *testing.T) {
 	t.Parallel()
-	p := NewPlacer("/tools", "/bin")
+	p := NewPlacer("/tools")
 	assert.NotNil(t, p)
 }
 
@@ -93,11 +93,10 @@ func TestPlacer_Validate(t *testing.T) {
 			t.Parallel()
 			tmpDir := t.TempDir()
 			toolsDir := filepath.Join(tmpDir, "tools")
-			binDir := filepath.Join(tmpDir, "bin")
 
 			tt.setup(t, toolsDir, tt.target)
 
-			p := NewPlacer(toolsDir, binDir)
+			p := NewPlacer(toolsDir)
 			action, err := p.Validate(tt.target, tt.expectedHash)
 
 			if tt.wantErr {
@@ -239,14 +238,13 @@ func TestPlacer_Place(t *testing.T) {
 			tmpDir := t.TempDir()
 			srcDir := filepath.Join(tmpDir, "src")
 			toolsDir := filepath.Join(tmpDir, "tools")
-			binDir := filepath.Join(tmpDir, "bin")
 
 			err := os.MkdirAll(srcDir, 0755)
 			require.NoError(t, err)
 
 			tt.setup(t, srcDir)
 
-			p := NewPlacer(toolsDir, binDir)
+			p := NewPlacer(toolsDir)
 			result, err := p.Place(srcDir, tt.target)
 
 			if tt.wantErr {
@@ -347,8 +345,8 @@ func TestPlacer_Symlink(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			p := NewPlacer(toolsDir, binDir)
-			linkPath, err := p.Symlink(tt.target)
+			p := NewPlacer(toolsDir)
+			linkPath, err := p.Symlink(tt.target, binDir)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -368,6 +366,99 @@ func TestPlacer_Symlink(t *testing.T) {
 			actualTarget, err := os.Readlink(linkPath)
 			require.NoError(t, err)
 			assert.Equal(t, expectedTarget, actualTarget)
+		})
+	}
+}
+
+func TestPlacer_Symlink_RoutesToProvidedBinDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	userBinDir := filepath.Join(tmpDir, "userbin")
+	sysBinDir := filepath.Join(tmpDir, "sysbin")
+	target := Target{Name: "mytool", Version: "1.0.0", BinaryName: "tool"}
+
+	binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(binPath), 0755))
+	require.NoError(t, os.WriteFile(binPath, []byte("binary"), 0755))
+
+	p := NewPlacer(toolsDir)
+
+	gotUser, err := p.Symlink(target, userBinDir)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(userBinDir, target.BinaryName), gotUser)
+
+	gotSys, err := p.Symlink(target, sysBinDir)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(sysBinDir, target.BinaryName), gotSys)
+
+	// Both links must coexist — proves the placer carries no hidden bin-dir state.
+	userTarget, err := os.Readlink(gotUser)
+	require.NoError(t, err)
+	assert.Equal(t, binPath, userTarget)
+	sysTarget, err := os.Readlink(gotSys)
+	require.NoError(t, err)
+	assert.Equal(t, binPath, sysTarget)
+}
+
+func TestPlacer_LinkPath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		binDir string
+		target Target
+		want   string
+	}{
+		{
+			name:   "user binDir",
+			binDir: "/home/user/.local/bin",
+			target: Target{Name: "ripgrep", Version: "14.1.1", BinaryName: "rg"},
+			want:   "/home/user/.local/bin/rg",
+		},
+		{
+			name:   "system binDir",
+			binDir: "/usr/local/bin",
+			target: Target{Name: "kubectl", Version: "1.30.0", BinaryName: "kubectl"},
+			want:   "/usr/local/bin/kubectl",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := NewPlacer("/tools")
+			assert.Equal(t, tt.want, p.LinkPath(tt.target, tt.binDir))
+		})
+	}
+}
+
+func TestPlacer_Symlink_RejectsBadBinDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	target := Target{Name: "mytool", Version: "1.0.0", BinaryName: "tool"}
+
+	binPath := filepath.Join(toolsDir, target.Name, target.Version, target.BinaryName)
+	require.NoError(t, os.MkdirAll(filepath.Dir(binPath), 0755))
+	require.NoError(t, os.WriteFile(binPath, []byte("binary"), 0755))
+
+	tests := []struct {
+		name    string
+		binDir  string
+		wantMsg string
+	}{
+		{"empty", "", "is empty"},
+		{"relative", "relative/bin", "is not absolute"},
+		{"root", "/", "resolves to root"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			p := NewPlacer(toolsDir)
+			_, err := p.Symlink(target, tt.binDir)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantMsg)
 		})
 	}
 }
@@ -416,7 +507,7 @@ func TestPlacer_Cleanup(t *testing.T) {
 			tmpDir := t.TempDir()
 			path := tt.setup(t, tmpDir)
 
-			p := NewPlacer(filepath.Join(tmpDir, "tools"), filepath.Join(tmpDir, "bin"))
+			p := NewPlacer(filepath.Join(tmpDir, "tools"))
 			err := p.Cleanup(path)
 
 			if tt.wantErr {

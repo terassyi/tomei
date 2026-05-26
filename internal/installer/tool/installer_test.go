@@ -27,9 +27,9 @@ import (
 func TestNewInstaller(t *testing.T) {
 	t.Parallel()
 	downloader := download.NewDownloader()
-	placer := place.NewPlacer("/tools", "/bin")
+	placer := place.NewPlacer("/tools")
 
-	installer := NewInstaller(downloader, placer)
+	installer := NewInstaller(downloader, placer, "/bin")
 	assert.NotNil(t, installer)
 }
 
@@ -86,7 +86,7 @@ func TestToolInstaller_Install(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dl := &mockDownloader{archiveData: tarGzContent}
-			installer := NewInstaller(dl, &mockPlacer{})
+			installer := NewInstaller(dl, &mockPlacer{}, "/bin")
 
 			state, err := installer.Install(context.Background(), tt.tool, tt.tool.Name())
 
@@ -108,6 +108,49 @@ func TestToolInstaller_Install(t *testing.T) {
 	}
 }
 
+// TestToolInstaller_PassesUserBinDirToPlacer pins the wire that the Installer
+// threads its userBinDir field into every binDir-taking Placer call. Without
+// this, a copy-paste regression (passing "" or i.toolsDir at any of the 3
+// callsites) would compile and other tests would still pass since mockPlacer
+// previously ignored its args.
+func TestToolInstaller_PassesUserBinDirToPlacer(t *testing.T) {
+	t.Parallel()
+	const sentinel = "/sentinel/bin"
+
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "ripgrep", binaryContent)
+	archiveHash := sha256Hash(tarGzContent)
+
+	dl := &mockDownloader{archiveData: tarGzContent}
+	mp := &mockPlacer{}
+	installer := NewInstaller(dl, mp, sentinel)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "ripgrep"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "14.1.1",
+			Source: &resource.DownloadSource{
+				URL:         "https://example.com/ripgrep.tar.gz",
+				Checksum:    &resource.Checksum{Value: "sha256:" + archiveHash},
+				ArchiveType: "tar.gz",
+			},
+		},
+	}
+
+	state, err := installer.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	require.NotEmpty(t, mp.gotSymlinkBinDirs, "Symlink must be called during install")
+	for _, got := range mp.gotSymlinkBinDirs {
+		assert.Equal(t, sentinel, got, "Symlink must receive the installer's userBinDir")
+	}
+	assert.Equal(t, sentinel, mp.gotLinkPathBinDir, "LinkPath must receive the installer's userBinDir")
+}
+
 func TestToolInstaller_Install_Skip(t *testing.T) {
 	t.Parallel()
 	binaryContent := []byte("#!/bin/sh\necho hello")
@@ -124,8 +167,8 @@ func TestToolInstaller_Install_Skip(t *testing.T) {
 	require.NoError(t, err)
 
 	downloader := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	inst := NewInstaller(downloader, placer)
+	placer := place.NewPlacer(toolsDir)
+	inst := NewInstaller(downloader, placer, binDir)
 
 	// No checksum - will skip if binary exists
 	tool := &resource.Tool{
@@ -158,8 +201,8 @@ func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
 	binDir := filepath.Join(tmpDir, "bin")
 
 	downloader := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := NewInstaller(downloader, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := NewInstaller(downloader, placer, binDir)
 
 	// No resolver set - should fail
 
@@ -190,8 +233,8 @@ func TestToolInstaller_InstallFromRegistry_NoRegistryRef(t *testing.T) {
 	cacheDir := filepath.Join(tmpDir, "cache")
 
 	downloader := download.NewDownloader()
-	placer := place.NewPlacer(toolsDir, binDir)
-	installer := NewInstaller(downloader, placer)
+	placer := place.NewPlacer(toolsDir)
+	installer := NewInstaller(downloader, placer, binDir)
 
 	// Set resolver but no registry ref
 	resolver := createMockResolver(t, cacheDir, "http://example.com")
@@ -284,14 +327,19 @@ func (m *mockDownloader) Verify(_ context.Context, _ string, cs *resource.Checks
 }
 
 // mockPlacer always returns install action and succeeds.
-type mockPlacer struct{}
+// Captures binDir args from Symlink / LinkPath for sentinel assertions.
+type mockPlacer struct {
+	gotSymlinkBinDirs []string
+	gotLinkPathBinDir string
+}
 
 func (m *mockPlacer) BinaryPath(target place.Target) string {
 	return "/tools/" + target.Name + "/" + target.Version + "/" + target.BinaryName
 }
 
-func (m *mockPlacer) LinkPath(target place.Target) string {
-	return "/bin/" + target.BinaryName
+func (m *mockPlacer) LinkPath(target place.Target, binDir string) string {
+	m.gotLinkPathBinDir = binDir
+	return binDir + "/" + target.BinaryName
 }
 
 func (m *mockPlacer) Validate(_ place.Target, _ string) (place.ValidateAction, error) {
@@ -304,8 +352,9 @@ func (m *mockPlacer) Place(_ string, target place.Target) (*place.Result, error)
 	}, nil
 }
 
-func (m *mockPlacer) Symlink(target place.Target) (string, error) {
-	return "/bin/" + target.BinaryName, nil
+func (m *mockPlacer) Symlink(target place.Target, binDir string) (string, error) {
+	m.gotSymlinkBinDirs = append(m.gotSymlinkBinDirs, binDir)
+	return binDir + "/" + target.BinaryName, nil
 }
 
 func (m *mockPlacer) Cleanup(_ string) error {
@@ -384,7 +433,7 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 			tmpDir := t.TempDir()
 			captureFile := filepath.Join(tmpDir, "captured_cmd.txt")
 
-			inst := NewInstaller(download.NewDownloader(), place.NewPlacer(filepath.Join(tmpDir, "tools"), filepath.Join(tmpDir, "bin")))
+			inst := NewInstaller(download.NewDownloader(), place.NewPlacer(filepath.Join(tmpDir, "tools")), filepath.Join(tmpDir, "bin"))
 			tt.setup(inst, captureFile)
 
 			tool := tt.tool(captureFile)
@@ -454,7 +503,7 @@ func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dl := &mockDownloader{archiveData: archiveData}
-			installer := NewInstaller(dl, &mockPlacer{})
+			installer := NewInstaller(dl, &mockPlacer{}, "/bin")
 
 			var fieldCalled, ctxCalled bool
 
@@ -767,7 +816,7 @@ func TestInstallByCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{checkResult: tt.checkResult, executeErr: tt.executeErr}
-			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, runner)
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", runner)
 
 			if tt.resolver != nil {
 				inst.SetVersionResolver(resolve.NewResolver(tt.resolver, nil))
@@ -860,7 +909,7 @@ func TestRemoveByCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{checkResult: true, executeErr: tt.executeErr}
-			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, runner)
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", runner)
 
 			err := inst.Remove(context.Background(), tt.state, "mytool")
 
@@ -907,7 +956,7 @@ func TestInstallFromRegistry_ChecksumAlgorithmPropagation(t *testing.T) {
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
 	dl := &mockDownloader{archiveData: tarGzContent}
-	inst := NewInstaller(dl, &mockPlacer{})
+	inst := NewInstaller(dl, &mockPlacer{}, "/bin")
 
 	resolver := aqua.NewResolver(cacheDir, nil)
 	inst.SetResolver(resolver, ref)

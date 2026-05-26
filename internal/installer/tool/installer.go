@@ -54,6 +54,7 @@ type CommandRunner interface {
 type Installer struct {
 	downloader       download.Downloader
 	placer           place.Placer
+	userBinDir       string // bin directory passed to placer for non-privileged installs
 	cmdExecutor      CommandRunner
 	versionResolver  *resolve.Resolver         // shared version resolver (optional)
 	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
@@ -66,11 +67,12 @@ type Installer struct {
 }
 
 // NewInstaller creates a new tool Installer.
-func NewInstaller(downloader download.Downloader, placer place.Placer) *Installer {
+func NewInstaller(downloader download.Downloader, placer place.Placer, userBinDir string) *Installer {
 	cmdExec := command.NewExecutor("")
 	return &Installer{
 		downloader:      downloader,
 		placer:          placer,
+		userBinDir:      userBinDir,
 		cmdExecutor:     cmdExec,
 		versionResolver: resolve.NewResolver(cmdExec, http.DefaultClient),
 		runtimes:        make(map[string]*RuntimeInfo),
@@ -79,10 +81,11 @@ func NewInstaller(downloader download.Downloader, placer place.Placer) *Installe
 }
 
 // NewInstallerWithRunner creates a new tool Installer with a custom CommandRunner (for testing).
-func NewInstallerWithRunner(downloader download.Downloader, placer place.Placer, runner CommandRunner) *Installer {
+func NewInstallerWithRunner(downloader download.Downloader, placer place.Placer, userBinDir string, runner CommandRunner) *Installer {
 	return &Installer{
 		downloader:  downloader,
 		placer:      placer,
+		userBinDir:  userBinDir,
 		cmdExecutor: runner,
 		runtimes:    make(map[string]*RuntimeInfo),
 		installers:  make(map[string]*InstallerInfo),
@@ -272,7 +275,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	case place.ValidateActionSkip:
 		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
 		// Even if binary exists, ensure symlink points to correct version
-		linkPath, err := i.placer.Symlink(target)
+		linkPath, err := i.placer.Symlink(target, i.userBinDir)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update symlink: %w", err)
 		}
@@ -360,7 +363,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Create symlink
-	linkPath, err := i.placer.Symlink(target)
+	linkPath, err := i.placer.Symlink(target, i.userBinDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create symlink: %w", err)
 	}
@@ -554,7 +557,7 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		SpecVersion:  spec.Version,
 		Digest:       digest,
 		InstallPath:  i.placer.BinaryPath(target),
-		BinPath:      i.placer.LinkPath(target),
+		BinPath:      i.placer.LinkPath(target, i.userBinDir),
 		Source:       spec.Source,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,

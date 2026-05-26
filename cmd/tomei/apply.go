@@ -238,10 +238,9 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	downloader := download.NewDownloaderWithClient(dlClient, download.WithDownloadTimeout(cfg.timeout))
 	toolsDir := pathConfig.UserDataDir() + "/tools"
 	runtimesDir := pathConfig.UserDataDir() + "/runtimes"
-	binDir := pathConfig.UserBinDir()
 
-	placer := place.NewPlacer(toolsDir, binDir)
-	toolInstaller := tool.NewInstaller(downloader, placer)
+	placer := place.NewPlacer(toolsDir)
+	toolInstaller := tool.NewInstaller(downloader, placer, pathConfig.UserBinDir())
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 	reposDir := pathConfig.UserDataDir() + "/repositories"
 	repoInstaller := repository.NewInstaller(reposDir)
