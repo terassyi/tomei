@@ -424,16 +424,22 @@ func (t *Tool) IsPrivileged() bool {
 	switch {
 	case s.Commands != nil:
 		return true
+	case s.InstallerRef == "":
+		// Without an installer there is no tomei-managed placement to
+		// escalate: runtime delegation and any spec lacking an install
+		// method fall out here (RuntimeRef additionally fails Validate).
+		return false
 	case s.Source != nil:
 		// Download pattern: tomei downloads and places the binary.
 		return true
 	case s.Package.IsRegistry():
-		// Registry pattern (aqua): tomei resolves the URL and places the binary.
+		// Registry pattern (aqua): tomei resolves the URL and places the
+		// binary. Validate enforces that a registry Package requires
+		// installerRef: aqua, so we don't re-check the installer here.
 		return true
 	default:
-		// Name-/installer-delegation and runtime delegation let the
-		// installer or runtime own the destination dir, so privileged is
-		// ignored. RuntimeRef additionally fails Validate.
+		// Installer-/name-delegation lets the installer own the
+		// destination dir, so privileged is ignored.
 		return false
 	}
 }
