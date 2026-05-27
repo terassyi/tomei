@@ -334,13 +334,15 @@ func TestTool_IsPrivileged(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "privileged=true on registry-implicit (installerRef=aqua + version only)",
+			// installerRef + version only (no Source, no registry Package) is
+			// not a tomei-placed tool, so privileged is ignored.
+			name: "privileged=true on installerRef + version only",
 			tool: &Tool{ToolSpec: &ToolSpec{
 				InstallerRef: "aqua",
 				Version:      "1.0.0",
 				Privileged:   true,
 			}},
-			want: true,
+			want: false,
 		},
 		{
 			name: "privileged=true on name-delegation (installerRef=go + package.name)",

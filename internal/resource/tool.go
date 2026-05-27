@@ -279,14 +279,16 @@ type ToolSpec struct {
 	//     user and escalate internally (e.g., Homebrew) work with
 	//     Privileged alone.
 	//
-	//   - Download / Registry (InstallerRef set, no RuntimeRef, Package is
-	//     registry or empty): the binary is placed under SystemBinDir
-	//     (/usr/local/bin) via a sudo-backed symlink. This field gates
-	//     routing to SystemBinDir.
+	//   - Download (Source set) / Registry (owner/repo Package via aqua):
+	//     tomei downloads and places the binary itself. Today this gates
+	//     the --system requirement; the planned follow-up routes these
+	//     placements under SystemBinDir (/usr/local/bin) via a sudo-backed
+	//     symlink rather than the user bin dir.
 	//
-	//   - Name-delegation (InstallerRef set + Package.IsName(), e.g.
-	//     "go install" / "cargo install"): ignored. The runtime or
-	//     installer owns the destination directory.
+	//   - Installer- / name-delegation (InstallerRef with no Source and a
+	//     non-registry Package, e.g. "go install" / "cargo install" /
+	//     helm): ignored. The installer or runtime owns the destination
+	//     directory.
 	//
 	//   - Runtime delegation (RuntimeRef set): rejected by Validate —
 	//     Privileged + RuntimeRef has no coherent meaning.
@@ -410,9 +412,10 @@ func (t *Tool) IsEnabled() bool {
 }
 
 // IsPrivileged reports whether this tool requires --system. The predicate
-// honors the privileged flag for Commands and for download/registry install
-// patterns; it ignores the flag for name-delegation (runtime-managed dir)
-// and for RuntimeRef (rejected by Validate).
+// honors the privileged flag only for patterns where tomei itself places the
+// binary: Commands, download (Source), and registry (aqua / owner-repo
+// Package). For installer- or runtime-delegation the installer/runtime owns
+// the destination directory, so privileged is ignored.
 func (t *Tool) IsPrivileged() bool {
 	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
 		return false
@@ -421,19 +424,17 @@ func (t *Tool) IsPrivileged() bool {
 	switch {
 	case s.Commands != nil:
 		return true
-	case s.RuntimeRef != "":
-		// Validate forbids Privileged+RuntimeRef; this arm defends a
-		// pre-Validate or migrated spec from falling through to the
-		// default-true arm.
-		return false
-	case s.InstallerRef == "":
-		return false
-	case s.Package != nil && s.Package.IsName():
-		// Name-delegation (e.g. installerRef: go + package.name: ...)
-		// lands in runtime-managed dirs, not SystemBinDir.
-		return false
-	default:
+	case s.Source != nil:
+		// Download pattern: tomei downloads and places the binary.
 		return true
+	case s.Package.IsRegistry():
+		// Registry pattern (aqua): tomei resolves the URL and places the binary.
+		return true
+	default:
+		// Name-/installer-delegation and runtime delegation let the
+		// installer or runtime own the destination dir, so privileged is
+		// ignored. RuntimeRef additionally fails Validate.
+		return false
 	}
 }
 
