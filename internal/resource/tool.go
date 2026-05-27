@@ -268,20 +268,35 @@ type ToolSpec struct {
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
 
-	// Privileged declares that this tool's Commands require a cached sudo
-	// timestamp while they run. Only meaningful together with Commands;
-	// ignored for other install patterns (InstallerRef, RuntimeRef).
+	// Privileged is honored only for specific install patterns (Commands and
+	// the tomei-managed download/registry patterns); for those it makes the
+	// tool require --system (and be skipped without it). For installer-/name-
+	// delegation it is ignored, and with RuntimeRef it is a Validate error.
+	// Semantics depend on the install pattern:
 	//
-	// The commands themselves always execute as the invoking user via
-	// "sh -c" — tomei does not wrap them in sudo. With --system, tomei
-	// pre-acquires a sudo timestamp so that "sudo ..." invocations inside
-	// the command can use the cached ticket without re-prompting, subject
-	// to the host's sudoers policy. Without --system, privileged tools
-	// are skipped.
+	//   - Commands: tomei pre-acquires a cached sudo timestamp so "sudo ..."
+	//     invocations inside the command run without re-prompting. The
+	//     commands themselves execute as the invoking user via "sh -c";
+	//     tomei does not wrap them in sudo. If a step must run as root,
+	//     write it as "sudo <cmd>" explicitly. Installers that run as the
+	//     user and escalate internally (e.g., Homebrew) work with
+	//     Privileged alone.
 	//
-	// If a step must run as root, write it as "sudo <cmd>" explicitly in
-	// the command string. Installers that run as the user and escalate
-	// internally (e.g., Homebrew) work with Privileged alone.
+	//   - Download (Source set) / Registry (owner/repo Package via aqua):
+	//     tomei downloads and places the binary itself. Today this gates
+	//     the --system requirement; the planned follow-up routes these
+	//     placements under SystemBinDir (/usr/local/bin) via a sudo-backed
+	//     symlink rather than the user bin dir.
+	//
+	//   - Installer- / name-delegation (InstallerRef with no Source and a
+	//     non-registry Package, e.g. "go install" / "cargo install" /
+	//     helm): ignored. The installer or runtime owns the destination
+	//     directory.
+	//
+	//   - Runtime delegation (RuntimeRef set): rejected by Validate —
+	//     Privileged + RuntimeRef has no coherent meaning.
+	//
+	// Without --system, privileged tools are skipped.
 	//
 	// Migration note: earlier versions wrapped the entire command in
 	// "sudo -n sh -c ..." when Privileged was set. Manifests that relied
@@ -320,6 +335,12 @@ func (s *ToolSpec) Validate() error {
 	}
 	if (hasInstaller && hasRuntime) || (hasRuntime && hasCommands) || (hasInstaller && hasCommands) {
 		return fmt.Errorf("installerRef, runtimeRef, and commands are mutually exclusive")
+	}
+
+	// Privileged + RuntimeRef has no coherent semantics: runtime-managed install
+	// dirs are owned by the runtime, not tomei, so there is nothing to escalate.
+	if s.Privileged && hasRuntime {
+		return fmt.Errorf("privileged: true is not supported with runtimeRef")
 	}
 
 	// Commands must have at least Install
@@ -393,14 +414,38 @@ func (t *Tool) IsEnabled() bool {
 	return t.ToolSpec.IsEnabled()
 }
 
-// IsPrivileged returns true if this tool declares that its install/update/
-// remove commands expect a cached sudo timestamp (i.e. require --system).
-// The privileged flag is only meaningful for command-based tools
-// (spec.commands set); other install patterns (download, registry,
-// delegation) ignore it, so this method returns false for them even when
-// spec.privileged is true.
+// IsPrivileged reports whether this tool requires --system. The predicate
+// honors the privileged flag for two kinds of pattern: Commands (where it
+// gates a cached sudo timestamp for the user's commands) and the tomei-managed
+// placement patterns, download (Source) and registry (aqua / owner-repo
+// Package). For installer- or runtime-delegation the installer/runtime owns
+// the destination directory, so privileged is ignored.
 func (t *Tool) IsPrivileged() bool {
-	return t.ToolSpec != nil && t.ToolSpec.Commands != nil && t.ToolSpec.Privileged
+	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
+		return false
+	}
+	s := t.ToolSpec
+	switch {
+	case s.Commands != nil:
+		return true
+	case s.InstallerRef == "":
+		// Without an installer there is no tomei-managed placement to
+		// escalate: runtime delegation and any spec lacking an install
+		// method fall out here (RuntimeRef additionally fails Validate).
+		return false
+	case s.Source != nil:
+		// Download pattern: tomei downloads and places the binary.
+		return true
+	case s.Package.IsRegistry():
+		// Registry pattern (aqua): tomei resolves the URL and places the
+		// binary. Validate enforces that a registry Package requires
+		// installerRef: aqua, so we don't re-check the installer here.
+		return true
+	default:
+		// Installer-/name-delegation lets the installer own the
+		// destination dir, so privileged is ignored.
+		return false
+	}
 }
 
 // IsEnabled returns whether the tool spec is enabled.
