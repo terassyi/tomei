@@ -640,7 +640,7 @@ func TestIsPrivileged(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "privileged tool without commands (non-commands pattern ignores privileged)",
+			name: "privileged tool with no install method",
 			res:  &Tool{ToolSpec: &ToolSpec{Privileged: true}},
 			want: false,
 		},
@@ -658,6 +658,19 @@ func TestIsPrivileged(t *testing.T) {
 			name: "runtime (not a tool)",
 			res:  &Runtime{RuntimeSpec: &RuntimeSpec{Version: "1.22.0"}},
 			want: false,
+		},
+		{
+			// Smoke test for non-Commands privileged → IsPrivileged delegation
+			// to Tool.IsPrivileged. Full pattern matrix lives in
+			// TestTool_IsPrivileged (tool_test.go).
+			name: "privileged download tool delegates through to Tool.IsPrivileged",
+			res: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/tool.tar.gz"},
+				Privileged:   true,
+			}},
+			want: true,
 		},
 	}
 	for _, tt := range tests {

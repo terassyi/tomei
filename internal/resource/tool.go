@@ -268,20 +268,30 @@ type ToolSpec struct {
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
 
-	// Privileged declares that this tool's Commands require a cached sudo
-	// timestamp while they run. Only meaningful together with Commands;
-	// ignored for other install patterns (InstallerRef, RuntimeRef).
+	// Privileged declares that this tool requires --system to install.
+	// Semantics depend on the install pattern:
 	//
-	// The commands themselves always execute as the invoking user via
-	// "sh -c" — tomei does not wrap them in sudo. With --system, tomei
-	// pre-acquires a sudo timestamp so that "sudo ..." invocations inside
-	// the command can use the cached ticket without re-prompting, subject
-	// to the host's sudoers policy. Without --system, privileged tools
-	// are skipped.
+	//   - Commands: tomei pre-acquires a cached sudo timestamp so "sudo ..."
+	//     invocations inside the command run without re-prompting. The
+	//     commands themselves execute as the invoking user via "sh -c";
+	//     tomei does not wrap them in sudo. If a step must run as root,
+	//     write it as "sudo <cmd>" explicitly. Installers that run as the
+	//     user and escalate internally (e.g., Homebrew) work with
+	//     Privileged alone.
 	//
-	// If a step must run as root, write it as "sudo <cmd>" explicitly in
-	// the command string. Installers that run as the user and escalate
-	// internally (e.g., Homebrew) work with Privileged alone.
+	//   - Download / Registry (InstallerRef set, no RuntimeRef, Package is
+	//     registry or empty): the binary is placed under SystemBinDir
+	//     (/usr/local/bin) via a sudo-backed symlink. This field gates
+	//     routing to SystemBinDir.
+	//
+	//   - Name-delegation (InstallerRef set + Package.IsName(), e.g.
+	//     "go install" / "cargo install"): ignored. The runtime or
+	//     installer owns the destination directory.
+	//
+	//   - Runtime delegation (RuntimeRef set): rejected by Validate —
+	//     Privileged + RuntimeRef has no coherent meaning.
+	//
+	// Without --system, privileged tools are skipped.
 	//
 	// Migration note: earlier versions wrapped the entire command in
 	// "sudo -n sh -c ..." when Privileged was set. Manifests that relied
@@ -320,6 +330,12 @@ func (s *ToolSpec) Validate() error {
 	}
 	if (hasInstaller && hasRuntime) || (hasRuntime && hasCommands) || (hasInstaller && hasCommands) {
 		return fmt.Errorf("installerRef, runtimeRef, and commands are mutually exclusive")
+	}
+
+	// Privileged + RuntimeRef has no coherent semantics: runtime-managed install
+	// dirs are owned by the runtime, not tomei, so there is nothing to escalate.
+	if s.Privileged && hasRuntime {
+		return fmt.Errorf("privileged: true is not supported with runtimeRef")
 	}
 
 	// Commands must have at least Install
@@ -393,14 +409,32 @@ func (t *Tool) IsEnabled() bool {
 	return t.ToolSpec.IsEnabled()
 }
 
-// IsPrivileged returns true if this tool declares that its install/update/
-// remove commands expect a cached sudo timestamp (i.e. require --system).
-// The privileged flag is only meaningful for command-based tools
-// (spec.commands set); other install patterns (download, registry,
-// delegation) ignore it, so this method returns false for them even when
-// spec.privileged is true.
+// IsPrivileged reports whether this tool requires --system. The predicate
+// honors the privileged flag for Commands and for download/registry install
+// patterns; it ignores the flag for name-delegation (runtime-managed dir)
+// and for RuntimeRef (rejected by Validate).
 func (t *Tool) IsPrivileged() bool {
-	return t.ToolSpec != nil && t.ToolSpec.Commands != nil && t.ToolSpec.Privileged
+	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
+		return false
+	}
+	s := t.ToolSpec
+	switch {
+	case s.Commands != nil:
+		return true
+	case s.RuntimeRef != "":
+		// Validate forbids Privileged+RuntimeRef; this arm defends a
+		// pre-Validate or migrated spec from falling through to the
+		// default-true arm.
+		return false
+	case s.InstallerRef == "":
+		return false
+	case s.Package != nil && s.Package.IsName():
+		// Name-delegation (e.g. installerRef: go + package.name: ...)
+		// lands in runtime-managed dirs, not SystemBinDir.
+		return false
+	default:
+		return true
+	}
 }
 
 // IsEnabled returns whether the tool spec is enabled.

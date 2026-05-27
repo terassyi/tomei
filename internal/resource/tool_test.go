@@ -211,6 +211,66 @@ func TestToolSpec_Validate(t *testing.T) {
 			},
 			wantErr: "cannot specify both owner/repo and name",
 		},
+		{
+			name: "privileged + runtimeRef rejected",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged: true,
+			},
+			wantErr: "privileged: true is not supported with runtimeRef",
+		},
+		{
+			name: "privileged + commands accepted",
+			spec: &ToolSpec{
+				Commands: &ToolCommandSet{
+					CommandSet: CommandSet{Install: []string{"curl -fsSL https://example.com/install.sh | sudo sh"}},
+				},
+				Privileged: true,
+			},
+			wantErr: "",
+		},
+		{
+			name: "privileged + download accepted",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/tool.tar.gz"},
+				Privileged:   true,
+			},
+			wantErr: "",
+		},
+		{
+			name: "privileged + registry accepted",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				Package:      &Package{Owner: "cli", Repo: "cli"},
+				Privileged:   true,
+			},
+			wantErr: "",
+		},
+		{
+			// Ordering pin (above): empty spec + Privileged=true must hit the
+			// "one of installerRef..." error before the new privileged check.
+			// Locks the privileged check below mutual-exclusivity.
+			name: "privileged on empty spec hits install-method-required first",
+			spec: &ToolSpec{
+				Privileged: true,
+			},
+			wantErr: "one of installerRef, runtimeRef, or commands is required",
+		},
+		{
+			// Ordering pin (below): privileged + runtimeRef without Package
+			// must hit the new privileged error, not "package is required
+			// when using runtimeRef". Locks the privileged check above the
+			// runtime-requires-package check.
+			name: "privileged + runtimeRef without package hits privileged error first",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Privileged: true,
+			},
+			wantErr: "privileged: true is not supported with runtimeRef",
+		},
 	}
 
 	for _, tt := range tests {
@@ -222,6 +282,94 @@ func TestToolSpec_Validate(t *testing.T) {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
 			}
+		})
+	}
+}
+
+func TestTool_IsPrivileged(t *testing.T) {
+	t.Parallel()
+	commandsSpec := func(priv bool) *ToolSpec {
+		return &ToolSpec{
+			Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo ok"}}},
+			Privileged: priv,
+		}
+	}
+	tests := []struct {
+		name string
+		tool *Tool
+		want bool
+	}{
+		{
+			name: "nil spec",
+			tool: &Tool{},
+			want: false,
+		},
+		{
+			name: "privileged=false on commands",
+			tool: &Tool{ToolSpec: commandsSpec(false)},
+			want: false,
+		},
+		{
+			name: "privileged=true on commands",
+			tool: &Tool{ToolSpec: commandsSpec(true)},
+			want: true,
+		},
+		{
+			name: "privileged=true on download (installerRef + source + version)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/tool.tar.gz"},
+				Privileged:   true,
+			}},
+			want: true,
+		},
+		{
+			name: "privileged=true on registry (installerRef=aqua + owner/repo)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Package:      &Package{Owner: "cli", Repo: "cli"},
+				Privileged:   true,
+			}},
+			want: true,
+		},
+		{
+			name: "privileged=true on registry-implicit (installerRef=aqua + version only)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Privileged:   true,
+			}},
+			want: true,
+		},
+		{
+			name: "privileged=true on name-delegation (installerRef=go + package.name)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "go",
+				Package:      &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged:   true,
+			}},
+			want: false,
+		},
+		{
+			name: "privileged=true on runtimeRef (defensive — Validate rejects)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				RuntimeRef: "go",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged: true,
+			}},
+			want: false,
+		},
+		{
+			name: "privileged=true but no install method",
+			tool: &Tool{ToolSpec: &ToolSpec{Privileged: true}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.tool.IsPrivileged())
 		})
 	}
 }
