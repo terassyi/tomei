@@ -73,10 +73,12 @@ func ExpandSets(resources []Resource) ([]Resource, error) {
 	return result, nil
 }
 
-// IsPrivileged reports whether a resource requires privileged (sudo) execution.
-// Tool resources honor the privileged flag for Commands and download/registry
-// install patterns; see Tool.IsPrivileged for the full predicate. All other
-// kinds return false.
+// IsPrivileged reports whether a resource requires --system. Tool resources
+// honor the privileged flag for Commands and download/registry install
+// patterns; see Tool.IsPrivileged for the full predicate. Note this gates the
+// --system requirement and does not by itself imply sudo execution (download/
+// registry tools are placed by tomei, not run via sudo). All other kinds
+// return false.
 func IsPrivileged(res Resource) bool {
 	if t, ok := res.(*Tool); ok {
 		return t.IsPrivileged()

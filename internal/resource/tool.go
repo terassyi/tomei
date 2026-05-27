@@ -268,7 +268,10 @@ type ToolSpec struct {
 	// Example: ["--with-executables-from", "ansible-core"] for uv tool install.
 	Args []string `json:"args,omitempty"`
 
-	// Privileged declares that this tool requires --system to install.
+	// Privileged is honored only for specific install patterns (Commands and
+	// the tomei-managed download/registry patterns); for those it makes the
+	// tool require --system (and be skipped without it). For installer-/name-
+	// delegation it is ignored, and with RuntimeRef it is a Validate error.
 	// Semantics depend on the install pattern:
 	//
 	//   - Commands: tomei pre-acquires a cached sudo timestamp so "sudo ..."
@@ -412,8 +415,9 @@ func (t *Tool) IsEnabled() bool {
 }
 
 // IsPrivileged reports whether this tool requires --system. The predicate
-// honors the privileged flag only for patterns where tomei itself places the
-// binary: Commands, download (Source), and registry (aqua / owner-repo
+// honors the privileged flag for two kinds of pattern: Commands (where it
+// gates a cached sudo timestamp for the user's commands) and the tomei-managed
+// placement patterns, download (Source) and registry (aqua / owner-repo
 // Package). For installer- or runtime-delegation the installer/runtime owns
 // the destination directory, so privileged is ignored.
 func (t *Tool) IsPrivileged() bool {
