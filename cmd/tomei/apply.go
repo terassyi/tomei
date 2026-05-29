@@ -325,7 +325,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// can otherwise be misrepresented here as removals (they're absent from
 	// the desired resource list but still intended to be installed).
 	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
-		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory). Use 'tomei apply --system' to manage privileged resources.\n", n)
+		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (%s). Use 'tomei apply --system' to manage privileged resources.\n", n, privilegedSkipReasonsFragment)
 	}
 
 	return applyErr
@@ -598,6 +598,11 @@ func (h *sudoHandler) Release() error {
 	return err
 }
 
+// privilegedSkipReasonsFragment is the parenthetical shared by both the
+// install-time and post-apply summaries that mentions both privileged-tool
+// modes. Centralized so the two summaries (and their tests) cannot drift.
+const privilegedSkipReasonsFragment = "privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory"
+
 // filterPrivilegedWithLog filters out privileged resources, emitting a
 // per-resource slog.Info with a `reason` attribute and a summary line to w.
 // Returns the non-privileged subset. The predicate (resource.IsPrivileged via
@@ -615,6 +620,6 @@ func filterPrivilegedWithLog(w io.Writer, resources []resource.Resource) []resou
 			"name", r.Name(),
 			"reason", resource.PrivilegedReason(r))
 	}
-	fmt.Fprintf(w, "%d privileged resource(s) skipped (privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory). Use 'tomei apply --system' to install.\n\n", len(privileged))
+	fmt.Fprintf(w, "%d privileged resource(s) skipped (%s). Use 'tomei apply --system' to install.\n\n", len(privileged), privilegedSkipReasonsFragment)
 	return normal
 }

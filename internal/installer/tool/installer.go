@@ -559,12 +559,22 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		InstallPath:  i.placer.BinaryPath(target),
 		BinPath:      i.placer.LinkPath(target, i.userBinDir),
 		BinDirKind:   resource.BinDirKindUser,
-		Privileged:   spec.Privileged,
-		Source:       spec.Source,
-		RuntimeRef:   spec.RuntimeRef,
-		Package:      spec.Package,
-		BinaryName:   spec.BinaryName,
-		UpdatedAt:    time.Now(),
+		// Privileged is persisted on the download/registry write path too,
+		// mirroring installByCommands. Pre-SUB5, only Commands tools can
+		// actually be installed under --system (the install-time gate
+		// filters privileged download/registry out), so this is inert today
+		// — but it pre-wires the state-driven removal gate at
+		// engine.go:1267 and plan.go's privileged-removal branch so SUB5's
+		// privileged install will Just Work on the removal side.
+		// ToolComparator (reconciler/tool.go:43) only compares Privileged
+		// when Commands is involved, so persisting it here cannot trigger
+		// spurious reinstalls for download/registry tools.
+		Privileged: spec.Privileged,
+		Source:     spec.Source,
+		RuntimeRef: spec.RuntimeRef,
+		Package:    spec.Package,
+		BinaryName: spec.BinaryName,
+		UpdatedAt:  time.Now(),
 	}
 }
 
