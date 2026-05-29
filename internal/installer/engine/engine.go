@@ -1270,13 +1270,9 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		filtered := make([]ToolAction, 0, len(toolActions))
 		for _, action := range toolActions {
 			if action.Type == resource.ActionRemove && action.State != nil && action.State.Privileged {
-				// SUB7: constant reason — pre-SUB5, only Commands tools can
-				// reach this state-driven removal path (the install-time gate
-				// filters privileged download/registry tools out before they
-				// enter state). SUB5 will replace this with a derived reason.
 				slog.Warn("skipping removal of privileged tool (use --system)",
 					"name", action.Name,
-					"reason", "shell command removal")
+					"reason", action.State.PrivilegedRemovalReason())
 				e.skippedPrivileged++
 				continue
 			}

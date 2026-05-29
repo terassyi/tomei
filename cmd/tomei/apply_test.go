@@ -64,7 +64,7 @@ func TestFilterPrivilegedWithLog(t *testing.T) {
 
 	const cmdsReason = "requires sudo cache for shell commands"
 	const placeReason = "places a symlink in the system bin directory requiring sudo"
-	const summaryFragment = "privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory"
+	const summaryFragment = "privileged tools require sudo for cached shell commands or for placing symlinks in the system bin directory"
 
 	t.Run("privileged commands tool is filtered with commands reason", func(t *testing.T) {
 		buf := capture(t)

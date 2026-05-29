@@ -755,6 +755,29 @@ func (t *ToolState) BinDirKindOrDefault() BinDirKind {
 	return t.BinDirKind
 }
 
+// PrivilegedRemovalReason returns a short reason a privileged removal needs
+// --system, derived from persisted state (the manifest may be absent). Used
+// at the engine-side state-driven removal-skip log site.
+//
+// State-side counterpart to Tool.PrivilegedReason (which works from the spec).
+// Commands takes precedence when both are set: the sudo cache for shell
+// commands is the more concrete user-visible action.
+//
+// Returns "" if the state does not look privileged (defensive — the caller
+// guards on state.Privileged before invoking this).
+func (t *ToolState) PrivilegedRemovalReason() string {
+	if t == nil {
+		return ""
+	}
+	if t.Commands != nil {
+		return "shell command removal"
+	}
+	if t.BinDirKindOrDefault() == BinDirKindSystem {
+		return "system bin directory cleanup"
+	}
+	return ""
+}
+
 // IsTainted returns true if the tool needs reinstallation.
 func (t *ToolState) IsTainted() bool {
 	return t.TaintReason != ""

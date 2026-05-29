@@ -601,7 +601,9 @@ func (h *sudoHandler) Release() error {
 // privilegedSkipReasonsFragment is the parenthetical shared by both the
 // install-time and post-apply summaries that mentions both privileged-tool
 // modes. Centralized so the two summaries (and their tests) cannot drift.
-const privilegedSkipReasonsFragment = "privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory"
+// Wording: "symlinks" (not "binaries") — tomei places the binary itself in
+// ~/.local/share/tomei/tools/, and only the symlink lives in SystemBinDir.
+const privilegedSkipReasonsFragment = "privileged tools require sudo for cached shell commands or for placing symlinks in the system bin directory"
 
 // filterPrivilegedWithLog filters out privileged resources, emitting a
 // per-resource slog.Info with a `reason` attribute and a summary line to w.

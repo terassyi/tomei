@@ -444,6 +444,53 @@ func TestTool_PrivilegedReason(t *testing.T) {
 	}
 }
 
+func TestToolState_PrivilegedRemovalReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state *ToolState
+		want  string
+	}{
+		{name: "nil receiver returns empty", state: nil, want: ""},
+		{
+			name:  "non-privileged-looking state returns empty (defensive)",
+			state: &ToolState{}, // no Commands, BinDirKind empty (→ user)
+			want:  "",
+		},
+		{
+			name:  "Commands set → shell command removal",
+			state: &ToolState{Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}}},
+			want:  "shell command removal",
+		},
+		{
+			name:  "system BinDirKind without Commands → system bin directory cleanup",
+			state: &ToolState{BinDirKind: BinDirKindSystem},
+			want:  "system bin directory cleanup",
+		},
+		{
+			name: "Commands takes precedence over system BinDirKind",
+			state: &ToolState{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}},
+				BinDirKind: BinDirKindSystem,
+			},
+			want: "shell command removal",
+		},
+		{
+			name:  "explicit BinDirKindUser without Commands → empty (no privileged action)",
+			state: &ToolState{BinDirKind: BinDirKindUser},
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.state.PrivilegedRemovalReason())
+		})
+	}
+}
+
 func TestPackage_Validate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
