@@ -115,12 +115,18 @@ func TestFilterPrivilegedWithLog(t *testing.T) {
 		assert.Contains(t, w.String(), "2 privileged resource(s) skipped")
 	})
 
+	// skipMsg is the literal log message emitted by filterPrivilegedWithLog
+	// per-resource. The negative-path subtests assert it's absent from the
+	// captured buffer (rather than asserting buf is fully empty), so unrelated
+	// concurrent slog emissions cannot induce a false failure.
+	const skipMsg = "skipping privileged resource"
+
 	t.Run("empty input emits no log and no summary", func(t *testing.T) {
 		buf := capture(t)
 		var w bytes.Buffer
 		got := filterPrivilegedWithLog(&w, nil)
 		assert.Empty(t, got)
-		assert.Empty(t, buf.String())
+		assert.NotContains(t, buf.String(), skipMsg, "no privileged-skip emission expected")
 		assert.Empty(t, w.String())
 	})
 
@@ -130,7 +136,7 @@ func TestFilterPrivilegedWithLog(t *testing.T) {
 		input := []resource.Resource{commandsTool("plain-a", false), commandsTool("plain-b", false)}
 		got := filterPrivilegedWithLog(&w, input)
 		assert.Len(t, got, 2)
-		assert.Empty(t, buf.String(), "no slog emission expected when nothing is filtered")
+		assert.NotContains(t, buf.String(), skipMsg, "no privileged-skip emission expected when nothing is filtered")
 		assert.Empty(t, w.String())
 	})
 }
