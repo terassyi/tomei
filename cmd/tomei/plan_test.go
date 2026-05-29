@@ -226,6 +226,71 @@ func TestMarkAllSystemAsInstall(t *testing.T) {
 	})
 }
 
+func TestMarkPrivilegedAsSkip(t *testing.T) {
+	t.Parallel()
+
+	commandsPrivTool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "cmds-priv"}},
+		ToolSpec: &resource.ToolSpec{
+			Commands:   &resource.ToolCommandSet{CommandSet: resource.CommandSet{Install: []string{"echo x"}}},
+			Privileged: true,
+		},
+	}
+	downloadPrivTool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "dl-priv"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "1.0.0",
+			Source:       &resource.DownloadSource{URL: "https://example.com/x.tar.gz"},
+			Privileged:   true,
+		},
+	}
+	registryPrivTool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "reg-priv"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Package:      &resource.Package{Owner: "owner", Repo: "reg-priv"},
+			Privileged:   true,
+		},
+	}
+	plainTool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "plain"}},
+		ToolSpec: &resource.ToolSpec{
+			Commands: &resource.ToolCommandSet{CommandSet: resource.CommandSet{Install: []string{"echo y"}}},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		res    resource.Resource
+		system bool
+		// Initial action before the helper runs (simulating the rest of
+		// buildResourceInfo). The helper must only flip to Skip when both
+		// privileged AND !system; otherwise leave alone.
+		initial    resource.ActionType
+		wantAction resource.ActionType
+	}{
+		{name: "commands-privileged without --system → skip", res: commandsPrivTool, system: false, initial: resource.ActionInstall, wantAction: resource.ActionSkip},
+		{name: "download-privileged without --system → skip (auto-extends via SUB4)", res: downloadPrivTool, system: false, initial: resource.ActionInstall, wantAction: resource.ActionSkip},
+		{name: "registry-privileged without --system → skip (auto-extends via SUB4)", res: registryPrivTool, system: false, initial: resource.ActionInstall, wantAction: resource.ActionSkip},
+		{name: "privileged with --system stays put", res: commandsPrivTool, system: true, initial: resource.ActionInstall, wantAction: resource.ActionInstall},
+		{name: "non-privileged tool unaffected", res: plainTool, system: false, initial: resource.ActionInstall, wantAction: resource.ActionInstall},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			info := graph.ResourceInfo{
+				Kind:   tt.res.Kind(),
+				Name:   tt.res.Name(),
+				Action: tt.initial,
+			}
+			markPrivilegedAsSkip(&info, tt.res, tt.system)
+			assert.Equal(t, tt.wantAction, info.Action)
+		})
+	}
+}
+
 func TestAddSystemResourceInfo(t *testing.T) {
 	t.Parallel()
 

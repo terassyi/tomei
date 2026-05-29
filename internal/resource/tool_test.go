@@ -376,6 +376,74 @@ func TestTool_IsPrivileged(t *testing.T) {
 	}
 }
 
+func TestTool_PrivilegedReason(t *testing.T) {
+	t.Parallel()
+	const cmdsReason = "requires sudo cache for shell commands"
+	const placeReason = "places a symlink in the system bin directory requiring sudo"
+
+	tests := []struct {
+		name string
+		tool *Tool
+		want string
+	}{
+		{
+			name: "nil spec returns empty",
+			tool: &Tool{ToolSpec: nil},
+			want: "",
+		},
+		{
+			name: "non-privileged commands returns empty (short-circuit via IsPrivileged)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"x"}}},
+				Privileged: false,
+			}},
+			want: "",
+		},
+		{
+			name: "privileged commands",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"x"}}},
+				Privileged: true,
+			}},
+			want: cmdsReason,
+		},
+		{
+			name: "privileged download (installerRef + source)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/tool.tar.gz"},
+				Privileged:   true,
+			}},
+			want: placeReason,
+		},
+		{
+			name: "privileged registry (installerRef=aqua + owner/repo)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Package:      &Package{Owner: "cli", Repo: "cli"},
+				Privileged:   true,
+			}},
+			want: placeReason,
+		},
+		{
+			name: "privileged runtime delegation returns empty (IsPrivileged is false)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				RuntimeRef: "go",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged: true,
+			}},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.tool.PrivilegedReason())
+		})
+	}
+}
+
 func TestPackage_Validate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

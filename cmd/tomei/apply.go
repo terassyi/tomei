@@ -151,14 +151,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 
 	// Filter out privileged resources when --system is not set
 	if !system {
-		normal, privileged := resource.FilterPrivileged(userResources)
-		if len(privileged) > 0 {
-			for _, r := range privileged {
-				slog.Info("skipping privileged resource (use --system)", "kind", r.Kind(), "name", r.Name())
-			}
-			fmt.Fprintf(w, "%d privileged resource(s) skipped. Use 'tomei apply --system' to install.\n\n", len(privileged))
-		}
-		userResources = normal
+		userResources = filterPrivilegedWithLog(w, userResources)
 	}
 
 	// Load config from fixed path (~/.config/tomei/config.cue)
@@ -332,7 +325,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// can otherwise be misrepresented here as removals (they're absent from
 	// the desired resource list but still intended to be installed).
 	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
-		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped. Use 'tomei apply --system' to manage privileged resources.\n", n)
+		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory). Use 'tomei apply --system' to manage privileged resources.\n", n)
 	}
 
 	return applyErr
@@ -603,4 +596,25 @@ func (h *sudoHandler) Release() error {
 		err = exec.CommandContext(releaseCtx, "sudo", "-k").Run()
 	})
 	return err
+}
+
+// filterPrivilegedWithLog filters out privileged resources, emitting a
+// per-resource slog.Info with a `reason` attribute and a summary line to w.
+// Returns the non-privileged subset. The predicate (resource.IsPrivileged via
+// FilterPrivileged) auto-extends post-SUB4 to both Commands and download/
+// registry privileged tools; the slog reason distinguishes the two modes via
+// resource.PrivilegedReason.
+func filterPrivilegedWithLog(w io.Writer, resources []resource.Resource) []resource.Resource {
+	normal, privileged := resource.FilterPrivileged(resources)
+	if len(privileged) == 0 {
+		return normal
+	}
+	for _, r := range privileged {
+		slog.Info("skipping privileged resource (use --system)",
+			"kind", r.Kind(),
+			"name", r.Name(),
+			"reason", resource.PrivilegedReason(r))
+	}
+	fmt.Fprintf(w, "%d privileged resource(s) skipped (privileged tools require sudo for cached shell commands or for placing binaries in the system bin directory). Use 'tomei apply --system' to install.\n\n", len(privileged))
+	return normal
 }

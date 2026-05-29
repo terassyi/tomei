@@ -420,6 +420,10 @@ func (t *Tool) IsEnabled() bool {
 // placement patterns, download (Source) and registry (aqua / owner-repo
 // Package). For installer- or runtime-delegation the installer/runtime owns
 // the destination directory, so privileged is ignored.
+//
+// Keep in sync with Tool.PrivilegedReason: any new privileged arm added here
+// MUST also be wired into that method (or the per-resource skip-warning will
+// emit an empty reason).
 func (t *Tool) IsPrivileged() bool {
 	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
 		return false
@@ -446,6 +450,25 @@ func (t *Tool) IsPrivileged() bool {
 		// destination dir, so privileged is ignored.
 		return false
 	}
+}
+
+// PrivilegedReason returns a short human-readable reason this tool requires
+// --system, or "" if the tool is not privileged. Mirrors IsPrivileged's
+// pattern arms: Commands → sudo-cached shell commands; download/registry →
+// system bin directory placement. Installer-/runtime-delegation never
+// returns a non-empty reason since IsPrivileged returns false for them.
+//
+// The returned string is user-facing; treat as opaque (do not switch on it
+// in callers). Keep in sync with Tool.IsPrivileged: any new privileged arm
+// added there MUST also be wired into this method.
+func (t *Tool) PrivilegedReason() string {
+	if !t.IsPrivileged() {
+		return ""
+	}
+	if t.ToolSpec.Commands != nil {
+		return "requires sudo cache for shell commands"
+	}
+	return "places a symlink in the system bin directory requiring sudo"
 }
 
 // IsEnabled returns whether the tool spec is enabled.

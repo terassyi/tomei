@@ -681,6 +681,30 @@ func TestIsPrivileged(t *testing.T) {
 	}
 }
 
+func TestPrivilegedReason(t *testing.T) {
+	t.Parallel()
+
+	t.Run("delegates to Tool.PrivilegedReason for privileged download tool", func(t *testing.T) {
+		t.Parallel()
+		res := &Tool{
+			BaseResource: BaseResource{Metadata: Metadata{Name: "dl"}},
+			ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/x.tar.gz"},
+				Privileged:   true,
+			},
+		}
+		assert.Equal(t, "places a symlink in the system bin directory requiring sudo", PrivilegedReason(res))
+	})
+
+	t.Run("non-Tool resource returns empty", func(t *testing.T) {
+		t.Parallel()
+		res := &Runtime{BaseResource: BaseResource{Metadata: Metadata{Name: "go"}}}
+		assert.Empty(t, PrivilegedReason(res))
+	})
+}
+
 func TestFilterPrivileged(t *testing.T) {
 	t.Parallel()
 	resources := []Resource{

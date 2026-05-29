@@ -232,10 +232,9 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			}
 		}
 
-		// Mark privileged tools as skip when --system is not set
-		if !system && resource.IsPrivileged(res) {
-			resInfo.Action = resource.ActionSkip
-		}
+		// Mark privileged tools as skip when --system is not set.
+		// Consistent with the system-kind skip pattern at lines 246-258.
+		markPrivilegedAsSkip(&resInfo, res, system)
 
 		info[nodeID] = resInfo
 	}
@@ -539,6 +538,17 @@ func markAllSystemAsInstall(info map[graph.NodeID]graph.ResourceInfo, resources 
 				Action: resource.ActionInstall,
 			}
 		}
+	}
+}
+
+// markPrivilegedAsSkip sets info.Action to ActionSkip when the resource is
+// privileged and --system is not enabled. The predicate (resource.IsPrivileged)
+// auto-extends to both Commands and download/registry-pattern privileged
+// tools post-SUB4; the plan output mark is therefore consistent with the
+// install-time skip in cmd/tomei/apply.go's filterPrivilegedWithLog.
+func markPrivilegedAsSkip(info *graph.ResourceInfo, res resource.Resource, system bool) {
+	if !system && resource.IsPrivileged(res) {
+		info.Action = resource.ActionSkip
 	}
 }
 
