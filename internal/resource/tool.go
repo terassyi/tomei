@@ -757,14 +757,17 @@ func (t *ToolState) BinDirKindOrDefault() BinDirKind {
 
 // PrivilegedRemovalReason returns a short reason a privileged removal needs
 // --system, derived from persisted state (the manifest may be absent). Used
-// at the engine-side state-driven removal-skip log site.
+// at the engine-side state-driven removal-skip log site, which guards on
+// state.Privileged before invoking this method.
 //
 // State-side counterpart to Tool.PrivilegedReason (which works from the spec).
-// Commands takes precedence when both are set: the sudo cache for shell
-// commands is the more concrete user-visible action.
-//
-// Returns "" if the state does not look privileged (defensive — the caller
-// guards on state.Privileged before invoking this).
+// Commands takes precedence: the sudo cache for shell commands is the more
+// concrete user-visible action. Otherwise, BinDirKindSystem indicates the
+// system-bin-dir cleanup case (SUB5+). When state.Privileged is true but
+// neither indicator pinpoints the cause (e.g., a pre-SUB5 privileged
+// download/registry install — Privileged is stamped but BinDirKind is still
+// user), fall back to a generic non-empty reason so the log never carries
+// reason="".
 func (t *ToolState) PrivilegedRemovalReason() string {
 	if t == nil {
 		return ""
@@ -775,7 +778,7 @@ func (t *ToolState) PrivilegedRemovalReason() string {
 	if t.BinDirKindOrDefault() == BinDirKindSystem {
 		return "system bin directory cleanup"
 	}
-	return ""
+	return "privileged tool removal"
 }
 
 // IsTainted returns true if the tool needs reinstallation.

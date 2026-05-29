@@ -454,9 +454,9 @@ func TestToolState_PrivilegedRemovalReason(t *testing.T) {
 	}{
 		{name: "nil receiver returns empty", state: nil, want: ""},
 		{
-			name:  "non-privileged-looking state returns empty (defensive)",
-			state: &ToolState{}, // no Commands, BinDirKind empty (→ user)
-			want:  "",
+			name:  "ambiguous privileged state (no Commands, BinDirKind=user) → generic fallback",
+			state: &ToolState{}, // no Commands, BinDirKind empty (→ user); models the pre-SUB5 privileged download/registry state shape
+			want:  "privileged tool removal",
 		},
 		{
 			name:  "Commands set → shell command removal",
@@ -477,9 +477,9 @@ func TestToolState_PrivilegedRemovalReason(t *testing.T) {
 			want: "shell command removal",
 		},
 		{
-			name:  "explicit BinDirKindUser without Commands → empty (no privileged action)",
+			name:  "explicit BinDirKindUser without Commands → generic fallback (same as empty)",
 			state: &ToolState{BinDirKind: BinDirKindUser},
-			want:  "",
+			want:  "privileged tool removal",
 		},
 	}
 
