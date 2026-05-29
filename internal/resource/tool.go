@@ -773,13 +773,28 @@ func (t *ToolState) PrivilegedRemovalReason() string {
 		return ""
 	}
 	if t.Commands != nil {
-		return "shell command removal"
+		return PrivilegedRemovalReasonCommands
 	}
 	if t.BinDirKindOrDefault() == BinDirKindSystem {
-		return "system bin directory cleanup"
+		return PrivilegedRemovalReasonSystemBinDir
 	}
-	return "privileged tool removal"
+	return PrivilegedRemovalReasonGeneric
 }
+
+// Reason strings returned by ToolState.PrivilegedRemovalReason. Exported so
+// tests and downstream slog consumers can reference them without duplication.
+const (
+	// PrivilegedRemovalReasonCommands: state carries Commands (Commands-pattern
+	// privileged tool); removal will run sudo-backed shell commands.
+	PrivilegedRemovalReasonCommands = "shell command removal"
+	// PrivilegedRemovalReasonSystemBinDir: state's BinDirKind is system
+	// (download/registry tool placed in SystemBinDir, SUB5+).
+	PrivilegedRemovalReasonSystemBinDir = "system bin directory cleanup"
+	// PrivilegedRemovalReasonGeneric: state.Privileged is true but neither
+	// indicator pinpoints the cause (e.g., a pre-SUB5 privileged download or
+	// registry install — Privileged is stamped but BinDirKind is still user).
+	PrivilegedRemovalReasonGeneric = "privileged tool removal"
+)
 
 // IsTainted returns true if the tool needs reinstallation.
 func (t *ToolState) IsTainted() bool {

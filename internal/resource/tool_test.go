@@ -456,17 +456,17 @@ func TestToolState_PrivilegedRemovalReason(t *testing.T) {
 		{
 			name:  "ambiguous privileged state (no Commands, BinDirKind=user) → generic fallback",
 			state: &ToolState{}, // no Commands, BinDirKind empty (→ user); models the pre-SUB5 privileged download/registry state shape
-			want:  "privileged tool removal",
+			want:  PrivilegedRemovalReasonGeneric,
 		},
 		{
 			name:  "Commands set → shell command removal",
 			state: &ToolState{Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}}},
-			want:  "shell command removal",
+			want:  PrivilegedRemovalReasonCommands,
 		},
 		{
 			name:  "system BinDirKind without Commands → system bin directory cleanup",
 			state: &ToolState{BinDirKind: BinDirKindSystem},
-			want:  "system bin directory cleanup",
+			want:  PrivilegedRemovalReasonSystemBinDir,
 		},
 		{
 			name: "Commands takes precedence over system BinDirKind",
@@ -474,12 +474,12 @@ func TestToolState_PrivilegedRemovalReason(t *testing.T) {
 				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}},
 				BinDirKind: BinDirKindSystem,
 			},
-			want: "shell command removal",
+			want: PrivilegedRemovalReasonCommands,
 		},
 		{
 			name:  "explicit BinDirKindUser without Commands → generic fallback (same as empty)",
 			state: &ToolState{BinDirKind: BinDirKindUser},
-			want:  "privileged tool removal",
+			want:  PrivilegedRemovalReasonGeneric,
 		},
 	}
 
