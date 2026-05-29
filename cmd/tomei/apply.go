@@ -603,7 +603,7 @@ func (h *sudoHandler) Release() error {
 // modes. Centralized so the two summaries (and their tests) cannot drift.
 // Wording: "symlinks" (not "binaries") — tomei places the binary itself in
 // ~/.local/share/tomei/tools/, and only the symlink lives in SystemBinDir.
-const privilegedSkipReasonsFragment = "privileged tools require sudo for cached shell commands or for placing symlinks in the system bin directory"
+const privilegedSkipReasonsFragment = "privileged tools require a sudo cache for shell commands or for placing symlinks in the system bin directory"
 
 // filterPrivilegedWithLog filters out privileged resources, emitting a
 // per-resource slog.Info with a `reason` attribute and a summary line to w.
