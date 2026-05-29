@@ -54,7 +54,8 @@ type CommandRunner interface {
 type Installer struct {
 	downloader       download.Downloader
 	placer           place.Placer
-	userBinDir       string // bin directory passed to placer for non-privileged installs
+	userBinDir       string // bin directory for non-privileged tool symlinks (e.g., ~/.local/bin)
+	systemBinDir     string // bin directory for privileged tool symlinks (e.g., /usr/local/bin); SUB5 #228
 	cmdExecutor      CommandRunner
 	versionResolver  *resolve.Resolver         // shared version resolver (optional)
 	runtimes         map[string]*RuntimeInfo   // name -> RuntimeInfo
@@ -67,12 +68,13 @@ type Installer struct {
 }
 
 // NewInstaller creates a new tool Installer.
-func NewInstaller(downloader download.Downloader, placer place.Placer, userBinDir string) *Installer {
+func NewInstaller(downloader download.Downloader, placer place.Placer, userBinDir, systemBinDir string) *Installer {
 	cmdExec := command.NewExecutor("")
 	return &Installer{
 		downloader:      downloader,
 		placer:          placer,
 		userBinDir:      userBinDir,
+		systemBinDir:    systemBinDir,
 		cmdExecutor:     cmdExec,
 		versionResolver: resolve.NewResolver(cmdExec, http.DefaultClient),
 		runtimes:        make(map[string]*RuntimeInfo),
@@ -81,14 +83,15 @@ func NewInstaller(downloader download.Downloader, placer place.Placer, userBinDi
 }
 
 // NewInstallerWithRunner creates a new tool Installer with a custom CommandRunner (for testing).
-func NewInstallerWithRunner(downloader download.Downloader, placer place.Placer, userBinDir string, runner CommandRunner) *Installer {
+func NewInstallerWithRunner(downloader download.Downloader, placer place.Placer, userBinDir, systemBinDir string, runner CommandRunner) *Installer {
 	return &Installer{
-		downloader:  downloader,
-		placer:      placer,
-		userBinDir:  userBinDir,
-		cmdExecutor: runner,
-		runtimes:    make(map[string]*RuntimeInfo),
-		installers:  make(map[string]*InstallerInfo),
+		downloader:   downloader,
+		placer:       placer,
+		userBinDir:   userBinDir,
+		systemBinDir: systemBinDir,
+		cmdExecutor:  runner,
+		runtimes:     make(map[string]*RuntimeInfo),
+		installers:   make(map[string]*InstallerInfo),
 	}
 }
 
@@ -274,14 +277,15 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	switch action {
 	case place.ValidateActionSkip:
 		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
-		// Even if binary exists, ensure symlink points to correct version
-		linkPath, err := i.placer.Symlink(target, i.userBinDir)
+		// Even if binary exists, ensure symlink points to correct version.
+		// SUB5 #228: privileged tools route through the system bin dir.
+		linkPath, binDirKind, err := i.createSymlink(ctx, res, target)
 		if err != nil {
 			return nil, fmt.Errorf("failed to update symlink: %w", err)
 		}
 		// Clean up old symlink if binaryName changed (e.g., upgrade with same binary but new name)
 		i.cleanupOldSymlink(ctx, linkPath)
-		return i.buildState(spec, target, expectedHash), nil
+		return i.buildState(spec, target, expectedHash, binDirKind, linkPath), nil
 
 	case place.ValidateActionReplace:
 		if !cfg.Force {
@@ -362,8 +366,8 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		return nil, fmt.Errorf("failed to place binary: %w", err)
 	}
 
-	// Create symlink
-	linkPath, err := i.placer.Symlink(target, i.userBinDir)
+	// Create symlink. SUB5 #228: privileged tools route through the system bin dir.
+	linkPath, binDirKind, err := i.createSymlink(ctx, res, target)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create symlink: %w", err)
 	}
@@ -374,7 +378,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 
 	slog.Debug("tool installed successfully", "name", name, "version", spec.Version, "path", result.BinaryPath)
 
-	return i.buildState(spec, target, expectedHash), nil
+	return i.buildState(spec, target, expectedHash, binDirKind, linkPath), nil
 }
 
 // installFromRegistry installs a tool using aqua-registry to resolve the download URL.
@@ -496,23 +500,61 @@ func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.
 	return cfg
 }
 
-// cleanupOldSymlink removes the old symlink and its target binary if the binary name has changed.
-// It compares the old BinPath from context with the new link path.
-// Safety: only removes files within the expected bin and tools directories.
+// createSymlink resolves the bin directory based on Tool.IsPrivileged() and
+// creates the symlink via the appropriate path: Placer.Symlink for the user
+// arm (~/.local/bin), or place.InstallSymlink (sudo-capable) for the system
+// arm (/usr/local/bin). Returns the link path and the BinDirKind to persist.
+//
+// SUB5 #228 — keeping the branch in one place avoids drift across the
+// cached-skip and fresh-install call sites.
+func (i *Installer) createSymlink(ctx context.Context, tool *resource.Tool, target place.Target) (string, resource.BinDirKind, error) {
+	binDir, binDirKind := i.userBinDir, resource.BinDirKindUser
+	if tool.IsPrivileged() {
+		binDir, binDirKind = i.systemBinDir, resource.BinDirKindSystem
+	}
+	linkPath := i.placer.LinkPath(target, binDir)
+	if binDirKind == resource.BinDirKindSystem {
+		if err := place.InstallSymlink(ctx, i.placer.BinaryPath(target), linkPath); err != nil {
+			return "", "", fmt.Errorf("create system symlink: %w", err)
+		}
+		return linkPath, binDirKind, nil
+	}
+	if _, err := i.placer.Symlink(target, binDir); err != nil {
+		return "", "", fmt.Errorf("create user symlink: %w", err)
+	}
+	return linkPath, binDirKind, nil
+}
+
+// cleanupOldSymlink removes the old symlink and its target binary if the
+// binary name has changed OR if the BinDirKind transitioned across applies.
+// It compares the old BinPath from context with the new link path; the
+// cleanup helper is picked from the OLD BinDirKind (also from context).
+//
+// SUB5 #228: a BinDirKind transition (user↔system) is the expected case —
+// the old and new symlinks live in different directories, and we want the
+// old one cleaned up via the helper that matches its prior location.
 func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 	oldBinPath := executor.OldBinPathFromContext(ctx)
 	if oldBinPath == "" || oldBinPath == newLinkPath {
 		return
 	}
 
-	// Safety check: old symlink must be in the same directory as the new one (bin dir)
-	if filepath.Dir(oldBinPath) != filepath.Dir(newLinkPath) {
-		slog.Warn("skipping old symlink cleanup: old bin path is outside expected directory",
-			"old", oldBinPath, "expected_dir", filepath.Dir(newLinkPath))
+	// SUB5 #228: the cleanup helper is chosen by the OLD BinDirKind read
+	// from context. The defensive guard validates the old symlink is in
+	// the dir its kind claims — independent of the new symlink's location,
+	// which may legitimately be in a different bin dir on a transition.
+	oldKind := executor.OldBinDirKindFromContext(ctx)
+	expectedOldDir := i.userBinDir
+	if oldKind == resource.BinDirKindSystem {
+		expectedOldDir = i.systemBinDir
+	}
+	if filepath.Dir(oldBinPath) != expectedOldDir {
+		slog.Warn("skipping old symlink cleanup: old bin path is outside expected directory for its BinDirKind",
+			"old", oldBinPath, "oldKind", oldKind, "expected_dir", expectedOldDir)
 		return
 	}
 
-	slog.Debug("cleaning up old symlink", "old", oldBinPath, "new", newLinkPath)
+	slog.Debug("cleaning up old symlink", "old", oldBinPath, "new", newLinkPath, "oldKind", oldKind)
 
 	// Resolve symlink target before removing the symlink itself,
 	// so we can also clean up the old binary file
@@ -530,7 +572,12 @@ func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 		}
 	}
 
-	_ = i.placer.Cleanup(oldBinPath) // best-effort
+	// SUB5: pick the remove helper based on the OLD BinDirKind.
+	if oldKind == resource.BinDirKindSystem {
+		_ = place.RemoveSymlink(ctx, oldBinPath) // best-effort
+	} else {
+		_ = i.placer.Cleanup(oldBinPath) // best-effort
+	}
 }
 
 // isUnderDir checks whether path is strictly under dir (not equal to dir).
@@ -549,7 +596,14 @@ func isUnderDir(path, dir string) bool {
 }
 
 // buildState creates a ToolState from the installation result.
-func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest checksum.Digest) *resource.ToolState {
+// buildState assembles a ToolState for the download/registry install path.
+// binPath and binDirKind are passed in (rather than re-derived from spec)
+// so the caller's createSymlink result is the single source of truth.
+// Privileged is propagated from spec on both arms (mirroring installByCommands);
+// ToolComparator (reconciler/tool.go:43) only compares Privileged when
+// Commands is involved, so persisting it here cannot trigger spurious
+// reinstalls for download/registry tools.
+func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, digest checksum.Digest, binDirKind resource.BinDirKind, binPath string) *resource.ToolState {
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
@@ -557,25 +611,14 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		SpecVersion:  spec.Version,
 		Digest:       digest,
 		InstallPath:  i.placer.BinaryPath(target),
-		BinPath:      i.placer.LinkPath(target, i.userBinDir),
-		BinDirKind:   resource.BinDirKindUser,
-		// Privileged is persisted on the download/registry write path too,
-		// mirroring installByCommands. Pre-SUB5, a privileged download or
-		// registry tool installed under --system still lands in the user
-		// bin directory (the actual SystemBinDir routing arrives in SUB5),
-		// but stamping state.Privileged=true now pre-wires the state-driven
-		// removal-skip gate (engine.go) and plan.go's privileged-removal
-		// branch — so once SUB5 routes installs to SystemBinDir, the
-		// removal side already works.
-		// ToolComparator (reconciler/tool.go:43) only compares Privileged
-		// when Commands is involved, so persisting it here cannot trigger
-		// spurious reinstalls for download/registry tools.
-		Privileged: spec.Privileged,
-		Source:     spec.Source,
-		RuntimeRef: spec.RuntimeRef,
-		Package:    spec.Package,
-		BinaryName: spec.BinaryName,
-		UpdatedAt:  time.Now(),
+		BinPath:      binPath,
+		BinDirKind:   binDirKind,
+		Privileged:   spec.Privileged,
+		Source:       spec.Source,
+		RuntimeRef:   spec.RuntimeRef,
+		Package:      spec.Package,
+		BinaryName:   spec.BinaryName,
+		UpdatedAt:    time.Now(),
 	}
 }
 
@@ -669,10 +712,18 @@ func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name str
 		}
 	}
 
-	// Remove the symlink
+	// Remove the symlink. SUB5 #228: state.BinDirKindOrDefault picks the
+	// cleanup helper — system goes through place.RemoveSymlink (sudo-capable),
+	// user (or pre-SUB6 empty) keeps Placer.Cleanup.
 	if st.BinPath != "" {
-		if err := i.placer.Cleanup(st.BinPath); err != nil {
-			slog.Debug("failed to remove symlink", "path", st.BinPath, "error", err)
+		if st.BinDirKindOrDefault() == resource.BinDirKindSystem {
+			if err := place.RemoveSymlink(ctx, st.BinPath); err != nil {
+				slog.Debug("failed to remove system symlink", "path", st.BinPath, "error", err)
+			}
+		} else {
+			if err := i.placer.Cleanup(st.BinPath); err != nil {
+				slog.Debug("failed to remove symlink", "path", st.BinPath, "error", err)
+			}
 		}
 	}
 

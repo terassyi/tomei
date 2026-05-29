@@ -36,6 +36,28 @@ func OldBinPathFromContext(ctx context.Context) string {
 	return ""
 }
 
+type oldBinDirKindKey struct{}
+
+// WithOldBinDirKind returns a context carrying the old BinDirKind for
+// transition-aware symlink cleanup. Mirrors WithOldBinPath: the install
+// pipeline reads both to decide whether the old symlink lived in the user
+// bin dir (Placer.Cleanup) or the system bin dir (RemoveSymlink, sudo-
+// capable). Threaded by Executor[R, S].install via duck-typing on the
+// state's BinDirKindOrDefault method.
+func WithOldBinDirKind(ctx context.Context, kind resource.BinDirKind) context.Context {
+	return context.WithValue(ctx, oldBinDirKindKey{}, kind)
+}
+
+// OldBinDirKindFromContext returns the old BinDirKind, defaulting to
+// resource.BinDirKindUser when not set — matching ToolState.BinDirKindOrDefault's
+// pre-SUB6 backward-compat default.
+func OldBinDirKindFromContext(ctx context.Context) resource.BinDirKind {
+	if v, ok := ctx.Value(oldBinDirKindKey{}).(resource.BinDirKind); ok && v != "" {
+		return v
+	}
+	return resource.BinDirKindUser
+}
+
 type oldPackagesKey struct{}
 
 // WithOldPackages returns a context carrying the package list recorded in

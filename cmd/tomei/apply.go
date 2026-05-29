@@ -233,7 +233,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	runtimesDir := pathConfig.UserDataDir() + "/runtimes"
 
 	placer := place.NewPlacer(toolsDir)
-	toolInstaller := tool.NewInstaller(downloader, placer, pathConfig.UserBinDir())
+	toolInstaller := tool.NewInstaller(downloader, placer, pathConfig.UserBinDir(), pathConfig.SystemBinDir())
 	runtimeInstaller := runtime.NewInstaller(downloader, runtimesDir)
 	reposDir := pathConfig.UserDataDir() + "/repositories"
 	repoInstaller := repository.NewInstaller(reposDir)

@@ -60,3 +60,29 @@ func TestOldBinPathContext_Empty(t *testing.T) {
 	got := OldBinPathFromContext(context.Background())
 	assert.Empty(t, got)
 }
+
+func TestOldBinDirKindContext(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		kind resource.BinDirKind
+		want resource.BinDirKind
+	}{
+		{name: "user", kind: resource.BinDirKindUser, want: resource.BinDirKindUser},
+		{name: "system", kind: resource.BinDirKindSystem, want: resource.BinDirKindSystem},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := WithOldBinDirKind(context.Background(), tt.kind)
+			assert.Equal(t, tt.want, OldBinDirKindFromContext(ctx))
+		})
+	}
+}
+
+func TestOldBinDirKindContext_Empty(t *testing.T) {
+	t.Parallel()
+	// When not set, the getter returns BinDirKindUser — the same default the
+	// state-side ToolState.BinDirKindOrDefault uses for pre-SUB6 state files.
+	assert.Equal(t, resource.BinDirKindUser, OldBinDirKindFromContext(context.Background()))
+}

@@ -54,7 +54,7 @@ func defaultSudoRun(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// installSymlink creates linkPath -> target, escalating to `sudo -n ln -snf`
+// InstallSymlink creates linkPath -> target, escalating to `sudo -n ln -snf`
 // on permission error (-s symbolic, -n no-deref to avoid the symlink-to-dir
 // foot-gun, -f force-replace). Existing symlinks at linkPath are replaced;
 // existing non-symlinks (regular files, directories) are refused to avoid
@@ -62,7 +62,7 @@ func defaultSudoRun(ctx context.Context, args ...string) error {
 //
 // Assumes the caller has already cached a sudo ticket via sudoHandler
 // (cmd/tomei/apply.go); the -n flag never prompts.
-func installSymlink(ctx context.Context, target, linkPath string) error {
+func InstallSymlink(ctx context.Context, target, linkPath string) error {
 	if target == "" {
 		return errors.New("symlink: target is empty")
 	}
@@ -93,10 +93,10 @@ func installSymlink(ctx context.Context, target, linkPath string) error {
 	return nil
 }
 
-// removeSymlink removes linkPath, escalating to `sudo -n rm -f` on permission
+// RemoveSymlink removes linkPath, escalating to `sudo -n rm -f` on permission
 // error. A missing linkPath is a no-op (matches `rm -f`). Refuses to remove a
-// non-symlink at linkPath — the helper is named removeSymlink for a reason.
-func removeSymlink(ctx context.Context, linkPath string) error {
+// non-symlink at linkPath — the helper is named RemoveSymlink for a reason.
+func RemoveSymlink(ctx context.Context, linkPath string) error {
 	if err := validateLinkPath(linkPath); err != nil {
 		return err
 	}

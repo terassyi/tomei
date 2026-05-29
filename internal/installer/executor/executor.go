@@ -71,6 +71,14 @@ func (e *Executor[R, S]) install(ctx context.Context, action reconciler.Action[R
 				ctx = WithOldBinPath(ctx, oldPath)
 			}
 		}
+		// SUB5 #228: also propagate the old BinDirKind so the install path's
+		// cleanupOldSymlink can pick the right remove helper when the kind
+		// changes (e.g., the user flips spec.Privileged across applies).
+		if bdk, ok := any(action.State).(interface {
+			BinDirKindOrDefault() resource.BinDirKind
+		}); ok {
+			ctx = WithOldBinDirKind(ctx, bdk.BinDirKindOrDefault())
+		}
 		// Pass old Packages for SystemPackageSet upgrade-time drainage.
 		// The generic install flow only re-runs Install with the new
 		// spec; without the old package list the installer has no way
