@@ -104,6 +104,8 @@ func TestToolInstaller_Install(t *testing.T) {
 			assert.Equal(t, tt.tool.ToolSpec.Version, state.Version)
 			assert.NotEmpty(t, state.InstallPath)
 			assert.NotEmpty(t, state.BinPath)
+			assert.Equal(t, resource.BinDirKindUser, state.BinDirKind,
+				"download/registry install should stamp BinDirKindUser so the gap closes on next apply (SUB6 #229)")
 		})
 	}
 }

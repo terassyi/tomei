@@ -257,6 +257,23 @@ const (
 	TaintReasonUpdateRequested TaintReason = "update_requested"
 )
 
+// BinDirKind classifies which bin directory a tool's symlink lives in.
+// Persisted in ToolState so removal/reconciliation can locate the symlink
+// even when the manifest is absent. Empty in pre-SUB6 state files; treated
+// as BinDirKindUser via ToolState.BinDirKindOrDefault.
+type BinDirKind string
+
+const (
+	// BinDirKindUser indicates the symlink lives in the user's bin directory
+	// (e.g., ~/.local/bin). This is the default for tools that lack the field
+	// in older state files.
+	BinDirKindUser BinDirKind = "user"
+
+	// BinDirKindSystem indicates the symlink lives in the system bin directory
+	// (e.g., /usr/local/bin). Used by privileged download/registry tools.
+	BinDirKindSystem BinDirKind = "system"
+)
+
 // CommandSet defines a set of shell commands for install/check/remove operations.
 // This is the common type used by BootstrapSpec, CommandsSpec, and RuntimeBootstrapSpec.
 // Each command is a string slice; multiple entries are joined with " && " at execution time.

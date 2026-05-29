@@ -690,6 +690,16 @@ type ToolState struct {
 	// `tomei apply --system` to refresh state before triggering removal.
 	Privileged bool `json:"privileged,omitempty"`
 
+	// BinDirKind records which bin directory this tool's symlink lives in
+	// ("user" or "system"). Empty in pre-SUB6 state files; read via
+	// BinDirKindOrDefault, which treats empty as user. Privileged download/
+	// registry tools (routed by SUB5) will carry "system" here.
+	//
+	// Set independently of Privileged: SUB5's routing decides the bin dir,
+	// and Privileged tracks sudo-wrapping of commands. Do not derive one
+	// from the other.
+	BinDirKind BinDirKind `json:"binDirKind,omitempty"`
+
 	// TaintReason indicates why this tool needs reinstallation.
 	// Empty string means the tool is not tainted.
 	TaintReason TaintReason `json:"taintReason,omitempty"`
@@ -707,6 +717,17 @@ func (t *ToolState) GetBinPath() string {
 		return ""
 	}
 	return t.BinPath
+}
+
+// BinDirKindOrDefault returns the tool's bin-directory classification,
+// treating an empty value (pre-SUB6 state files, or a nil receiver) as
+// BinDirKindUser. The getter does not validate non-empty values: an unknown
+// kind passes through unchanged.
+func (t *ToolState) BinDirKindOrDefault() BinDirKind {
+	if t == nil || t.BinDirKind == "" {
+		return BinDirKindUser
+	}
+	return t.BinDirKind
 }
 
 // IsTainted returns true if the tool needs reinstallation.
