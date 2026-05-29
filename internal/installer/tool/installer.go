@@ -558,6 +558,7 @@ func (i *Installer) buildState(spec *resource.ToolSpec, target place.Target, dig
 		Digest:       digest,
 		InstallPath:  i.placer.BinaryPath(target),
 		BinPath:      i.placer.LinkPath(target, i.userBinDir),
+		BinDirKind:   resource.BinDirKindUser,
 		Source:       spec.Source,
 		RuntimeRef:   spec.RuntimeRef,
 		Package:      spec.Package,

@@ -1298,6 +1298,97 @@ func TestToolState_GetBinPath(t *testing.T) {
 	assert.Empty(t, emptyState.GetBinPath())
 }
 
+func TestToolState_BinDirKindOrDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state *ToolState
+		want  BinDirKind
+	}{
+		{name: "nil receiver defaults to user", state: nil, want: BinDirKindUser},
+		{name: "empty field defaults to user", state: &ToolState{}, want: BinDirKindUser},
+		{name: "explicit user", state: &ToolState{BinDirKind: BinDirKindUser}, want: BinDirKindUser},
+		{name: "explicit system", state: &ToolState{BinDirKind: BinDirKindSystem}, want: BinDirKindSystem},
+		{name: "unknown value passes through unchanged", state: &ToolState{BinDirKind: BinDirKind("bogus")}, want: BinDirKind("bogus")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.state.BinDirKindOrDefault())
+		})
+	}
+}
+
+func TestToolState_BinDirKind_JSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pre-SUB6 state without binDirKind unmarshals to empty and defaults to user", func(t *testing.T) {
+		t.Parallel()
+		// A representative pre-SUB6 state JSON (no binDirKind key).
+		blob := `{"installerRef":"aqua","version":"2.0.0","installPath":"/foo","binPath":"/home/user/.local/bin/foo","versionKind":"exact","updatedAt":"2025-01-01T00:00:00Z"}`
+		var got ToolState
+		require.NoError(t, json.Unmarshal([]byte(blob), &got))
+		assert.Equal(t, BinDirKind(""), got.BinDirKind)
+		assert.Equal(t, BinDirKindUser, got.BinDirKindOrDefault())
+	})
+
+	t.Run("explicit system unmarshals", func(t *testing.T) {
+		t.Parallel()
+		blob := `{"installerRef":"aqua","version":"2.0.0","installPath":"/foo","binPath":"/usr/local/bin/foo","versionKind":"exact","binDirKind":"system","updatedAt":"2025-01-01T00:00:00Z"}`
+		var got ToolState
+		require.NoError(t, json.Unmarshal([]byte(blob), &got))
+		assert.Equal(t, BinDirKindSystem, got.BinDirKind)
+		assert.Equal(t, BinDirKindSystem, got.BinDirKindOrDefault())
+	})
+
+	t.Run("empty BinDirKind is omitted on marshal", func(t *testing.T) {
+		t.Parallel()
+		st := &ToolState{
+			InstallerRef: "aqua",
+			Version:      "2.0.0",
+			VersionKind:  VersionExact,
+			UpdatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		data, err := json.Marshal(st)
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "binDirKind")
+	})
+
+	t.Run("explicit BinDirKindSystem is present on marshal", func(t *testing.T) {
+		t.Parallel()
+		st := &ToolState{
+			InstallerRef: "aqua",
+			Version:      "2.0.0",
+			VersionKind:  VersionExact,
+			BinDirKind:   BinDirKindSystem,
+			UpdatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		data, err := json.Marshal(st)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"binDirKind":"system"`)
+	})
+
+	t.Run("round-trip preserves user and system", func(t *testing.T) {
+		t.Parallel()
+		for _, kind := range []BinDirKind{BinDirKindUser, BinDirKindSystem} {
+			original := &ToolState{
+				InstallerRef: "aqua",
+				Version:      "2.0.0",
+				VersionKind:  VersionExact,
+				BinDirKind:   kind,
+				UpdatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			}
+			data, err := json.Marshal(original)
+			require.NoError(t, err)
+			var got ToolState
+			require.NoError(t, json.Unmarshal(data, &got))
+			assert.Equal(t, kind, got.BinDirKind)
+		}
+	})
+}
+
 func TestBuildToolFromSetItem(t *testing.T) {
 	t.Parallel()
 
