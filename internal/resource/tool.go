@@ -422,8 +422,10 @@ func (t *Tool) IsEnabled() bool {
 // the destination directory, so privileged is ignored.
 //
 // Keep in sync with Tool.PrivilegedReason: any new privileged arm added here
-// MUST also be wired into that method (or the per-resource skip-warning will
-// emit an empty reason).
+// MUST also be wired into that method. PrivilegedReason returns the
+// commands reason when Commands != nil and the placement reason otherwise,
+// so a new non-commands arm that goes unwired here would silently emit the
+// placement reason — misleading rather than obviously broken.
 func (t *Tool) IsPrivileged() bool {
 	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
 		return false
