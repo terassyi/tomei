@@ -420,6 +420,12 @@ func (t *Tool) IsEnabled() bool {
 // placement patterns, download (Source) and registry (aqua / owner-repo
 // Package). For installer- or runtime-delegation the installer/runtime owns
 // the destination directory, so privileged is ignored.
+//
+// Keep in sync with Tool.PrivilegedReason: any new privileged arm added here
+// MUST also be wired into that method. PrivilegedReason returns the
+// commands reason when Commands != nil and the placement reason otherwise,
+// so a new non-commands arm that goes unwired here would silently emit the
+// placement reason — misleading rather than obviously broken.
 func (t *Tool) IsPrivileged() bool {
 	if t.ToolSpec == nil || !t.ToolSpec.Privileged {
 		return false
@@ -446,6 +452,25 @@ func (t *Tool) IsPrivileged() bool {
 		// destination dir, so privileged is ignored.
 		return false
 	}
+}
+
+// PrivilegedReason returns a short human-readable reason this tool requires
+// --system, or "" if the tool is not privileged. Mirrors IsPrivileged's
+// pattern arms: Commands → sudo-cached shell commands; download/registry →
+// system bin directory placement. Installer-/runtime-delegation never
+// returns a non-empty reason since IsPrivileged returns false for them.
+//
+// The returned string is user-facing; treat as opaque (do not switch on it
+// in callers). Keep in sync with Tool.IsPrivileged: any new privileged arm
+// added there MUST also be wired into this method.
+func (t *Tool) PrivilegedReason() string {
+	if !t.IsPrivileged() {
+		return ""
+	}
+	if t.ToolSpec.Commands != nil {
+		return "requires sudo cache for shell commands"
+	}
+	return "places a symlink in the system bin directory requiring sudo"
 }
 
 // IsEnabled returns whether the tool spec is enabled.
@@ -729,6 +754,47 @@ func (t *ToolState) BinDirKindOrDefault() BinDirKind {
 	}
 	return t.BinDirKind
 }
+
+// PrivilegedRemovalReason returns a short reason a privileged removal needs
+// --system, derived from persisted state (the manifest may be absent). Used
+// at the engine-side state-driven removal-skip log site, which guards on
+// state.Privileged before invoking this method.
+//
+// State-side counterpart to Tool.PrivilegedReason (which works from the spec).
+// Commands takes precedence: the sudo cache for shell commands is the more
+// concrete user-visible action. Otherwise, BinDirKindSystem indicates the
+// system-bin-dir cleanup case (SUB5+). When state.Privileged is true but
+// neither indicator pinpoints the cause (e.g., a pre-SUB5 privileged
+// download/registry install — Privileged is stamped but BinDirKind is still
+// user), fall back to a generic non-empty reason so the log never carries
+// reason="".
+func (t *ToolState) PrivilegedRemovalReason() string {
+	if t == nil {
+		return ""
+	}
+	if t.Commands != nil {
+		return PrivilegedRemovalReasonCommands
+	}
+	if t.BinDirKindOrDefault() == BinDirKindSystem {
+		return PrivilegedRemovalReasonSystemBinDir
+	}
+	return PrivilegedRemovalReasonGeneric
+}
+
+// Reason strings returned by ToolState.PrivilegedRemovalReason. Exported so
+// tests and downstream slog consumers can reference them without duplication.
+const (
+	// PrivilegedRemovalReasonCommands: state carries Commands (Commands-pattern
+	// privileged tool); removal will run sudo-backed shell commands.
+	PrivilegedRemovalReasonCommands = "shell command removal"
+	// PrivilegedRemovalReasonSystemBinDir: state's BinDirKind is system
+	// (download/registry tool placed in SystemBinDir, SUB5+).
+	PrivilegedRemovalReasonSystemBinDir = "system bin directory cleanup"
+	// PrivilegedRemovalReasonGeneric: state.Privileged is true but neither
+	// indicator pinpoints the cause (e.g., a pre-SUB5 privileged download or
+	// registry install — Privileged is stamped but BinDirKind is still user).
+	PrivilegedRemovalReasonGeneric = "privileged tool removal"
+)
 
 // IsTainted returns true if the tool needs reinstallation.
 func (t *ToolState) IsTainted() bool {

@@ -36,10 +36,15 @@ func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 		if res.ToolSpec.BinaryName != state.BinaryName {
 			return true, "binaryName changed: " + state.BinaryName + " -> " + res.ToolSpec.BinaryName
 		}
-		// Detect privileged change only for commands-based tools. The flag
-		// is a spec-vs-state drift signal (it gates --system and is persisted
-		// in state). Other install patterns ignore the privileged flag and do
-		// not persist it.
+		// Detect privileged change only for commands-based tools.
+		// Privileged is persisted on all install patterns that flow through
+		// the user-visible apply path (#230: buildState also stamps it for
+		// download/registry to pre-wire the state-driven removal-skip gate),
+		// but the comparator only treats a privileged-flip as a *reinstall*
+		// signal when Commands is involved — for download/registry the flag
+		// itself does not change what gets installed (binary contents are
+		// identical), and SUB5's BinDirKind routing will handle relocations
+		// via the install/update path, not via this comparator.
 		if (res.ToolSpec.Commands != nil || state.Commands != nil) && res.ToolSpec.Privileged != state.Privileged {
 			return true, "privileged changed"
 		}

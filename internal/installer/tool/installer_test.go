@@ -66,6 +66,27 @@ func TestToolInstaller_Install(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "privileged download install propagates Privileged to state",
+			tool: &resource.Tool{
+				BaseResource: resource.BaseResource{
+					Metadata: resource.Metadata{Name: "ripgrep-priv"},
+				},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "download",
+					Version:      "14.1.1",
+					Source: &resource.DownloadSource{
+						URL: "https://example.com/ripgrep.tar.gz",
+						Checksum: &resource.Checksum{
+							Value: "sha256:" + archiveHash,
+						},
+						ArchiveType: "tar.gz",
+					},
+					Privileged: true,
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name: "missing source",
 			tool: &resource.Tool{
 				BaseResource: resource.BaseResource{
@@ -106,6 +127,8 @@ func TestToolInstaller_Install(t *testing.T) {
 			assert.NotEmpty(t, state.BinPath)
 			assert.Equal(t, resource.BinDirKindUser, state.BinDirKind,
 				"download/registry install should stamp BinDirKindUser so the gap closes on next apply (SUB6 #229)")
+			assert.Equal(t, tt.tool.ToolSpec.Privileged, state.Privileged,
+				"buildState should propagate spec.Privileged so the state-side gate works after SUB5 (SUB7 #230)")
 		})
 	}
 }

@@ -86,6 +86,16 @@ func IsPrivileged(res Resource) bool {
 	return false
 }
 
+// PrivilegedReason returns a short reason a resource requires --system, or
+// "" if it does not. Currently only Tool resources are privileged; see
+// Tool.PrivilegedReason for the per-pattern wording.
+func PrivilegedReason(res Resource) string {
+	if t, ok := res.(*Tool); ok {
+		return t.PrivilegedReason()
+	}
+	return ""
+}
+
 // FilterSystemKinds partitions resources into user-kind and system-kind groups.
 // User-kind resources are returned first, system-kind second.
 func FilterSystemKinds(resources []Resource) (user, system []Resource) {

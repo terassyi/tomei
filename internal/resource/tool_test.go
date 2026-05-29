@@ -376,6 +376,121 @@ func TestTool_IsPrivileged(t *testing.T) {
 	}
 }
 
+func TestTool_PrivilegedReason(t *testing.T) {
+	t.Parallel()
+	const cmdsReason = "requires sudo cache for shell commands"
+	const placeReason = "places a symlink in the system bin directory requiring sudo"
+
+	tests := []struct {
+		name string
+		tool *Tool
+		want string
+	}{
+		{
+			name: "nil spec returns empty",
+			tool: &Tool{ToolSpec: nil},
+			want: "",
+		},
+		{
+			name: "non-privileged commands returns empty (short-circuit via IsPrivileged)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"x"}}},
+				Privileged: false,
+			}},
+			want: "",
+		},
+		{
+			name: "privileged commands",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"x"}}},
+				Privileged: true,
+			}},
+			want: cmdsReason,
+		},
+		{
+			name: "privileged download (installerRef + source)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Version:      "1.0.0",
+				Source:       &DownloadSource{URL: "https://example.com/tool.tar.gz"},
+				Privileged:   true,
+			}},
+			want: placeReason,
+		},
+		{
+			name: "privileged registry (installerRef=aqua + owner/repo)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				InstallerRef: "aqua",
+				Package:      &Package{Owner: "cli", Repo: "cli"},
+				Privileged:   true,
+			}},
+			want: placeReason,
+		},
+		{
+			name: "privileged runtime delegation returns empty (IsPrivileged is false)",
+			tool: &Tool{ToolSpec: &ToolSpec{
+				RuntimeRef: "go",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged: true,
+			}},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.tool.PrivilegedReason())
+		})
+	}
+}
+
+func TestToolState_PrivilegedRemovalReason(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		state *ToolState
+		want  string
+	}{
+		{name: "nil receiver returns empty", state: nil, want: ""},
+		{
+			name:  "ambiguous privileged state (no Commands, BinDirKind=user) → generic fallback",
+			state: &ToolState{}, // no Commands, BinDirKind empty (→ user); models the pre-SUB5 privileged download/registry state shape
+			want:  PrivilegedRemovalReasonGeneric,
+		},
+		{
+			name:  "Commands set → shell command removal",
+			state: &ToolState{Commands: &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}}},
+			want:  PrivilegedRemovalReasonCommands,
+		},
+		{
+			name:  "system BinDirKind without Commands → system bin directory cleanup",
+			state: &ToolState{BinDirKind: BinDirKindSystem},
+			want:  PrivilegedRemovalReasonSystemBinDir,
+		},
+		{
+			name: "Commands takes precedence over system BinDirKind",
+			state: &ToolState{
+				Commands:   &ToolCommandSet{CommandSet: CommandSet{Install: []string{"echo"}}},
+				BinDirKind: BinDirKindSystem,
+			},
+			want: PrivilegedRemovalReasonCommands,
+		},
+		{
+			name:  "explicit BinDirKindUser without Commands → generic fallback (same as empty)",
+			state: &ToolState{BinDirKind: BinDirKindUser},
+			want:  PrivilegedRemovalReasonGeneric,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.state.PrivilegedRemovalReason())
+		})
+	}
+}
+
 func TestPackage_Validate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
