@@ -733,12 +733,28 @@ func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name str
 	// Remove the symlink. SUB5 #228: state.BinDirKindOrDefault picks the
 	// cleanup helper — system goes through place.RemoveSymlink (sudo-capable),
 	// user (or pre-SUB6 empty) keeps Placer.Cleanup.
+	//
+	// Defense in depth: validate state.BinPath actually lives under the dir
+	// its BinDirKind claims before invoking the remove helper. A corrupted
+	// or stale state.json could otherwise persuade tomei to `sudo rm -f` an
+	// arbitrary symlink elsewhere on the filesystem. Mirrors the guard in
+	// cleanupOldSymlink. filepath.Clean is applied to userBinDir/systemBinDir
+	// since they come from config and may carry a trailing slash.
 	if st.BinPath != "" {
-		if st.BinDirKindOrDefault() == resource.BinDirKindSystem {
+		isSystem := st.BinDirKindOrDefault() == resource.BinDirKindSystem
+		expectedDir := filepath.Clean(i.userBinDir)
+		if isSystem {
+			expectedDir = filepath.Clean(i.systemBinDir)
+		}
+		switch {
+		case filepath.Dir(st.BinPath) != expectedDir:
+			slog.Warn("skipping symlink removal: state.BinPath is outside expected directory for its BinDirKind",
+				"name", name, "binPath", st.BinPath, "binDirKind", st.BinDirKindOrDefault(), "expected_dir", expectedDir)
+		case isSystem:
 			if err := place.RemoveSymlink(ctx, st.BinPath); err != nil {
 				slog.Debug("failed to remove system symlink", "path", st.BinPath, "error", err)
 			}
-		} else {
+		default:
 			if err := i.placer.Cleanup(st.BinPath); err != nil {
 				slog.Debug("failed to remove symlink", "path", st.BinPath, "error", err)
 			}

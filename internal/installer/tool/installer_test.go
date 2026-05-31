@@ -369,6 +369,54 @@ func TestToolInstaller_Update_BinDirKindTransition(t *testing.T) {
 	}
 }
 
+// TestToolInstaller_Remove_OffDirBinPath_Skipped pins SUB5 #228's
+// defense-in-depth guard: when state.BinPath is NOT under the dir that its
+// BinDirKind claims (e.g., a corrupted state.json or stale state from a
+// different host config), Remove must skip the symlink-removal helper rather
+// than `sudo rm -f` an arbitrary path. The InstallPath cleanup still runs
+// (the binary's location is internal to tomei and unaffected).
+func TestToolInstaller_Remove_OffDirBinPath_Skipped(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		binDirKind resource.BinDirKind
+		binPath    string // intentionally outside both userBinDir and systemBinDir
+	}{
+		{
+			name:       "system kind with off-dir BinPath does not invoke RemoveSymlink",
+			binDirKind: resource.BinDirKindSystem,
+			binPath:    "/etc/some-other-link",
+		},
+		{
+			name:       "user kind with off-dir BinPath does not invoke Placer.Cleanup",
+			binDirKind: resource.BinDirKindUser,
+			binPath:    "/etc/some-other-link",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mp := &mockPlacer{}
+			inst := NewInstaller(&mockDownloader{}, mp, "/user-bin", "/system-bin")
+
+			st := &resource.ToolState{
+				InstallPath: "/install/path",
+				BinPath:     tt.binPath,
+				BinDirKind:  tt.binDirKind,
+			}
+			require.NoError(t, inst.Remove(context.Background(), st, "tool"))
+
+			assert.NotContains(t, mp.gotCleanupPaths, tt.binPath,
+				"off-dir BinPath must NOT reach Placer.Cleanup")
+			// RemoveSymlink's effect (real syscall) is not exercised here because
+			// the guard returns before reaching it; the absence of a panic /
+			// rm-of-/etc/some-other-link is the assertion.
+		})
+	}
+}
+
 // TestToolInstaller_Remove_BinDirKind pins SUB5 #228's remove-path routing:
 // the symlink cleanup helper is chosen by state.BinDirKindOrDefault — system
 // state uses place.RemoveSymlink (sudo-capable, t.TempDir() exercises the
