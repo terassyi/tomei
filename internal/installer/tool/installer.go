@@ -555,10 +555,16 @@ func (i *Installer) cleanupOldSymlink(ctx context.Context, newLinkPath string) {
 	// from context. The defensive guard validates the old symlink is in
 	// the dir its kind claims — independent of the new symlink's location,
 	// which may legitimately be in a different bin dir on a transition.
+	//
+	// filepath.Clean both sides: filepath.Dir already normalizes its result,
+	// but the Installer's userBinDir/systemBinDir fields come from config and
+	// may carry a trailing slash or other non-canonical form. Without
+	// normalization the comparison fails on semantically-equal dirs and
+	// cleanup is skipped, leaving stale symlinks across transitions.
 	oldKind := executor.OldBinDirKindFromContext(ctx)
-	expectedOldDir := i.userBinDir
+	expectedOldDir := filepath.Clean(i.userBinDir)
 	if oldKind == resource.BinDirKindSystem {
-		expectedOldDir = i.systemBinDir
+		expectedOldDir = filepath.Clean(i.systemBinDir)
 	}
 	if filepath.Dir(oldBinPath) != expectedOldDir {
 		slog.Warn("skipping old symlink cleanup: old bin path is outside expected directory for its BinDirKind",

@@ -189,6 +189,57 @@ func TestBuildResolvedTool_PreservesPrivileged(t *testing.T) {
 	}
 }
 
+// TestCleanupOldSymlink_TrailingSlashBinDir pins the SUB5 cleanup guard
+// against bin-dir strings that carry a trailing slash (or are otherwise not
+// filepath.Clean-canonical). filepath.Dir always returns a Cleaned path, so
+// without normalizing the Installer's userBinDir/systemBinDir on the
+// comparison side, the guard would reject equality and skip cleanup —
+// leaving a stale symlink behind on every transition.
+func TestCleanupOldSymlink_TrailingSlashBinDir(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "tool", binaryContent)
+	archiveHash := sha256Hash(tarGzContent)
+
+	systemBinDir := t.TempDir()
+	// Seed an old system-arm symlink and feed the Installer a trailing-slash
+	// systemBinDir. The seeded link's parent (Cleaned) must match the
+	// Installer's normalized expectedOldDir for cleanup to fire.
+	target := filepath.Join(t.TempDir(), "old-binary")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o755))
+	oldBinPath := filepath.Join(systemBinDir, "tool-old")
+	require.NoError(t, os.Symlink(target, oldBinPath))
+
+	mp := &mockPlacer{}
+	dl := &mockDownloader{archiveData: tarGzContent}
+	// Pass the system dir WITH a trailing slash — the dirty form that an
+	// operator could supply via WithSystemBinDir from config.
+	inst := NewInstaller(dl, mp, "/user-bin", systemBinDir+"/")
+
+	toolRes := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "1.0.0",
+			Source: &resource.DownloadSource{
+				URL:         "https://example.com/tool.tar.gz",
+				Checksum:    &resource.Checksum{Value: "sha256:" + archiveHash},
+				ArchiveType: "tar.gz",
+			},
+			Privileged: true, // system→system transition; old was system, new is system
+		},
+	}
+
+	ctx := executor.WithOldBinPath(context.Background(), oldBinPath)
+	ctx = executor.WithOldBinDirKind(ctx, resource.BinDirKindSystem)
+	_, err := inst.Install(ctx, toolRes, toolRes.Name())
+	require.NoError(t, err)
+
+	_, lerr := os.Lstat(oldBinPath)
+	assert.True(t, os.IsNotExist(lerr),
+		"old system symlink must be removed even when systemBinDir has a trailing slash; lstat err: %v", lerr)
+}
+
 // TestToolInstaller_Install_SystemSymlinkErrorWrap verifies that when
 // place.InstallSymlink fails on the privileged install path, the error is
 // wrapped via createSymlink with the "create system symlink" prefix. Pins
