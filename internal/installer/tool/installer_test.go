@@ -155,6 +155,40 @@ func TestToolInstaller_Install(t *testing.T) {
 	}
 }
 
+// TestBuildResolvedTool_PreservesPrivileged pins SUB5 #228: the registry
+// install path (installFromRegistry) hands a re-shaped Tool to installByDownload,
+// and Privileged MUST flow through that re-shaping. Dropping it would route
+// privileged registry installs to the user bin dir AND persist
+// state.Privileged=false — silently breaking the SUB5 contract for registry
+// tools (the download path was already covered by the install test, but the
+// registry path's spec-massaging is the bug-prone seam).
+func TestBuildResolvedTool_PreservesPrivileged(t *testing.T) {
+	t.Parallel()
+	for _, priv := range []bool{false, true} {
+		t.Run(fmt.Sprintf("privileged=%v", priv), func(t *testing.T) {
+			t.Parallel()
+			orig := &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "aqua",
+					Package:      &resource.Package{Owner: "owner", Repo: "repo"},
+					BinaryName:   "tool",
+					Privileged:   priv,
+				},
+			}
+			src := &resource.DownloadSource{URL: "https://example.com/x.tar.gz", ArchiveType: "tar.gz"}
+			got := buildResolvedTool(orig, src, "1.2.3")
+			assert.Equal(t, priv, got.ToolSpec.Privileged,
+				"buildResolvedTool must preserve Privileged so registry priv tools route through createSymlink correctly")
+			// Sanity: the re-shape preserves other identity fields too.
+			assert.Equal(t, "aqua", got.ToolSpec.InstallerRef)
+			assert.Equal(t, "1.2.3", got.ToolSpec.Version)
+			assert.Same(t, src, got.ToolSpec.Source)
+			assert.Same(t, orig.ToolSpec.Package, got.ToolSpec.Package)
+		})
+	}
+}
+
 // TestToolInstaller_Install_SystemSymlinkErrorWrap verifies that when
 // place.InstallSymlink fails on the privileged install path, the error is
 // wrapped via createSymlink with the "create system symlink" prefix. Pins
@@ -287,9 +321,8 @@ func TestToolInstaller_Update_BinDirKindTransition(t *testing.T) {
 // TestToolInstaller_Remove_BinDirKind pins SUB5 #228's remove-path routing:
 // the symlink cleanup helper is chosen by state.BinDirKindOrDefault — system
 // state uses place.RemoveSymlink (sudo-capable, t.TempDir() exercises the
-// direct path), user state uses Placer.Cleanup (existing behavior).
-// Cannot t.Parallel(): each subtest stamps a real symlink in its own TempDir,
-// which is fine, but mockPlacer state is per-test.
+// direct path), user state uses Placer.Cleanup (existing behavior). Subtests
+// run in parallel — each owns its own TempDir + mockPlacer, no shared state.
 func TestToolInstaller_Remove_BinDirKind(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

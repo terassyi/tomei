@@ -446,18 +446,8 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		}
 	}
 
-	// Create a modified tool with resolved source for download
-	resolvedTool := &resource.Tool{
-		BaseResource: res.BaseResource,
-		ToolSpec: &resource.ToolSpec{
-			InstallerRef: spec.InstallerRef,
-			Version:      version,
-			Enabled:      spec.Enabled,
-			Source:       source,
-			Package:      spec.Package,
-			BinaryName:   spec.BinaryName,
-		},
-	}
+	// Create a modified tool with resolved source for download.
+	resolvedTool := buildResolvedTool(res, source, version)
 
 	// Build install config from resolved files
 	cfg := extractBinaryMapping(name, resolved.Files)
@@ -478,6 +468,28 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	state.SpecVersion = spec.Version // preserve original spec version (e.g., "" for latest)
 
 	return state, nil
+}
+
+// buildResolvedTool produces the download-shaped Tool that installFromRegistry
+// hands to installByDownload. SUB5 #228: Privileged MUST be preserved on the
+// resolved spec — createSymlink reads Tool.IsPrivileged() to route the symlink
+// to SystemBinDir, and buildState persists state.Privileged from spec. Dropping
+// the field would route privileged registry installs to the user bin dir (the
+// exact bug SUB5 fixes) and break the state-driven removal-skip gate.
+func buildResolvedTool(orig *resource.Tool, source *resource.DownloadSource, version string) *resource.Tool {
+	spec := orig.ToolSpec
+	return &resource.Tool{
+		BaseResource: orig.BaseResource,
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: spec.InstallerRef,
+			Version:      version,
+			Enabled:      spec.Enabled,
+			Source:       source,
+			Package:      spec.Package,
+			BinaryName:   spec.BinaryName,
+			Privileged:   spec.Privileged,
+		},
+	}
 }
 
 // extractBinaryMapping builds an InstallConfig from aqua registry files metadata.
