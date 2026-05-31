@@ -369,27 +369,41 @@ func TestToolInstaller_Update_BinDirKindTransition(t *testing.T) {
 	}
 }
 
-// TestToolInstaller_Remove_OffDirBinPath_Skipped pins SUB5 #228's
-// defense-in-depth guard: when state.BinPath is NOT under the dir that its
-// BinDirKind claims (e.g., a corrupted state.json or stale state from a
-// different host config), Remove must skip the symlink-removal helper rather
-// than `sudo rm -f` an arbitrary path. The InstallPath cleanup still runs
-// (the binary's location is internal to tomei and unaffected).
-func TestToolInstaller_Remove_OffDirBinPath_Skipped(t *testing.T) {
+// TestToolInstaller_Remove_NonSystemPath_NoSudoEscalation pins SUB5 #228's
+// defense-in-depth gate on the sudo-capable removal helper: place.RemoveSymlink
+// is invoked ONLY when state declares BinDirKindSystem AND state.BinPath is
+// actually under the configured systemBinDir. Any other shape falls back to
+// the unprivileged Placer.Cleanup — so a tampered state.json cannot persuade
+// tomei to `sudo rm -f` an arbitrary symlink, and runtime-delegated tools
+// (BinPath in ~/go/bin, no BinDirKind) clean up correctly without escalation.
+func TestToolInstaller_Remove_NonSystemPath_NoSudoEscalation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		binDirKind resource.BinDirKind
-		binPath    string // intentionally outside both userBinDir and systemBinDir
+		binPath    string
 	}{
 		{
-			name:       "system kind with off-dir BinPath does not invoke RemoveSymlink",
+			// Corrupted state: declares system, but path is elsewhere → MUST NOT
+			// reach the sudo helper. Fallback to unprivileged Cleanup.
+			name:       "system kind with off-dir BinPath falls back to unprivileged Cleanup",
 			binDirKind: resource.BinDirKindSystem,
 			binPath:    "/etc/some-other-link",
 		},
 		{
-			name:       "user kind with off-dir BinPath does not invoke Placer.Cleanup",
+			// Runtime-delegated tools (e.g., gopls via `go install`) have
+			// BinPath in the runtime's bin dir, not tomei's user bin. Empty
+			// BinDirKind defaults to user; the fallback handles it cleanly.
+			name:       "runtime-delegated BinPath (empty BinDirKind, ~/go/bin) uses Cleanup",
+			binDirKind: "",
+			binPath:    "/home/user/go/bin/gopls",
+		},
+		{
+			// User kind under a different dir from configured userBinDir
+			// (e.g., state from a different host config). Unprivileged
+			// Cleanup is best-effort and bounded by the user's perms.
+			name:       "user kind with off-dir BinPath uses Cleanup (already unprivileged)",
 			binDirKind: resource.BinDirKindUser,
 			binPath:    "/etc/some-other-link",
 		},
@@ -408,11 +422,10 @@ func TestToolInstaller_Remove_OffDirBinPath_Skipped(t *testing.T) {
 			}
 			require.NoError(t, inst.Remove(context.Background(), st, "tool"))
 
-			assert.NotContains(t, mp.gotCleanupPaths, tt.binPath,
-				"off-dir BinPath must NOT reach Placer.Cleanup")
-			// RemoveSymlink's effect (real syscall) is not exercised here because
-			// the guard returns before reaching it; the absence of a panic /
-			// rm-of-/etc/some-other-link is the assertion.
+			// Every non-system-path case must reach Placer.Cleanup (unprivileged)
+			// rather than the sudo-capable RemoveSymlink.
+			assert.Contains(t, mp.gotCleanupPaths, tt.binPath,
+				"non-system path must fall back to unprivileged Placer.Cleanup")
 		})
 	}
 }

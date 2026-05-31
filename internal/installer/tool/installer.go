@@ -730,31 +730,24 @@ func (i *Installer) Remove(ctx context.Context, st *resource.ToolState, name str
 		}
 	}
 
-	// Remove the symlink. SUB5 #228: state.BinDirKindOrDefault picks the
-	// cleanup helper — system goes through place.RemoveSymlink (sudo-capable),
-	// user (or pre-SUB6 empty) keeps Placer.Cleanup.
-	//
-	// Defense in depth: validate state.BinPath actually lives under the dir
-	// its BinDirKind claims before invoking the remove helper. A corrupted
-	// or stale state.json could otherwise persuade tomei to `sudo rm -f` an
-	// arbitrary symlink elsewhere on the filesystem. Mirrors the guard in
-	// cleanupOldSymlink. filepath.Clean is applied to userBinDir/systemBinDir
-	// since they come from config and may carry a trailing slash.
+	// Remove the symlink. SUB5 #228: only escalate to the sudo-capable
+	// place.RemoveSymlink when BOTH (a) state declares BinDirKindSystem,
+	// AND (b) state.BinPath is actually under the configured systemBinDir.
+	// Any other shape — runtime-delegated tools whose BinPath lives in the
+	// runtime's bin dir (e.g., ~/go/bin/gopls), pre-SUB6 state with empty
+	// BinDirKind, or a corrupted/stale state.json with an off-dir BinPath —
+	// falls back to the unprivileged Placer.Cleanup. Defense in depth:
+	// no path can trigger `sudo rm -f` unless it's verifiably one of ours.
+	// filepath.Clean is applied because userBinDir/systemBinDir come from
+	// config and may carry a trailing slash.
 	if st.BinPath != "" {
-		isSystem := st.BinDirKindOrDefault() == resource.BinDirKindSystem
-		expectedDir := filepath.Clean(i.userBinDir)
-		if isSystem {
-			expectedDir = filepath.Clean(i.systemBinDir)
-		}
-		switch {
-		case filepath.Dir(st.BinPath) != expectedDir:
-			slog.Warn("skipping symlink removal: state.BinPath is outside expected directory for its BinDirKind",
-				"name", name, "binPath", st.BinPath, "binDirKind", st.BinDirKindOrDefault(), "expected_dir", expectedDir)
-		case isSystem:
+		useSudoHelper := st.BinDirKindOrDefault() == resource.BinDirKindSystem &&
+			filepath.Dir(st.BinPath) == filepath.Clean(i.systemBinDir)
+		if useSudoHelper {
 			if err := place.RemoveSymlink(ctx, st.BinPath); err != nil {
 				slog.Debug("failed to remove system symlink", "path", st.BinPath, "error", err)
 			}
-		default:
+		} else {
 			if err := i.placer.Cleanup(st.BinPath); err != nil {
 				slog.Debug("failed to remove symlink", "path", st.BinPath, "error", err)
 			}
