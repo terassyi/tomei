@@ -185,10 +185,12 @@ EOF
 				return
 			}
 			// Escape hatch shared with the rest of the e2e suite (see
-			// system_package_test.go:1858) so a developer can inspect
-			// post-test state on a native opt-in run. Container runs are
+			// system_package_test.go:992, 1858) — strict "true" check, NOT
+			// non-empty, so TOMEI_E2E_NATIVE_SKIP_CLEANUP=false (or any other
+			// non-empty value) does NOT silently disable cleanup here while
+			// running it in the sibling Contexts. Container runs are
 			// ephemeral so this rarely matters, but keep the symmetry.
-			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") != "" {
+			if os.Getenv("TOMEI_E2E_NATIVE_SKIP_CLEANUP") == "true" {
 				return
 			}
 			// Best-effort: the symlink may already be gone after phase 4's
