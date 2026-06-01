@@ -53,5 +53,6 @@ var _ = Describe("tomei E2E", Ordered, func() {
 	Context("Commands Pattern", commandsPatternTests)
 	Context("BinaryName", binaryNameTests)
 	Context("Privileged", privilegedTests)
+	Context("Privileged Download", privilegedDownloadTests)
 	Context("SystemPackage and SystemPackageSet", systemPackageTests)
 })
