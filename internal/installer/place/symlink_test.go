@@ -43,7 +43,7 @@ func TestInstallSymlink_DirectPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(target, []byte("x"), 0o644))
 	linkPath := filepath.Join(dir, "link")
 
-	require.NoError(t, installSymlink(context.Background(), target, linkPath))
+	require.NoError(t, InstallSymlink(context.Background(), target, linkPath))
 
 	got, err := os.Readlink(linkPath)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestInstallSymlink_ReplacesExisting(t *testing.T) {
 	linkPath := filepath.Join(dir, "link")
 	require.NoError(t, os.Symlink("/old", linkPath))
 
-	require.NoError(t, installSymlink(context.Background(), "/new", linkPath))
+	require.NoError(t, InstallSymlink(context.Background(), "/new", linkPath))
 
 	got, err := os.Readlink(linkPath)
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestInstallSymlink_RefusesToReplaceRegularFile(t *testing.T) {
 		return nil
 	})
 
-	err := installSymlink(context.Background(), "/some/target", linkPath)
+	err := InstallSymlink(context.Background(), "/some/target", linkPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refusing to replace non-symlink")
 	assert.False(t, sudoCalled, "sudo must not be called")
@@ -98,7 +98,7 @@ func TestInstallSymlink_FallsBackOnPermissionError(t *testing.T) {
 	)
 
 	linkPath := filepath.Join(t.TempDir(), "foo")
-	err := installSymlink(context.Background(), "/some/target", linkPath)
+	err := InstallSymlink(context.Background(), "/some/target", linkPath)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ln", "-snf", "--", "/some/target", linkPath}, capturedArgs)
 }
@@ -115,7 +115,7 @@ func TestInstallSymlink_NonPermissionErrorNotEscalated(t *testing.T) {
 	)
 
 	dir := t.TempDir()
-	err := installSymlink(context.Background(), "/t", filepath.Join(dir, "link"))
+	err := InstallSymlink(context.Background(), "/t", filepath.Join(dir, "link"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk full")
 	require.NotErrorIs(t, err, errSudoFallback)
@@ -134,7 +134,7 @@ func TestInstallSymlink_SudoFallbackFailurePropagates(t *testing.T) {
 	)
 
 	linkPath := filepath.Join(t.TempDir(), "foo")
-	err := installSymlink(context.Background(), "/t", linkPath)
+	err := InstallSymlink(context.Background(), "/t", linkPath)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errSudoFallback)
 	assert.Contains(t, err.Error(), linkPath)
@@ -164,7 +164,7 @@ func TestInstallSymlink_RejectsBadInput(t *testing.T) {
 				return nil
 			})
 
-			err := installSymlink(context.Background(), tt.target, tt.linkPath)
+			err := InstallSymlink(context.Background(), tt.target, tt.linkPath)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
 			assert.False(t, sudoCalled)
@@ -200,7 +200,7 @@ func TestInstallSymlink_LstatFailureNotEscalated(t *testing.T) {
 		return nil
 	})
 
-	err := installSymlink(context.Background(), "/some/target", filepath.Join(locked, "link"))
+	err := InstallSymlink(context.Background(), "/some/target", filepath.Join(locked, "link"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lstat:")
 	assert.False(t, sudoCalled)
@@ -223,7 +223,7 @@ func TestInstallSymlink_ExistingSymlinkRemoveEACCESFallsBack(t *testing.T) {
 		},
 	)
 
-	err := installSymlink(context.Background(), "/new", linkPath)
+	err := InstallSymlink(context.Background(), "/new", linkPath)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ln", "-snf", "--", "/new", linkPath}, capturedArgs)
 }
@@ -233,7 +233,7 @@ func TestRemoveSymlink_DirectPath(t *testing.T) {
 	linkPath := filepath.Join(dir, "link")
 	require.NoError(t, os.Symlink("/anywhere", linkPath))
 
-	require.NoError(t, removeSymlink(context.Background(), linkPath))
+	require.NoError(t, RemoveSymlink(context.Background(), linkPath))
 
 	_, err := os.Lstat(linkPath)
 	assert.ErrorIs(t, err, fs.ErrNotExist)
@@ -242,7 +242,7 @@ func TestRemoveSymlink_DirectPath(t *testing.T) {
 func TestRemoveSymlink_MissingIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	linkPath := filepath.Join(dir, "absent")
-	assert.NoError(t, removeSymlink(context.Background(), linkPath))
+	assert.NoError(t, RemoveSymlink(context.Background(), linkPath))
 }
 
 func TestRemoveSymlink_RefusesNonSymlink(t *testing.T) {
@@ -256,7 +256,7 @@ func TestRemoveSymlink_RefusesNonSymlink(t *testing.T) {
 		return nil
 	})
 
-	err := removeSymlink(context.Background(), linkPath)
+	err := RemoveSymlink(context.Background(), linkPath)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refusing to remove non-symlink")
 	assert.False(t, sudoCalled)
@@ -282,7 +282,7 @@ func TestRemoveSymlink_FallsBackOnPermissionError(t *testing.T) {
 		},
 	)
 
-	err := removeSymlink(context.Background(), linkPath)
+	err := RemoveSymlink(context.Background(), linkPath)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"rm", "-f", "--", linkPath}, capturedArgs)
 }
@@ -296,7 +296,7 @@ func TestRemoveSymlink_LstatFailureNotEscalated(t *testing.T) {
 		return nil
 	})
 
-	err := removeSymlink(context.Background(), filepath.Join(locked, "link"))
+	err := RemoveSymlink(context.Background(), filepath.Join(locked, "link"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lstat:")
 	assert.False(t, sudoCalled)
@@ -317,7 +317,7 @@ func TestRemoveSymlink_SudoFallbackFailurePropagates(t *testing.T) {
 		},
 	)
 
-	err := removeSymlink(context.Background(), linkPath)
+	err := RemoveSymlink(context.Background(), linkPath)
 	require.Error(t, err)
 	require.ErrorIs(t, err, errSudoFallback)
 	assert.Contains(t, err.Error(), linkPath)
@@ -345,7 +345,7 @@ func TestRemoveSymlink_RejectsBadLinkPath(t *testing.T) {
 				return nil
 			})
 
-			err := removeSymlink(context.Background(), tt.linkPath)
+			err := RemoveSymlink(context.Background(), tt.linkPath)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantMsg)
 			assert.False(t, sudoCalled)

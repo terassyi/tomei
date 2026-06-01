@@ -29,7 +29,7 @@ func TestNewInstaller(t *testing.T) {
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer("/tools")
 
-	installer := NewInstaller(downloader, placer, "/bin")
+	installer := NewInstaller(downloader, placer, "/bin", "/system-bin")
 	assert.NotNil(t, installer)
 }
 
@@ -44,6 +44,10 @@ func TestToolInstaller_Install(t *testing.T) {
 		tool       *resource.Tool
 		wantErr    bool
 		errContain string
+		// wantBinDirKind is the expected state.BinDirKind on a successful install.
+		// For privileged download/registry installs SUB5 #228 routes the symlink
+		// to systemBinDir and stamps BinDirKindSystem; otherwise user.
+		wantBinDirKind resource.BinDirKind
 	}{
 		{
 			name: "successful install",
@@ -63,10 +67,11 @@ func TestToolInstaller_Install(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
+			wantErr:        false,
+			wantBinDirKind: resource.BinDirKindUser,
 		},
 		{
-			name: "privileged download install propagates Privileged to state",
+			name: "privileged download install routes through system bin dir",
 			tool: &resource.Tool{
 				BaseResource: resource.BaseResource{
 					Metadata: resource.Metadata{Name: "ripgrep-priv"},
@@ -84,7 +89,8 @@ func TestToolInstaller_Install(t *testing.T) {
 					Privileged: true,
 				},
 			},
-			wantErr: false,
+			wantErr:        false,
+			wantBinDirKind: resource.BinDirKindSystem,
 		},
 		{
 			name: "missing source",
@@ -107,7 +113,10 @@ func TestToolInstaller_Install(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dl := &mockDownloader{archiveData: tarGzContent}
-			installer := NewInstaller(dl, &mockPlacer{}, "/bin")
+			// Privileged installs hit the real filesystem via place.InstallSymlink,
+			// so the system bin dir must be an actual directory.
+			userBinDir, systemBinDir := "/bin", t.TempDir()
+			installer := NewInstaller(dl, &mockPlacer{}, userBinDir, systemBinDir)
 
 			state, err := installer.Install(context.Background(), tt.tool, tt.tool.Name())
 
@@ -125,10 +134,373 @@ func TestToolInstaller_Install(t *testing.T) {
 			assert.Equal(t, tt.tool.ToolSpec.Version, state.Version)
 			assert.NotEmpty(t, state.InstallPath)
 			assert.NotEmpty(t, state.BinPath)
-			assert.Equal(t, resource.BinDirKindUser, state.BinDirKind,
-				"download/registry install should stamp BinDirKindUser so the gap closes on next apply (SUB6 #229)")
+			assert.Equal(t, tt.wantBinDirKind, state.BinDirKind,
+				"SUB5 #228: privileged → system; else user")
 			assert.Equal(t, tt.tool.ToolSpec.Privileged, state.Privileged,
-				"buildState should propagate spec.Privileged so the state-side gate works after SUB5 (SUB7 #230)")
+				"buildState should propagate spec.Privileged (SUB7 #230)")
+
+			// Privileged installs must place the symlink under systemBinDir
+			// (real filesystem); non-privileged go through mockPlacer.Symlink
+			// which records the user dir but doesn't touch disk.
+			if tt.tool.ToolSpec.Privileged {
+				assert.True(t, strings.HasPrefix(state.BinPath, systemBinDir),
+					"state.BinPath must be under systemBinDir for privileged installs; got %q", state.BinPath)
+				_, lerr := os.Lstat(state.BinPath)
+				assert.NoError(t, lerr, "system symlink should actually exist at state.BinPath")
+			} else {
+				assert.True(t, strings.HasPrefix(state.BinPath, userBinDir),
+					"state.BinPath must be under userBinDir for non-privileged installs; got %q", state.BinPath)
+			}
+		})
+	}
+}
+
+// TestBuildResolvedTool_PreservesPrivileged pins SUB5 #228: the registry
+// install path (installFromRegistry) hands a re-shaped Tool to installByDownload,
+// and Privileged MUST flow through that re-shaping. Dropping it would route
+// privileged registry installs to the user bin dir AND persist
+// state.Privileged=false — silently breaking the SUB5 contract for registry
+// tools (the download path was already covered by the install test, but the
+// registry path's spec-massaging is the bug-prone seam).
+func TestBuildResolvedTool_PreservesPrivileged(t *testing.T) {
+	t.Parallel()
+	for _, priv := range []bool{false, true} {
+		t.Run(fmt.Sprintf("privileged=%v", priv), func(t *testing.T) {
+			t.Parallel()
+			orig := &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "aqua",
+					Package:      &resource.Package{Owner: "owner", Repo: "repo"},
+					BinaryName:   "tool",
+					Privileged:   priv,
+				},
+			}
+			src := &resource.DownloadSource{URL: "https://example.com/x.tar.gz", ArchiveType: "tar.gz"}
+			got := buildResolvedTool(orig, src, "1.2.3")
+			assert.Equal(t, priv, got.ToolSpec.Privileged,
+				"buildResolvedTool must preserve Privileged so registry priv tools route through createSymlink correctly")
+			// Sanity: the re-shape preserves other identity fields too.
+			assert.Equal(t, "aqua", got.ToolSpec.InstallerRef)
+			assert.Equal(t, "1.2.3", got.ToolSpec.Version)
+			assert.Same(t, src, got.ToolSpec.Source)
+			assert.Same(t, orig.ToolSpec.Package, got.ToolSpec.Package)
+		})
+	}
+}
+
+// TestCleanupOldSymlink_TrailingSlashBinDir pins the SUB5 cleanup guard
+// against bin-dir strings that carry a trailing slash (or are otherwise not
+// filepath.Clean-canonical). filepath.Dir always returns a Cleaned path, so
+// without normalizing the Installer's userBinDir/systemBinDir on the
+// comparison side, the guard would reject equality and skip cleanup —
+// leaving a stale symlink behind on every transition.
+func TestCleanupOldSymlink_TrailingSlashBinDir(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "tool", binaryContent)
+	archiveHash := sha256Hash(tarGzContent)
+
+	systemBinDir := t.TempDir()
+	// Seed an old system-arm symlink and feed the Installer a trailing-slash
+	// systemBinDir. The seeded link's parent (Cleaned) must match the
+	// Installer's normalized expectedOldDir for cleanup to fire.
+	target := filepath.Join(t.TempDir(), "old-binary")
+	require.NoError(t, os.WriteFile(target, []byte("x"), 0o755))
+	oldBinPath := filepath.Join(systemBinDir, "tool-old")
+	require.NoError(t, os.Symlink(target, oldBinPath))
+
+	mp := &mockPlacer{}
+	dl := &mockDownloader{archiveData: tarGzContent}
+	// Pass the system dir WITH a trailing slash — the dirty form that an
+	// operator could supply via WithSystemBinDir from config.
+	inst := NewInstaller(dl, mp, "/user-bin", systemBinDir+"/")
+
+	toolRes := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "1.0.0",
+			Source: &resource.DownloadSource{
+				URL:         "https://example.com/tool.tar.gz",
+				Checksum:    &resource.Checksum{Value: "sha256:" + archiveHash},
+				ArchiveType: "tar.gz",
+			},
+			Privileged: true, // system→system transition; old was system, new is system
+		},
+	}
+
+	ctx := executor.WithOldBinPath(context.Background(), oldBinPath)
+	ctx = executor.WithOldBinDirKind(ctx, resource.BinDirKindSystem)
+	_, err := inst.Install(ctx, toolRes, toolRes.Name())
+	require.NoError(t, err)
+
+	_, lerr := os.Lstat(oldBinPath)
+	assert.True(t, os.IsNotExist(lerr),
+		"old system symlink must be removed even when systemBinDir has a trailing slash; lstat err: %v", lerr)
+}
+
+// TestToolInstaller_Install_SystemSymlinkErrorWrap verifies that when
+// place.InstallSymlink fails on the privileged install path, the error is
+// wrapped via createSymlink with the "create system symlink" prefix. Pins
+// the production wrap string so future maintainers don't drift it.
+//
+// Setup: pre-plant a regular (non-symlink) file at the link location.
+// place.InstallSymlink refuses to replace a non-symlink, surfacing an error
+// through createSymlink.
+func TestToolInstaller_Install_SystemSymlinkErrorWrap(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "tool", binaryContent)
+	archiveHash := sha256Hash(tarGzContent)
+
+	sysBinDir := t.TempDir()
+	// Pre-plant a regular file where the symlink would land.
+	require.NoError(t, os.WriteFile(filepath.Join(sysBinDir, "tool"), []byte("blocker"), 0o644))
+
+	dl := &mockDownloader{archiveData: tarGzContent}
+	inst := NewInstaller(dl, &mockPlacer{}, "/user-bin", sysBinDir)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "1.0.0",
+			Source: &resource.DownloadSource{
+				URL:         "https://example.com/tool.tar.gz",
+				Checksum:    &resource.Checksum{Value: "sha256:" + archiveHash},
+				ArchiveType: "tar.gz",
+			},
+			Privileged: true,
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, tool.Name())
+	require.Error(t, err)
+	assert.Nil(t, state)
+	assert.Contains(t, err.Error(), "create system symlink",
+		"createSymlink must wrap InstallSymlink errors with the system-arm prefix")
+}
+
+// TestToolInstaller_Update_BinDirKindTransition pins SUB5 #228's update-path
+// cleanup routing: when an upgrade flips between user and system bin dirs
+// (e.g., spec.Privileged toggled across applies), cleanupOldSymlink must
+// pick the right remove helper for the OLD kind read from context.
+//
+// The matrix covers all four user/system × priv-true/false combinations.
+// For "system" old kind we pre-seed a real symlink in t.TempDir() to verify
+// place.RemoveSymlink actually removes it. For "user" old kind we assert
+// mockPlacer.Cleanup recorded the path.
+func TestToolInstaller_Update_BinDirKindTransition(t *testing.T) {
+	t.Parallel()
+
+	binaryContent := []byte("#!/bin/sh\necho hello")
+	tarGzContent := createTarGzContent(t, "tool", binaryContent)
+	archiveHash := sha256Hash(tarGzContent)
+
+	tests := []struct {
+		name           string
+		oldKind        resource.BinDirKind
+		newPrivileged  bool
+		wantOldRemoved string // "placer" | "system" — which cleanup helper handled the old symlink
+	}{
+		{name: "user→user", oldKind: resource.BinDirKindUser, newPrivileged: false, wantOldRemoved: "placer"},
+		{name: "user→system", oldKind: resource.BinDirKindUser, newPrivileged: true, wantOldRemoved: "placer"},
+		{name: "system→user", oldKind: resource.BinDirKindSystem, newPrivileged: false, wantOldRemoved: "system"},
+		{name: "system→system", oldKind: resource.BinDirKindSystem, newPrivileged: true, wantOldRemoved: "system"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			userBinDir, systemBinDir := "/user-bin", t.TempDir()
+
+			// Seed an old symlink for the system arm so RemoveSymlink has
+			// something to remove (else it's a silent no-op on missing paths).
+			var oldBinPath string
+			if tt.oldKind == resource.BinDirKindSystem {
+				target := filepath.Join(t.TempDir(), "old-binary")
+				require.NoError(t, os.WriteFile(target, []byte("x"), 0o755))
+				oldBinPath = filepath.Join(systemBinDir, "tool-old-name")
+				require.NoError(t, os.Symlink(target, oldBinPath))
+			} else {
+				oldBinPath = filepath.Join(userBinDir, "tool-old-name")
+			}
+
+			mp := &mockPlacer{}
+			dl := &mockDownloader{archiveData: tarGzContent}
+			inst := NewInstaller(dl, mp, userBinDir, systemBinDir)
+
+			// Build a tool spec whose binaryName differs from oldBinPath so
+			// cleanupOldSymlink's "old != new" check fires.
+			toolRes := &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "tool"}},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "download",
+					Version:      "1.0.0",
+					Source: &resource.DownloadSource{
+						URL:         "https://example.com/tool.tar.gz",
+						Checksum:    &resource.Checksum{Value: "sha256:" + archiveHash},
+						ArchiveType: "tar.gz",
+					},
+					Privileged: tt.newPrivileged,
+				},
+			}
+
+			ctx := executor.WithOldBinPath(context.Background(), oldBinPath)
+			ctx = executor.WithOldBinDirKind(ctx, tt.oldKind)
+
+			_, err := inst.Install(ctx, toolRes, toolRes.Name())
+			require.NoError(t, err)
+
+			switch tt.wantOldRemoved {
+			case "placer":
+				assert.Contains(t, mp.gotCleanupPaths, oldBinPath,
+					"user-kind old symlink should be removed via Placer.Cleanup")
+			case "system":
+				_, lerr := os.Lstat(oldBinPath)
+				assert.True(t, os.IsNotExist(lerr),
+					"system-kind old symlink should be removed via place.RemoveSymlink; lstat err: %v", lerr)
+				assert.NotContains(t, mp.gotCleanupPaths, oldBinPath,
+					"system-kind old symlink must NOT also be passed to Placer.Cleanup")
+			}
+		})
+	}
+}
+
+// TestToolInstaller_Remove_NonSystemPath_NoSudoEscalation pins SUB5 #228's
+// defense-in-depth gate on the sudo-capable removal helper: place.RemoveSymlink
+// is invoked ONLY when state declares BinDirKindSystem AND state.BinPath is
+// actually under the configured systemBinDir. Any other shape falls back to
+// the unprivileged Placer.Cleanup — so a tampered state.json cannot persuade
+// tomei to `sudo rm -f` an arbitrary symlink, and runtime-delegated tools
+// (BinPath in ~/go/bin, no BinDirKind) clean up correctly without escalation.
+func TestToolInstaller_Remove_NonSystemPath_NoSudoEscalation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		binDirKind resource.BinDirKind
+		binPath    string
+	}{
+		{
+			// Corrupted state: declares system, but path is elsewhere → MUST NOT
+			// reach the sudo helper. Fallback to unprivileged Cleanup.
+			name:       "system kind with off-dir BinPath falls back to unprivileged Cleanup",
+			binDirKind: resource.BinDirKindSystem,
+			binPath:    "/etc/some-other-link",
+		},
+		{
+			// Runtime-delegated tools (e.g., gopls via `go install`) have
+			// BinPath in the runtime's bin dir, not tomei's user bin. Empty
+			// BinDirKind defaults to user; the fallback handles it cleanly.
+			name:       "runtime-delegated BinPath (empty BinDirKind, ~/go/bin) uses Cleanup",
+			binDirKind: "",
+			binPath:    "/home/user/go/bin/gopls",
+		},
+		{
+			// User kind under a different dir from configured userBinDir
+			// (e.g., state from a different host config). Unprivileged
+			// Cleanup is best-effort and bounded by the user's perms.
+			name:       "user kind with off-dir BinPath uses Cleanup (already unprivileged)",
+			binDirKind: resource.BinDirKindUser,
+			binPath:    "/etc/some-other-link",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			mp := &mockPlacer{}
+			inst := NewInstaller(&mockDownloader{}, mp, "/user-bin", "/system-bin")
+
+			st := &resource.ToolState{
+				InstallPath: "/install/path",
+				BinPath:     tt.binPath,
+				BinDirKind:  tt.binDirKind,
+			}
+			require.NoError(t, inst.Remove(context.Background(), st, "tool"))
+
+			// Every non-system-path case must reach Placer.Cleanup (unprivileged)
+			// rather than the sudo-capable RemoveSymlink.
+			assert.Contains(t, mp.gotCleanupPaths, tt.binPath,
+				"non-system path must fall back to unprivileged Placer.Cleanup")
+		})
+	}
+}
+
+// TestToolInstaller_Remove_BinDirKind pins SUB5 #228's remove-path routing:
+// the symlink cleanup helper is chosen by state.BinDirKindOrDefault — system
+// state uses place.RemoveSymlink (sudo-capable, t.TempDir() exercises the
+// direct path), user state uses Placer.Cleanup (existing behavior). Subtests
+// run in parallel — each owns its own TempDir + mockPlacer, no shared state.
+func TestToolInstaller_Remove_BinDirKind(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name              string
+		binDirKind        resource.BinDirKind
+		wantPlacerCleanup bool // whether mockPlacer.Cleanup should record st.BinPath
+		wantSystemRemoval bool // whether the real symlink in t.TempDir() should be removed
+	}{
+		{
+			name:              "user kind goes through Placer.Cleanup",
+			binDirKind:        resource.BinDirKindUser,
+			wantPlacerCleanup: true,
+			wantSystemRemoval: false,
+		},
+		{
+			name:              "empty kind defaults to user (pre-SUB6 backward-compat)",
+			binDirKind:        "",
+			wantPlacerCleanup: true,
+			wantSystemRemoval: false,
+		},
+		{
+			name:              "system kind goes through place.RemoveSymlink",
+			binDirKind:        resource.BinDirKindSystem,
+			wantPlacerCleanup: false,
+			wantSystemRemoval: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			sysBinDir := t.TempDir()
+			mp := &mockPlacer{}
+			inst := NewInstaller(&mockDownloader{}, mp, "/user-bin", sysBinDir)
+
+			// Set up a real symlink in sysBinDir for the system case; otherwise
+			// RemoveSymlink is a no-op (missing path → matches `rm -f` semantics).
+			var binPath string
+			if tt.binDirKind == resource.BinDirKindSystem {
+				target := filepath.Join(t.TempDir(), "tool-binary")
+				require.NoError(t, os.WriteFile(target, []byte("x"), 0o755))
+				binPath = filepath.Join(sysBinDir, "tool")
+				require.NoError(t, os.Symlink(target, binPath))
+			} else {
+				binPath = "/user-bin/tool"
+			}
+
+			st := &resource.ToolState{
+				InstallPath: "/install/path",
+				BinPath:     binPath,
+				BinDirKind:  tt.binDirKind,
+			}
+
+			require.NoError(t, inst.Remove(context.Background(), st, "tool"))
+
+			if tt.wantPlacerCleanup {
+				assert.Contains(t, mp.gotCleanupPaths, binPath,
+					"user/empty kind must call Placer.Cleanup on st.BinPath")
+			} else {
+				assert.NotContains(t, mp.gotCleanupPaths, binPath,
+					"system kind must NOT call Placer.Cleanup on st.BinPath (RemoveSymlink handles it)")
+			}
+			if tt.wantSystemRemoval {
+				_, err := os.Lstat(binPath)
+				assert.True(t, os.IsNotExist(err), "system symlink should be removed; lstat err: %v", err)
+			}
 		})
 	}
 }
@@ -148,7 +520,7 @@ func TestToolInstaller_PassesUserBinDirToPlacer(t *testing.T) {
 
 	dl := &mockDownloader{archiveData: tarGzContent}
 	mp := &mockPlacer{}
-	installer := NewInstaller(dl, mp, sentinel)
+	installer := NewInstaller(dl, mp, sentinel, "/system-bin")
 
 	tool := &resource.Tool{
 		BaseResource: resource.BaseResource{
@@ -193,7 +565,7 @@ func TestToolInstaller_Install_Skip(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(toolsDir)
-	inst := NewInstaller(downloader, placer, binDir)
+	inst := NewInstaller(downloader, placer, binDir, "/system-bin")
 
 	// No checksum - will skip if binary exists
 	tool := &resource.Tool{
@@ -227,7 +599,7 @@ func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(toolsDir)
-	installer := NewInstaller(downloader, placer, binDir)
+	installer := NewInstaller(downloader, placer, binDir, "/system-bin")
 
 	// No resolver set - should fail
 
@@ -259,7 +631,7 @@ func TestToolInstaller_InstallFromRegistry_NoRegistryRef(t *testing.T) {
 
 	downloader := download.NewDownloader()
 	placer := place.NewPlacer(toolsDir)
-	installer := NewInstaller(downloader, placer, binDir)
+	installer := NewInstaller(downloader, placer, binDir, "/system-bin")
 
 	// Set resolver but no registry ref
 	resolver := createMockResolver(t, cacheDir, "http://example.com")
@@ -356,6 +728,7 @@ func (m *mockDownloader) Verify(_ context.Context, _ string, cs *resource.Checks
 type mockPlacer struct {
 	gotSymlinkBinDirs []string
 	gotLinkPathBinDir string
+	gotCleanupPaths   []string // records Cleanup calls; SUB5 #228 remove-side assertions
 }
 
 func (m *mockPlacer) BinaryPath(target place.Target) string {
@@ -382,7 +755,8 @@ func (m *mockPlacer) Symlink(target place.Target, binDir string) (string, error)
 	return binDir + "/" + target.BinaryName, nil
 }
 
-func (m *mockPlacer) Cleanup(_ string) error {
+func (m *mockPlacer) Cleanup(path string) error {
+	m.gotCleanupPaths = append(m.gotCleanupPaths, path)
 	return nil
 }
 
@@ -458,7 +832,7 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 			tmpDir := t.TempDir()
 			captureFile := filepath.Join(tmpDir, "captured_cmd.txt")
 
-			inst := NewInstaller(download.NewDownloader(), place.NewPlacer(filepath.Join(tmpDir, "tools")), filepath.Join(tmpDir, "bin"))
+			inst := NewInstaller(download.NewDownloader(), place.NewPlacer(filepath.Join(tmpDir, "tools")), filepath.Join(tmpDir, "bin"), filepath.Join(tmpDir, "system-bin"))
 			tt.setup(inst, captureFile)
 
 			tool := tt.tool(captureFile)
@@ -528,7 +902,7 @@ func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			dl := &mockDownloader{archiveData: archiveData}
-			installer := NewInstaller(dl, &mockPlacer{}, "/bin")
+			installer := NewInstaller(dl, &mockPlacer{}, "/bin", "/system-bin")
 
 			var fieldCalled, ctxCalled bool
 
@@ -841,7 +1215,7 @@ func TestInstallByCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{checkResult: tt.checkResult, executeErr: tt.executeErr}
-			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", runner)
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
 
 			if tt.resolver != nil {
 				inst.SetVersionResolver(resolve.NewResolver(tt.resolver, nil))
@@ -934,7 +1308,7 @@ func TestRemoveByCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			runner := &mockCommandRunner{checkResult: true, executeErr: tt.executeErr}
-			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", runner)
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
 
 			err := inst.Remove(context.Background(), tt.state, "mytool")
 
@@ -981,7 +1355,7 @@ func TestInstallFromRegistry_ChecksumAlgorithmPropagation(t *testing.T) {
 	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
 
 	dl := &mockDownloader{archiveData: tarGzContent}
-	inst := NewInstaller(dl, &mockPlacer{}, "/bin")
+	inst := NewInstaller(dl, &mockPlacer{}, "/bin", "/system-bin")
 
 	resolver := aqua.NewResolver(cacheDir, nil)
 	inst.SetResolver(resolver, ref)

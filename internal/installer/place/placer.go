@@ -184,6 +184,12 @@ func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
 }
 
 // Symlink creates a symlink in binDir pointing to the placed binary.
+//
+// For privileged installs that target the system bin directory, callers
+// should use place.InstallSymlink instead — it escalates via `sudo -n ln`
+// on permission error. The tool installer (SUB5 #228) routes through that
+// helper when Tool.IsPrivileged() is true; this method handles the user
+// arm only.
 func (p *filePlacer) Symlink(target Target, binDir string) (string, error) {
 	// Reject empty / relative / root binDir before any syscall — a relative
 	// linkPath would resolve against the cwd of `tomei apply`, silently
