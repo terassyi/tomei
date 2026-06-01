@@ -128,14 +128,30 @@ EOF
 		_, err = testExec.ExecBash(fullManifest)
 		Expect(err).NotTo(HaveOccurred(), "writing full manifest failed")
 
-		// Reduced manifest: no Tool entries. The loader treats an empty
-		// "package tomei" as "no resources", which lets tomei plan compute
-		// a Remove for the gh entry already in state.
+		// Reduced manifest: a non-empty package with the gh entry dropped.
+		// tomei rejects truly-empty manifests ("no resources found"), so we
+		// include a benign no-op Commands tool. The removal apply then:
+		//   * Removes gh (the assertion target — symlink in /usr/local/bin
+		//     cleared and state.Tools["gh"] deleted).
+		//   * Installs `placeholder` (true / true / true — no side effects).
+		// Mirrors privileged_test.go:148-162's removal-fixture pattern.
 		reducedManifest := fmt.Sprintf(`set -euo pipefail
 mkdir -p %[1]s/reduced/cue.mod
 cp %[1]s/cue.mod/module.cue %[1]s/reduced/cue.mod/
 cat > %[1]s/reduced/reduced.cue <<'EOF'
 package tomei
+
+placeholder: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind:       "Tool"
+	metadata: name: "placeholder"
+	spec: commands: {
+		install:        ["true"]
+		check:          ["true"]
+		remove:         ["true"]
+		resolveVersion: ["echo 1.0.0"]
+	}
+}
 EOF
 `, dir)
 		_, err = testExec.ExecBash(reducedManifest)
