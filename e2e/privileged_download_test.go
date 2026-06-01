@@ -67,12 +67,12 @@ func privilegedDownloadTests() {
 	// zeroToolTimestamps strips the per-apply UpdatedAt field on every Tools
 	// entry so two snapshots can be compared structurally with Equal across
 	// an idempotent or no-op apply. Mirrors zeroTimestamps in
-	// system_package_test.go:1771. The Tools map value type is ToolState by
-	// value, so reassign back into the map after mutation.
+	// system_package_test.go:1771. The Tools map value type is
+	// *resource.ToolState (pointer), so direct mutation suffices — no
+	// reassignment to the map is needed.
 	zeroToolTimestamps := func(s *state.UserState) {
-		for k, v := range s.Tools {
+		for _, v := range s.Tools {
 			v.UpdatedAt = time.Time{}
-			s.Tools[k] = v
 		}
 	}
 
