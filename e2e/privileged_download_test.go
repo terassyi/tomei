@@ -82,7 +82,12 @@ func privilegedDownloadTests() {
 	// manifest carries one privileged download Tool (gh); the reduced one
 	// drops the Tool entry — used in phase 4 to trigger removal.
 	materializeManifests := func() (string, string, string) {
-		dir := fmt.Sprintf("$HOME/privileged-download-test-%d-%d",
+		// Tilde expansion: bash expands ~ in unquoted contexts (mkdir, cat
+		// redirects) and tomei expands ~ on its CLI manifest arg.
+		// Bash's $HOME, by contrast, only expands shell-side — passing
+		// "$HOME/foo" to `tomei apply` would stat the literal "$HOME/..."
+		// path and fail.
+		dir := fmt.Sprintf("~/privileged-download-test-%d-%d",
 			os.Getpid(), time.Now().UnixNano())
 		setup := fmt.Sprintf(`set -euo pipefail
 mkdir -p %[1]s/cue.mod
