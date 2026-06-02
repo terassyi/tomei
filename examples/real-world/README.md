@@ -13,7 +13,7 @@ This example uses **non-vendored** CUE modules — dependencies are resolved fro
 real-world/
 ├── cue.mod/module.cue      # CUE module with deps (OCI registry resolution)
 ├── tomei_platform.cue      # Platform @tag() declarations (generated)
-├── runtimes.cue            # Go, Rust, uv (Python), pnpm (Node.js)
+├── runtimes.cue            # Go, Rust, uv (Python), pnpm (Node.js), Deno, Bun
 ├── k8s.cue                 # kubectl, kustomize, helm, kind
 ├── utility.cue             # bat, rg, fd, jq, yq, fzf
 ├── go.cue                  # gopls, staticcheck, goimports, cue (via go install)
@@ -26,7 +26,7 @@ real-world/
 └── privileged.cue          # lazygit via aqua + privileged: true (Phase 2)
 ```
 
-## Runtimes (4)
+## Runtimes
 
 | Runtime | Type | Description |
 |---------|------|-------------|
@@ -34,6 +34,8 @@ real-world/
 | Rust | delegation (preset) | Bootstrapped via rustup |
 | uv | delegation | Python package manager (astral.sh installer) |
 | pnpm | delegation | Node.js package manager (standalone installer) |
+| Deno | download (preset) | Official binary from dl.deno.land |
+| Bun | download (preset) | Official binary from GitHub releases |
 
 ## Tools (30)
 

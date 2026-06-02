@@ -25,9 +25,13 @@ run: ## Run interactive shell in example container
 	# that fresh containers reliably hit HTTP 403 within seconds. Without a
 	# token, the aqua-based tools in real-world/ (k8s, utility, privileged)
 	# all fail with "aqua-registry resolver not configured".
+	# `-e VAR` (no =value) forwards the host env var without putting its
+	# value on the docker argv, so the token can't leak via `ps`/shell
+	# history. If neither var is set on the host, both are simply absent
+	# inside the container — which is the same as the previous behavior.
 	docker run --rm -it --name $(CONTAINER_NAME) \
-		-e GITHUB_TOKEN="$${GITHUB_TOKEN:-}" \
-		-e GH_TOKEN="$${GH_TOKEN:-}" \
+		-e GITHUB_TOKEN \
+		-e GH_TOKEN \
 		$(IMAGE_NAME)
 
 clean: ## Clean up
