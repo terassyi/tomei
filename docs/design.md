@@ -205,6 +205,7 @@ Completed:
 - Disabled resource filtering: `enabled: false` resources excluded from ExpandSets and shown as "skip" in `tomei plan`
 - Aqua template variable `AssetWithoutExt` for `files[].src` path references
 - System package management: SystemInstaller validation (APT) via per-user state, sudo delegation, distro detection (Debian/Ubuntu family)
+- Privileged download/registry tools route through SystemBinDir
 
 ## 10. System Package Management
 
@@ -253,13 +254,48 @@ SystemInstaller → SystemPackageRepository → SystemPackageSet
 
 `SystemInstaller` removal does not uninstall the OS package manager — it only clears the state entry.
 
-## 11. Roadmap
+## 11. Privileged Tools
+
+Tools may set `spec.privileged: true` to opt into elevation semantics. The behavior depends on the install pattern; the new placement behavior introduced in this phase is documented below.
+
+Without `--system`, `tomei plan` keeps privileged tools in its output and marks them as `skip`. `tomei apply` filters them out of execution and logs a summary noting that privileged tools require a sudo cache for shell commands or for placing symlinks in the system bin directory.
+
+### Pattern semantics
+
+- **Download / Registry patterns.** The symlink is placed in the system bin directory (default `/usr/local/bin`) instead of `~/.local/bin`. The downloaded binary itself still lives under the user-owned tools directory (`~/.local/share/tomei/tools/<name>/<version>/`). Placement uses the portable symlink helper — `os.Symlink` first, fallback to `sudo -n ln -snf --` on a permission error (anything matching Go's `fs.ErrPermission`, which covers both `EPERM` and `EACCES`). This works on Linux and on Intel macOS (where `/usr/local/bin` is typically user-writable under Homebrew, so the sudo fallback is rarely needed). Apple Silicon macOS uses `/opt/homebrew` by default; users who want privileged tools there should override `SystemBinDir`.
+- **Commands pattern.** Tomei pre-acquires the sudo timestamp and keeps it refreshed in the background for the duration of the apply invocation. The user's install/check/remove commands execute as the invoking user; they may invoke `sudo` internally to perform root-requiring steps. Earlier versions wrapped the entire command in `sudo -n sh -c …`; manifests must now prefix individual root-requiring steps with `sudo` (e.g., `cp …` → `sudo cp …`).
+- **Installer-/name-delegation.** `privileged` is ignored. The installer (e.g., `brew`, `apt`) or runtime (e.g., `go install`) owns the destination directory and decides its own escalation policy.
+- **Runtime delegation (`runtimeRef` set).** Rejected by Validate with a clear error — privileged + runtime delegation has no coherent semantics.
+
+### System bin directory
+
+This directory is exposed in code as `SystemBinDir`. It defaults to `/usr/local/bin` and is overridable via `path.WithSystemBinDir(...)` on the runtime `Paths` value (used for testing and for hosts with non-standard layouts).
+
+The chosen bin directory is persisted as `ToolState.BinDirKind` (`"user"` or `"system"`) so subsequent applies and removals clean up the correct location even after the spec is deleted.
+
+### sudoers requirement
+
+`tomei apply --system` runs `sudo -n true` to probe a cached or passwordless ticket, then `sudo -v` (interactive) as fallback if a TTY is attached. CI and unattended environments require passwordless sudo — typically:
+
+```
+<user> ALL=(ALL) NOPASSWD: ALL
+```
+
+in `/etc/sudoers.d/<user>`. This is the same requirement `--system` package management imposes (see §10's "Execution model").
+
+### 1-host-1-user constraint
+
+`/usr/local/bin` is host-global; tomei state is per-user. Two tomei-using users on the same host who both apply privileged download/registry tools would race on the same symlink path — whichever applied last wins, and the loser's state.json continues to claim ownership of a target now owned by a different user's spec.
+
+This is a deliberate trade-off for the tool's target use case (single-developer dev environment setup). Tomei does not coordinate between users on the same host. Multi-user environments should restrict privileged tool usage to a single dedicated user.
+
+## 12. Roadmap
 
 ### Private repository access
 
 Authenticated downloads from private GitHub repositories. Public repository rate limiting is already addressed via `GITHUB_TOKEN` / `GH_TOKEN`.
 
-## 12. Design Considerations
+## 13. Design Considerations
 
 ### Authentication & tokens
 
