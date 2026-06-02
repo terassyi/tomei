@@ -494,3 +494,94 @@ func TestUpdate_KeyCtrlC_SetsInterruptedAndQuits(t *testing.T) {
 	assert.True(t, model.Interrupted(), "Interrupted() should be true after Ctrl+C")
 	assert.NotNil(t, cmd, "should return a quit command")
 }
+
+// TestUpdate_EventLayerStart_SecondEngineBoundary locks in the fix for the
+// cross-engine TUI panic. When --system runs, the SystemEngine and Engine
+// each emit their own EventLayerStart streams; the second engine's PhaseDAG
+// Layer 0 must be recognized as a NEW engine boundary, not as a re-entry
+// into slot 0 of the first engine's timeline. The boundary check keys on
+// isFirstEvent (was applyStart zero before this event?) rather than
+// currentLayer > 0, which would miss the case where the prior engine
+// emitted only a single PhaseDAG Layer 0.
+func TestUpdate_EventLayerStart_SecondEngineBoundary(t *testing.T) {
+	t.Parallel()
+
+	// Helper to feed one EventLayerStart and return the updated model.
+	step := func(m *ApplyModel, ev engine.Event) *ApplyModel {
+		updated, _ := m.Update(engineEventMsg{event: ev})
+		return updated.(*ApplyModel)
+	}
+
+	t.Run("two engines, first emits multiple layers", func(t *testing.T) {
+		t.Parallel()
+		m := NewApplyModel(&ApplyResults{})
+
+		// First engine: 2 PhaseDAG layers
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 0, TotalLayers: 2,
+			LayerNodes:    []string{"SystemInstaller/apt"},
+			AllLayerNodes: [][]string{{"SystemInstaller/apt"}, {"SystemPackageSet/build-deps"}},
+		})
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 1, TotalLayers: 2,
+			LayerNodes:    []string{"SystemPackageSet/build-deps"},
+			AllLayerNodes: [][]string{{"SystemInstaller/apt"}, {"SystemPackageSet/build-deps"}},
+		})
+
+		// Second engine kicks off with its own PhaseDAG Layer 0.
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 0, TotalLayers: 2,
+			LayerNodes:    []string{"Runtime/go"},
+			AllLayerNodes: [][]string{{"Runtime/go"}, {"Tool/cue"}},
+		})
+
+		assert.Equal(t, 2, m.layerOffset, "second engine's layers should be offset by the first engine's count")
+		assert.Equal(t, 2, m.currentLayer, "currentLayer should be layerOffset + event.Layer")
+		assert.Len(t, m.allLayerNodes, 4, "allLayerNodes must be extended, not re-used in place")
+		assert.Equal(t, 4, m.totalLayers, "totalLayers must be extended to cover the second engine")
+
+		// Drive the second engine's Layer 1 — without the fix it would
+		// crash later snapshot/render code; verify currentLayer translates.
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 1, TotalLayers: 2,
+			LayerNodes:    []string{"Tool/cue"},
+			AllLayerNodes: [][]string{{"Runtime/go"}, {"Tool/cue"}},
+		})
+		assert.Equal(t, 3, m.currentLayer, "Layer 1 of the second engine maps to combined index 3")
+	})
+
+	t.Run("first engine emits only one PhaseDAG Layer 0", func(t *testing.T) {
+		t.Parallel()
+		// This is the case the original check missed: currentLayer was still
+		// 0 when the second engine fired Layer 0, so the boundary branch was
+		// skipped. With the isFirstEvent gate, the boundary is detected.
+		m := NewApplyModel(&ApplyResults{})
+
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 0, TotalLayers: 1,
+			LayerNodes:    []string{"SystemInstaller/apt"},
+			AllLayerNodes: [][]string{{"SystemInstaller/apt"}},
+		})
+
+		require.Equal(t, 0, m.currentLayer)
+		require.Equal(t, 0, m.layerOffset)
+
+		// Second engine starts with its own PhaseDAG Layer 0.
+		m = step(m, engine.Event{
+			Type: engine.EventLayerStart, Phase: engine.PhaseDAG,
+			Layer: 0, TotalLayers: 2,
+			LayerNodes:    []string{"Runtime/go"},
+			AllLayerNodes: [][]string{{"Runtime/go"}, {"Tool/cue"}},
+		})
+
+		assert.Equal(t, 1, m.layerOffset, "boundary must be detected even though prior engine only had 1 layer")
+		assert.Equal(t, 1, m.currentLayer)
+		assert.Len(t, m.allLayerNodes, 3, "second engine's 2 layers should extend the timeline to 3 total")
+		assert.Equal(t, 3, m.totalLayers)
+	})
+}

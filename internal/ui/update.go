@@ -69,8 +69,11 @@ func (m *ApplyModel) handleEngineEvent(event engine.Event) (tea.Model, tea.Cmd) 
 func (m *ApplyModel) handleLayerStart(event engine.Event) (tea.Model, tea.Cmd) {
 	now := time.Now()
 
-	// First EventLayerStart: initialize all-layer info and start timing
-	if m.applyStart.IsZero() {
+	// First EventLayerStart of the apply run: initialize all-layer info and
+	// start timing. Snapshot the prior value so the engine-boundary check
+	// below can distinguish "first event ever" from "second engine, layer 0".
+	isFirstEvent := m.applyStart.IsZero()
+	if isFirstEvent {
 		m.applyStart = now
 		m.allLayerNodes = event.AllLayerNodes
 		m.totalLayers = event.TotalLayers
@@ -84,11 +87,27 @@ func (m *ApplyModel) handleLayerStart(event engine.Event) (tea.Model, tea.Cmd) {
 		m.allLayerNodes = append(m.allLayerNodes, event.LayerNodes)
 		m.currentLayer = len(m.allLayerNodes) - 1
 	} else {
-		// Snapshot previous layer (if not the first DAG layer)
-		if event.Layer > 0 {
+		// Detect a new engine starting: any PhaseDAG Layer 0 that ISN'T the
+		// very first event of the run means a second engine is emitting (the
+		// system and user engines each emit their own EventLayerStart stream
+		// under --system). Snapshot the previous engine's final layer, then
+		// extend allLayerNodes / totalLayers with the new engine's
+		// AllLayerNodes so subsequent Layer indices stay in bounds (without
+		// this, the combined snapshotCount can exceed len(allLayerNodes) and
+		// View() panics with index out of range). Keying on isFirstEvent
+		// rather than currentLayer > 0 also covers the case where the prior
+		// engine emitted only a single PhaseDAG Layer 0 — currentLayer would
+		// still be 0 there but it's still a boundary.
+		if event.Layer == 0 && !isFirstEvent {
+			m.snapshotCurrentLayer()
+			m.layerOffset = len(m.allLayerNodes)
+			m.allLayerNodes = append(m.allLayerNodes, event.AllLayerNodes...)
+			m.totalLayers = m.layerOffset + event.TotalLayers
+		} else if event.Layer > 0 {
+			// Snapshot previous layer (within the same engine's stream).
 			m.snapshotCurrentLayer()
 		}
-		m.currentLayer = event.Layer
+		m.currentLayer = m.layerOffset + event.Layer
 	}
 
 	// Reset for new layer
