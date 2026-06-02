@@ -274,6 +274,17 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		for name, rt := range userState.Runtimes {
 			nodeID := graph.NewNodeID(resource.KindRuntime, name)
 			if _, exists := info[nodeID]; !exists {
+				// LoadReadOnly skips validation; defend against a nil
+				// entry from a corrupted state.json so plan stays robust.
+				if rt == nil {
+					slog.Warn("skipping nil runtime entry in state", "name", name)
+					info[nodeID] = graph.ResourceInfo{
+						Kind:   resource.KindRuntime,
+						Name:   name,
+						Action: resource.ActionSkip,
+					}
+					continue
+				}
 				action := resource.ActionRemove
 				// Runtimes are user-kind; --system-only skips their removal.
 				if !scope.IncludesUserKinds() {
@@ -290,6 +301,15 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		for name, tool := range userState.Tools {
 			nodeID := graph.NewNodeID(resource.KindTool, name)
 			if _, exists := info[nodeID]; !exists {
+				if tool == nil {
+					slog.Warn("skipping nil tool entry in state", "name", name)
+					info[nodeID] = graph.ResourceInfo{
+						Kind:   resource.KindTool,
+						Name:   name,
+						Action: resource.ActionSkip,
+					}
+					continue
+				}
 				action := resource.ActionRemove
 				switch {
 				case tool.Privileged && !scope.IncludesPrivileged():

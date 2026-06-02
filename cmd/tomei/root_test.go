@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,9 +56,15 @@ func TestScopeFromFlags(t *testing.T) {
 }
 
 func TestPersistentPreRunE_MutualExclusion(t *testing.T) {
-	// Not parallel: mutates package globals.
+	// Not parallel: mutates package globals AND the process-default slog
+	// logger (PersistentPreRunE calls slog.SetDefault). Restore both so
+	// parallel cmd/tomei tests don't see leaked state.
 	prevSystem, prevSystemOnly := systemMode, systemOnlyMode
-	t.Cleanup(func() { systemMode, systemOnlyMode = prevSystem, prevSystemOnly })
+	prevLogger := slog.Default()
+	t.Cleanup(func() {
+		systemMode, systemOnlyMode = prevSystem, prevSystemOnly
+		slog.SetDefault(prevLogger)
+	})
 
 	systemMode = true
 	systemOnlyMode = true

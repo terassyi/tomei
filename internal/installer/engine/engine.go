@@ -1325,18 +1325,20 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 				// Partial/corrupted state: we can't determine privilege.
 				// Skip removal conservatively (the installer's Remove would
 				// likely deref the nil state and panic) and log distinctly
-				// so this case is not conflated with non-priv tools.
+				// so this case is not conflated with non-priv tools. Do NOT
+				// increment skippedUserKindRemoves — this is unknown-
+				// privilege, not necessarily a user-kind, and would mislead
+				// the counter.
 				slog.Warn("skipping tool removal with nil state (--system-only)",
 					"name", action.Name)
 			case !action.State.Privileged:
 				slog.Info("skipping removal of non-privileged tool (--system-only)",
 					"name", action.Name)
+				e.skippedUserKindRemoves++
 			default:
 				// Privileged removal: in scope under --system-only, keep it.
 				filteredTools = append(filteredTools, action)
-				continue
 			}
-			e.skippedUserKindRemoves++
 		}
 		toolActions = filteredTools
 
