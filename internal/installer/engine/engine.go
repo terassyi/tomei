@@ -1302,7 +1302,7 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 		filtered := make([]ToolAction, 0, len(toolActions))
 		for _, action := range toolActions {
 			if action.Type == resource.ActionRemove && action.State != nil && action.State.Privileged {
-				slog.Warn("skipping removal of privileged tool (use --system)",
+				slog.Warn("skipping removal of privileged tool (use --system or --system-only)",
 					"name", action.Name,
 					"reason", action.State.PrivilegedRemovalReason())
 				e.skippedPrivileged++

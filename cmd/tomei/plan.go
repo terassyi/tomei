@@ -215,11 +215,16 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			continue
 		}
 
-		// Determine action by comparing with state
+		// Determine action by comparing with state. LoadReadOnly skips
+		// validation, so guard against nil map entries (e.g.,
+		// `"runtimes":{"go":null}` in a corrupted state.json) before
+		// dereferencing — otherwise tomei plan panics. Treat nil as
+		// "state entry unusable, default to install" rather than skip,
+		// since the resource is still declared in the manifest.
 		if userState != nil {
 			switch res.Kind() {
 			case resource.KindRuntime:
-				if rt, ok := userState.Runtimes[res.Name()]; ok {
+				if rt, ok := userState.Runtimes[res.Name()]; ok && rt != nil {
 					if rt.IsTainted() {
 						resInfo.Action = resource.ActionReinstall
 					} else if rt.Version == resInfo.Version {
@@ -229,7 +234,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					}
 				}
 			case resource.KindTool:
-				if tool, ok := userState.Tools[res.Name()]; ok {
+				if tool, ok := userState.Tools[res.Name()]; ok && tool != nil {
 					if tool.IsTainted() {
 						resInfo.Action = resource.ActionReinstall
 					} else if tool.Version == resInfo.Version {
@@ -349,6 +354,9 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		}
 		if len(upgradedRuntimes) > 0 {
 			for name, toolState := range userState.Tools {
+				if toolState == nil {
+					continue
+				}
 				if toolState.RuntimeRef == "" || !upgradedRuntimes[toolState.RuntimeRef] {
 					continue
 				}
