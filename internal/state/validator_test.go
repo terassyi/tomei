@@ -30,10 +30,12 @@ func TestValidateUserState(t *testing.T) {
 			wantWarnings: 0,
 		},
 		{
-			name:         "empty version",
+			// Empty version means the state hasn't been persisted yet (first
+			// --system apply before any Save). Not a user-actionable warning.
+			name:         "empty version is not a warning (fresh state)",
 			state:        &UserState{},
 			wantValid:    true,
-			wantWarnings: 1,
+			wantWarnings: 0,
 		},
 		{
 			name: "unknown version",
@@ -104,7 +106,7 @@ func TestValidateUserState(t *testing.T) {
 				},
 			},
 			wantValid:    true,
-			wantWarnings: 4, // version + tools.gh.version + runtimes.go.version + runtimes.go.installPath
+			wantWarnings: 3, // tools.gh.version + runtimes.go.version + runtimes.go.installPath (empty top-level version no longer warns)
 		},
 		{
 			name: "nil maps are valid",
@@ -141,10 +143,12 @@ func TestValidateSystemState(t *testing.T) {
 			wantWarnings: 0,
 		},
 		{
-			name:         "empty version",
+			// Empty version means freshly-initialized state (first --system
+			// apply before any Save). Not a user-actionable warning.
+			name:         "empty version is not a warning (fresh state)",
 			state:        &SystemState{},
 			wantValid:    true,
-			wantWarnings: 1,
+			wantWarnings: 0,
 		},
 		{
 			name:         "unknown version",

@@ -32,11 +32,12 @@ func (r *ValidationResult) warn(field, message string) {
 	r.Warnings = append(r.Warnings, ValidationError{Field: field, Message: message})
 }
 
-// validateVersion checks the state file format version.
+// validateVersion checks the state file format version. An empty version
+// means the state has not been persisted yet (freshly initialized state on
+// first --system apply, before any Save) and is not a user-actionable
+// warning. Only an explicitly-set wrong version warrants surfacing.
 func (r *ValidationResult) validateVersion(version string) {
-	if version == "" {
-		r.warn("version", "version is empty")
-	} else if version != Version {
+	if version != "" && version != Version {
 		r.warn("version", fmt.Sprintf("unknown version %q (expected %q)", version, Version))
 	}
 }

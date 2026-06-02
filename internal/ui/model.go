@@ -60,9 +60,19 @@ type layerState struct {
 
 // ApplyModel is the Bubble Tea model for the apply TUI.
 type ApplyModel struct {
-	// All layer information (set from first EventLayerStart.AllLayerNodes)
+	// All layer information (set from first EventLayerStart.AllLayerNodes).
+	// When --system runs, the system engine and user engine each emit their
+	// own EventLayerStart streams; allLayerNodes / totalLayers are extended
+	// when the second engine starts so the combined timeline indexes cleanly.
 	allLayerNodes [][]string
 	totalLayers   int
+
+	// layerOffset is the index in allLayerNodes where the current engine's
+	// layers start. Zero when only one engine has fired events; jumps to
+	// len(allLayerNodes) at the moment a second engine begins emitting.
+	// Used to translate engine-local event.Layer indices into our combined
+	// timeline (currentLayer = layerOffset + event.Layer for DAG events).
+	layerOffset int
 
 	// Current layer index and phase
 	currentLayer int

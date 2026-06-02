@@ -84,11 +84,23 @@ func (m *ApplyModel) handleLayerStart(event engine.Event) (tea.Model, tea.Cmd) {
 		m.allLayerNodes = append(m.allLayerNodes, event.LayerNodes)
 		m.currentLayer = len(m.allLayerNodes) - 1
 	} else {
-		// Snapshot previous layer (if not the first DAG layer)
-		if event.Layer > 0 {
+		// Detect a new engine starting: PhaseDAG Layer 0 after we've already
+		// passed layer 0 means the system engine has finished and the user
+		// engine is emitting now (or vice versa). Snapshot the previous
+		// engine's final layer, then extend allLayerNodes / totalLayers with
+		// the new engine's AllLayerNodes so subsequent Layer indices stay in
+		// bounds (without this, the combined snapshotCount can exceed
+		// len(allLayerNodes) and View() panics with index out of range).
+		if event.Layer == 0 && m.currentLayer > 0 {
+			m.snapshotCurrentLayer()
+			m.layerOffset = len(m.allLayerNodes)
+			m.allLayerNodes = append(m.allLayerNodes, event.AllLayerNodes...)
+			m.totalLayers = m.layerOffset + event.TotalLayers
+		} else if event.Layer > 0 {
+			// Snapshot previous layer (within the same engine's stream).
 			m.snapshotCurrentLayer()
 		}
-		m.currentLayer = event.Layer
+		m.currentLayer = m.layerOffset + event.Layer
 	}
 
 	// Reset for new layer

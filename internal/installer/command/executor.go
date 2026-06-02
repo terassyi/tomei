@@ -211,7 +211,14 @@ func (e *Executor) ExecuteCapture(ctx context.Context, cmds []string, vars Vars,
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		slog.Error("command failed", "command", expanded, "error", err, "stderr", stderr.String())
+		// ExecuteCapture is commonly used for check/query commands where a
+		// non-zero exit is a normal "negative result" (e.g., `dpkg-query` exit
+		// 1 = "package not installed yet" — apt's installer maps it to
+		// `(false, nil)` and proceeds with install). Log at Debug so the
+		// engine doesn't spam ERROR for routine negatives; callers that need
+		// to surface a real failure already wrap and re-log the returned
+		// error themselves.
+		slog.Debug("capture command failed", "command", expanded, "error", err, "stderr", stderr.String())
 		return "", fmt.Errorf("command failed: %s: %w", expanded, err)
 	}
 
