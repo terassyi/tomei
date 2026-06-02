@@ -4,9 +4,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     build-essential \
+    sudo \
     vim
 
-RUN useradd -m -s /bin/bash lipnoise
+# NOPASSWD sudo so `tomei apply --system` (Phase 2 privileged tools + Phase 4
+# SystemPackage*) works inside the example container without an interactive
+# prompt. Same configuration as the e2e test container at
+# e2e/containers/ubuntu/Dockerfile.
+RUN useradd -m -s /bin/bash lipnoise && \
+    echo "lipnoise ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/lipnoise && \
+    chown root:root /etc/sudoers.d/lipnoise && \
+    chmod 0440 /etc/sudoers.d/lipnoise
 
 COPY tomei /usr/local/bin/tomei
 RUN chmod +x /usr/local/bin/tomei
