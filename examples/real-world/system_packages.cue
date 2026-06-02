@@ -14,8 +14,8 @@ apt: {
 		privileged: true
 		commands: {
 			install: {command: "sudo apt-get install -y"}
-			remove: {command:  "sudo apt-get remove -y"}
-			check: {command:   "dpkg -s"}
+			remove: {command: "sudo apt-get remove -y"}
+			check: {command: "dpkg -s"}
 		}
 	}
 }

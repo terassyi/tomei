@@ -68,6 +68,9 @@ Apt-managed packages installed under `tomei apply --system`. The file is gated w
 ## Usage
 
 ```bash
+# Initialize tomei state directory (~/.local/share/tomei)
+tomei init
+
 # Initialize module dependencies (resolves latest versions from OCI registry)
 tomei cue init --force examples/real-world/
 
