@@ -655,12 +655,12 @@ func filterPrivilegedWithLog(w io.Writer, resources []resource.Resource) []resou
 		return normal
 	}
 	for _, r := range privileged {
-		slog.Info("skipping privileged resource (use --system)",
+		slog.Info("skipping privileged resource (use --system or --system-only)",
 			"kind", r.Kind(),
 			"name", r.Name(),
 			"reason", resource.PrivilegedReason(r))
 	}
-	fmt.Fprintf(w, "%d privileged resource(s) skipped (%s). Use 'tomei apply --system' to install.\n\n", len(privileged), privilegedSkipReasonsFragment)
+	fmt.Fprintf(w, "%d privileged resource(s) skipped (%s). Use 'tomei apply --system' or 'tomei apply --system-only' to install.\n\n", len(privileged), privilegedSkipReasonsFragment)
 	return normal
 }
 
