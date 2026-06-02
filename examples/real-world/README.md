@@ -22,7 +22,7 @@ real-world/
 ├── node.cue                # prettier, ts-node, typescript, npm-check-updates (via pnpm)
 ├── bun.cue                 # biome (via bun)
 ├── brew.cue                # Darwin/arm64-only (Homebrew formulae)
-├── system_packages.cue     # apt SystemInstaller + build-deps (Phase 4, Linux only)
+├── system_packages.cue     # apt SystemInstaller + build-deps (Phase 4, Debian/Ubuntu only)
 └── privileged.cue          # lazygit via aqua + privileged: true (Phase 2)
 ```
 
@@ -37,7 +37,7 @@ real-world/
 | Deno | download (preset) | Official binary from dl.deno.land |
 | Bun | download (preset) | Official binary from GitHub releases |
 
-## Tools (30)
+## Tools
 
 | File | Installer | Tools |
 |------|-----------|-------|
@@ -59,9 +59,9 @@ These tools are symlinked into the system bin directory (default `/usr/local/bin
 
 Apple Silicon macOS uses `/opt/homebrew` by default; tomei currently routes privileged symlinks to `/usr/local/bin` regardless. Overriding requires a recompile via `path.WithSystemBinDir` — there is no end-user knob today.
 
-## System Packages (3, Linux only)
+## System Packages (Debian/Ubuntu only)
 
-Apt-managed packages installed under `tomei apply --system`. The file is gated with `@if(linux)` so non-Linux platforms ignore it cleanly.
+Apt-managed packages installed under `tomei apply --system`. The manifest is gated with `@if(linux)` so non-Linux platforms ignore it cleanly, but the inline `SystemInstaller` shells out to `apt-get` — it only works on apt-based distros (Debian, Ubuntu). Other Linux distros (Fedora, Arch, Alpine, etc.) need a different installer stanza.
 
 | File | Installer | Packages |
 |------|-----------|----------|
@@ -126,5 +126,6 @@ make -C examples run
 
 - **Preset import** — Go/Rust runtimes and aqua tools use `tomei.terassyi.net/presets/*`
 - **Delegation runtime** — uv and pnpm bootstrap via shell scripts, then serve as tool installers
-- **Delegation installer chain** — krew is installed via aqua, then used as an Installer for kubectl plugins
 - **Cargo-binstall chain** — Rust runtime → cargo-binstall tool → binstall installer (preset)
+- **Inline SystemInstaller** — apt is declared directly in `system_packages.cue` (Phase 4)
+- **Privileged tool routing** — lazygit in `privileged.cue` is installed via aqua but symlinked into the system bin directory under `--system` (Phase 2)

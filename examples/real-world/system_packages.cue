@@ -2,9 +2,12 @@
 
 package tomei
 
-// Phase 4 demo: SystemPackageSet via apt (Linux only). Requires
-// `tomei apply --system`. The apt SystemInstaller is declared inline —
-// no preset exists for it yet, so this stanza is the canonical form.
+// Phase 4 demo: SystemPackageSet via apt (Debian/Ubuntu only). Requires
+// `tomei apply --system`. The file is gated with `@if(linux)` so non-Linux
+// platforms ignore it cleanly, but the inline SystemInstaller shells out
+// to apt-get and only works on apt-based distros — Fedora/Arch/Alpine
+// users would need a different installer stanza. No preset exists for
+// apt yet, so this stanza is the canonical form.
 apt: {
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "SystemInstaller"
