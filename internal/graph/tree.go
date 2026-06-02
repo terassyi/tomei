@@ -13,10 +13,11 @@ import (
 
 // ResourceInfo holds information about a resource for display.
 type ResourceInfo struct {
-	Kind    resource.Kind
-	Name    string
-	Version string
-	Action  resource.ActionType
+	Kind       resource.Kind
+	Name       string
+	Version    string
+	Action     resource.ActionType
+	Privileged bool
 }
 
 // TreePrinter prints dependency graphs as ASCII trees with colors.
@@ -65,35 +66,42 @@ func NewTreePrinter(w io.Writer, noColor bool) *TreePrinter {
 
 // PrintTree prints the dependency graph as an ASCII tree.
 func (p *TreePrinter) PrintTree(resolver Resolver, resourceInfo map[NodeID]ResourceInfo) {
+	p.PrintTreeFiltered(resolver, resourceInfo, func(NodeID) bool { return true })
+}
+
+// PrintTreeFiltered renders the dependency tree, including only nodes for
+// which includeNode returns true. A node whose passing parents are all
+// filtered out is promoted to a root, so removing an Installer parent
+// causes its (passing) children to surface as top-level entries.
+func (p *TreePrinter) PrintTreeFiltered(resolver Resolver, resourceInfo map[NodeID]ResourceInfo, includeNode func(NodeID) bool) {
 	edges := resolver.GetEdges()
 	nodes := resolver.GetNodes()
 
-	// Build adjacency list: node -> children (dependents)
-	// We want to show: parent depends on children, so we reverse the edge direction
 	children := make(map[NodeID][]NodeID)
-	hasParent := make(map[NodeID]bool)
+	passingParents := make(map[NodeID]int)
 
 	for _, edge := range edges {
-		// edge.From depends on edge.To
-		// In tree view: edge.To is parent, edge.From is child
+		if !includeNode(edge.From) || !includeNode(edge.To) {
+			continue
+		}
 		children[edge.To] = append(children[edge.To], edge.From)
-		hasParent[edge.From] = true
+		passingParents[edge.From]++
 	}
 
-	// Find root nodes (no dependencies)
 	var roots []NodeID
 	for _, node := range nodes {
-		if !hasParent[node.ID] {
+		if !includeNode(node.ID) {
+			continue
+		}
+		if passingParents[node.ID] == 0 {
 			roots = append(roots, node.ID)
 		}
 	}
 
-	// Sort roots for deterministic output
 	slices.SortFunc(roots, func(a, b NodeID) int {
 		return strings.Compare(string(a), string(b))
 	})
 
-	// Print each root tree
 	for _, root := range roots {
 		p.printNode(root, "", true, children, resourceInfo, true)
 	}

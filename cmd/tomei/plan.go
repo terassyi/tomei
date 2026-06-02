@@ -186,9 +186,10 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		}
 
 		resInfo := graph.ResourceInfo{
-			Kind:   res.Kind(),
-			Name:   res.Name(),
-			Action: resource.ActionInstall, // default to install
+			Kind:       res.Kind(),
+			Name:       res.Name(),
+			Action:     resource.ActionInstall, // default to install
+			Privileged: resource.IsPrivileged(res),
 		}
 
 		// Get version from spec
@@ -278,10 +279,11 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					action = resource.ActionSkip
 				}
 				info[nodeID] = graph.ResourceInfo{
-					Kind:    resource.KindTool,
-					Name:    name,
-					Version: tool.Version,
-					Action:  action,
+					Kind:       resource.KindTool,
+					Name:       name,
+					Version:    tool.Version,
+					Action:     action,
+					Privileged: tool.Privileged,
 				}
 			}
 		}
@@ -328,10 +330,10 @@ func printTextPlan(cmd *cobra.Command, args []string, resources []resource.Resou
 	cmd.Printf("Planning changes for %v\n\n", args)
 	cmd.Printf("Found %d resource(s)\n\n", len(resources))
 
-	// Print dependency tree
-	cmd.Println("Dependency Graph:")
-	printer := graph.NewTreePrinter(cmd.OutOrStdout(), planCfg.noColor)
-	printer.PrintTree(result.resolver, result.resourceInfo)
+	// Print dependency tree, split into Tools / Privileged Tools / System sections
+	w := cmd.OutOrStdout()
+	printer := graph.NewTreePrinter(w, planCfg.noColor)
+	renderSectionedTree(printer, w, result)
 
 	// Print execution layers
 	printer.PrintLayers(result.filteredLayers, result.resourceInfo)
@@ -425,11 +427,67 @@ func planForResources(w io.Writer, resources []resource.Resource, disableColor b
 
 	fmt.Fprintf(w, "Found %d resource(s)\n\n", len(resources))
 	printer := graph.NewTreePrinter(w, disableColor)
-	printer.PrintTree(result.resolver, result.resourceInfo)
+	renderSectionedTree(printer, w, result)
 	printer.PrintLayers(result.filteredLayers, result.resourceInfo)
 	printer.PrintSummary(result.resourceInfo)
 
 	return hasChanges, nil
+}
+
+// renderSectionedTree prints the dependency tree split into three subsections
+// keyed by privilege/system-kind: regular Tools, Privileged Tools (require
+// --system), and System resources. Empty sections are skipped. A node present
+// in the resolver but absent from result.resourceInfo (e.g. builtin
+// Installers added by engine.AppendBuiltinInstallers) gets a zero-value
+// ResourceInfo and therefore routes to "Tools:".
+func renderSectionedTree(printer *graph.TreePrinter, w io.Writer, result *planResult) {
+	type section struct {
+		heading string
+		include func(graph.NodeID, graph.ResourceInfo) bool
+	}
+	sections := []section{
+		{"Tools:", func(_ graph.NodeID, info graph.ResourceInfo) bool {
+			return !info.Privileged && !resource.IsSystemKind(info.Kind)
+		}},
+		{"Privileged Tools (--system):", func(_ graph.NodeID, info graph.ResourceInfo) bool {
+			return info.Privileged
+		}},
+		{"System:", func(_ graph.NodeID, info graph.ResourceInfo) bool {
+			return resource.IsSystemKind(info.Kind)
+		}},
+	}
+
+	// Lift (NodeID, ResourceInfo) predicates to the NodeID-only form
+	// PrintTreeFiltered expects, looking the info up once per call.
+	lift := func(pred func(graph.NodeID, graph.ResourceInfo) bool) func(graph.NodeID) bool {
+		return func(id graph.NodeID) bool { return pred(id, result.resourceInfo[id]) }
+	}
+
+	// A section is non-empty if any resolver node passes its predicate.
+	// Walking resolver.GetNodes() (not just result.resourceInfo) ensures
+	// builtin Installers — which sit in the resolver but not in the info
+	// map — count toward the "Tools:" section.
+	nodes := result.resolver.GetNodes()
+	rendered := 0
+	for _, s := range sections {
+		include := lift(s.include)
+		empty := true
+		for _, n := range nodes {
+			if include(n.ID) {
+				empty = false
+				break
+			}
+		}
+		if empty {
+			continue
+		}
+		if rendered > 0 {
+			fmt.Fprintln(w)
+		}
+		fmt.Fprintln(w, s.heading)
+		printer.PrintTreeFiltered(result.resolver, result.resourceInfo, include)
+		rendered++
+	}
 }
 
 // addDisabledResourceInfo injects disabled resources into the resource info map.
@@ -442,9 +500,10 @@ func addDisabledResourceInfo(info map[graph.NodeID]graph.ResourceInfo, disabled 
 			continue
 		}
 		ri := graph.ResourceInfo{
-			Kind:   res.Kind(),
-			Name:   res.Name(),
-			Action: resource.ActionSkip,
+			Kind:       res.Kind(),
+			Name:       res.Name(),
+			Action:     resource.ActionSkip,
+			Privileged: resource.IsPrivileged(res),
 		}
 		if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
 			ri.Version = tool.ToolSpec.Version
