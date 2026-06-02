@@ -61,7 +61,7 @@ Apple Silicon macOS uses `/opt/homebrew` by default; tomei currently routes priv
 
 ## System Packages (Debian/Ubuntu only)
 
-Apt-managed packages installed under `tomei apply --system`. The manifest is gated with `@if(linux)` so non-Linux platforms ignore it cleanly, but the inline `SystemInstaller` shells out to `apt-get` — it only works on apt-based distros (Debian, Ubuntu). Other Linux distros (Fedora, Arch, Alpine, etc.) need a different installer stanza.
+Apt-managed packages installed under `tomei apply --system`. The manifest is gated with `@if(linux)` so non-Linux platforms ignore it cleanly, but the actual install runs through tomei's built-in APT backend (`internal/installer/apt`) — which only works on apt-based distros (Debian, Ubuntu). Other Linux distros (Fedora, Arch, Alpine, etc.) need a SystemInstaller bound to a different backend. The `spec.commands` block on the inline SystemInstaller is descriptive metadata; the backend owns the actual invocation.
 
 | File | Installer | Packages |
 |------|-----------|----------|
