@@ -18,13 +18,14 @@ build: ## Build tomei binary and example container
 	docker build -t $(IMAGE_NAME) .
 
 run: ## Run interactive shell in example container
-	# Pass GITHUB_TOKEN / GH_TOKEN through if set on the host. tomei init's
-	# aqua-registry fetch goes through api.github.com (to resolve the
-	# latest ref) and raw.githubusercontent.com (to fetch registry content).
-	# Anonymous traffic from a fresh container is rate-limited to the point
-	# that fresh containers reliably hit HTTP 403 within seconds. Without a
-	# token, the aqua-based tools in real-world/ (k8s, utility, privileged)
-	# all fail with "aqua-registry resolver not configured".
+	# Pass GITHUB_TOKEN / GH_TOKEN through if set on the host. tomei init
+	# resolves the latest aqua-registry ref via api.github.com; the
+	# actual registry content is fetched later from raw.githubusercontent.com
+	# when aqua-based tools are installed. Both endpoints are rate-limited
+	# for anonymous traffic, so fresh containers reliably hit HTTP 403
+	# within seconds. Without a token, the aqua-based tools in real-world/
+	# (k8s, utility, privileged) all fail with
+	# "aqua-registry resolver not configured".
 	# `-e VAR` (no =value) forwards the host env var without putting its
 	# value on the docker argv, so the token can't leak via `ps`/shell
 	# history. If neither var is set on the host, both are simply absent

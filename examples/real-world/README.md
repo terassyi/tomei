@@ -113,7 +113,7 @@ Notes:
 
 ### GitHub token required for aqua tools
 
-`tomei init` resolves the latest aqua-registry ref via `api.github.com` and then fetches registry content from `raw.githubusercontent.com`. Anonymous traffic from a fresh container reliably hits HTTP 403 within seconds because of GitHub's rate limits — without a token the aqua-based tools (k8s, utility, privileged) all fail with `aqua-registry resolver not configured`. `make run` already passes `GITHUB_TOKEN` / `GH_TOKEN` through if set on the host:
+`tomei init` resolves the latest aqua-registry ref via `api.github.com`; the actual registry content is fetched later from `raw.githubusercontent.com` when aqua-based tools are installed. Both endpoints are rate-limited for anonymous traffic and a fresh container reliably hits HTTP 403 within seconds — without a token the aqua-based tools (k8s, utility, privileged) all fail with `aqua-registry resolver not configured`. `make run` already passes `GITHUB_TOKEN` / `GH_TOKEN` through if set on the host:
 
 ```bash
 export GITHUB_TOKEN=ghp_...   # or use `gh auth token`
