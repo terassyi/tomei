@@ -162,10 +162,8 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		}
 	}
 
-	// Filter userResources by scope. The two branches are mutually
-	// exclusive by construction (IncludesPrivileged and IncludesUserKinds
-	// are simultaneously false only for an undefined scope value), so at
-	// most one filter runs per invocation:
+	// Filter userResources by scope. Exactly one of the two branches runs
+	// for each defined scope:
 	//   ScopeUser:       filterPrivileged (strip priv-only)
 	//   ScopeAll:        no filter
 	//   ScopeSystemOnly: filterNonPrivileged (strip non-priv only)
