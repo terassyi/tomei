@@ -20,7 +20,10 @@ real-world/
 ├── rust.cue                # cargo-binstall + binstall installer
 ├── uv.cue                  # ruff, mypy, httpie, black (via uv)
 ├── node.cue                # prettier, ts-node, typescript, npm-check-updates (via pnpm)
-└── krew.cue                # ctx, ns, neat, node-shell (via krew)
+├── krew.cue                # ctx, ns, neat, node-shell (via krew)
+├── brew.cue                # Darwin/arm64-only (Homebrew formulae)
+├── system_packages.cue     # apt SystemInstaller + build-deps (Phase 4, Linux only)
+└── privileged.cue          # lazygit via aqua + privileged: true (Phase 2)
 ```
 
 ## Runtimes (4)
@@ -45,6 +48,24 @@ real-world/
 | `node.cue` | pnpm (delegation) | prettier, ts-node, typescript, npm-check-updates |
 | `krew.cue` | krew (delegation) | ctx, ns, neat, node-shell |
 
+## Privileged Tools (1, `--system`)
+
+These tools are symlinked into the system bin directory (default `/usr/local/bin`) instead of `~/.local/bin`. Requires `tomei apply --system`.
+
+| File | Installer | Tools |
+|------|-----------|-------|
+| `privileged.cue` | aqua | lazygit |
+
+Apple Silicon macOS uses `/opt/homebrew` by default; tomei currently routes privileged symlinks to `/usr/local/bin` regardless. Overriding requires a recompile via `path.WithSystemBinDir` — there is no end-user knob today.
+
+## System Packages (3, Linux only)
+
+Apt-managed packages installed under `tomei apply --system`. The file is gated with `@if(linux)` so non-Linux platforms ignore it cleanly.
+
+| File | Installer | Packages |
+|------|-----------|----------|
+| `system_packages.cue` | apt (inline `SystemInstaller`) | pkg-config, libssl-dev, tree |
+
 ## Usage
 
 ```bash
@@ -54,6 +75,47 @@ tomei cue init --force examples/real-world/
 # Apply manifests (CUE modules pulled from OCI registry + cosign verified)
 tomei apply examples/real-world/
 ```
+
+## Running in a container
+
+The Phase 4 SystemPackage example mutates apt and the Phase 2 privileged tool writes to `/usr/local/bin` — both are host-global operations. Use the bundled Ubuntu container at `examples/Dockerfile` to try them safely without touching your host.
+
+```bash
+# From the repo root: build the tomei binary + container image
+make -C examples build
+
+# Open an interactive shell as the `lipnoise` user inside the container.
+# The Dockerfile copies examples/real-world/ to /home/lipnoise/examples/real-world/
+# and grants NOPASSWD sudo so `--system` works without prompting.
+make -C examples run
+
+# Inside the container:
+tomei cue init --force examples/real-world/
+
+# User-mode apply: symlinks land in ~/.local/bin; privileged tools and
+# system packages are skipped with a warning.
+tomei apply examples/real-world/
+
+# System-mode apply: lazygit lands in /usr/local/bin and build-deps is
+# installed via apt-get. State stays per-user under ~/.local/share/tomei/.
+tomei apply --system examples/real-world/
+```
+
+Notes:
+- The container is ephemeral — exit the shell and `docker rm` runs automatically (`--rm`). Re-running `make run` starts a fresh container.
+- Network egress is needed to download tools from GitHub Releases / apt repositories.
+- `make -C examples clean` removes the built binary and the container image.
+
+### GitHub token required for aqua tools
+
+`tomei init` fetches the aqua-registry from GitHub Container Registry. Anonymous traffic from a fresh container reliably hits HTTP 403 within seconds because of GitHub's rate limits — without a token the aqua-based tools (k8s, utility, privileged) all fail with `aqua-registry resolver not configured`. `make run` already passes `GITHUB_TOKEN` / `GH_TOKEN` through if set on the host:
+
+```bash
+export GITHUB_TOKEN=ghp_...   # or use `gh auth token`
+make -C examples run
+```
+
+`go install`-based tools, `uv`-based tools, `pnpm`-based tools, and the Phase 4 apt SystemPackageSet do not need the token — only the aqua/registry path does.
 
 ## Patterns Demonstrated
 
