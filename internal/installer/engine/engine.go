@@ -157,6 +157,13 @@ type Engine struct {
 	parallelism             int
 	updateCfg               UpdateConfig
 	skippedPrivileged       int // count of privileged removals skipped (no --system)
+	// skipUserKindRemovals: when true, handleRemovals skips ActionRemove for
+	// non-privileged Tools, Runtimes, and InstallerRepositories. Set by the
+	// cmd layer under --system-only so the engine does not tear down
+	// user-level state that was installed by a prior plain `tomei apply`.
+	// Counterpart of the privilegeHandler==nil skip for priv tools.
+	skipUserKindRemovals   bool
+	skippedUserKindRemoves int // count of user-kind removals skipped (--system-only)
 }
 
 // UpdateConfig holds update-related flags for apply and plan commands.
@@ -242,6 +249,23 @@ func (e *Engine) SkippedPrivileged() int {
 	return e.skippedPrivileged
 }
 
+// SetSkipUserKindRemovals enables the symmetric counterpart of the priv-
+// removal skip for --system-only mode. When true, handleRemovals filters
+// out ActionRemove for non-privileged Tools, Runtimes, and
+// InstallerRepositories so that state installed by a prior `tomei apply`
+// is preserved across `tomei apply --system-only`. Privileged Tool
+// removals are unaffected (they're in scope under --system-only).
+func (e *Engine) SetSkipUserKindRemovals(skip bool) {
+	e.skipUserKindRemovals = skip
+}
+
+// SkippedUserKindRemoves returns the number of user-kind removals
+// (non-priv Tool, Runtime, InstallerRepository) skipped by
+// SetSkipUserKindRemovals. Call after Apply() completes.
+func (e *Engine) SkippedUserKindRemoves() int {
+	return e.skippedUserKindRemoves
+}
+
 // eventEmitter is an unexported interface for emitting engine events.
 // Both Engine and SystemEngine satisfy this interface.
 type eventEmitter interface {
@@ -275,6 +299,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// SkippedPrivileged() reflect only this Apply invocation, not prior runs
 	// when the Engine instance is reused (e.g., in tests or orchestration).
 	e.skippedPrivileged = 0
+	e.skippedUserKindRemoves = 0
 
 	// Expand set resources (ToolSet, etc.) into individual resources
 	var err error
@@ -1279,6 +1304,51 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 			filtered = append(filtered, action)
 		}
 		toolActions = filtered
+	}
+
+	// --system-only: skip removals of non-priv Tools, Runtimes, and
+	// InstallerRepositories. These were filtered out of the manifest at
+	// the cmd layer (filterNonPrivilegedWithLog in cmd/tomei/apply.go), so
+	// the reconciler sees their state entries as orphaned and emits
+	// ActionRemove. Skipping them here preserves the prior `tomei apply`
+	// installation across `tomei apply --system-only`. Priv Tool removals
+	// are NOT skipped — privilege is in scope under --system-only.
+	if e.skipUserKindRemovals {
+		filteredTools := make([]ToolAction, 0, len(toolActions))
+		for _, action := range toolActions {
+			if action.Type == resource.ActionRemove && (action.State == nil || !action.State.Privileged) {
+				slog.Info("skipping removal of non-privileged tool (--system-only)",
+					"name", action.Name)
+				e.skippedUserKindRemoves++
+				continue
+			}
+			filteredTools = append(filteredTools, action)
+		}
+		toolActions = filteredTools
+
+		filteredRuntimes := make([]RuntimeAction, 0, len(runtimeActions))
+		for _, action := range runtimeActions {
+			if action.Type == resource.ActionRemove {
+				slog.Info("skipping removal of runtime (--system-only)",
+					"name", action.Name)
+				e.skippedUserKindRemoves++
+				continue
+			}
+			filteredRuntimes = append(filteredRuntimes, action)
+		}
+		runtimeActions = filteredRuntimes
+
+		filteredRepos := make([]InstallerRepositoryAction, 0, len(repoActions))
+		for _, action := range repoActions {
+			if action.Type == resource.ActionRemove {
+				slog.Info("skipping removal of installer repository (--system-only)",
+					"name", action.Name)
+				e.skippedUserKindRemoves++
+				continue
+			}
+			filteredRepos = append(filteredRepos, action)
+		}
+		repoActions = filteredRepos
 	}
 
 	// Validate no remaining tools depend on runtimes being removed

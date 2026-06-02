@@ -74,7 +74,15 @@ With --system, tomei prompts for sudo credentials once and keeps the
 timestamp refreshed. Privileged tool commands and system package operations
 run as the invoking user, using the cached sudo ticket without re-prompting
 (subject to sudoers policy). Without --system, privileged and system
-resources are skipped with a warning.`,
+resources are skipped with a warning.
+
+For privileged + system reapply WITHOUT touching user-level resources:
+  tomei apply --system-only .
+
+--system-only is the inverse half: privileged tools and system resources
+are applied, but non-privileged user-level resources (Runtime, non-priv
+Tool, Installer) are skipped. Useful for CI provisioning and cron-driven
+privileged reapply on servers. Mutually exclusive with --system.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }
@@ -92,15 +100,19 @@ func runApply(cmd *cobra.Command, args []string) error {
 		color.NoColor = true
 	}
 
-	if systemMode {
+	scope := scopeFromFlags()
+	switch scope {
+	case ScopeAll:
 		cmd.Printf("Applying resources (including privileged and system) from %v\n", args)
-	} else {
+	case ScopeSystemOnly:
+		cmd.Printf("Applying privileged and system resources only from %v\n", args)
+	default:
 		cmd.Printf("Applying user-level resources from %v\n", args)
 	}
-	return executeApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg, systemMode)
+	return executeApply(cmd.Context(), args, cmd.OutOrStdout(), &applyCfg, scope)
 }
 
-func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig, system bool) error {
+func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyConfig, scope ApplyScope) error {
 	// Load resources from paths (manifests)
 	loader := config.NewLoader(nil, cfg.verifierOpts()...)
 	resources, err := loader.LoadPaths(paths)
@@ -120,19 +132,19 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// Handle system resources: skip or prepare for execution
 	var sysEng *engine.SystemEngine
 	var supportedSystemResources []resource.Resource
-	if !system && len(systemResources) > 0 {
+	if !scope.IncludesSystemKinds() && len(systemResources) > 0 {
 		for _, r := range systemResources {
 			slog.Info("skipping system resource (use --system)", "kind", r.Kind(), "name", r.Name())
 		}
-		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' to manage.\n\n", len(systemResources))
+		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' or '--system-only' to manage.\n\n", len(systemResources))
 	}
-	if system && len(systemResources) > 0 {
+	if scope.IncludesSystemKinds() && len(systemResources) > 0 {
 		// Reject overlapping SystemPackageSet declarations before any
-		// host mutation. Gated on `system` because without --system the
-		// system resources are skipped entirely and overlap is moot.
-		// See resource.ValidateSystemPackageSetOverlap for the full
-		// rationale on why the apt installer's Remove / upgrade-drain
-		// paths are unsafe under multi-owner package state today.
+		// host mutation. Gated on IncludesSystemKinds() because outside
+		// --system / --system-only the system resources are skipped
+		// entirely and overlap is moot. See ValidateSystemPackageSetOverlap
+		// for the full rationale on why the apt installer's Remove /
+		// upgrade-drain paths are unsafe under multi-owner package state.
 		if err := resource.ValidateSystemPackageSetOverlap(systemResources); err != nil {
 			return fmt.Errorf("apply rejected: %w", err)
 		}
@@ -149,9 +161,23 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		}
 	}
 
-	// Filter out privileged resources when --system is not set
-	if !system {
+	// Filter userResources by scope. The two branches are mutually
+	// exclusive by construction (IncludesPrivileged and IncludesUserKinds
+	// are simultaneously false only for an undefined scope value), so at
+	// most one filter runs per invocation:
+	//   ScopeUser:       filterPrivileged (strip priv-only)
+	//   ScopeAll:        no filter
+	//   ScopeSystemOnly: filterNonPrivileged (strip non-priv only)
+	if !scope.IncludesPrivileged() {
 		userResources = filterPrivilegedWithLog(w, userResources)
+	}
+	if !scope.IncludesUserKinds() {
+		// User Engine still runs in --system-only to handle privileged
+		// tools (which are a Tool attribute, not a kind). The non-priv
+		// strip here pairs with eng.SetSkipUserKindRemovals(true) below
+		// so the engine does not later tear down state for non-priv
+		// resources that were installed by an earlier plain `tomei apply`.
+		userResources = filterNonPrivilegedWithLog(w, userResources)
 	}
 
 	// Load config from fixed path (~/.config/tomei/config.cue)
@@ -211,7 +237,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
 	}
 	// Show plan with all resources (system + user) for complete picture
-	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg, system)
+	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg, scope)
 	if err != nil {
 		return fmt.Errorf("failed to plan: %w", err)
 	}
@@ -242,6 +268,14 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, repoInstaller, store)
 	eng.SetParallelism(cfg.parallel)
 	eng.SetUpdateConfig(updCfg)
+	// Under --system-only, filterNonPrivilegedWithLog stripped non-priv
+	// resources from userResources before the engine sees them, so the
+	// reconciler would otherwise emit ActionRemove for their state
+	// entries. Tell the engine to skip those removals so a prior plain
+	// `tomei apply` is preserved.
+	if !scope.IncludesUserKinds() {
+		eng.SetSkipUserKindRemovals(true)
+	}
 
 	// Track results for summary
 	results := &ui.ApplyResults{}
@@ -267,9 +301,10 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		return nil
 	})
 
-	// Create SystemEngine when --system is set. Even with zero system resources
-	// in the manifest, state may contain entries that need removal.
-	if system {
+	// Create SystemEngine when system kinds are in scope (--system or
+	// --system-only). Even with zero system resources in the manifest,
+	// state may contain entries that need removal.
+	if scope.IncludesSystemKinds() {
 		// systemDownloader is an un-authenticated downloader (no GitHub token
 		// wrap) for SystemPackageRepository GPG-key fetches. It deliberately
 		// does NOT share dlClient with the user-tier downloader: dlClient
@@ -292,10 +327,12 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		sysEng = se
 	}
 
-	// Acquire sudo credentials when --system is set (before TUI to allow interactive prompt).
-	// We always acquire when --system is given, not only when the manifest contains
-	// privileged tools, because privileged tools may exist only in state (removal case).
-	if system {
+	// Acquire sudo credentials when privileged work is in scope (--system
+	// or --system-only), before TUI starts to allow the interactive
+	// prompt. Always acquire when scope demands it, not only when the
+	// manifest contains privileged tools, because privileged tools may
+	// exist only in state (removal case).
+	if scope.IncludesPrivileged() {
 		handler := &sudoHandler{}
 		if err := handler.Acquire(ctx); err != nil {
 			return err
@@ -624,4 +661,28 @@ func filterPrivilegedWithLog(w io.Writer, resources []resource.Resource) []resou
 	}
 	fmt.Fprintf(w, "%d privileged resource(s) skipped (%s). Use 'tomei apply --system' to install.\n\n", len(privileged), privilegedSkipReasonsFragment)
 	return normal
+}
+
+// systemOnlySkipReasonsFragment explains why non-privileged user-level
+// resources are skipped under --system-only.
+const systemOnlySkipReasonsFragment = "--system-only restricts apply to privileged tools and system resources"
+
+// filterNonPrivilegedWithLog is the dual of filterPrivilegedWithLog: it
+// strips non-privileged user resources (Runtime, non-priv Tool,
+// Installer, InstallerRepository) and keeps only privileged ones, then
+// emits per-resource slog.Info plus a summary line to w. Used in
+// --system-only mode where the user Engine still runs (for privileged
+// tools) but should not touch non-privileged user-level resources.
+func filterNonPrivilegedWithLog(w io.Writer, resources []resource.Resource) []resource.Resource {
+	normal, privileged := resource.FilterPrivileged(resources)
+	if len(normal) == 0 {
+		return privileged
+	}
+	for _, r := range normal {
+		slog.Info("skipping non-privileged resource (--system-only)",
+			"kind", r.Kind(),
+			"name", r.Name())
+	}
+	fmt.Fprintf(w, "%d non-privileged resource(s) skipped (%s).\n\n", len(normal), systemOnlySkipReasonsFragment)
+	return privileged
 }

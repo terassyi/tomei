@@ -4974,3 +4974,97 @@ tool: {
 	assert.True(t, runtimeInstalled.Load(), "runtime (layer 0) should have been installed")
 	assert.False(t, toolInstalled.Load(), "tool (layer 1) should not be installed after cancellation")
 }
+
+// TestEngine_SkipUserKindRemovals_SystemOnly verifies the --system-only
+// preservation guarantee: with SetSkipUserKindRemovals(true) and a manifest
+// that omits a previously-installed non-privileged tool, the engine MUST
+// NOT remove that tool from state. Mirrors the apply.go wiring under
+// ScopeSystemOnly where filterNonPrivilegedWithLog strips non-priv
+// resources before the engine sees them.
+func TestEngine_SkipUserKindRemovals_SystemOnly(t *testing.T) {
+	t.Parallel()
+
+	// Manifest has only the privileged tool (priv-tool). State has both
+	// priv-tool and a previously-installed non-priv tool (normal-tool).
+	configDir := t.TempDir()
+	cueContent := `package tomei
+
+privTool: {
+	apiVersion: "tomei.terassyi.net/v1beta1"
+	kind: "Tool"
+	metadata: name: "priv-tool"
+	spec: {
+		privileged: true
+		commands: {
+			install: ["echo install"]
+			check: ["true"]
+			remove: ["echo remove"]
+			resolveVersion: ["echo 1.0.0"]
+		}
+	}
+}
+`
+	require.NoError(t, os.WriteFile(filepath.Join(configDir, "resources.cue"), []byte(cueContent), 0644))
+
+	loader := config.NewLoader(nil)
+	resources, err := loader.Load(configDir)
+	require.NoError(t, err)
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	initial := state.NewUserState()
+	initial.Tools["priv-tool"] = &resource.ToolState{
+		Version:    "1.0.0",
+		Privileged: true,
+		Commands:   &resource.ToolCommandSet{CommandSet: resource.CommandSet{Remove: []string{"echo remove"}}},
+	}
+	initial.Tools["normal-tool"] = &resource.ToolState{
+		Version: "1.0.0",
+		BinPath: "/bin/normal-tool",
+	}
+	initial.Runtimes["normal-runtime"] = &resource.RuntimeState{
+		Version:     "1.0.0",
+		InstallPath: "/runtimes/normal-runtime",
+	}
+	require.NoError(t, store.Save(initial))
+	require.NoError(t, store.Unlock())
+
+	toolMock := &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, _ string) (*resource.ToolState, error) {
+			return &resource.ToolState{
+				Version:    res.ToolSpec.Version,
+				Privileged: res.ToolSpec.Privileged,
+			}, nil
+		},
+	}
+
+	eng := NewEngine(toolMock, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	// SetPrivilegeHandler is required so priv-tool removal would proceed
+	// if it were emitted; here it's not emitted because priv-tool is in
+	// the manifest. The handler also disables the priv-skip block so we
+	// isolate the user-kind-skip path.
+	eng.SetPrivilegeHandler(&noopPrivilegeHandler{})
+	eng.SetSkipUserKindRemovals(true)
+
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	// Verify: non-priv tool + runtime still present in state.
+	require.NoError(t, store.Lock())
+	got, err := store.Load()
+	require.NoError(t, err)
+	require.NoError(t, store.Unlock())
+
+	assert.Contains(t, got.Tools, "normal-tool", "non-priv tool must NOT be removed under --system-only")
+	assert.Contains(t, got.Runtimes, "normal-runtime", "runtime must NOT be removed under --system-only")
+	assert.Contains(t, got.Tools, "priv-tool", "priv tool still in state (also in manifest)")
+
+	// Counter should reflect the 2 skipped removals (normal-tool, normal-runtime).
+	assert.Equal(t, 2, eng.SkippedUserKindRemoves())
+}
+
+type noopPrivilegeHandler struct{}
+
+func (noopPrivilegeHandler) Acquire(_ context.Context) error { return nil }
+func (noopPrivilegeHandler) Release() error                  { return nil }

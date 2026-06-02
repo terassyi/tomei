@@ -99,12 +99,14 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to expand sets: %w", err)
 	}
 
+	scope := scopeFromFlags()
+
 	// Reject overlapping SystemPackageSet declarations before plan emits
 	// an Upgrade/Remove that would tear down a multi-owner package.
-	// Gated on systemMode because without --system the system resources
-	// are forced to ActionSkip by buildResourceInfo and overlap is moot.
-	// See resource.ValidateSystemPackageSetOverlap for the rationale.
-	if systemMode {
+	// Gated on IncludesSystemKinds() because outside --system / --system-only
+	// the system resources are forced to ActionSkip by buildResourceInfo
+	// and overlap is moot. See resource.ValidateSystemPackageSetOverlap.
+	if scope.IncludesSystemKinds() {
 		if err := resource.ValidateSystemPackageSetOverlap(resources); err != nil {
 			return fmt.Errorf("plan rejected: %w", err)
 		}
@@ -115,7 +117,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,
 		UpdateRuntimes: planCfg.updateRuntimes || planCfg.updateAll,
 	}
-	result, err := resolvePlan(resources, updateCfg, systemMode)
+	result, err := resolvePlan(resources, updateCfg, scope)
 	if err != nil {
 		return err
 	}
@@ -138,7 +140,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
-func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig, system bool) map[graph.NodeID]graph.ResourceInfo {
+func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig, scope ApplyScope) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
 	// Load config and state
@@ -204,6 +206,15 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			}
 		}
 
+		// In --system-only mode, non-privileged user-level resources are
+		// out of scope. Mark them as skip and bypass state comparison so
+		// the plan reflects what apply will actually do.
+		if !scope.IncludesUserKinds() && !resInfo.Privileged {
+			resInfo.Action = resource.ActionSkip
+			info[nodeID] = resInfo
+			continue
+		}
+
 		// Determine action by comparing with state
 		if userState != nil {
 			switch res.Kind() {
@@ -233,18 +244,19 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			}
 		}
 
-		// Mark privileged tools as skip when --system is not set.
-		// Consistent with the system-kind skip pattern at lines 246-258.
-		markPrivilegedAsSkip(&resInfo, res, system)
+		// Mark privileged tools as skip when privileged is not in scope
+		// (i.e., default user mode). Consistent with the system-kind skip
+		// pattern below.
+		markPrivilegedAsSkip(&resInfo, res, scope.IncludesPrivileged())
 
 		info[nodeID] = resInfo
 	}
 
 	// Handle system resources
-	if system && pathConfig != nil {
+	if scope.IncludesSystemKinds() && pathConfig != nil {
 		addSystemResourceInfo(info, resources, pathConfig)
 	} else {
-		// Without --system, mark all system resources as skip
+		// System kinds out of scope — mark them all as skip.
 		for _, res := range resources {
 			if resource.IsSystemKind(res.Kind()) {
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
@@ -262,11 +274,16 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		for name, rt := range userState.Runtimes {
 			nodeID := graph.NewNodeID(resource.KindRuntime, name)
 			if _, exists := info[nodeID]; !exists {
+				action := resource.ActionRemove
+				// Runtimes are user-kind; --system-only skips their removal.
+				if !scope.IncludesUserKinds() {
+					action = resource.ActionSkip
+				}
 				info[nodeID] = graph.ResourceInfo{
 					Kind:    resource.KindRuntime,
 					Name:    name,
 					Version: rt.Version,
-					Action:  resource.ActionRemove,
+					Action:  action,
 				}
 			}
 		}
@@ -274,8 +291,14 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			nodeID := graph.NewNodeID(resource.KindTool, name)
 			if _, exists := info[nodeID]; !exists {
 				action := resource.ActionRemove
-				// Privileged tool removals require --system; without it, skip.
-				if !system && tool.Privileged {
+				switch {
+				case tool.Privileged && !scope.IncludesPrivileged():
+					// Privileged tool removals require --system or
+					// --system-only; outside those, skip.
+					action = resource.ActionSkip
+				case !tool.Privileged && !scope.IncludesUserKinds():
+					// Non-priv tool removals require user kinds in scope;
+					// --system-only skips them.
 					action = resource.ActionSkip
 				}
 				info[nodeID] = graph.ResourceInfo{
@@ -360,7 +383,7 @@ type planResult struct {
 
 // resolvePlan builds the dependency graph, resolves execution layers, and
 // computes resource actions from the current state.
-func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, system bool) (*planResult, error) {
+func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, scope ApplyScope) (*planResult, error) {
 	definedResources := make(map[string]struct{})
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -393,7 +416,7 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, s
 		}
 	}
 
-	resourceInfo := buildResourceInfo(resources, updateCfg, system)
+	resourceInfo := buildResourceInfo(resources, updateCfg, scope)
 
 	return &planResult{
 		resolver:       resolver,
@@ -406,8 +429,8 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, s
 // planForResources runs the plan logic on already-loaded resources and
 // writes the text plan to w. It returns true if there are any changes
 // (install, upgrade, reinstall, or remove).
-func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig, system bool) (bool, error) {
-	result, err := resolvePlan(resources, updateCfg, system)
+func planForResources(w io.Writer, resources []resource.Resource, disableColor bool, updateCfg engine.UpdateConfig, scope ApplyScope) (bool, error) {
+	result, err := resolvePlan(resources, updateCfg, scope)
 	if err != nil {
 		return false, err
 	}
