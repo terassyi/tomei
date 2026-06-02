@@ -137,17 +137,28 @@ func sampleGraph() (*stubResolver, map[NodeID]ResourceInfo) {
 func TestPrintTreeFiltered(t *testing.T) {
 	t.Parallel()
 
-	t.Run("all-pass filter equals PrintTree", func(t *testing.T) {
+	t.Run("all-pass filter matches a stable expected tree", func(t *testing.T) {
 		t.Parallel()
 		resolver, info := sampleGraph()
 
+		// Locking the expected output as a literal byte-for-byte snapshot
+		// proves the all-pass case actually renders the tree (rather than
+		// just matching PrintTreeFiltered against itself via the thin-
+		// wrapper PrintTree). Both entrypoints are then checked against
+		// this same string.
+		const expected = "Installer/aqua\n" +
+			"├── Tool/bat (0.24.0) [+ install]\n" +
+			"└── Tool/lazygit (v0.62.1) [+ install]\n" +
+			"SystemInstaller/apt\n" +
+			"└── SystemPackageSet/build-deps [+ install]\n"
+
 		var bufFull bytes.Buffer
 		NewTreePrinter(&bufFull, true).PrintTree(resolver, info)
+		assert.Equal(t, expected, bufFull.String(), "PrintTree must match the snapshot")
 
 		var bufFiltered bytes.Buffer
 		NewTreePrinter(&bufFiltered, true).PrintTreeFiltered(resolver, info, func(NodeID) bool { return true })
-
-		assert.Equal(t, bufFull.String(), bufFiltered.String())
+		assert.Equal(t, expected, bufFiltered.String(), "PrintTreeFiltered with all-pass must match the snapshot")
 	})
 
 	t.Run("empty filter emits nothing", func(t *testing.T) {
