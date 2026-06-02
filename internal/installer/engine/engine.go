@@ -255,6 +255,13 @@ func (e *Engine) SkippedPrivileged() int {
 // InstallerRepositories so that state installed by a prior `tomei apply`
 // is preserved across `tomei apply --system-only`. Privileged Tool
 // removals are unaffected (they're in scope under --system-only).
+//
+// As a safety side-effect, tool removals whose stored state is nil
+// (corrupted/partial state) are also skipped — privilege cannot be
+// determined and the installer's Remove would likely deref nil. These
+// nil-state skips are logged at Warn and do NOT increment
+// SkippedUserKindRemoves (the counter is reserved for confirmed
+// user-kind skips).
 func (e *Engine) SetSkipUserKindRemovals(skip bool) {
 	e.skipUserKindRemovals = skip
 }
