@@ -51,6 +51,14 @@ var (
 	globalLogLevel = &logLevelFlag{level: slog.LevelWarn}
 )
 
+// Persistent-flag names for the scope flags. Centralized so the flag
+// registration, mutual-exclusion error message, and ApplyScope.String()
+// share the same source of truth.
+const (
+	flagSystem     = "system"
+	flagSystemOnly = "system-only"
+)
+
 // ApplyScope encodes the three apply/plan modes:
 //   - ScopeUser: default. Only non-privileged user-level resources run.
 //   - ScopeAll: --system. Both user-level and system-level resources run,
@@ -87,9 +95,9 @@ func (s ApplyScope) IncludesSystemKinds() bool { return s != ScopeUser }
 func (s ApplyScope) String() string {
 	switch s {
 	case ScopeAll:
-		return "system"
+		return flagSystem
 	case ScopeSystemOnly:
-		return "system-only"
+		return flagSystemOnly
 	default:
 		return "user"
 	}
@@ -190,8 +198,8 @@ Commands are separated by privilege level:
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable system package management and privileged operations. System state is stored per-user (~/.local/share/tomei/system/). In multi-user environments, each user maintains an independent view of system package state. This tool is designed for personal dev environment setup and does not detect out-of-band system changes")
-	rootCmd.PersistentFlags().BoolVar(&systemOnlyMode, "system-only", false, "Apply only privileged tools and system resources; force non-privileged user-level resources to skip. Useful for CI provisioning and cron-driven privileged reapply. Mutually exclusive with --system")
+	rootCmd.PersistentFlags().BoolVar(&systemMode, flagSystem, false, "Enable system package management and privileged operations. System state is stored per-user (~/.local/share/tomei/system/). In multi-user environments, each user maintains an independent view of system package state. This tool is designed for personal dev environment setup and does not detect out-of-band system changes")
+	rootCmd.PersistentFlags().BoolVar(&systemOnlyMode, flagSystemOnly, false, "Apply only privileged tools and system resources; force non-privileged user-level resources to skip. Useful for CI provisioning and cron-driven privileged reapply. Mutually exclusive with --system")
 	rootCmd.PersistentFlags().Var(globalLogLevel, "log-level", "Log level (debug, info, warn, error)")
 	_ = rootCmd.RegisterFlagCompletionFunc("log-level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp

@@ -18,8 +18,8 @@ func TestApplyScope_Predicates(t *testing.T) {
 		wantString     string
 	}{
 		{ScopeUser, true, false, false, "user"},
-		{ScopeAll, true, true, true, "system"},
-		{ScopeSystemOnly, false, true, true, "system-only"},
+		{ScopeAll, true, true, true, flagSystem},
+		{ScopeSystemOnly, false, true, true, flagSystemOnly},
 	}
 	for _, tc := range cases {
 		t.Run(tc.wantString, func(t *testing.T) {
@@ -41,8 +41,8 @@ func TestScopeFromFlags(t *testing.T) {
 		want           ApplyScope
 	}{
 		{"default", false, false, ScopeUser},
-		{"system", true, false, ScopeAll},
-		{"system-only", false, true, ScopeSystemOnly},
+		{flagSystem, true, false, ScopeAll},
+		{flagSystemOnly, false, true, ScopeSystemOnly},
 	}
 	prevSystem, prevSystemOnly := systemMode, systemOnlyMode
 	t.Cleanup(func() { systemMode, systemOnlyMode = prevSystem, prevSystemOnly })
