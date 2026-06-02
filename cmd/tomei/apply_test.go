@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -166,16 +167,24 @@ func TestFilterNonPrivilegedWithLog(t *testing.T) {
 	}
 
 	t.Run("strips non-privileged, keeps privileged", func(t *testing.T) {
+		// Use disjoint names (alpha = non-priv, omega = priv) so the
+		// negative assertion below is not vulnerable to slog's
+		// end-of-line newline rendering: a trailing-space match like
+		// "name=priv " would miss "name=priv\n" and the priv tool could
+		// be silently logged without the test catching it. Substrings
+		// chosen here cannot prefix each other.
 		buf := capture(t)
 		var w bytes.Buffer
 		got := filterNonPrivilegedWithLog(&w, []resource.Resource{
-			tool("non-priv", false),
-			tool("priv", true),
+			tool("alpha", false),
+			tool("omega", true),
 		})
 		assert.Len(t, got, 1, "only the privileged tool should remain")
-		assert.Equal(t, "priv", got[0].Name())
-		assert.Contains(t, buf.String(), "name=non-priv")
-		assert.NotContains(t, buf.String(), "name=priv ")
+		assert.Equal(t, "omega", got[0].Name())
+		assert.Contains(t, buf.String(), "name=alpha")
+		assert.NotContains(t, buf.String(), "name=omega", "privileged tool must not be logged as skipped")
+		// Exactly one "skipping non-privileged" line should appear.
+		assert.Equal(t, 1, strings.Count(buf.String(), "skipping non-privileged resource"))
 		assert.Contains(t, w.String(), "1 non-privileged resource(s) skipped")
 		assert.Contains(t, w.String(), "--system-only restricts apply")
 	})
