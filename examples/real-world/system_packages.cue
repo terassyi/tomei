@@ -9,8 +9,10 @@ package tomei
 // apt-based distros. Fedora/Arch/Alpine users would need a different
 // SystemInstaller name and a matching backend.
 //
-// NOTE: SystemInstaller is currently a named declaration that the
-// validator binds to a built-in backend (here "apt"). The spec.commands
+// NOTE: SystemInstaller is currently a named declaration. The system
+// engine's selectPackageInstaller (cmd/tomei/system_engine.go) picks the
+// concrete backend by name — "apt" wires the built-in APT installer.
+// The validator only checks host support/version. The spec.commands
 // strings below are descriptive — they are not what gets executed; the
 // backend owns the actual invocation. No preset exists for apt yet,
 // so this stanza is the canonical inline form.
