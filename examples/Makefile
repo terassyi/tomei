@@ -19,11 +19,12 @@ build: ## Build tomei binary and example container
 
 run: ## Run interactive shell in example container
 	# Pass GITHUB_TOKEN / GH_TOKEN through if set on the host. tomei init's
-	# aqua-registry fetch goes through GitHub's API and the OCI registry —
-	# anonymous traffic from ghcr.io / api.github.com is rate-limited to
-	# the point that fresh containers reliably hit HTTP 403 within seconds.
-	# Without a token, the aqua-based tools in real-world/ (k8s, utility,
-	# privileged) all fail with "aqua-registry resolver not configured".
+	# aqua-registry fetch goes through api.github.com (to resolve the
+	# latest ref) and raw.githubusercontent.com (to fetch registry content).
+	# Anonymous traffic from a fresh container is rate-limited to the point
+	# that fresh containers reliably hit HTTP 403 within seconds. Without a
+	# token, the aqua-based tools in real-world/ (k8s, utility, privileged)
+	# all fail with "aqua-registry resolver not configured".
 	docker run --rm -it --name $(CONTAINER_NAME) \
 		-e GITHUB_TOKEN="$${GITHUB_TOKEN:-}" \
 		-e GH_TOKEN="$${GH_TOKEN:-}" \
