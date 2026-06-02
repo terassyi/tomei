@@ -49,7 +49,7 @@ real-world/
 | `node.cue` | pnpm (delegation) | prettier, ts-node, typescript, npm-check-updates |
 | `bun.cue` | bun (delegation) | biome |
 
-## Privileged Tools (1, `--system`)
+## Privileged Tools (`--system`)
 
 These tools are symlinked into the system bin directory (default `/usr/local/bin`) instead of `~/.local/bin`. Requires `tomei apply --system`.
 
