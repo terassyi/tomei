@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +17,26 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 	"github.com/terassyi/tomei/internal/state"
 )
+
+// stubResolver is a minimal graph.Resolver for renderSectionedTree tests.
+type stubResolver struct {
+	nodes []*graph.Node
+	edges []graph.Edge
+}
+
+func (s *stubResolver) AddResource(resource.Resource) {}
+func (s *stubResolver) Resolve() ([]graph.Layer, error) {
+	return nil, nil
+}
+func (s *stubResolver) Validate() error         { return nil }
+func (s *stubResolver) NodeCount() int          { return len(s.nodes) }
+func (s *stubResolver) EdgeCount() int          { return len(s.edges) }
+func (s *stubResolver) GetEdges() []graph.Edge  { return s.edges }
+func (s *stubResolver) GetNodes() []*graph.Node { return s.nodes }
+
+func makeNode(kind resource.Kind, name string) *graph.Node {
+	return &graph.Node{ID: graph.NewNodeID(kind, name), Kind: kind, Name: name}
+}
 
 func TestCollectSkipInfos(t *testing.T) {
 	t.Parallel()
@@ -404,5 +426,136 @@ func TestAddSystemResourceInfo(t *testing.T) {
 		require.Contains(t, info, nodeID)
 		assert.Equal(t, resource.ActionRemove, info[nodeID].Action,
 			"reconciler emits ActionRemove; the skip-downgrade loop was removed in #198 so Remove must pass through")
+	})
+}
+
+func TestRenderSectionedTree(t *testing.T) {
+	t.Parallel()
+
+	// Common nodes used across cases.
+	nAqua := makeNode(resource.KindInstaller, "aqua")
+	nBat := makeNode(resource.KindTool, "bat")
+	nLazygit := makeNode(resource.KindTool, "lazygit")
+	nApt := makeNode(resource.KindSystemInstaller, "apt")
+	nPkgs := makeNode(resource.KindSystemPackageSet, "build-deps")
+
+	mixed := func() *planResult {
+		return &planResult{
+			resolver: &stubResolver{
+				nodes: []*graph.Node{nAqua, nBat, nLazygit, nApt, nPkgs},
+				edges: []graph.Edge{
+					{From: nBat.ID, To: nAqua.ID},
+					{From: nLazygit.ID, To: nAqua.ID},
+					{From: nPkgs.ID, To: nApt.ID},
+				},
+			},
+			resourceInfo: map[graph.NodeID]graph.ResourceInfo{
+				// Installer/aqua is intentionally NOT in resourceInfo to also
+				// exercise the "node in resolver but not in info map" path
+				// (builtin Installers added by AppendBuiltinInstallers). It must
+				// route to "Tools:" via the zero-value ResourceInfo.
+				nBat.ID:     {Kind: resource.KindTool, Name: "bat", Version: "0.24.0", Action: resource.ActionInstall},
+				nLazygit.ID: {Kind: resource.KindTool, Name: "lazygit", Version: "v0.62.1", Action: resource.ActionSkip, Privileged: true},
+				nApt.ID:     {Kind: resource.KindSystemInstaller, Name: "apt", Action: resource.ActionInstall},
+				nPkgs.ID:    {Kind: resource.KindSystemPackageSet, Name: "build-deps", Action: resource.ActionInstall},
+			},
+		}
+	}
+
+	t.Run("three sections appear in order with mixed manifest", func(t *testing.T) {
+		t.Parallel()
+		var buf bytes.Buffer
+		renderSectionedTree(graph.NewTreePrinter(&buf, true), &buf, mixed())
+		out := buf.String()
+		toolsIdx := strings.Index(out, "Tools:\n")
+		privIdx := strings.Index(out, "Privileged Tools (--system):\n")
+		sysIdx := strings.Index(out, "System:\n")
+		require.NotEqual(t, -1, toolsIdx)
+		require.NotEqual(t, -1, privIdx)
+		require.NotEqual(t, -1, sysIdx)
+		assert.Less(t, toolsIdx, privIdx)
+		assert.Less(t, privIdx, sysIdx)
+		// privileged Tool kept in its own section even with ActionSkip
+		assert.Contains(t, out, "Tool/lazygit (v0.62.1) [⊘ skip]")
+		// the builtin-Installer-style entry (no resourceInfo) is rendered
+		// under "Tools:" as the root with Tool/bat as its child.
+		assert.Contains(t, out, "Installer/aqua")
+		assert.Contains(t, out, "Tool/bat (0.24.0) [+ install]")
+	})
+
+	t.Run("blank line guard: exactly one blank between Privileged and System sections", func(t *testing.T) {
+		t.Parallel()
+		var buf bytes.Buffer
+		renderSectionedTree(graph.NewTreePrinter(&buf, true), &buf, mixed())
+		out := buf.String()
+		// "Privileged Tools (--system):" section ends with lazygit, then
+		// exactly one blank line, then "System:" heading.
+		assert.Contains(t, out, "Tool/lazygit (v0.62.1) [⊘ skip]\n\nSystem:\n")
+		// And NO double blank line (would indicate stray fmt.Fprintln).
+		assert.NotContains(t, out, "\n\n\nSystem:\n")
+	})
+
+	t.Run("no privileged → Privileged Tools section omitted", func(t *testing.T) {
+		t.Parallel()
+		r := &planResult{
+			resolver: &stubResolver{
+				nodes: []*graph.Node{nAqua, nBat, nApt, nPkgs},
+				edges: []graph.Edge{
+					{From: nBat.ID, To: nAqua.ID},
+					{From: nPkgs.ID, To: nApt.ID},
+				},
+			},
+			resourceInfo: map[graph.NodeID]graph.ResourceInfo{
+				nBat.ID:  {Kind: resource.KindTool, Name: "bat", Action: resource.ActionInstall},
+				nApt.ID:  {Kind: resource.KindSystemInstaller, Name: "apt", Action: resource.ActionInstall},
+				nPkgs.ID: {Kind: resource.KindSystemPackageSet, Name: "build-deps", Action: resource.ActionInstall},
+			},
+		}
+		var buf bytes.Buffer
+		renderSectionedTree(graph.NewTreePrinter(&buf, true), &buf, r)
+		out := buf.String()
+		assert.Contains(t, out, "Tools:\n")
+		assert.NotContains(t, out, "Privileged Tools")
+		assert.Contains(t, out, "System:\n")
+	})
+
+	t.Run("only privileged → only that section appears", func(t *testing.T) {
+		t.Parallel()
+		r := &planResult{
+			resolver: &stubResolver{
+				nodes: []*graph.Node{nLazygit},
+				edges: nil,
+			},
+			resourceInfo: map[graph.NodeID]graph.ResourceInfo{
+				nLazygit.ID: {Kind: resource.KindTool, Name: "lazygit", Action: resource.ActionInstall, Privileged: true},
+			},
+		}
+		var buf bytes.Buffer
+		renderSectionedTree(graph.NewTreePrinter(&buf, true), &buf, r)
+		out := buf.String()
+		assert.NotContains(t, out, "Tools:\n")
+		assert.NotContains(t, out, "System:\n")
+		assert.Contains(t, out, "Privileged Tools (--system):\n")
+		assert.Contains(t, out, "Tool/lazygit")
+	})
+
+	t.Run("privileged Tool removal entry lands under Privileged section", func(t *testing.T) {
+		t.Parallel()
+		// Simulates buildResourceInfo's removal-detection branch carrying
+		// Privileged through from ToolState. Without that propagation, this
+		// entry would render under "Tools:" instead.
+		nGone := makeNode(resource.KindTool, "gone-priv")
+		r := &planResult{
+			resolver: &stubResolver{nodes: []*graph.Node{nGone}},
+			resourceInfo: map[graph.NodeID]graph.ResourceInfo{
+				nGone.ID: {Kind: resource.KindTool, Name: "gone-priv", Version: "1.0.0", Action: resource.ActionRemove, Privileged: true},
+			},
+		}
+		var buf bytes.Buffer
+		renderSectionedTree(graph.NewTreePrinter(&buf, true), &buf, r)
+		out := buf.String()
+		assert.NotContains(t, out, "Tools:\n")
+		assert.Contains(t, out, "Privileged Tools (--system):\n")
+		assert.Contains(t, out, "Tool/gone-priv (1.0.0) [- remove]")
 	})
 }
