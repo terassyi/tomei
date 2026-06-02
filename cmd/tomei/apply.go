@@ -81,8 +81,9 @@ For privileged + system reapply WITHOUT touching user-level resources:
 
 --system-only is the inverse half: privileged tools and system resources
 are applied, but non-privileged user-level resources (Runtime, non-priv
-Tool, Installer) are skipped. Useful for CI provisioning and cron-driven
-privileged reapply on servers. Mutually exclusive with --system.`,
+Tool, Installer, InstallerRepository) are skipped. Useful for CI
+provisioning and cron-driven privileged reapply on servers. Mutually
+exclusive with --system.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runApply,
 }
@@ -134,9 +135,9 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	var supportedSystemResources []resource.Resource
 	if !scope.IncludesSystemKinds() && len(systemResources) > 0 {
 		for _, r := range systemResources {
-			slog.Info("skipping system resource (use --system)", "kind", r.Kind(), "name", r.Name())
+			slog.Info("skipping system resource (use --system or --system-only)", "kind", r.Kind(), "name", r.Name())
 		}
-		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' or '--system-only' to manage.\n\n", len(systemResources))
+		fmt.Fprintf(w, "%d system resource(s) skipped. Use 'tomei apply --system' or 'tomei apply --system-only' to manage.\n\n", len(systemResources))
 	}
 	if scope.IncludesSystemKinds() && len(systemResources) > 0 {
 		// Reject overlapping SystemPackageSet declarations before any
