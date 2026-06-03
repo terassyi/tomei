@@ -47,8 +47,75 @@ func (f *logLevelFlag) Level() slog.Level { return f.level }
 
 var (
 	systemMode     bool
+	systemOnlyMode bool
 	globalLogLevel = &logLevelFlag{level: slog.LevelWarn}
 )
+
+// Persistent-flag names for the scope flags. Centralized so the flag
+// registration, mutual-exclusion error message, and ApplyScope.String()
+// share the same source of truth.
+const (
+	flagSystem     = "system"
+	flagSystemOnly = "system-only"
+)
+
+// ApplyScope encodes the three apply/plan modes:
+//   - ScopeUser: default. Only non-privileged user-level resources run.
+//   - ScopeAll: --system. Both user-level and system-level resources run,
+//     including privileged tools.
+//   - ScopeSystemOnly: --system-only. Only privileged tools and system
+//     kinds run; non-privileged user-level resources are forced to skip.
+//
+// --system and --system-only are mutually exclusive; PersistentPreRunE
+// rejects the combination before any command body executes.
+type ApplyScope int
+
+const (
+	ScopeUser ApplyScope = iota
+	ScopeAll
+	ScopeSystemOnly
+)
+
+// IncludesUserKinds reports whether non-privileged user-level resources
+// (Runtime, non-privileged Tool, Installer, InstallerRepository) are in
+// scope for this apply. False in --system-only mode.
+func (s ApplyScope) IncludesUserKinds() bool { return s != ScopeSystemOnly }
+
+// IncludesPrivileged reports whether privileged tools are in scope.
+// True in --system and --system-only modes.
+func (s ApplyScope) IncludesPrivileged() bool { return s != ScopeUser }
+
+// IncludesSystemKinds reports whether system kinds (SystemInstaller,
+// SystemPackageRepository, SystemPackageSet) are in scope. True in
+// --system and --system-only modes.
+func (s ApplyScope) IncludesSystemKinds() bool { return s != ScopeUser }
+
+// String returns a short human-readable name for the scope. Used in log
+// fields and skip-summary lines.
+func (s ApplyScope) String() string {
+	switch s {
+	case ScopeAll:
+		return flagSystem
+	case ScopeSystemOnly:
+		return flagSystemOnly
+	default:
+		return "user"
+	}
+}
+
+// scopeFromFlags fans the two persistent bool flags into the scope enum.
+// Mutual exclusion is enforced earlier in PersistentPreRunE; this only
+// dispatches the three valid combinations.
+func scopeFromFlags() ApplyScope {
+	switch {
+	case systemOnlyMode:
+		return ScopeSystemOnly
+	case systemMode:
+		return ScopeAll
+	default:
+		return ScopeUser
+	}
+}
 
 // loadConfig holds flags shared between apply and plan commands.
 type loadConfig struct {
@@ -107,24 +174,32 @@ For manifest writing guides (presets, platform tags, resource types),
 see "tomei cue --help".
 
 Commands are separated by privilege level:
-  tomei apply              Apply user-level resources (Runtime, Tool)
-  tomei apply --system     Also apply privileged tool operations; tomei
-                           prompts for sudo credentials once and keeps
-                           the timestamp cached so that "sudo ..." calls
-                           inside the tool's own commands can use it
-                           without re-prompting (subject to sudoers
-                           policy)`,
+  tomei apply               Apply user-level resources (Runtime, Tool)
+  tomei apply --system      Also apply privileged tool operations and
+                            system kinds; tomei prompts for sudo
+                            credentials once and keeps the timestamp
+                            cached so that "sudo ..." calls inside the
+                            tool's own commands can use it without
+                            re-prompting (subject to sudoers policy)
+  tomei apply --system-only Apply only the privileged + system half;
+                            non-privileged user-level resources are
+                            skipped. Useful for CI provisioning and
+                            cron-driven privileged reapply`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: globalLogLevel.Level()})))
+		if systemMode && systemOnlyMode {
+			return fmt.Errorf("--system and --system-only are mutually exclusive")
+		}
 		return nil
 	},
 }
 
 func init() {
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&systemMode, "system", false, "Enable system package management and privileged operations. System state is stored per-user (~/.local/share/tomei/system/). In multi-user environments, each user maintains an independent view of system package state. This tool is designed for personal dev environment setup and does not detect out-of-band system changes")
+	rootCmd.PersistentFlags().BoolVar(&systemMode, flagSystem, false, "Enable system package management and privileged operations. System state is stored per-user (~/.local/share/tomei/system/). In multi-user environments, each user maintains an independent view of system package state. This tool is designed for personal dev environment setup and does not detect out-of-band system changes")
+	rootCmd.PersistentFlags().BoolVar(&systemOnlyMode, flagSystemOnly, false, "Apply only privileged tools and system resources; force non-privileged user-level resources to skip. Useful for CI provisioning and cron-driven privileged reapply. Mutually exclusive with --system")
 	rootCmd.PersistentFlags().Var(globalLogLevel, "log-level", "Log level (debug, info, warn, error)")
 	_ = rootCmd.RegisterFlagCompletionFunc("log-level", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return []string{"debug", "info", "warn", "error"}, cobra.ShellCompDirectiveNoFileComp

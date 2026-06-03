@@ -197,4 +197,95 @@ normalTool: {
 			Expect(stateOutput).NotTo(ContainSubstring("privileged-tool"))
 		})
 	})
+
+	Context("Mutual exclusion of --system and --system-only", func() {
+		It("rejects --system --system-only with a clear error", func() {
+			// PersistentPreRunE should reject the combination before any
+			// command body runs, so both apply and plan must surface the
+			// same message on stderr. Use plan to avoid touching state.
+			output, err := testExec.Exec("tomei", "plan", "--system", "--system-only", "~/privileged-test/")
+			Expect(err).To(HaveOccurred(), "combined flags must fail")
+			Expect(output).To(ContainSubstring("--system and --system-only are mutually exclusive"))
+		})
+	})
+
+	Context("Apply with --system-only", func() {
+		BeforeAll(func() {
+			// Reset state and artifacts: the prior "Removal with --system"
+			// context already cleaned the privileged marker, but the normal
+			// tool's user-owned marker still exists. Same cleanup pattern as
+			// the other --system context: unprivileged rm first, escalate
+			// only if a root-owned path remains.
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
+			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+			out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
+			Expect(err).NotTo(HaveOccurred(), "--system-only apply cleanup failed: %s", out)
+		})
+
+		It("plan marks normal tool skip and privileged install", func() {
+			output, err := testExec.Exec("tomei", "plan", "--system-only", "~/privileged-test/")
+			Expect(err).NotTo(HaveOccurred())
+			// privileged-tool should appear with [+ install]; the
+			// non-privileged normal-tool should appear with [⊘ skip].
+			// Substring asserts are robust to color codes / formatting.
+			Expect(output).To(ContainSubstring("privileged-tool"))
+			Expect(output).To(ContainSubstring("normal-tool"))
+			Expect(output).To(ContainSubstring("install"))
+			Expect(output).To(ContainSubstring("skip"))
+		})
+
+		It("apply installs privileged tool, skips normal tool", func() {
+			output, err := ExecApply(testExec, "--system-only", "~/privileged-test/")
+			Expect(err).NotTo(HaveOccurred())
+			// Skip summary from filterNonPrivilegedWithLog must appear.
+			Expect(output).To(ContainSubstring("non-privileged resource(s) skipped"))
+			Expect(output).To(ContainSubstring("--system-only"))
+		})
+
+		It("creates privileged tool marker via sudo", func() {
+			output, err := testExec.ExecBash("cat /tmp/tomei-privileged-test/marker")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring("installed"))
+		})
+
+		It("does NOT install normal tool", func() {
+			_, err := testExec.ExecBash("test -f /tmp/tomei-normal-test/marker")
+			Expect(err).To(HaveOccurred(), "non-privileged tool marker must not exist under --system-only")
+		})
+
+		It("records only privileged tool in state", func() {
+			output, err := testExec.Exec("tomei", "get", "tools", "-o", "json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`"privileged-tool"`))
+			Expect(output).NotTo(ContainSubstring(`"normal-tool"`))
+		})
+	})
+
+	Context("--system-only preserves earlier non-priv installs", func() {
+		// Verify that running --system-only after a default `tomei apply` (which
+		// installed normal-tool) does NOT remove normal-tool from state — the
+		// filter strips it before the engine sees it, so no removal action is
+		// computed against state.
+		BeforeAll(func() {
+			// Clean slate, then do a default apply to install normal-tool.
+			_, _ = testExec.ExecBash(`echo '{"runtimes":{},"tools":{},"installers":{},"installerRepositories":{}}' > ~/.local/share/tomei/state.json`)
+			_, _ = testExec.ExecBash("rm -rf /tmp/tomei-normal-test /tmp/tomei-privileged-test 2>/dev/null")
+			out, err := testExec.ExecBash("if [ -e /tmp/tomei-privileged-test ]; then sudo -n rm -rf /tmp/tomei-privileged-test; fi")
+			Expect(err).NotTo(HaveOccurred(), "preserve-test cleanup failed: %s", out)
+
+			// Default apply: installs normal-tool, skips privileged-tool.
+			_, err = ExecApply(testExec, "~/privileged-test/")
+			Expect(err).NotTo(HaveOccurred(), "preserve-test default apply failed")
+		})
+
+		It("normal-tool stays in state after --system-only apply", func() {
+			_, err := ExecApply(testExec, "--system-only", "~/privileged-test/")
+			Expect(err).NotTo(HaveOccurred())
+
+			output, err := testExec.Exec("tomei", "get", "tools", "-o", "json")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(ContainSubstring(`"normal-tool"`), "normal-tool must NOT be removed by --system-only")
+			Expect(output).To(ContainSubstring(`"privileged-tool"`), "privileged-tool should now be in state")
+		})
+	})
 }

@@ -2150,7 +2150,7 @@ EOF`, dir, repoBlock)
 				// User-visible warning from cmd/tomei/apply.go.
 				// NOTE: this exact string is UX-coupling — if the wording
 				// in apply.go changes, update both in lockstep.
-				Expect(out).To(ContainSubstring("system resource(s) skipped. Use 'tomei apply --system' to manage"),
+				Expect(out).To(ContainSubstring("system resource(s) skipped. Use 'tomei apply --system' or 'tomei apply --system-only' to manage"),
 					"expected the skip warning to be printed; got:\n%s", out)
 
 				// Files and state must be byte-identical to the
