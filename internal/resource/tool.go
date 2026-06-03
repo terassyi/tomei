@@ -372,9 +372,12 @@ func (s *ToolSpec) Validate() error {
 		return fmt.Errorf("commands.install is required")
 	}
 
-	// For non-commands patterns, version/source/package is required
+	// For non-commands patterns, version/ref/source/package is required.
+	// Ref satisfies this gate so a ref-only spec falls through to the more
+	// specific runtimeRef/package check below instead of stopping here with
+	// a generic "version, source, or package is required" message.
 	if !hasCommands {
-		if s.Version == "" && s.Source == nil && s.Package.IsEmpty() {
+		if s.Version == "" && s.Ref == "" && s.Source == nil && s.Package.IsEmpty() {
 			return fmt.Errorf("version, source, or package is required")
 		}
 	}

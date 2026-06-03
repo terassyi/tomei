@@ -178,10 +178,14 @@ package schema
 		args?: [...string]
 		privileged?: bool
 
-		// ref requires runtimeRef: "go". Encoded as a CUE constraint so
-		// the schema rejects misuse before Go-side Validate runs.
+		// ref requires runtimeRef: "go" and forbids installerRef / commands.
+		// Encoded as CUE constraints so the schema rejects misuse with a
+		// precise field-level error before Go-side Validate runs (otherwise
+		// downstream mutual-exclusion errors would be confusing).
 		if ref != _|_ {
-			runtimeRef: "go"
+			runtimeRef:    "go"
+			installerRef?: =~"^$" // forbid: ref + installerRef is invalid
+			commands?:     null   // forbid: ref + commands is invalid
 		}
 	}
 }

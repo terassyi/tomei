@@ -20,9 +20,12 @@ type PlanOutput struct {
 
 // PlanResource represents a resource in the plan output.
 type PlanResource struct {
-	Kind         resource.Kind       `json:"kind" yaml:"kind"`
-	Name         string              `json:"name" yaml:"name"`
+	Kind resource.Kind `json:"kind" yaml:"kind"`
+	Name string        `json:"name" yaml:"name"`
+	// Version and Ref are mutually exclusive: Ref carries the git commit
+	// SHA for SHA-pinned tools; Version carries the tag/release otherwise.
 	Version      string              `json:"version,omitempty" yaml:"version,omitempty"`
+	Ref          string              `json:"ref,omitempty" yaml:"ref,omitempty"`
 	Action       resource.ActionType `json:"action" yaml:"action"`
 	Layer        int                 `json:"layer" yaml:"layer"`
 	Dependencies []string            `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
@@ -90,6 +93,7 @@ func (e *Exporter) BuildOutput() PlanOutput {
 				Kind:         node.Kind,
 				Name:         node.Name,
 				Version:      info.Version,
+				Ref:          info.Ref,
 				Action:       info.Action,
 				Layer:        i + 1,
 				Dependencies: deps[nodeID],
@@ -114,6 +118,7 @@ func (e *Exporter) BuildOutput() PlanOutput {
 				Kind:    info.Kind,
 				Name:    info.Name,
 				Version: info.Version,
+				Ref:     info.Ref,
 				Action:  resource.ActionSkip,
 				Layer:   0,
 			})
