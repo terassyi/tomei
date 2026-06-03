@@ -271,6 +271,84 @@ func TestToolSpec_Validate(t *testing.T) {
 			},
 			wantErr: "privileged: true is not supported with runtimeRef",
 		},
+		{
+			name: "valid ref with go runtime",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "0123456789abcdef0123456789abcdef01234567",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: "",
+		},
+		{
+			// Ordering pin: privileged + runtimeRef + ref must hit the
+			// privileged-vs-runtimeRef error first (existing rule wins over
+			// the newer ref-only rule). Locks ref validation BELOW the
+			// privileged check in Validate().
+			name: "privileged + ref + runtimeRef hits privileged error first",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "0123456789abcdef0123456789abcdef01234567",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+				Privileged: true,
+			},
+			wantErr: "privileged: true is not supported with runtimeRef",
+		},
+		{
+			name: "ref + version mutually exclusive",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "0123456789abcdef0123456789abcdef01234567",
+				Version:    "v0.16.0",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: "ref and version are mutually exclusive",
+		},
+		{
+			name: "ref with non-go runtime rejected",
+			spec: &ToolSpec{
+				RuntimeRef: "cargo",
+				Ref:        "0123456789abcdef0123456789abcdef01234567",
+				Package:    &Package{Name: "ripgrep"},
+			},
+			wantErr: `ref is only supported with runtimeRef: go (got runtimeRef: "cargo")`,
+		},
+		{
+			name: "ref with installerRef rejected",
+			spec: &ToolSpec{
+				InstallerRef: "aqua",
+				Ref:          "0123456789abcdef0123456789abcdef01234567",
+				Package:      &Package{Owner: "cli", Repo: "cli"},
+			},
+			wantErr: `ref is only supported with runtimeRef: go (got runtimeRef: "")`,
+		},
+		{
+			name: "ref short SHA rejected",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "0123456",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: `ref must be a 40-character lowercase hex SHA (got "0123456")`,
+		},
+		{
+			name: "ref tag-like string rejected",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "v1.2.3",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: `ref must be a 40-character lowercase hex SHA (got "v1.2.3")`,
+		},
+		{
+			name: "ref uppercase hex rejected",
+			spec: &ToolSpec{
+				RuntimeRef: "go",
+				Ref:        "0123456789ABCDEF0123456789abcdef01234567",
+				Package:    &Package{Name: "golang.org/x/tools/gopls"},
+			},
+			wantErr: `ref must be a 40-character lowercase hex SHA (got "0123456789ABCDEF0123456789abcdef01234567")`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -985,6 +1063,37 @@ func TestToolSet_Expand_CopiesArgs(t *testing.T) {
 	}
 }
 
+// Regression: ToolItem.Ref must propagate into the expanded Tool spec.
+// Without this, a ref-pinned tool declared inside a ToolSet would silently
+// lose the SHA at expansion time and resolve to @latest.
+func TestToolSet_Expand_CopiesRef(t *testing.T) {
+	t.Parallel()
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	ts := &ToolSet{
+		BaseResource: BaseResource{
+			APIVersion:   GroupVersion,
+			ResourceKind: KindToolSet,
+			Metadata:     Metadata{Name: "go-tools"},
+		},
+		ToolSetSpec: &ToolSetSpec{
+			RuntimeRef: "go",
+			Tools: map[string]ToolItem{
+				"gopls": {
+					Package: &Package{Name: "golang.org/x/tools/gopls"},
+					Ref:     sha,
+				},
+			},
+		},
+	}
+
+	resources, err := ts.Expand()
+	require.NoError(t, err)
+	require.Len(t, resources, 1)
+	tool := resources[0].(*Tool)
+	assert.Equal(t, sha, tool.ToolSpec.Ref, "ToolItem.Ref must flow into expanded ToolSpec.Ref")
+	assert.Empty(t, tool.ToolSpec.Version, "version stays empty when ref is set")
+}
+
 func TestToolSet_Expand_WithRepositoryRef(t *testing.T) {
 	t.Parallel()
 	ts := &ToolSet{
@@ -1175,6 +1284,48 @@ func TestToolState_MarshalRoundtrip_WithoutCommands(t *testing.T) {
 	assert.Equal(t, original.InstallerRef, got.InstallerRef)
 	assert.Equal(t, original.Version, got.Version)
 	assert.Nil(t, got.Commands)
+}
+
+// Legacy state.json files (pre-ref) have no `ref` key. Verify they unmarshal
+// cleanly with ToolState.Ref defaulting to "".
+func TestToolState_Unmarshal_LegacyWithoutRef(t *testing.T) {
+	t.Parallel()
+	legacy := []byte(`{
+		"installerRef": "go",
+		"version": "v0.16.0",
+		"versionKind": "exact",
+		"installPath": "/home/u/go/bin/gopls",
+		"binPath": "",
+		"runtimeRef": "go",
+		"updatedAt": "2025-01-01T00:00:00Z"
+	}`)
+
+	var got ToolState
+	require.NoError(t, json.Unmarshal(legacy, &got))
+	assert.Empty(t, got.Ref, "Ref must default to empty for legacy state without the field")
+	assert.Equal(t, "v0.16.0", got.Version)
+}
+
+// Round-trip a ToolState that has Ref set; confirm the SHA survives marshal+unmarshal
+// and that Version stays empty (the exclusivity invariant from Validate).
+func TestToolState_MarshalRoundtrip_WithRef(t *testing.T) {
+	t.Parallel()
+	original := &ToolState{
+		InstallerRef: "go",
+		Version:      "",
+		Ref:          "0123456789abcdef0123456789abcdef01234567",
+		VersionKind:  VersionExact,
+		RuntimeRef:   "go",
+		UpdatedAt:    time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+
+	data, err := json.Marshal(original)
+	require.NoError(t, err)
+
+	var got ToolState
+	require.NoError(t, json.Unmarshal(data, &got))
+	assert.Equal(t, original.Ref, got.Ref)
+	assert.Empty(t, got.Version)
 }
 
 func TestToolSpec_UnmarshalJSON_Commands(t *testing.T) {

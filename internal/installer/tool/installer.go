@@ -785,9 +785,18 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	if spec.BinaryName != "" {
 		binName = spec.BinaryName
 	}
+	// Ref pins this install to a git SHA. The preset template
+	// (e.g. "go install {{.Package}}@{{.Version}}") receives the SHA via
+	// .Version, expanding to `@<sha>` without modifying the preset.
+	// buildDelegationState reads spec.Ref directly to persist it separately,
+	// so spec is left untouched.
+	versionSlot := spec.Version
+	if spec.Ref != "" {
+		versionSlot = spec.Ref
+	}
 	vars := command.Vars{
 		Package: spec.Package.String(),
-		Version: spec.Version,
+		Version: versionSlot,
 		Name:    name,
 		BinPath: filepath.Join(info.ToolBinPath, binName),
 		Args:    strings.Join(spec.Args, " "),
@@ -818,7 +827,13 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
-	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+	if spec.Ref != "" {
+		// SHA-pinned installs are security-relevant: surface the SHA at Info so
+		// audit logs record exactly which commit was resolved.
+		slog.Info("tool installed via runtime (ref-pinned)", "name", name, "ref", spec.Ref, "runtime", spec.RuntimeRef)
+	} else {
+		slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+	}
 
 	// Clean up old binary when binaryName changes on upgrade/reinstall.
 	// Safety: only remove if the old path is within the expected ToolBinPath directory.
@@ -876,6 +891,7 @@ func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
+		Ref:          spec.Ref,
 		VersionKind:  resource.ClassifyVersion(spec.Version),
 		SpecVersion:  spec.Version,
 		BinPath:      binPath,

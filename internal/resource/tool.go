@@ -3,11 +3,17 @@ package resource
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/terassyi/tomei/internal/checksum"
 	"github.com/terassyi/tomei/internal/installer/extract"
 )
+
+// refSHAPattern matches a 40-character lowercase hex SHA-1, the form
+// `go install` resolves through GOPROXY+GOSUMDB. Short SHAs are rejected to
+// avoid proxy-side prefix-resolution ambiguity and downstream collision risk.
+var refSHAPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // DownloadSource holds download configuration for tools and runtimes
 // that are installed via the download pattern (e.g., aqua installer).
@@ -200,9 +206,15 @@ type Checksum struct {
 	Algorithm checksum.Algorithm `json:"algorithm,omitempty"`
 }
 
-// InstallerNameAqua is the canonical name of the builtin aqua installer.
-// Tools using a Registry package (owner/repo form) must reference this installer.
-const InstallerNameAqua = "aqua"
+// Canonical names of builtin runtimes and installers.
+const (
+	// RuntimeNameGo is the canonical name of the builtin Go runtime.
+	RuntimeNameGo = "go"
+
+	// InstallerNameAqua is the canonical name of the builtin aqua installer.
+	// Tools using a Registry package (owner/repo form) must reference this installer.
+	InstallerNameAqua = "aqua"
+)
 
 // ToolSpec defines the desired state of an individual tool.
 // A tool can be installed via four patterns:
@@ -228,6 +240,14 @@ type ToolSpec struct {
 	// Required for download pattern with Source; optional for registry pattern (defaults to latest).
 	// Optional for commands pattern (can be resolved via commands.resolveVersion).
 	Version string `json:"version,omitempty"`
+
+	// Ref pins installation to a specific git commit SHA instead of a tag/version.
+	// Must be a 40-character lowercase hex SHA-1. Mutually exclusive with Version.
+	// Currently supported only with RuntimeRef: "go" (go install pkg@<sha> resolves
+	// the SHA through GOPROXY+GOSUMDB transparency log). For other installers, Ref
+	// is rejected at Validate time — extending support requires re-deriving the
+	// integrity model for that installer.
+	Ref string `json:"ref,omitempty"`
 
 	// Enabled controls whether this tool should be installed.
 	// Default is true. Set to false to skip installation without removing the config.
@@ -343,6 +363,10 @@ func (s *ToolSpec) Validate() error {
 		return fmt.Errorf("privileged: true is not supported with runtimeRef")
 	}
 
+	if err := s.validateRef(); err != nil {
+		return err
+	}
+
 	// Commands must have at least Install
 	if hasCommands && len(s.Commands.Install) == 0 {
 		return fmt.Errorf("commands.install is required")
@@ -375,6 +399,27 @@ func (s *ToolSpec) Validate() error {
 		return err
 	}
 
+	return nil
+}
+
+// validateRef enforces the ref-pin policy: ref pins to a 40-char lowercase
+// hex SHA and is currently supported only with `runtimeRef: go`. Other
+// installers (aqua, cargo, npm, ...) have no equivalent integrity guarantee,
+// so extending support requires re-deriving the supply-chain model — do not
+// relax this check casually.
+func (s *ToolSpec) validateRef() error {
+	if s.Ref == "" {
+		return nil
+	}
+	if s.Version != "" {
+		return fmt.Errorf("ref and version are mutually exclusive")
+	}
+	if s.RuntimeRef != RuntimeNameGo {
+		return fmt.Errorf("ref is only supported with runtimeRef: go (got runtimeRef: %q)", s.RuntimeRef)
+	}
+	if !refSHAPattern.MatchString(s.Ref) {
+		return fmt.Errorf("ref must be a 40-character lowercase hex SHA (got %q)", s.Ref)
+	}
 	return nil
 }
 
@@ -573,6 +618,7 @@ func buildToolFromSetItem(ts *ToolSet, name string, item ToolItem) *Tool {
 			RepositoryRef: ts.ToolSetSpec.RepositoryRef,
 			RuntimeRef:    ts.ToolSetSpec.RuntimeRef,
 			Version:       item.Version,
+			Ref:           item.Ref,
 			Source:        item.Source,
 			Package:       item.Package,
 			BinaryName:    item.BinaryName,
@@ -588,6 +634,11 @@ type ToolItem struct {
 	// Version specifies the tool version to install.
 	// Overrides any default version from the ToolSet.
 	Version string `json:"version,omitempty"`
+
+	// Ref pins this tool to a git commit SHA. Mutually exclusive with Version.
+	// See ToolSpec.Ref for full semantics. Currently supported only with
+	// runtimeRef: "go".
+	Ref string `json:"ref,omitempty"`
 
 	// Enabled controls whether this specific tool should be installed.
 	// Default is true. Set to false to exclude this tool from the set.
@@ -653,6 +704,11 @@ type ToolState struct {
 
 	// Version is the installed version of the tool.
 	Version string `json:"version"`
+
+	// Ref is the git commit SHA that pinned the install (when spec.ref was set).
+	// Mutually exclusive with Version in the spec; only one of the two is populated
+	// at a time. Empty for tools installed by tag/version (the common case).
+	Ref string `json:"ref,omitempty"`
 
 	// Digest is the SHA256 hash of the installed binary (for download pattern).
 	// Used to verify integrity and detect if the binary was modified.

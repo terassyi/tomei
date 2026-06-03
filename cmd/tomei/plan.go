@@ -203,6 +203,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		case resource.KindTool:
 			if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
 				resInfo.Version = tool.ToolSpec.Version
+				resInfo.Ref = tool.ToolSpec.Ref
 			}
 		}
 
@@ -235,11 +236,18 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 				}
 			case resource.KindTool:
 				if tool, ok := userState.Tools[res.Name()]; ok && tool != nil {
-					if tool.IsTainted() {
+					// Branch ordering MUST match reconciler.ToolComparator
+					// (internal/installer/reconciler/tool.go) — otherwise
+					// `tomei plan` and the engine disagree on the reason
+					// surfaced when multiple signals fire at once.
+					switch {
+					case tool.Ref != resInfo.Ref:
+						resInfo.Action = resource.ActionUpgrade
+					case tool.IsTainted():
 						resInfo.Action = resource.ActionReinstall
-					} else if tool.Version == resInfo.Version {
+					case tool.Version == resInfo.Version:
 						resInfo.Action = resource.ActionNone
-					} else {
+					default:
 						resInfo.Action = resource.ActionUpgrade
 					}
 				}
@@ -330,6 +338,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					Kind:       resource.KindTool,
 					Name:       name,
 					Version:    tool.Version,
+					Ref:        tool.Ref,
 					Action:     action,
 					Privileged: tool.Privileged,
 				}
@@ -558,6 +567,7 @@ func addDisabledResourceInfo(info map[graph.NodeID]graph.ResourceInfo, disabled 
 		}
 		if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
 			ri.Version = tool.ToolSpec.Version
+			ri.Ref = tool.ToolSpec.Ref
 		}
 		info[nodeID] = ri
 	}

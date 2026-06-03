@@ -164,13 +164,25 @@ package schema
 		runtimeRef?:    string
 		repositoryRef?: string
 		version?:       string
-		enabled?:       bool
-		source?:        #DownloadSource
-		package?:       #Package
-		commands?:      #ToolCommandSet
-		binaryName?:    string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+		// ref pins installation to a 40-char lowercase hex git SHA.
+		// Only supported with runtimeRef: "go" today (the Go module proxy
+		// verifies the SHA against the GOSUMDB transparency log). The
+		// schema enforces the runtimeRef gate below; Validate enforces
+		// the format and the ref/version mutual exclusion.
+		ref?:        string & =~"^[0-9a-f]{40}$"
+		enabled?:    bool
+		source?:     #DownloadSource
+		package?:    #Package
+		commands?:   #ToolCommandSet
+		binaryName?: string & =~"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 		args?: [...string]
 		privileged?: bool
+
+		// ref requires runtimeRef: "go". Encoded as a CUE constraint so
+		// the schema rejects misuse before Go-side Validate runs.
+		if ref != _|_ {
+			runtimeRef: "go"
+		}
 	}
 }
 
@@ -184,6 +196,7 @@ package schema
 		repositoryRef?: string
 		tools: {[string]: {
 			version?:    string
+			ref?:        string & =~"^[0-9a-f]{40}$"
 			enabled?:    bool
 			source?:     #DownloadSource
 			package?:    #Package

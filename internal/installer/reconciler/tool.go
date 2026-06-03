@@ -24,8 +24,20 @@ func specVersionChanged(specVersion string, stateVersionKind resource.VersionKin
 }
 
 // ToolComparator returns a comparator for Tool resources.
+//
+// Branch ordering MUST match cmd/tomei/plan.go's buildResourceInfo Tool
+// switch — otherwise plan output and the engine disagree on the reason
+// surfaced when multiple signals fire at once.
 func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 	return func(res *resource.Tool, state *resource.ToolState) (bool, string) {
+		// Ref pinning (SHA) is checked first. ref→ref rotation, ref→version,
+		// and version→ref switches are all surfaced by simple string equality
+		// against state.Ref. Ordering note: a ref change short-circuits the
+		// Version/taint branches below — taint will be cleared by the reinstall
+		// regardless.
+		if res.ToolSpec.Ref != state.Ref {
+			return true, "ref changed: " + state.Ref + " -> " + res.ToolSpec.Ref
+		}
 		if specVersionChanged(res.ToolSpec.Version, state.VersionKind, state.Version, state.SpecVersion) {
 			return true, "version changed: " + state.Version + " -> " + res.ToolSpec.Version
 		}
