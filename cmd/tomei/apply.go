@@ -361,7 +361,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// can otherwise be misrepresented here as removals (they're absent from
 	// the desired resource list but still intended to be installed).
 	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
-		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (%s). Use 'tomei apply --system' to manage privileged resources.\n", n, privilegedSkipReasonsFragment)
+		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (%s). Use 'tomei apply --system' or 'tomei apply --system-only' to manage privileged resources.\n", n, privilegedSkipReasonsFragment)
 	}
 
 	return applyErr
