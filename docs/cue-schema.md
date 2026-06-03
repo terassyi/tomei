@@ -152,6 +152,33 @@ spec: {
 }
 ```
 
+##### Pinning to a git commit SHA (`ref`)
+
+For `runtimeRef: "go"` tools, you can pin to a specific commit instead of
+a tag/version. `go install pkg@<sha>` resolves the SHA through GOPROXY and
+verifies the resulting module zip against the GOSUMDB transparency log,
+so the install is reproducible and integrity-checked.
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "gopls"
+spec: {
+    runtimeRef: "go"
+    package:    "golang.org/x/tools/gopls"
+    ref:        "0123456789abcdef0123456789abcdef01234567"
+}
+```
+
+- `ref` must be a 40-character lowercase hex SHA-1. Short SHAs and
+  tag-like strings are rejected at validate time.
+- `ref` and `version` are mutually exclusive.
+- `ref` is currently supported only with `runtimeRef: "go"`. Other
+  installers (aqua, cargo, npm, ...) have no equivalent SHA-pin path
+  with comparable integrity guarantees and reject `ref` at validate time.
+- The plan tree renders `ref` as a 12-character prefix + ellipsis (e.g.
+  `(ref: 0123456789ab…)`); state retains the full SHA.
+
 #### Via self-managed commands
 
 ```cue
@@ -177,7 +204,8 @@ spec: {
 | `spec.runtimeRef` | string | no* | Reference to a Runtime (e.g., `"go"`, `"rust"`) |
 | `spec.commands` | [ToolCommandSet](#toolcommandset) | no* | Shell commands for self-managed tool installation |
 | `spec.repositoryRef` | string | no | Reference to an InstallerRepository |
-| `spec.version` | string | no | Tool version |
+| `spec.version` | string | no | Tool version (mutually exclusive with `ref`) |
+| `spec.ref` | string | no | 40-char lowercase hex git commit SHA for SHA-pinned install. Only allowed with `runtimeRef: "go"`. Mutually exclusive with `version`. |
 | `spec.enabled` | bool | no | Default `true`. Set `false` to skip |
 | `spec.source` | [DownloadSource](#downloadsource) | no | Explicit download source |
 | `spec.package` | [Package](#package) | no | Package identifier for registry or delegation |
@@ -209,7 +237,7 @@ spec: {
 | `spec.installerRef` | string | no | Shared installer for all tools |
 | `spec.runtimeRef` | string | no | Shared runtime for all tools |
 | `spec.repositoryRef` | string | no | Shared repository reference |
-| `spec.tools` | map | yes | Tool definitions (same fields as Tool.spec minus installerRef/runtimeRef). Each tool supports `version`, `enabled`, `source`, `package`, `binaryName`, `args` |
+| `spec.tools` | map | yes | Tool definitions (same fields as Tool.spec minus installerRef/runtimeRef). Each tool supports `version`, `ref`, `enabled`, `source`, `package`, `binaryName`, `args` |
 
 ### Installer
 

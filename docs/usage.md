@@ -241,6 +241,39 @@ tomei apply --update-all .
 tomei apply --parallel 4 .
 ```
 
+### Pinning a Tool to a git commit SHA
+
+For tools installed via `runtimeRef: "go"`, set `spec.ref` to a 40-character
+lowercase hex commit SHA to pin the install to an exact commit instead of
+a tag. `go install pkg@<sha>` resolves the SHA through `GOPROXY` and
+verifies the module zip against `GOSUMDB`, so the install is reproducible
+and integrity-checked.
+
+```cue
+gopls: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "gopls"
+    spec: {
+        runtimeRef: "go"
+        package:    "golang.org/x/tools/gopls"
+        ref:        "0123456789abcdef0123456789abcdef01234567"
+    }
+}
+```
+
+Constraints:
+
+- `ref` and `version` are mutually exclusive.
+- `ref` requires `runtimeRef: "go"`; other installers reject `ref` at
+  validate time.
+- Short SHAs and tag-like strings (e.g. `v1.2.3`) are rejected — only
+  40-char lowercase hex matches.
+- Ref-pinned tools are NOT tainted by `--sync` / `--update-tools` (a SHA
+  is the strictest form of exact pin).
+- `tomei plan` displays the SHA truncated to 12 characters; state retains
+  the full SHA.
+
 ### Self-Managed Tools (Commands Pattern)
 
 Tools with `spec.commands` manage their own installation via shell commands, without needing a runtime or installer dependency.
