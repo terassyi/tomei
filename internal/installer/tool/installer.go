@@ -888,11 +888,20 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 
 // buildDelegationState creates a ToolState for delegation pattern installations.
 func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string) *resource.ToolState {
+	// Ref-pinned tools must classify as VersionExact, not VersionLatest.
+	// spec.Version is empty for ref pins, so ClassifyVersion would otherwise
+	// return VersionLatest and tomei's --sync / --update-tools modes would
+	// taint the tool (engine.applyUpdateTaints predicates on VersionLatest).
+	// A SHA pin is the strictest form of "exact" — don't surprise-reinstall.
+	versionKind := resource.ClassifyVersion(spec.Version)
+	if spec.Ref != "" {
+		versionKind = resource.VersionExact
+	}
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
 		Ref:          spec.Ref,
-		VersionKind:  resource.ClassifyVersion(spec.Version),
+		VersionKind:  versionKind,
 		SpecVersion:  spec.Version,
 		BinPath:      binPath,
 		RuntimeRef:   spec.RuntimeRef,

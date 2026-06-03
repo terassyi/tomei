@@ -894,6 +894,12 @@ func TestToolInstaller_RuntimeRef_SubstitutesIntoVersion(t *testing.T) {
 
 	assert.Equal(t, sha, state.Ref, "state.Ref records the pinned SHA")
 	assert.Empty(t, state.Version, "state.Version stays empty when ref is set (exclusivity invariant)")
+	// Regression (Copilot R1): ref-pinned tools must classify as VersionExact,
+	// NOT VersionLatest. ClassifyVersion("") would return VersionLatest by
+	// default and tomei's --sync / --update-tools modes (engine.applyUpdateTaints)
+	// would then taint the tool, causing surprise reinstalls of a SHA pin.
+	assert.Equal(t, resource.VersionExact, state.VersionKind,
+		"ref-pinned tools must classify as VersionExact so --sync/--update-tools don't taint them")
 
 	// spec must not be mutated — buildDelegationState reads it after install.
 	assert.Empty(t, tool.ToolSpec.Version, "spec.Version untouched after install")
