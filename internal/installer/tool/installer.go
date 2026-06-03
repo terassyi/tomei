@@ -785,9 +785,18 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	if spec.BinaryName != "" {
 		binName = spec.BinaryName
 	}
+	// Ref pins this install to a git SHA. The preset template
+	// (e.g. "go install {{.Package}}@{{.Version}}") receives the SHA via
+	// .Version, expanding to `@<sha>` without modifying the preset.
+	// buildDelegationState reads spec.Ref directly to persist it separately,
+	// so spec is left untouched.
+	versionSlot := spec.Version
+	if spec.Ref != "" {
+		versionSlot = spec.Ref
+	}
 	vars := command.Vars{
 		Package: spec.Package.String(),
-		Version: spec.Version,
+		Version: versionSlot,
 		Name:    name,
 		BinPath: filepath.Join(info.ToolBinPath, binName),
 		Args:    strings.Join(spec.Args, " "),
@@ -818,7 +827,13 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		return nil, fmt.Errorf("failed to execute install command: %w", err)
 	}
 
-	slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+	if spec.Ref != "" {
+		// SHA-pinned installs are security-relevant: surface the SHA at Info so
+		// audit logs record exactly which commit was resolved.
+		slog.Info("tool installed via runtime (ref-pinned)", "name", name, "ref", spec.Ref, "runtime", spec.RuntimeRef)
+	} else {
+		slog.Debug("tool installed via runtime", "name", name, "version", spec.Version, "runtime", spec.RuntimeRef)
+	}
 
 	// Clean up old binary when binaryName changes on upgrade/reinstall.
 	// Safety: only remove if the old path is within the expected ToolBinPath directory.
@@ -873,10 +888,20 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 
 // buildDelegationState creates a ToolState for delegation pattern installations.
 func (i *Installer) buildDelegationState(spec *resource.ToolSpec, binPath string) *resource.ToolState {
+	// Ref-pinned tools must classify as VersionExact, not VersionLatest.
+	// spec.Version is empty for ref pins, so ClassifyVersion would otherwise
+	// return VersionLatest and tomei's --sync / --update-tools modes would
+	// taint the tool (engine.applyUpdateTaints predicates on VersionLatest).
+	// A SHA pin is the strictest form of "exact" — don't surprise-reinstall.
+	versionKind := resource.ClassifyVersion(spec.Version)
+	if spec.Ref != "" {
+		versionKind = resource.VersionExact
+	}
 	return &resource.ToolState{
 		InstallerRef: spec.InstallerRef,
 		Version:      spec.Version,
-		VersionKind:  resource.ClassifyVersion(spec.Version),
+		Ref:          spec.Ref,
+		VersionKind:  versionKind,
 		SpecVersion:  spec.Version,
 		BinPath:      binPath,
 		RuntimeRef:   spec.RuntimeRef,

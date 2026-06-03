@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"strings"
 	"testing"
 	"testing/quick"
 	"time"
@@ -644,6 +645,139 @@ func TestToolComparator_PrivilegedChanged(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- ToolComparator ref (SHA pin) tests ---
+
+func TestToolComparator_RefChanged(t *testing.T) {
+	t.Parallel()
+	const oldSHA = "0123456789abcdef0123456789abcdef01234567"
+	const newSHA = "fedcba9876543210fedcba9876543210fedcba98"
+
+	tests := []struct {
+		name       string
+		specRef    string
+		stateRef   string
+		wantUpdate bool
+		wantReason string
+	}{
+		{
+			name:       "ref unchanged - no update",
+			specRef:    oldSHA,
+			stateRef:   oldSHA,
+			wantUpdate: false,
+		},
+		{
+			name:       "ref rotated to new SHA",
+			specRef:    newSHA,
+			stateRef:   oldSHA,
+			wantUpdate: true,
+			wantReason: "ref changed: " + oldSHA + " -> " + newSHA,
+		},
+		{
+			name:       "ref deselected (version takes over)",
+			specRef:    "",
+			stateRef:   oldSHA,
+			wantUpdate: true,
+			wantReason: "ref changed: " + oldSHA + " -> ",
+		},
+		{
+			name:       "ref newly set (was version-pinned)",
+			specRef:    newSHA,
+			stateRef:   "",
+			wantUpdate: true,
+			wantReason: "ref changed:  -> " + newSHA,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			comparator := ToolComparator()
+
+			res := &resource.Tool{
+				BaseResource: resource.BaseResource{
+					Metadata: resource.Metadata{Name: "gopls"},
+				},
+				ToolSpec: &resource.ToolSpec{
+					RuntimeRef: "go",
+					Ref:        tt.specRef,
+					Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
+				},
+			}
+
+			state := &resource.ToolState{
+				RuntimeRef:  "go",
+				Ref:         tt.stateRef,
+				Version:     "",
+				VersionKind: resource.VersionExact,
+				SpecVersion: "",
+			}
+
+			needsUpdate, reason := comparator(res, state)
+			assert.Equal(t, tt.wantUpdate, needsUpdate)
+			if tt.wantReason != "" {
+				assert.Equal(t, tt.wantReason, reason)
+			}
+		})
+	}
+}
+
+// TestToolComparator_RefOrdering pins the precedence of the new Ref branch
+// against the existing Version and taint branches. The Ref check runs first;
+// when ref differs the reason must be "ref changed:" even if version or taint
+// would also fire on their own.
+func TestToolComparator_RefOrdering(t *testing.T) {
+	t.Parallel()
+	const oldSHA = "0123456789abcdef0123456789abcdef01234567"
+	const newSHA = "fedcba9876543210fedcba9876543210fedcba98"
+
+	t.Run("ref change wins over version change", func(t *testing.T) {
+		t.Parallel()
+		comparator := ToolComparator()
+		res := &resource.Tool{
+			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec: &resource.ToolSpec{
+				RuntimeRef: "go",
+				Ref:        newSHA,
+				Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
+			},
+		}
+		state := &resource.ToolState{
+			RuntimeRef:  "go",
+			Ref:         oldSHA,
+			Version:     "v0.16.0",
+			VersionKind: resource.VersionExact,
+			SpecVersion: "v0.16.0",
+		}
+		needsUpdate, reason := comparator(res, state)
+		assert.True(t, needsUpdate)
+		assert.True(t, strings.HasPrefix(reason, "ref changed:"),
+			"ref branch must short-circuit version branch (got %q)", reason)
+	})
+
+	t.Run("ref change wins over taint", func(t *testing.T) {
+		t.Parallel()
+		comparator := ToolComparator()
+		res := &resource.Tool{
+			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
+			ToolSpec: &resource.ToolSpec{
+				RuntimeRef: "go",
+				Ref:        newSHA,
+				Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
+			},
+		}
+		state := &resource.ToolState{
+			RuntimeRef:  "go",
+			Ref:         oldSHA,
+			VersionKind: resource.VersionExact,
+			TaintReason: resource.TaintReasonRuntimeUpgraded,
+		}
+		needsUpdate, reason := comparator(res, state)
+		assert.True(t, needsUpdate)
+		assert.True(t, strings.HasPrefix(reason, "ref changed:"),
+			"ref branch must short-circuit taint branch (got %q)", reason)
+	})
 }
 
 // --- RuntimeComparator tests with VersionKind ---

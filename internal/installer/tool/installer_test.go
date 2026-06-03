@@ -847,6 +847,65 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 	}
 }
 
+// TestToolInstaller_RuntimeRef_SubstitutesIntoVersion locks D2's invariant:
+// when ToolSpec.Ref is set, the SHA is substituted into the {{.Version}}
+// template slot so the preset's "go install pkg@{{.Version}}" expands to
+// "@<sha>". The persisted ToolState stores spec.Ref in state.Ref while
+// state.Version remains empty (the exclusivity invariant from Validate).
+func TestToolInstaller_RuntimeRef_SubstitutesIntoVersion(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	captureFile := filepath.Join(tmpDir, "captured_cmd.txt")
+
+	inst := NewInstaller(
+		download.NewDownloader(),
+		place.NewPlacer(filepath.Join(tmpDir, "tools")),
+		filepath.Join(tmpDir, "bin"),
+		filepath.Join(tmpDir, "system-bin"),
+	)
+	inst.RegisterRuntime("go", &RuntimeInfo{
+		BinDir:      "/usr/local/bin",
+		ToolBinPath: filepath.Dir(captureFile),
+		Commands: &resource.CommandsSpec{
+			Install: []string{"echo {{.Package}}@{{.Version}} > " + captureFile},
+		},
+	})
+
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "gopls"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			RuntimeRef: "go",
+			Ref:        sha,
+			Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	content, err := os.ReadFile(captureFile)
+	require.NoError(t, err)
+	assert.Equal(t, "golang.org/x/tools/gopls@"+sha, strings.TrimSpace(string(content)),
+		"Ref must flow into {{.Version}} so go-install templates expand to @<sha>")
+
+	assert.Equal(t, sha, state.Ref, "state.Ref records the pinned SHA")
+	assert.Empty(t, state.Version, "state.Version stays empty when ref is set (exclusivity invariant)")
+	// Regression (Copilot R1): ref-pinned tools must classify as VersionExact,
+	// NOT VersionLatest. ClassifyVersion("") would return VersionLatest by
+	// default and tomei's --sync / --update-tools modes (engine.applyUpdateTaints)
+	// would then taint the tool, causing surprise reinstalls of a SHA pin.
+	assert.Equal(t, resource.VersionExact, state.VersionKind,
+		"ref-pinned tools must classify as VersionExact so --sync/--update-tools don't taint them")
+
+	// spec must not be mutated — buildDelegationState reads it after install.
+	assert.Empty(t, tool.ToolSpec.Version, "spec.Version untouched after install")
+	assert.Equal(t, sha, tool.ToolSpec.Ref, "spec.Ref untouched after install")
+}
+
 func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 	t.Parallel()
 	archiveData := createTarGzContent(t, "mytool", []byte("#!/bin/sh\necho hello"))
