@@ -300,6 +300,28 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			// Locks the #ToolSet.spec for-comprehension that forces
+			// runtimeRef: "go" when any tool item carries sha. The valid
+			// case here passes runtimeRef: "go" explicitly so unification
+			// is a no-op; the InvalidResources counterpart sets a
+			// different runtimeRef and expects rejection.
+			name: "ToolSet with sha in tool item",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "ToolSet"
+				metadata: name: "go-tools"
+				spec: {
+					runtimeRef: "go"
+					tools: {
+						gopls: {
+							package: "golang.org/x/tools/gopls"
+							sha:     "0123456789abcdef0123456789abcdef01234567"
+						}
+					}
+				}
+			}`,
+		},
+		{
 			name: "SystemPackageSet",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -988,9 +1010,79 @@ func TestSchema_InvalidResources(t *testing.T) {
 				kind:       "SystemPackage"
 				metadata: name: "git"
 				spec: {
-					installerRef:  "apt"
+					installerRef: "apt"
 					repositoryRef: ""
 					package:       "git"
+				}
+			}`,
+		},
+		{
+			// Tool with sha set + installerRef ≠ "" must fail at the CUE
+			// layer (installerRef?: =~"^$" forbids any non-empty installer).
+			name: "Tool with sha and installerRef rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Tool"
+				metadata: name: "gopls"
+				spec: {
+					installerRef: "aqua"
+					sha:          "0123456789abcdef0123456789abcdef01234567"
+					package: {owner: "x", repo: "y"}
+				}
+			}`,
+		},
+		{
+			// Tool with sha set + commands defined must fail at the CUE
+			// layer (commands?: null forbids any non-null commands).
+			name: "Tool with sha and commands rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Tool"
+				metadata: name: "gopls"
+				spec: {
+					sha: "0123456789abcdef0123456789abcdef01234567"
+					commands: install: ["true"]
+				}
+			}`,
+		},
+		{
+			// ToolSet sha-in-tool-item + runtimeRef ≠ "go" must fail at
+			// the CUE layer via the for-comprehension constraint.
+			name: "ToolSet with sha in tool item but runtimeRef cargo rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "ToolSet"
+				metadata: name: "mixed-tools"
+				spec: {
+					runtimeRef: "cargo"
+					tools: {
+						gopls: {
+							package: "golang.org/x/tools/gopls"
+							sha:     "0123456789abcdef0123456789abcdef01234567"
+						}
+					}
+				}
+			}`,
+		},
+		{
+			// ToolSet sha-in-tool-item + installerRef set must fail at the
+			// CUE layer — mirrors #Tool.spec's installerRef forbiddance so
+			// a ToolSet with sha-pinned tools cannot also delegate to an
+			// installer.
+			name: "ToolSet with sha in tool item and installerRef rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "ToolSet"
+				metadata: name: "mixed-tools"
+				spec: {
+					runtimeRef:  "go"
+					installerRef: "aqua"
+					tools: {
+						gopls: {
+							package: "golang.org/x/tools/gopls"
+							sha:     "0123456789abcdef0123456789abcdef01234567"
+						}
+					}
 				}
 			}`,
 		},

@@ -203,7 +203,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 		case resource.KindTool:
 			if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
 				resInfo.Version = tool.ToolSpec.Version
-				resInfo.Ref = tool.ToolSpec.Ref
+				resInfo.SHA = tool.ToolSpec.SHA
 			}
 		}
 
@@ -241,7 +241,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					// `tomei plan` and the engine disagree on the reason
 					// surfaced when multiple signals fire at once.
 					switch {
-					case tool.Ref != resInfo.Ref:
+					case tool.SHA != resInfo.SHA:
 						resInfo.Action = resource.ActionUpgrade
 					case tool.IsTainted():
 						resInfo.Action = resource.ActionReinstall
@@ -338,7 +338,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 					Kind:       resource.KindTool,
 					Name:       name,
 					Version:    tool.Version,
-					Ref:        tool.Ref,
+					SHA:        tool.SHA,
 					Action:     action,
 					Privileged: tool.Privileged,
 				}
@@ -567,7 +567,7 @@ func addDisabledResourceInfo(info map[graph.NodeID]graph.ResourceInfo, disabled 
 		}
 		if tool, ok := res.(*resource.Tool); ok && tool.ToolSpec != nil {
 			ri.Version = tool.ToolSpec.Version
-			ri.Ref = tool.ToolSpec.Ref
+			ri.SHA = tool.ToolSpec.SHA
 		}
 		info[nodeID] = ri
 	}

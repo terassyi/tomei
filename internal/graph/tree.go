@@ -16,10 +16,10 @@ type ResourceInfo struct {
 	Kind    resource.Kind
 	Name    string
 	Version string
-	// Ref holds the git commit SHA for SHA-pinned tools. Mutually exclusive
+	// SHA holds the git commit SHA for SHA-pinned tools. Mutually exclusive
 	// with Version (Validate enforces this on the spec side). Stored in full
 	// here; the tree renderer truncates for display.
-	Ref        string
+	SHA        string
 	Action     resource.ActionType
 	Privileged bool
 }
@@ -153,14 +153,14 @@ func (p *TreePrinter) printNode(nodeID NodeID, prefix string, isLast bool, child
 	}
 }
 
-// shortRef truncates a 40-char SHA to a 12-char prefix + ellipsis for display.
+// shortSHA truncates a 40-char SHA to a 12-char prefix + ellipsis for display.
 // State retains the full SHA — only the rendered tree is shortened.
-func shortRef(ref string) string {
+func shortSHA(sha string) string {
 	const display = 12
-	if len(ref) <= display {
-		return ref
+	if len(sha) <= display {
+		return sha
 	}
-	return ref[:display] + "…"
+	return sha[:display] + "…"
 }
 
 func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool) string {
@@ -170,12 +170,12 @@ func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool)
 	nodeName := string(nodeID)
 
 	if hasInfo {
-		// Version / Ref (mutually exclusive — Ref wins when both are set,
+		// Version / SHA (mutually exclusive — SHA wins when both are set,
 		// though Validate prevents that on the spec side).
 		versionStr := ""
 		switch {
-		case info.Ref != "":
-			versionStr = fmt.Sprintf(" (ref: %s)", shortRef(info.Ref))
+		case info.SHA != "":
+			versionStr = fmt.Sprintf(" (sha: %s)", shortSHA(info.SHA))
 		case info.Version != "":
 			versionStr = fmt.Sprintf(" (%s)", info.Version)
 		}

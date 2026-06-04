@@ -164,12 +164,13 @@ package schema
 		runtimeRef?:    string
 		repositoryRef?: string
 		version?:       string
-		// ref pins installation to a 40-char lowercase hex git SHA.
+		// sha pins installation to a 40-char lowercase hex git commit SHA-1.
 		// Only supported with runtimeRef: "go" today (the Go module proxy
-		// verifies the SHA against the GOSUMDB transparency log). The
-		// schema enforces the runtimeRef gate below; Validate enforces
-		// the format and the ref/version mutual exclusion.
-		ref?:        string & =~"^[0-9a-f]{40}$"
+		// verifies the SHA against the GOSUMDB transparency log). Format
+		// is enforced by the regex on this field; the schema also enforces
+		// the runtimeRef gate below; Go-side Validate enforces the
+		// sha/version mutual exclusion.
+		sha?:        string & =~"^[0-9a-f]{40}$"
 		enabled?:    bool
 		source?:     #DownloadSource
 		package?:    #Package
@@ -178,14 +179,14 @@ package schema
 		args?: [...string]
 		privileged?: bool
 
-		// ref requires runtimeRef: "go" and forbids installerRef / commands.
+		// sha requires runtimeRef: "go" and forbids installerRef / commands.
 		// Encoded as CUE constraints so the schema rejects misuse with a
 		// precise field-level error before Go-side Validate runs (otherwise
 		// downstream mutual-exclusion errors would be confusing).
-		if ref != _|_ {
+		if sha != _|_ {
 			runtimeRef:    "go"
-			installerRef?: =~"^$" // forbid: ref + installerRef is invalid
-			commands?:     null   // forbid: ref + commands is invalid
+			installerRef?: =~"^$" // forbid: sha + installerRef is invalid
+			commands?:     null   // forbid: sha + commands is invalid
 		}
 	}
 }
@@ -200,7 +201,7 @@ package schema
 		repositoryRef?: string
 		tools: {[string]: {
 			version?:    string
-			ref?:        string & =~"^[0-9a-f]{40}$"
+			sha?:        string & =~"^[0-9a-f]{40}$"
 			enabled?:    bool
 			source?:     #DownloadSource
 			package?:    #Package
@@ -208,6 +209,19 @@ package schema
 			args?: [...string]
 			privileged?: bool
 		}}
+
+		// If any tool item sets sha, the ToolSet's runtimeRef must be "go"
+		// and installerRef must be empty — matches the #Tool.spec constraint
+		// so misuse inside a ToolSet is rejected at the CUE layer instead
+		// of falling through to Go-side Validate with a less specific
+		// message. (#ToolSet has no spec-level commands field, so the
+		// `commands?: null` arm of the #Tool.spec gate has no analog here.)
+		for _, tool in tools {
+			if tool.sha != _|_ {
+				runtimeRef:    "go"
+				installerRef?: =~"^$"
+			}
+		}
 	}
 }
 
