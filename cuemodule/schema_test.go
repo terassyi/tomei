@@ -1064,6 +1064,28 @@ func TestSchema_InvalidResources(t *testing.T) {
 				}
 			}`,
 		},
+		{
+			// ToolSet sha-in-tool-item + installerRef set must fail at the
+			// CUE layer — mirrors #Tool.spec's installerRef forbiddance so
+			// a ToolSet with sha-pinned tools cannot also delegate to an
+			// installer.
+			name: "ToolSet with sha in tool item and installerRef rejected",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "ToolSet"
+				metadata: name: "mixed-tools"
+				spec: {
+					runtimeRef:  "go"
+					installerRef: "aqua"
+					tools: {
+						gopls: {
+							package: "golang.org/x/tools/gopls"
+							sha:     "0123456789abcdef0123456789abcdef01234567"
+						}
+					}
+				}
+			}`,
+		},
 	}
 
 	for _, tt := range tests {

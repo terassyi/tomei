@@ -209,13 +209,16 @@ package schema
 			privileged?: bool
 		}}
 
-		// If any tool item sets sha, the ToolSet's runtimeRef must be "go" —
-		// matches the #Tool.spec constraint so misuse inside a ToolSet is
-		// rejected at the CUE layer instead of falling through to Go-side
-		// Validate with a less specific message.
+		// If any tool item sets sha, the ToolSet's runtimeRef must be "go"
+		// and installerRef must be empty — matches the #Tool.spec constraint
+		// so misuse inside a ToolSet is rejected at the CUE layer instead
+		// of falling through to Go-side Validate with a less specific
+		// message. (#ToolSet has no spec-level commands field, so the
+		// `commands?: null` arm of the #Tool.spec gate has no analog here.)
 		for _, tool in tools {
 			if tool.sha != _|_ {
-				runtimeRef: "go"
+				runtimeRef:    "go"
+				installerRef?: =~"^$"
 			}
 		}
 	}
