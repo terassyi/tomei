@@ -21,15 +21,15 @@ Delegates the actual work to an external command.
 
 ```
 go install <package>@<version>
-go install <package>@<sha>        # via spec.ref (Go only)
+go install <package>@<sha>        # via spec.sha (Go only)
 cargo install <package>
 ```
 
 `tomei` instructs *what* to install; the external tool handles *how*.
 
-For `runtimeRef: "go"` tools, `spec.ref` pins the install to a specific
+For `runtimeRef: "go"` tools, `spec.sha` pins the install to a specific
 git commit SHA instead of a tag. The SHA flows through `GOPROXY` and is
-verified against the `GOSUMDB` transparency log — this is why ref pinning
+verified against the `GOSUMDB` transparency log — this is why SHA pinning
 is currently limited to Go; other ecosystems lack equivalent end-to-end
 integrity for arbitrary commits. See [usage.md](usage.md) for the user-
 facing guide and [cue-schema.md](cue-schema.md) for the field definition.

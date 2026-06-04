@@ -30,13 +30,13 @@ func specVersionChanged(specVersion string, stateVersionKind resource.VersionKin
 // surfaced when multiple signals fire at once.
 func ToolComparator() Comparator[*resource.Tool, *resource.ToolState] {
 	return func(res *resource.Tool, state *resource.ToolState) (bool, string) {
-		// Ref pinning (SHA) is checked first. ref→ref rotation, ref→version,
-		// and version→ref switches are all surfaced by simple string equality
-		// against state.Ref. Ordering note: a ref change short-circuits the
+		// SHA pinning is checked first. sha→sha rotation, sha→version,
+		// and version→sha switches are all surfaced by simple string equality
+		// against state.SHA. Ordering note: a sha change short-circuits the
 		// Version/taint branches below — taint will be cleared by the reinstall
 		// regardless.
-		if res.ToolSpec.Ref != state.Ref {
-			return true, "ref changed: " + state.Ref + " -> " + res.ToolSpec.Ref
+		if res.ToolSpec.SHA != state.SHA {
+			return true, "sha changed: " + state.SHA + " -> " + res.ToolSpec.SHA
 		}
 		if specVersionChanged(res.ToolSpec.Version, state.VersionKind, state.Version, state.SpecVersion) {
 			return true, "version changed: " + state.Version + " -> " + res.ToolSpec.Version

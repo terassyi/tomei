@@ -8,7 +8,7 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-func TestShortRef(t *testing.T) {
+func TestShortSHA(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
@@ -22,15 +22,15 @@ func TestShortRef(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, shortRef(tt.in))
+			assert.Equal(t, tt.want, shortSHA(tt.in))
 		})
 	}
 }
 
-// TestFormatNode_RefRendering pins the tree's ref display: Ref-pinned tools
-// render as " (ref: <12chars>…)" instead of the usual " (version)" slot,
+// TestFormatNode_SHARendering pins the tree's sha display: SHA-pinned tools
+// render as " (sha: <12chars>…)" instead of the usual " (version)" slot,
 // preserving the full SHA only in state (not in the rendered tree).
-func TestFormatNode_RefRendering(t *testing.T) {
+func TestFormatNode_SHARendering(t *testing.T) {
 	t.Parallel()
 	p := NewTreePrinter(&bytes.Buffer{}, true)
 	const sha = "0123456789abcdef0123456789abcdef01234567"
@@ -38,11 +38,11 @@ func TestFormatNode_RefRendering(t *testing.T) {
 	info := ResourceInfo{
 		Kind:   resource.KindTool,
 		Name:   "gopls",
-		Ref:    sha,
+		SHA:    sha,
 		Action: resource.ActionInstall,
 	}
 	out := p.formatNode(NewNodeID(resource.KindTool, "gopls"), info, true)
-	assert.Contains(t, out, "(ref: 0123456789ab…)", "ref must render truncated, not as full SHA")
+	assert.Contains(t, out, "(sha: 0123456789ab…)", "sha must render truncated, not as full SHA")
 	assert.NotContains(t, out, sha, "full SHA must not appear in rendered tree")
 }
 

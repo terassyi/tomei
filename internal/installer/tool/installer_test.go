@@ -847,11 +847,11 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 	}
 }
 
-// TestToolInstaller_RuntimeRef_SubstitutesIntoVersion locks D2's invariant:
-// when ToolSpec.Ref is set, the SHA is substituted into the {{.Version}}
-// template slot so the preset's "go install pkg@{{.Version}}" expands to
-// "@<sha>". The persisted ToolState stores spec.Ref in state.Ref while
-// state.Version remains empty (the exclusivity invariant from Validate).
+// TestToolInstaller_RuntimeRef_SubstitutesIntoVersion locks the install-time
+// invariant: when ToolSpec.SHA is set, the SHA is substituted into the
+// {{.Version}} template slot so the preset's "go install pkg@{{.Version}}"
+// expands to "@<sha>". The persisted ToolState stores spec.SHA in state.SHA
+// while state.Version remains empty (the exclusivity invariant from Validate).
 func TestToolInstaller_RuntimeRef_SubstitutesIntoVersion(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
@@ -878,7 +878,7 @@ func TestToolInstaller_RuntimeRef_SubstitutesIntoVersion(t *testing.T) {
 		},
 		ToolSpec: &resource.ToolSpec{
 			RuntimeRef: "go",
-			Ref:        sha,
+			SHA:        sha,
 			Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
 		},
 	}
@@ -890,20 +890,20 @@ func TestToolInstaller_RuntimeRef_SubstitutesIntoVersion(t *testing.T) {
 	content, err := os.ReadFile(captureFile)
 	require.NoError(t, err)
 	assert.Equal(t, "golang.org/x/tools/gopls@"+sha, strings.TrimSpace(string(content)),
-		"Ref must flow into {{.Version}} so go-install templates expand to @<sha>")
+		"SHA must flow into {{.Version}} so go-install templates expand to @<sha>")
 
-	assert.Equal(t, sha, state.Ref, "state.Ref records the pinned SHA")
-	assert.Empty(t, state.Version, "state.Version stays empty when ref is set (exclusivity invariant)")
-	// Regression (Copilot R1): ref-pinned tools must classify as VersionExact,
+	assert.Equal(t, sha, state.SHA, "state.SHA records the pinned SHA")
+	assert.Empty(t, state.Version, "state.Version stays empty when sha is set (exclusivity invariant)")
+	// Regression (Copilot R1): sha-pinned tools must classify as VersionExact,
 	// NOT VersionLatest. ClassifyVersion("") would return VersionLatest by
 	// default and tomei's --sync / --update-tools modes (engine.applyUpdateTaints)
 	// would then taint the tool, causing surprise reinstalls of a SHA pin.
 	assert.Equal(t, resource.VersionExact, state.VersionKind,
-		"ref-pinned tools must classify as VersionExact so --sync/--update-tools don't taint them")
+		"sha-pinned tools must classify as VersionExact so --sync/--update-tools don't taint them")
 
 	// spec must not be mutated — buildDelegationState reads it after install.
 	assert.Empty(t, tool.ToolSpec.Version, "spec.Version untouched after install")
-	assert.Equal(t, sha, tool.ToolSpec.Ref, "spec.Ref untouched after install")
+	assert.Equal(t, sha, tool.ToolSpec.SHA, "spec.SHA untouched after install")
 }
 
 func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {

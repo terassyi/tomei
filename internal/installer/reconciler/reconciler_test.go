@@ -647,46 +647,55 @@ func TestToolComparator_PrivilegedChanged(t *testing.T) {
 	}
 }
 
-// --- ToolComparator ref (SHA pin) tests ---
+// --- ToolComparator sha (SHA pin) tests ---
 
-func TestToolComparator_RefChanged(t *testing.T) {
+// Fixed SHA pair shared by all SHA-comparator tests. Defined once so future
+// cases reuse the same "old vs new" identities.
+const (
+	oldSHA = "0123456789abcdef0123456789abcdef01234567"
+	newSHA = "fedcba9876543210fedcba9876543210fedcba98"
+)
+
+func TestToolComparator_SHAChanged(t *testing.T) {
 	t.Parallel()
-	const oldSHA = "0123456789abcdef0123456789abcdef01234567"
-	const newSHA = "fedcba9876543210fedcba9876543210fedcba98"
 
 	tests := []struct {
 		name       string
-		specRef    string
-		stateRef   string
+		specSHA    string
+		stateSHA   string
 		wantUpdate bool
 		wantReason string
 	}{
 		{
-			name:       "ref unchanged - no update",
-			specRef:    oldSHA,
-			stateRef:   oldSHA,
+			name:       "sha unchanged - no update",
+			specSHA:    oldSHA,
+			stateSHA:   oldSHA,
 			wantUpdate: false,
 		},
 		{
-			name:       "ref rotated to new SHA",
-			specRef:    newSHA,
-			stateRef:   oldSHA,
+			name:       "sha rotated to new value",
+			specSHA:    newSHA,
+			stateSHA:   oldSHA,
 			wantUpdate: true,
-			wantReason: "ref changed: " + oldSHA + " -> " + newSHA,
+			wantReason: "sha changed: " + oldSHA + " -> " + newSHA,
 		},
 		{
-			name:       "ref deselected (version takes over)",
-			specRef:    "",
-			stateRef:   oldSHA,
+			// state was sha-pinned, spec clears it — comparator must still
+			// surface "sha changed:" so the caller knows the pin is gone
+			// (whether or not a version replaces it). The trailing space
+			// after "-> " is intentional: spec.SHA is empty.
+			name:       "sha cleared (was sha-pinned, spec empty)",
+			specSHA:    "",
+			stateSHA:   oldSHA,
 			wantUpdate: true,
-			wantReason: "ref changed: " + oldSHA + " -> ",
+			wantReason: "sha changed: " + oldSHA + " -> ",
 		},
 		{
-			name:       "ref newly set (was version-pinned)",
-			specRef:    newSHA,
-			stateRef:   "",
+			name:       "sha newly set (was version-pinned)",
+			specSHA:    newSHA,
+			stateSHA:   "",
 			wantUpdate: true,
-			wantReason: "ref changed:  -> " + newSHA,
+			wantReason: "sha changed:  -> " + newSHA,
 		},
 	}
 
@@ -701,14 +710,14 @@ func TestToolComparator_RefChanged(t *testing.T) {
 				},
 				ToolSpec: &resource.ToolSpec{
 					RuntimeRef: "go",
-					Ref:        tt.specRef,
+					SHA:        tt.specSHA,
 					Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
 				},
 			}
 
 			state := &resource.ToolState{
 				RuntimeRef:  "go",
-				Ref:         tt.stateRef,
+				SHA:         tt.stateSHA,
 				Version:     "",
 				VersionKind: resource.VersionExact,
 				SpecVersion: "",
@@ -723,60 +732,58 @@ func TestToolComparator_RefChanged(t *testing.T) {
 	}
 }
 
-// TestToolComparator_RefOrdering pins the precedence of the new Ref branch
-// against the existing Version and taint branches. The Ref check runs first;
-// when ref differs the reason must be "ref changed:" even if version or taint
+// TestToolComparator_SHAOrdering pins the precedence of the new SHA branch
+// against the existing Version and taint branches. The SHA check runs first;
+// when sha differs the reason must be "sha changed:" even if version or taint
 // would also fire on their own.
-func TestToolComparator_RefOrdering(t *testing.T) {
+func TestToolComparator_SHAOrdering(t *testing.T) {
 	t.Parallel()
-	const oldSHA = "0123456789abcdef0123456789abcdef01234567"
-	const newSHA = "fedcba9876543210fedcba9876543210fedcba98"
 
-	t.Run("ref change wins over version change", func(t *testing.T) {
+	t.Run("sha change wins over version change", func(t *testing.T) {
 		t.Parallel()
 		comparator := ToolComparator()
 		res := &resource.Tool{
 			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
 			ToolSpec: &resource.ToolSpec{
 				RuntimeRef: "go",
-				Ref:        newSHA,
+				SHA:        newSHA,
 				Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
 			},
 		}
 		state := &resource.ToolState{
 			RuntimeRef:  "go",
-			Ref:         oldSHA,
+			SHA:         oldSHA,
 			Version:     "v0.16.0",
 			VersionKind: resource.VersionExact,
 			SpecVersion: "v0.16.0",
 		}
 		needsUpdate, reason := comparator(res, state)
 		assert.True(t, needsUpdate)
-		assert.True(t, strings.HasPrefix(reason, "ref changed:"),
-			"ref branch must short-circuit version branch (got %q)", reason)
+		assert.True(t, strings.HasPrefix(reason, "sha changed:"),
+			"sha branch must short-circuit version branch (got %q)", reason)
 	})
 
-	t.Run("ref change wins over taint", func(t *testing.T) {
+	t.Run("sha change wins over taint", func(t *testing.T) {
 		t.Parallel()
 		comparator := ToolComparator()
 		res := &resource.Tool{
 			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}},
 			ToolSpec: &resource.ToolSpec{
 				RuntimeRef: "go",
-				Ref:        newSHA,
+				SHA:        newSHA,
 				Package:    &resource.Package{Name: "golang.org/x/tools/gopls"},
 			},
 		}
 		state := &resource.ToolState{
 			RuntimeRef:  "go",
-			Ref:         oldSHA,
+			SHA:         oldSHA,
 			VersionKind: resource.VersionExact,
 			TaintReason: resource.TaintReasonRuntimeUpgraded,
 		}
 		needsUpdate, reason := comparator(res, state)
 		assert.True(t, needsUpdate)
-		assert.True(t, strings.HasPrefix(reason, "ref changed:"),
-			"ref branch must short-circuit taint branch (got %q)", reason)
+		assert.True(t, strings.HasPrefix(reason, "sha changed:"),
+			"sha branch must short-circuit taint branch (got %q)", reason)
 	})
 }
 
