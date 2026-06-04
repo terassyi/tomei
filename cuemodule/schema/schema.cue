@@ -166,9 +166,10 @@ package schema
 		version?:       string
 		// sha pins installation to a 40-char lowercase hex git commit SHA-1.
 		// Only supported with runtimeRef: "go" today (the Go module proxy
-		// verifies the SHA against the GOSUMDB transparency log). The
-		// schema enforces the runtimeRef gate below; Validate enforces
-		// the format and the sha/version mutual exclusion.
+		// verifies the SHA against the GOSUMDB transparency log). Format
+		// is enforced by the regex on this field; the schema also enforces
+		// the runtimeRef gate below; Go-side Validate enforces the
+		// sha/version mutual exclusion.
 		sha?:        string & =~"^[0-9a-f]{40}$"
 		enabled?:    bool
 		source?:     #DownloadSource

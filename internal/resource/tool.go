@@ -374,11 +374,10 @@ func (s *ToolSpec) Validate() error {
 
 	// For non-commands patterns, version/sha/source/package is required.
 	// SHA satisfies this gate so a sha-only spec falls through to the more
-	// specific runtimeRef/package check below instead of stopping here with
-	// a generic "version, source, or package is required" message.
+	// specific runtimeRef/package check below.
 	if !hasCommands {
 		if s.Version == "" && s.SHA == "" && s.Source == nil && s.Package.IsEmpty() {
-			return fmt.Errorf("version, source, or package is required")
+			return fmt.Errorf("version, sha, source, or package is required")
 		}
 	}
 

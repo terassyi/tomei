@@ -148,7 +148,7 @@ func TestToolSpec_Validate(t *testing.T) {
 			spec: &ToolSpec{
 				InstallerRef: "aqua",
 			},
-			wantErr: "version, source, or package is required",
+			wantErr: "version, sha, source, or package is required",
 		},
 		{
 			name: "runtimeRef without package",
