@@ -1304,7 +1304,13 @@ func TestToolState_Marshal_OmitsEmptySHA(t *testing.T) {
 
 	data, err := json.Marshal(st)
 	require.NoError(t, err)
-	assert.NotContains(t, string(data), `"sha"`,
+	// Unmarshal to a map and check key absence — substring matching is brittle
+	// because another field's value (e.g. "sha256:..." in a checksum) could
+	// contain the literal `"sha`.
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &fields))
+	_, present := fields["sha"]
+	assert.False(t, present,
 		"empty SHA must be omitted from the serialized state to keep non-sha-pinned entries unchanged")
 }
 
