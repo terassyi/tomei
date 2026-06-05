@@ -1,8 +1,10 @@
 package resource
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInstallerSpec_Validate(t *testing.T) {
@@ -174,6 +176,30 @@ func TestInstallerSpec_Validate(t *testing.T) {
 			},
 			wantErr: "binDir is not supported for download type",
 		},
+		{
+			name: "valid with minimumReleaseAge",
+			spec: InstallerSpec{
+				Type:              InstallTypeDownload,
+				MinimumReleaseAge: "168h",
+			},
+			wantErr: "",
+		},
+		{
+			name: "invalid minimumReleaseAge surfaces from Validate",
+			spec: InstallerSpec{
+				Type:              InstallTypeDownload,
+				MinimumReleaseAge: "7d",
+			},
+			wantErr: "minimumReleaseAge",
+		},
+		{
+			name: "negative minimumReleaseAge rejected from Validate",
+			spec: InstallerSpec{
+				Type:              InstallTypeDownload,
+				MinimumReleaseAge: "-1h",
+			},
+			wantErr: "minimumReleaseAge must be non-negative",
+		},
 	}
 
 	for _, tt := range tests {
@@ -297,4 +323,252 @@ func TestInstallerSpec_Dependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInstallerSpec_ParsedMinimumReleaseAge(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   string
+		want    time.Duration
+		wantErr bool
+		errSub  string
+	}{
+		{name: "empty disabled", input: "", want: 0},
+		{name: "168h", input: "168h", want: 168 * time.Hour},
+		{name: "leading plus accepted", input: "+168h", want: 168 * time.Hour},
+		{name: "compound", input: "1h30m", want: 90 * time.Minute},
+		{name: "0s explicit zero", input: "0s", want: 0},
+		{name: "0 unitless accepted as zero", input: "0", want: 0},
+		{name: "7d rejected", input: "7d", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "uppercase H rejected", input: "168H", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "leading whitespace rejected", input: "  168h", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "garbage rejected", input: "garbage", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "negative hour", input: "-1h", wantErr: true, errSub: "minimumReleaseAge must be non-negative"},
+		{name: "negative ns", input: "-1ns", wantErr: true, errSub: "minimumReleaseAge must be non-negative"},
+		{name: "shell metacharacters rejected", input: "168h; rm -rf /", wantErr: true, errSub: "minimumReleaseAge"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := InstallerSpec{MinimumReleaseAge: tt.input}
+			got, err := s.ParsedMinimumReleaseAge()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("ParsedMinimumReleaseAge(%q) expected error, got nil", tt.input)
+				}
+				if !strings.Contains(err.Error(), tt.errSub) {
+					t.Errorf("ParsedMinimumReleaseAge(%q) error = %q, want containing %q", tt.input, err.Error(), tt.errSub)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParsedMinimumReleaseAge(%q) unexpected error: %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Errorf("ParsedMinimumReleaseAge(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateBuiltinInstallerOverrides(t *testing.T) {
+	t.Parallel()
+	mkInstaller := func(name string, spec *InstallerSpec) *Installer {
+		return &Installer{
+			BaseResource: BaseResource{
+				APIVersion:   GroupVersion,
+				ResourceKind: KindInstaller,
+				Metadata:     Metadata{Name: name},
+			},
+			InstallerSpec: spec,
+		}
+	}
+	tests := []struct {
+		name      string
+		resources []Resource
+		wantErr   string
+	}{
+		{name: "nil slice", resources: nil},
+		{name: "empty slice", resources: []Resource{}},
+		{
+			name: "aqua with download type",
+			resources: []Resource{
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDownload}),
+			},
+		},
+		{
+			name: "aqua with download type and minimumReleaseAge",
+			resources: []Resource{
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDownload, MinimumReleaseAge: "168h"}),
+			},
+		},
+		{
+			name: "aqua with delegation type rejected",
+			resources: []Resource{
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDelegation}),
+			},
+			wantErr: `installer "aqua" overrides builtin and must use type "download"`,
+		},
+		{
+			// Locks in the deterministic ordering documented on
+			// builtinInstallerOrder: aqua is checked before download, so
+			// when both overrides are misused at once the error names
+			// "aqua" first regardless of map iteration order. Extra
+			// "download" absence assertion runs after this row to prove
+			// the function short-circuits on the first violation rather
+			// than aggregating both.
+			name: "both aqua and download misused — aqua reported first",
+			resources: []Resource{
+				mkInstaller("download", &InstallerSpec{Type: InstallTypeDelegation}),
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDelegation}),
+			},
+			wantErr: `installer "aqua"`,
+		},
+		{
+			name: "download with delegation type rejected",
+			resources: []Resource{
+				mkInstaller("download", &InstallerSpec{Type: InstallTypeDelegation}),
+			},
+			wantErr: `installer "download" overrides builtin and must use type "download"`,
+		},
+		{
+			name: "unrelated installer name with delegation tolerated",
+			resources: []Resource{
+				mkInstaller("foo", &InstallerSpec{Type: InstallTypeDelegation}),
+			},
+		},
+		{
+			name: "aqua with nil InstallerSpec is skipped",
+			resources: []Resource{
+				mkInstaller("aqua", nil),
+			},
+		},
+		{
+			name: "nil resource entry is skipped",
+			resources: []Resource{
+				nil,
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDownload}),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateBuiltinInstallerOverrides(tt.resources)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("ValidateBuiltinInstallerOverrides() unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateBuiltinInstallerOverrides() expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("ValidateBuiltinInstallerOverrides() error = %q, want containing %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+
+	// Separate from the table because it asserts NotContains, not Contains:
+	// when both builtins are misused, the function short-circuits on
+	// "aqua" (the first entry in builtinInstallerOrder) and never reports
+	// "download". This locks in single-error semantics.
+	t.Run("both misused short-circuits on aqua, does not also report download", func(t *testing.T) {
+		t.Parallel()
+		err := ValidateBuiltinInstallerOverrides([]Resource{
+			mkInstaller("download", &InstallerSpec{Type: InstallTypeDelegation}),
+			mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDelegation}),
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		// The error must mention the aqua override but NOT the download
+		// override — proving the function short-circuits on the first
+		// builtin name in builtinInstallerOrder rather than aggregating.
+		// Care: the literal substring "download" legitimately appears in
+		// the required-type slot of the error format string
+		// (`... must use type "download", got "delegation"`), so we
+		// assert on the full `installer "<name>"` prefix instead of bare
+		// names.
+		if !strings.Contains(err.Error(), `installer "aqua"`) {
+			t.Errorf("error should mention `installer \"aqua\"`: %v", err)
+		}
+		if strings.Contains(err.Error(), `installer "download"`) {
+			t.Errorf("short-circuit broken: error must not also mention `installer \"download\"`: %v", err)
+		}
+	})
+}
+
+// TestBuiltinInstallerInvariants pins the contract between
+// builtinInstallerTypes (map) and builtinInstallerOrder (slice): every
+// name in the slice must appear in the map, and the slice must cover the
+// map exactly. A drift would silently skip override validation for the
+// missing name.
+func TestBuiltinInstallerInvariants(t *testing.T) {
+	t.Parallel()
+	if len(builtinInstallerOrder) != len(builtinInstallerTypes) {
+		t.Fatalf("builtinInstallerOrder (len=%d) and builtinInstallerTypes (len=%d) must have the same length",
+			len(builtinInstallerOrder), len(builtinInstallerTypes))
+	}
+	seen := make(map[string]struct{}, len(builtinInstallerOrder))
+	for _, name := range builtinInstallerOrder {
+		if _, ok := builtinInstallerTypes[name]; !ok {
+			t.Errorf("builtinInstallerOrder entry %q has no corresponding key in builtinInstallerTypes", name)
+		}
+		if _, dup := seen[name]; dup {
+			t.Errorf("builtinInstallerOrder contains duplicate entry %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	for name := range builtinInstallerTypes {
+		if _, ok := seen[name]; !ok {
+			t.Errorf("builtinInstallerTypes key %q is missing from builtinInstallerOrder", name)
+		}
+	}
+}
+
+// TestInstallerSpec_MinimumReleaseAge_JSONRoundTrip locks in the
+// omitempty / round-trip behavior of the minimumReleaseAge JSON tag.
+func TestInstallerSpec_MinimumReleaseAge_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	t.Run("set value round-trips", func(t *testing.T) {
+		t.Parallel()
+		original := InstallerSpec{Type: InstallTypeDownload, MinimumReleaseAge: "168h"}
+		data, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if !strings.Contains(string(data), `"minimumReleaseAge":"168h"`) {
+			t.Errorf("Marshal output should contain the field; got %s", data)
+		}
+		var got InstallerSpec
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if got.MinimumReleaseAge != "168h" {
+			t.Errorf("after round-trip MinimumReleaseAge = %q, want %q", got.MinimumReleaseAge, "168h")
+		}
+	})
+	t.Run("empty value is omitted via omitempty", func(t *testing.T) {
+		t.Parallel()
+		data, err := json.Marshal(InstallerSpec{Type: InstallTypeDownload})
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if strings.Contains(string(data), "minimumReleaseAge") {
+			t.Errorf("empty MinimumReleaseAge should be omitted; got %s", data)
+		}
+	})
+	t.Run("unmarshal absent field yields empty string", func(t *testing.T) {
+		t.Parallel()
+		var got InstallerSpec
+		if err := json.Unmarshal([]byte(`{"type":"download"}`), &got); err != nil {
+			t.Fatalf("Unmarshal: %v", err)
+		}
+		if got.MinimumReleaseAge != "" {
+			t.Errorf("absent MinimumReleaseAge should unmarshal to empty string; got %q", got.MinimumReleaseAge)
+		}
+	})
 }

@@ -251,6 +251,48 @@ func TestSchema_ValidResources(t *testing.T) {
 			}`,
 		},
 		{
+			name: "Installer with minimumReleaseAge",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Installer"
+				metadata: name: "aqua"
+				spec: {
+					type: "download"
+					minimumReleaseAge: "168h"
+				}
+			}`,
+		},
+		{
+			// Schema accepts arbitrary strings — semantic validation is
+			// deferred to Go-side InstallerSpec.Validate(). Proves the
+			// schema layer does not duplicate the duration parser.
+			name: "Installer with semantically invalid minimumReleaseAge string",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Installer"
+				metadata: name: "download"
+				spec: {
+					type: "download"
+					minimumReleaseAge: "notaduration"
+				}
+			}`,
+		},
+		{
+			name: "Runtime with minimumReleaseAge",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "go"
+				spec: {
+					type:        "download"
+					version:     "1.25.6"
+					toolBinPath: "~/go/bin"
+					source: url: "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz"
+					minimumReleaseAge: "168h"
+				}
+			}`,
+		},
+		{
 			name: "InstallerRepository delegation",
 			cue: `{
 				apiVersion: "tomei.terassyi.net/v1beta1"
@@ -702,6 +744,33 @@ func TestSchema_InvalidResources(t *testing.T) {
 					source: {
 						type: "invalid"
 					}
+				}
+			}`,
+		},
+		{
+			name: "Installer minimumReleaseAge not a string",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Installer"
+				metadata: name: "download"
+				spec: {
+					type:              "download"
+					minimumReleaseAge: 168
+				}
+			}`,
+		},
+		{
+			name: "Runtime minimumReleaseAge not a string",
+			cue: `{
+				apiVersion: "tomei.terassyi.net/v1beta1"
+				kind:       "Runtime"
+				metadata: name: "go"
+				spec: {
+					type:              "download"
+					version:           "1.25.6"
+					toolBinPath:       "~/go/bin"
+					source: url:       "https://go.dev/dl/go1.25.6.linux-amd64.tar.gz"
+					minimumReleaseAge: 168
 				}
 			}`,
 		},

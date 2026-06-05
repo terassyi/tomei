@@ -79,6 +79,15 @@ type RuntimeSpec struct {
 	// Example: ["github-release:oven-sh/bun:bun-v"]
 	// Example: ["curl -sL https://go.dev/VERSION?m=text | head -1 | sed 's/^go//'"]
 	ResolveVersion []string `json:"resolveVersion,omitempty"`
+
+	// MinimumReleaseAge gates install of releases younger than this duration.
+	// Format: Go duration string (e.g. "168h" for 1 week). Empty = disabled.
+	// Parsed and validated by `ParsedMinimumReleaseAge()`.
+	//
+	// Enforcement is performed at apply time by the installer engine
+	// (see issue #257); the field on its own has no behavioral effect until
+	// that gate lands.
+	MinimumReleaseAge string `json:"minimumReleaseAge,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -170,7 +179,19 @@ func (s *RuntimeSpec) Validate() error {
 		}
 	}
 
+	// Validate minimumReleaseAge format / sign.
+	if _, err := s.ParsedMinimumReleaseAge(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// ParsedMinimumReleaseAge parses MinimumReleaseAge as a Go duration.
+// See parseMinimumReleaseAge in types.go for parsing semantics
+// (empty/negative rules, no upper bound).
+func (s *RuntimeSpec) ParsedMinimumReleaseAge() (time.Duration, error) {
+	return parseMinimumReleaseAge(s.MinimumReleaseAge)
 }
 
 // Dependencies returns the resources this runtime depends on.

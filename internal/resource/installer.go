@@ -54,6 +54,15 @@ type InstallerSpec struct {
 	// Used by `tomei env` to include the directory in PATH.
 	// Must start with "~/" (home-relative) or "/" (absolute). Only meaningful for delegation type.
 	BinDir string `json:"binDir,omitempty"`
+
+	// MinimumReleaseAge gates install of releases younger than this duration.
+	// Format: Go duration string (e.g. "168h" for 1 week). Empty = disabled.
+	// Parsed and validated by `ParsedMinimumReleaseAge()`.
+	//
+	// Enforcement is performed at apply time by the installer engine
+	// (see issue #257); the field on its own has no behavioral effect until
+	// that gate lands.
+	MinimumReleaseAge string `json:"minimumReleaseAge,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -117,6 +126,71 @@ func (s *InstallerSpec) Validate() error {
 		seen[dep] = struct{}{}
 	}
 
+	// Validate minimumReleaseAge format / sign.
+	if _, err := s.ParsedMinimumReleaseAge(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ParsedMinimumReleaseAge parses MinimumReleaseAge as a Go duration.
+// See parseMinimumReleaseAge in types.go for parsing semantics
+// (empty/negative rules, no upper bound).
+func (s *InstallerSpec) ParsedMinimumReleaseAge() (time.Duration, error) {
+	return parseMinimumReleaseAge(s.MinimumReleaseAge)
+}
+
+// builtinInstallerTypes pins the InstallType each AppendBuiltinInstallers
+// override target must declare. Read-only after init.
+//
+// Iteration uses the hard-coded ordered list builtinInstallerOrder below
+// (not these map keys) so error messages are deterministic when a
+// manifest violates both overrides at once.
+var builtinInstallerTypes = map[string]InstallType{
+	InstallerNameAqua:     InstallTypeDownload,
+	InstallerNameDownload: InstallTypeDownload,
+}
+
+// builtinInstallerOrder pins iteration order for ValidateBuiltinInstallerOverrides.
+// Must contain exactly the keys of builtinInstallerTypes (enforced by
+// TestBuiltinInstallerInvariants).
+var builtinInstallerOrder = []string{InstallerNameAqua, InstallerNameDownload}
+
+// ValidateBuiltinInstallerOverrides rejects user declarations of
+// Installer/aqua or Installer/download whose spec.type differs from the
+// builtin's hard-coded type. See engine.AppendBuiltinInstallers for the
+// override-by-name semantics this guards: a user-declared Installer with
+// one of these reserved names silently shadows the builtin, so allowing a
+// mismatched type would swap the install mechanism without warning.
+//
+// Scope is intentionally narrow: only spec.type is checked. Broader
+// override-shape hardening (rejecting non-nil Bootstrap/Commands/etc on
+// builtin overrides) is deferred to a follow-up issue alongside #254.
+func ValidateBuiltinInstallerOverrides(resources []Resource) error {
+	// Index user-declared installers by name for O(1) lookup.
+	byName := make(map[string]*Installer)
+	for _, res := range resources {
+		if res == nil || res.Kind() != KindInstaller {
+			continue
+		}
+		inst, ok := res.(*Installer)
+		if !ok || inst.InstallerSpec == nil {
+			continue
+		}
+		byName[inst.Name()] = inst
+	}
+	for _, name := range builtinInstallerOrder {
+		inst, ok := byName[name]
+		if !ok {
+			continue
+		}
+		requiredType := builtinInstallerTypes[name]
+		if inst.InstallerSpec.Type != requiredType {
+			return fmt.Errorf("installer %q overrides builtin and must use type %q, got %q",
+				name, requiredType, inst.InstallerSpec.Type)
+		}
+	}
 	return nil
 }
 
