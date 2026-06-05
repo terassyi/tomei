@@ -2,14 +2,28 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestReleaseResponse_PublishedAtDecodes(t *testing.T) {
+	t.Parallel()
+	// Confirms the new published_at JSON tag round-trips into time.Time
+	// without a custom UnmarshalJSON.
+	raw := []byte(`{"tag_name":"v1.2.3","published_at":"2024-09-13T15:42:08Z"}`)
+	var r releaseResponse
+	require.NoError(t, json.Unmarshal(raw, &r))
+	assert.Equal(t, "v1.2.3", r.TagName)
+	want := time.Date(2024, 9, 13, 15, 42, 8, 0, time.UTC)
+	assert.True(t, r.PublishedAt.Equal(want), "got %v want %v", r.PublishedAt, want)
+}
 
 func TestGetLatestRelease(t *testing.T) {
 	t.Parallel()

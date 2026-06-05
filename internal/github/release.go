@@ -6,11 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // releaseResponse represents a subset of the GitHub Releases API response.
 type releaseResponse struct {
-	TagName string `json:"tag_name"`
+	TagName     string    `json:"tag_name"`
+	PublishedAt time.Time `json:"published_at"`
+}
+
+// Release is the parsed form of a GitHub release returned to callers that
+// need both the tag and its publication time (e.g., release-age gating in
+// internal/age). encoding/json hydrates PublishedAt from the RFC3339
+// string GitHub returns.
+type Release struct {
+	TagName     string
+	PublishedAt time.Time
 }
 
 // GetLatestRelease fetches the latest release tag from a GitHub repository.
