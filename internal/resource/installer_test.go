@@ -439,10 +439,11 @@ func TestValidateBuiltinInstallerOverrides(t *testing.T) {
 			},
 		},
 		{
-			name: "aqua with nil InstallerSpec is skipped",
+			name: "aqua with nil InstallerSpec rejected (still shadows builtin)",
 			resources: []Resource{
 				mkInstaller("aqua", nil),
 			},
+			wantErr: `installer "aqua" overrides builtin and must declare a spec`,
 		},
 		{
 			name: "nil resource entry is skipped",
@@ -450,6 +451,19 @@ func TestValidateBuiltinInstallerOverrides(t *testing.T) {
 				nil,
 				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDownload}),
 			},
+		},
+		{
+			// Two Installer/aqua occurrences (e.g., split across manifests).
+			// A valid one must NOT mask an invalid sibling — every
+			// occurrence is checked. Order chosen so the invalid one
+			// appears second to also defend against "last write wins"
+			// regressions on a map-based dedup.
+			name: "duplicate aqua: invalid sibling must still error",
+			resources: []Resource{
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDownload}),
+				mkInstaller("aqua", &InstallerSpec{Type: InstallTypeDelegation}),
+			},
+			wantErr: `installer "aqua" overrides builtin and must use type "download"`,
 		},
 	}
 	for _, tt := range tests {

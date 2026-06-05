@@ -159,36 +159,50 @@ var builtinInstallerOrder = []string{InstallerNameAqua, InstallerNameDownload}
 
 // ValidateBuiltinInstallerOverrides rejects user declarations of
 // Installer/aqua or Installer/download whose spec.type differs from the
-// builtin's hard-coded type. See engine.AppendBuiltinInstallers for the
-// override-by-name semantics this guards: a user-declared Installer with
-// one of these reserved names silently shadows the builtin, so allowing a
-// mismatched type would swap the install mechanism without warning.
+// builtin's hard-coded type, or whose InstallerSpec is missing entirely.
+// See engine.AppendBuiltinInstallers for the override-by-name semantics
+// this guards: a user-declared Installer with one of these reserved
+// names silently shadows the builtin, so allowing a mismatched (or
+// absent) spec would swap the install mechanism without warning.
 //
-// Scope is intentionally narrow: only spec.type is checked. Broader
-// override-shape hardening (rejecting non-nil Bootstrap/Commands/etc on
-// builtin overrides) is deferred to a follow-up issue alongside #254.
+// Every occurrence of a reserved name is checked — duplicates are not
+// deduplicated by name, because if two manifests both declare
+// Installer/aqua and one is valid while the other is not, the invalid
+// one must still surface.
+//
+// Scope is intentionally narrow: only spec.type (and spec presence) is
+// checked. Broader override-shape hardening (rejecting non-nil
+// Bootstrap/Commands/etc on builtin overrides) is deferred to a
+// follow-up issue alongside #254.
 func ValidateBuiltinInstallerOverrides(resources []Resource) error {
-	// Index user-declared installers by name for O(1) lookup.
-	byName := make(map[string]*Installer)
+	// Collect every occurrence of each reserved builtin name. Using a
+	// slice (not a map keyed by name) so duplicate declarations are all
+	// validated rather than overwriting each other.
+	byName := make(map[string][]*Installer)
 	for _, res := range resources {
 		if res == nil || res.Kind() != KindInstaller {
 			continue
 		}
 		inst, ok := res.(*Installer)
-		if !ok || inst.InstallerSpec == nil {
-			continue
-		}
-		byName[inst.Name()] = inst
-	}
-	for _, name := range builtinInstallerOrder {
-		inst, ok := byName[name]
 		if !ok {
 			continue
 		}
+		if _, isReserved := builtinInstallerTypes[inst.Name()]; !isReserved {
+			continue
+		}
+		byName[inst.Name()] = append(byName[inst.Name()], inst)
+	}
+	for _, name := range builtinInstallerOrder {
 		requiredType := builtinInstallerTypes[name]
-		if inst.InstallerSpec.Type != requiredType {
-			return fmt.Errorf("installer %q overrides builtin and must use type %q, got %q",
-				name, requiredType, inst.InstallerSpec.Type)
+		for _, inst := range byName[name] {
+			if inst.InstallerSpec == nil {
+				return fmt.Errorf("installer %q overrides builtin and must declare a spec (type %q)",
+					name, requiredType)
+			}
+			if inst.InstallerSpec.Type != requiredType {
+				return fmt.Errorf("installer %q overrides builtin and must use type %q, got %q",
+					name, requiredType, inst.InstallerSpec.Type)
+			}
 		}
 	}
 	return nil
