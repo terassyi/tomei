@@ -62,6 +62,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Reject user-declared Installer/aqua or Installer/download whose
+	// spec.type differs from the builtin's hard-coded type. Catches a
+	// silent install-mechanism swap that AppendBuiltinInstallers would
+	// otherwise allow via override-by-name.
+	if err := resource.ValidateBuiltinInstallerOverrides(resources); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
 	// Validate each resource's spec
 	cmd.Println("Resources:")
 	validationFailed := false

@@ -214,6 +214,9 @@ const (
 	// InstallerNameAqua is the canonical name of the builtin aqua installer.
 	// Tools using a Registry package (owner/repo form) must reference this installer.
 	InstallerNameAqua = "aqua"
+
+	// InstallerNameDownload is the canonical name of the builtin raw-download installer.
+	InstallerNameDownload = "download"
 )
 
 // ToolSpec defines the desired state of an individual tool.

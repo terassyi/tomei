@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Kind represents the type of resource (K8s style).
@@ -318,6 +319,27 @@ func unmarshalStringOrSlice(data json.RawMessage) ([]string, error) {
 		return nil, err
 	}
 	return []string{s}, nil
+}
+
+// parseMinimumReleaseAge parses a MinimumReleaseAge field value (shared
+// across InstallerSpec and RuntimeSpec — colocated here with the other
+// cross-spec helpers like unmarshalStringFields). Empty returns (0, nil)
+// (disabled). Negative durations are rejected — "younger than now −
+// negative" is semantically meaningless. There is no upper bound: setting
+// a very large value (e.g., "87600h" / 10 years) is a user-policy
+// concern, not a schema constraint.
+func parseMinimumReleaseAge(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid minimumReleaseAge %q: %w", s, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("minimumReleaseAge must be non-negative, got %q", s)
+	}
+	return d, nil
 }
 
 // unmarshalStringFields applies unmarshalStringOrSlice to each field.

@@ -86,6 +86,16 @@ package schema
 		taintOnUpgrade?: bool
 		resolveVersion?: [...string]
 
+		// minimumReleaseAge gates install of releases younger than this
+		// duration. Go duration string (e.g. "168h" for 1 week). Empty =
+		// disabled.
+		//
+		// Go-side parses and validates the value; the schema accepts any
+		// string and defers semantic checks to Validate(). Enforcement is
+		// performed at apply time by the installer engine (see issue
+		// #257); declaring this field before that gate lands is a no-op.
+		minimumReleaseAge?: string
+
 		// Conditional required fields
 		if type == "download" {
 			source: #DownloadSource
@@ -120,6 +130,16 @@ package schema
 		dependsOn?: [...string]
 		bootstrap?: #CommandSet
 		commands?:  #CommandSet
+
+		// minimumReleaseAge gates install of releases younger than this
+		// duration. Go duration string (e.g. "168h" for 1 week). Empty =
+		// disabled.
+		//
+		// Go-side parses and validates the value; the schema accepts any
+		// string and defers semantic checks to Validate(). Enforcement is
+		// performed at apply time by the installer engine (see issue
+		// #257); declaring this field before that gate lands is a no-op.
+		minimumReleaseAge?: string
 
 		// Conditional required fields
 		if type == "delegation" {

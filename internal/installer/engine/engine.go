@@ -317,6 +317,13 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 
 	slog.Debug("applying configuration", "resources", len(resources))
 
+	// Reject user-declared Installer/aqua or Installer/download with a
+	// mismatched spec.type before AppendBuiltinInstallers silently picks
+	// up the override and changes the install mechanism.
+	if err := resource.ValidateBuiltinInstallerOverrides(resources); err != nil {
+		return fmt.Errorf("apply rejected: %w", err)
+	}
+
 	// Build dependency graph and get execution layers.
 	// Inject builtin installers into the resolver only so that dependency
 	// nodes like "Installer/aqua" are properly resolved. Builtins are NOT

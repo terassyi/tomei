@@ -54,6 +54,15 @@ type InstallerSpec struct {
 	// Used by `tomei env` to include the directory in PATH.
 	// Must start with "~/" (home-relative) or "/" (absolute). Only meaningful for delegation type.
 	BinDir string `json:"binDir,omitempty"`
+
+	// MinimumReleaseAge gates install of releases younger than this duration.
+	// Format: Go duration string (e.g. "168h" for 1 week). Empty = disabled.
+	// Parsed and validated by `ParsedMinimumReleaseAge()`.
+	//
+	// Enforcement is performed at apply time by the installer engine
+	// (see issue #257); the field on its own has no behavioral effect until
+	// that gate lands.
+	MinimumReleaseAge string `json:"minimumReleaseAge,omitempty"`
 }
 
 // UnmarshalJSON handles CUE's MarshalJSON quirk where single-element lists
@@ -117,6 +126,85 @@ func (s *InstallerSpec) Validate() error {
 		seen[dep] = struct{}{}
 	}
 
+	// Validate minimumReleaseAge format / sign.
+	if _, err := s.ParsedMinimumReleaseAge(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ParsedMinimumReleaseAge parses MinimumReleaseAge as a Go duration.
+// See parseMinimumReleaseAge in types.go for parsing semantics
+// (empty/negative rules, no upper bound).
+func (s *InstallerSpec) ParsedMinimumReleaseAge() (time.Duration, error) {
+	return parseMinimumReleaseAge(s.MinimumReleaseAge)
+}
+
+// builtinInstallerTypes pins the InstallType each AppendBuiltinInstallers
+// override target must declare. Read-only after init.
+//
+// Iteration uses the hard-coded ordered list builtinInstallerOrder below
+// (not these map keys) so error messages are deterministic when a
+// manifest violates both overrides at once.
+var builtinInstallerTypes = map[string]InstallType{
+	InstallerNameAqua:     InstallTypeDownload,
+	InstallerNameDownload: InstallTypeDownload,
+}
+
+// builtinInstallerOrder pins iteration order for ValidateBuiltinInstallerOverrides.
+// Must contain exactly the keys of builtinInstallerTypes (enforced by
+// TestBuiltinInstallerInvariants).
+var builtinInstallerOrder = []string{InstallerNameAqua, InstallerNameDownload}
+
+// ValidateBuiltinInstallerOverrides rejects user declarations of
+// Installer/aqua or Installer/download whose spec.type differs from the
+// builtin's hard-coded type, or whose InstallerSpec is missing entirely.
+// See engine.AppendBuiltinInstallers for the override-by-name semantics
+// this guards: a user-declared Installer with one of these reserved
+// names silently shadows the builtin, so allowing a mismatched (or
+// absent) spec would swap the install mechanism without warning.
+//
+// Every occurrence of a reserved name is checked — duplicates are not
+// deduplicated by name, because if two manifests both declare
+// Installer/aqua and one is valid while the other is not, the invalid
+// one must still surface.
+//
+// Scope is intentionally narrow: only spec.type (and spec presence) is
+// checked. Broader override-shape hardening (rejecting non-nil
+// Bootstrap/Commands/etc on builtin overrides) is deferred to a
+// follow-up issue alongside #254.
+func ValidateBuiltinInstallerOverrides(resources []Resource) error {
+	// Collect every occurrence of each reserved builtin name. Using a
+	// slice (not a map keyed by name) so duplicate declarations are all
+	// validated rather than overwriting each other.
+	byName := make(map[string][]*Installer)
+	for _, res := range resources {
+		if res == nil || res.Kind() != KindInstaller {
+			continue
+		}
+		inst, ok := res.(*Installer)
+		if !ok {
+			continue
+		}
+		if _, isReserved := builtinInstallerTypes[inst.Name()]; !isReserved {
+			continue
+		}
+		byName[inst.Name()] = append(byName[inst.Name()], inst)
+	}
+	for _, name := range builtinInstallerOrder {
+		requiredType := builtinInstallerTypes[name]
+		for _, inst := range byName[name] {
+			if inst.InstallerSpec == nil {
+				return fmt.Errorf("installer %q overrides builtin and must declare a spec (type %q)",
+					name, requiredType)
+			}
+			if inst.InstallerSpec.Type != requiredType {
+				return fmt.Errorf("installer %q overrides builtin and must use type %q, got %q",
+					name, requiredType, inst.InstallerSpec.Type)
+			}
+		}
+	}
 	return nil
 }
 

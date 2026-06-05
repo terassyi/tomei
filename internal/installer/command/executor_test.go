@@ -81,6 +81,23 @@ func TestExecutor_expand(t *testing.T) {
 			},
 			expected: "cmd  ",
 		},
+		{
+			name:   "expand minimumReleaseAge",
+			cmdStr: "install --min-age={{.MinimumReleaseAge}} {{.Package}}",
+			vars: Vars{
+				Package:           "gopls",
+				MinimumReleaseAge: "168h",
+			},
+			expected: "install --min-age=168h gopls",
+		},
+		{
+			name:   "empty minimumReleaseAge expands to empty string",
+			cmdStr: "install --min-age={{.MinimumReleaseAge}} {{.Package}}",
+			vars: Vars{
+				Package: "gopls",
+			},
+			expected: "install --min-age= gopls",
+		},
 	}
 
 	for _, tt := range tests {

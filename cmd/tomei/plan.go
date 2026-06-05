@@ -112,6 +112,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Reject builtin-installer overrides whose type differs from the
+	// builtin's hard-coded download type. See ValidateBuiltinInstallerOverrides
+	// for rationale.
+	if err := resource.ValidateBuiltinInstallerOverrides(resources); err != nil {
+		return fmt.Errorf("plan rejected: %w", err)
+	}
+
 	updateCfg := engine.UpdateConfig{
 		SyncMode:       planCfg.syncRegistry,
 		UpdateTools:    planCfg.updateTools || planCfg.updateAll,

@@ -51,6 +51,13 @@ type Vars struct {
 	// Security: values are sourced from the user's own CUE manifest,
 	// not from external/untrusted input.
 	Args string
+	// MinimumReleaseAge is the Go duration string declared on the owning
+	// Installer/Runtime spec (e.g., "168h"). Empty when unset. Threaded by
+	// the installer engine; currently a no-op until issue #257's apply-time
+	// gate consumes it. The slot exists here so delegation commands can
+	// reference {{.MinimumReleaseAge}} without further plumbing once the
+	// gate lands.
+	MinimumReleaseAge string
 }
 
 // Executor executes shell commands with variable substitution.

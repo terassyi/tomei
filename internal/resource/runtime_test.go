@@ -1,7 +1,9 @@
 package resource
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -207,6 +209,35 @@ func TestRuntimeSpec_Validate(t *testing.T) {
 			},
 			wantErr: "toolBinPath is required when commands is defined",
 		},
+		{
+			name: "valid with minimumReleaseAge",
+			spec: RuntimeSpec{
+				Type:              InstallTypeDownload,
+				Version:           "1.25.6",
+				Source:            &DownloadSource{URL: "https://example.com/runtime.tar.gz"},
+				MinimumReleaseAge: "168h",
+			},
+		},
+		{
+			name: "invalid minimumReleaseAge surfaces from Validate",
+			spec: RuntimeSpec{
+				Type:              InstallTypeDownload,
+				Version:           "1.25.6",
+				Source:            &DownloadSource{URL: "https://example.com/runtime.tar.gz"},
+				MinimumReleaseAge: "7d",
+			},
+			wantErr: "minimumReleaseAge",
+		},
+		{
+			name: "negative minimumReleaseAge rejected from Validate",
+			spec: RuntimeSpec{
+				Type:              InstallTypeDownload,
+				Version:           "1.25.6",
+				Source:            &DownloadSource{URL: "https://example.com/runtime.tar.gz"},
+				MinimumReleaseAge: "-1h",
+			},
+			wantErr: "minimumReleaseAge must be non-negative",
+		},
 	}
 
 	for _, tt := range tests {
@@ -371,4 +402,75 @@ func TestRuntimeBootstrapSpec_UnmarshalJSON(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestRuntimeSpec_ParsedMinimumReleaseAge(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   string
+		want    time.Duration
+		wantErr bool
+		errSub  string
+	}{
+		{name: "empty disabled", input: "", want: 0},
+		{name: "168h", input: "168h", want: 168 * time.Hour},
+		{name: "leading plus accepted", input: "+168h", want: 168 * time.Hour},
+		{name: "compound", input: "1h30m", want: 90 * time.Minute},
+		{name: "0s explicit zero", input: "0s", want: 0},
+		{name: "0 unitless accepted as zero", input: "0", want: 0},
+		{name: "7d rejected", input: "7d", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "uppercase H rejected", input: "168H", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "leading whitespace rejected", input: "  168h", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "garbage rejected", input: "garbage", wantErr: true, errSub: "minimumReleaseAge"},
+		{name: "negative hour", input: "-1h", wantErr: true, errSub: "minimumReleaseAge must be non-negative"},
+		{name: "negative ns", input: "-1ns", wantErr: true, errSub: "minimumReleaseAge must be non-negative"},
+		{name: "shell metacharacters rejected", input: "168h; rm -rf /", wantErr: true, errSub: "minimumReleaseAge"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := RuntimeSpec{MinimumReleaseAge: tt.input}
+			got, err := s.ParsedMinimumReleaseAge()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSub)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestRuntimeSpec_MinimumReleaseAge_JSONRoundTrip locks in the
+// omitempty / round-trip behavior of the minimumReleaseAge JSON tag.
+func TestRuntimeSpec_MinimumReleaseAge_JSONRoundTrip(t *testing.T) {
+	t.Parallel()
+	t.Run("set value round-trips", func(t *testing.T) {
+		t.Parallel()
+		original := RuntimeSpec{
+			Type:              InstallTypeDownload,
+			Version:           "1.25.6",
+			MinimumReleaseAge: "168h",
+		}
+		data, err := json.Marshal(original)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"minimumReleaseAge":"168h"`)
+		var got RuntimeSpec
+		require.NoError(t, json.Unmarshal(data, &got))
+		assert.Equal(t, "168h", got.MinimumReleaseAge)
+	})
+	t.Run("empty value is omitted via omitempty", func(t *testing.T) {
+		t.Parallel()
+		data, err := json.Marshal(RuntimeSpec{Type: InstallTypeDownload, Version: "1.25.6"})
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "minimumReleaseAge")
+	})
+	t.Run("unmarshal absent field yields empty string", func(t *testing.T) {
+		t.Parallel()
+		var got RuntimeSpec
+		require.NoError(t, json.Unmarshal([]byte(`{"type":"download","version":"1.25.6"}`), &got))
+		assert.Empty(t, got.MinimumReleaseAge)
+	})
 }
