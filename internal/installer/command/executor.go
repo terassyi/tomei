@@ -57,7 +57,9 @@ type Vars struct {
 	// {{.MinimumReleaseAge}}. For delegation paths tomei does NOT itself gate
 	// the install — honoring the value is the user command's responsibility.
 	// (tomei's own apply-time gate for aqua/download installers is issue #257.)
-	// Validated as a Go duration before it reaches the command template.
+	// The duration is validated upstream (InstallerSpec.Validate /
+	// RuntimeSpec.ParsedMinimumReleaseAge in engine.Apply) before threading;
+	// this package performs no validation of its own.
 	MinimumReleaseAge string
 }
 
