@@ -143,16 +143,17 @@ func TestVersionClient_GetLatestToolVersion(t *testing.T) {
 func TestVersionClient_GetReleaseByTag(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name        string
-		owner       string
-		repo        string
-		tag         string
-		statusCode  int
-		body        string
-		wantTag     string
-		wantPubAt   time.Time
-		wantPubZero bool
-		wantErr     string
+		name            string
+		owner           string
+		repo            string
+		tag             string
+		statusCode      int
+		body            string
+		wantTag         string
+		wantPubAt       time.Time
+		wantPubZero     bool
+		wantURLContains string
+		wantErr         string
 	}{
 		{
 			name:       "success returns tag and publishedAt",
@@ -163,6 +164,17 @@ func TestVersionClient_GetReleaseByTag(t *testing.T) {
 			body:       `{"tag_name":"14.1.0","published_at":"2024-09-13T15:42:08Z"}`,
 			wantTag:    "14.1.0",
 			wantPubAt:  time.Date(2024, 9, 13, 15, 42, 8, 0, time.UTC),
+		},
+		{
+			name:            "tag with slash is url-escaped",
+			owner:           "o",
+			repo:            "r",
+			tag:             "release/v1.0",
+			statusCode:      http.StatusOK,
+			body:            `{"tag_name":"release/v1.0"}`,
+			wantTag:         "release/v1.0",
+			wantPubZero:     true,
+			wantURLContains: "/releases/tags/release%2Fv1.0",
 		},
 		{
 			name:        "missing published_at decodes to zero time",
@@ -222,6 +234,9 @@ func TestVersionClient_GetReleaseByTag(t *testing.T) {
 					handler: func(req *http.Request) (*http.Response, error) {
 						assert.Equal(t, "application/vnd.github.v3+json", req.Header.Get("Accept"))
 						assert.Contains(t, req.URL.String(), "/releases/tags/")
+						if tt.wantURLContains != "" {
+							assert.Contains(t, req.URL.String(), tt.wantURLContains)
+						}
 						return newMockResponse(tt.statusCode, tt.body), nil
 					},
 				},

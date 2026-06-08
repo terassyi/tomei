@@ -52,15 +52,23 @@ func (c *cachedFetcher) Fetch(ctx context.Context, key Key) (time.Time, bool, er
 		publishedAt time.Time
 		ok          bool
 	}
-	v, fetchErr, _ := c.sf.Do(keyString(key), func() (any, error) {
+	// DoChan (not Do) so a caller whose ctx is canceled while waiting on
+	// another goroutine's in-flight fetch can abort promptly via the
+	// select below, instead of blocking until that shared fetch returns.
+	ch := c.sf.DoChan(keyString(key), func() (any, error) {
 		t, ok, e := c.inner.Fetch(ctx, key)
 		c.mu.Lock()
 		c.cache[key] = cacheEntry{publishedAt: t, ok: ok, err: e}
 		c.mu.Unlock()
 		return sfResult{publishedAt: t, ok: ok}, e
 	})
-	r := v.(sfResult)
-	return r.publishedAt, r.ok, fetchErr
+	select {
+	case <-ctx.Done():
+		return time.Time{}, false, ctx.Err()
+	case res := <-ch:
+		r := res.Val.(sfResult)
+		return r.publishedAt, r.ok, res.Err
+	}
 }
 
 // keyString builds the singleflight dedup key. Doesn't have to be

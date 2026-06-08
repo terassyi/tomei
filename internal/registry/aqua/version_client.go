@@ -80,10 +80,18 @@ func (c *VersionClient) GetReleaseByTag(ctx context.Context, repoOwner, repoName
 		return github.Release{}, fmt.Errorf("invalid tag: %w", err)
 	}
 
+	// path.Join would collapse a tag containing '/' (legal in git refs,
+	// e.g. "release/v1.0") into extra path segments, producing a wrong
+	// request. Escape the tag and carry it in RawPath while keeping the
+	// decoded form in Path, so url.URL.String() emits "%2F" for the slash
+	// instead of a path separator. validatePathComponent already rejects
+	// traversal sequences ("..") above.
+	basePath := path.Join("/repos", repoOwner, repoName, "releases", "tags") + "/"
 	apiURL := &url.URL{
-		Scheme: "https",
-		Host:   "api.github.com",
-		Path:   path.Join("/repos", repoOwner, repoName, "releases", "tags", tag),
+		Scheme:  "https",
+		Host:    "api.github.com",
+		Path:    basePath + tag,
+		RawPath: basePath + url.PathEscape(tag),
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)

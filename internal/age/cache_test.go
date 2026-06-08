@@ -116,6 +116,53 @@ func TestCachedFetcher_SingleflightDedupsConcurrent(t *testing.T) {
 	}
 }
 
+func TestCachedFetcher_WaiterAbortsOnContextCancel(t *testing.T) {
+	t.Parallel()
+	cf := &countingFetcher{
+		ts:      time.Now(),
+		ok:      true,
+		block:   make(chan struct{}),
+		entered: make(chan struct{}),
+	}
+	c := &cachedFetcher{inner: cf, cache: make(map[Key]cacheEntry)}
+	k := Key{Source: SourceLastModified, URL: "https://example.com/y"}
+
+	// Leader: occupies singleflight, blocked inside inner Fetch.
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		_, _, _ = c.Fetch(context.Background(), k)
+	}()
+	<-cf.entered // leader is now provably in-flight
+
+	// Waiter: same key, so it dedupes onto the leader's in-flight fetch.
+	// Its ctx is canceled while waiting; it must return promptly with
+	// ctx.Err() instead of blocking until the leader's fetch completes.
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, _, err := c.Fetch(ctx, k)
+		errCh <- err
+	}()
+	// Give the waiter a moment to queue on DoChan, then cancel. The leader
+	// is still blocked, so a Do-based impl would hang here until timeout.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("waiter err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter did not abort promptly on ctx cancel")
+	}
+
+	// Release the leader and let it finish cleanly.
+	close(cf.block)
+	<-leaderDone
+}
+
 func TestCachedFetcher_ErrorsAreCached(t *testing.T) {
 	t.Parallel()
 	cf := &countingFetcher{err: errors.New("transient")}
