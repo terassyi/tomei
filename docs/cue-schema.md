@@ -102,6 +102,7 @@ spec: {
 | `spec.binDir` | string | no | Directory containing runtime binaries |
 | `spec.commands` | [CommandSet](#commandset) | no | Commands for installing tools via this runtime |
 | `spec.env` | map[string]string | no | Environment variables (e.g., `GOROOT`, `GOBIN`) |
+| `spec.minimumReleaseAge` | string | no | Go duration (e.g. `"168h"`); not enforced for runtimes — exposed to the runtime's install/bootstrap commands as `{{.MinimumReleaseAge}}`. See [Minimum release age](#minimum-release-age) |
 
 ### Tool
 
@@ -271,6 +272,60 @@ spec: {
 | `spec.bootstrap` | [CommandSet](#commandset) | no | Self-installation commands |
 | `spec.commands` | [CommandSet](#commandset) | delegation only | Commands for installing tools |
 | `spec.binDir` | string | no | Directory where delegation installers place binaries. Used by `tomei env` to include in PATH. Must start with `~/` or `/`. Only meaningful for delegation type |
+| `spec.minimumReleaseAge` | string | no | Go duration (e.g. `"168h"`); refuse installs whose upstream release is younger. Empty disables. See [Minimum release age](#minimum-release-age) |
+
+#### Minimum release age
+
+`minimumReleaseAge` is a supply-chain defense: refuse to install a tool version
+whose upstream release is younger than the threshold, giving the community time
+to flag a compromised release before you pull it. It is set on the
+`Installer`/`Runtime` spec and applies to tools that reference it. See the
+[threat model](design.md#minimum-release-age) for the rationale and limitations.
+
+```cue
+// Enable the gate for all aqua-installed tools by overriding the builtin
+// "aqua" installer. The override MUST keep type: "download".
+aqua: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Installer"
+    metadata: name: "aqua"
+    spec: {
+        type:              "download"
+        minimumReleaseAge: "168h" // 1 week
+    }
+}
+```
+
+- **Format**: a [Go duration](https://pkg.go.dev/time#ParseDuration) string.
+  There is **no day unit** — use `"24h"` for a day and `"168h"` for a week
+  (`"7d"` is invalid). Decimals are allowed (`"1.5h"`). An empty string, `"0"`,
+  or `"0h"` all disable the gate; negative values are rejected at validate time.
+- **Opt-in**: the gate is off unless you declare it. The builtin `aqua` and
+  `download` installers carry no threshold, so you enable enforcement by
+  declaring an override (as above) — or a custom `type: "download"` installer —
+  that sets `minimumReleaseAge`. There is no global default.
+- **Where tomei enforces.** Whether the gate is *active* depends on the
+  installer's *type* (any `type: "download"` installer with a threshold), not its
+  name. Which timestamp *source* is used is then chosen by the **tool**, not the
+  installer: a registry `package` (owner/repo) uses the GitHub Releases
+  `published_at`; otherwise an explicit `source.url` uses the HTTP `Last-Modified`
+  header.
+
+| Tool's install path | Enforcement |
+|---|---|
+| via a `type: "download"` installer (incl. the builtin `aqua`, when overridden with a threshold), with a registry `package` | tomei enforces — GitHub `published_at` (**best-effort**: see limitations) |
+| via a `type: "download"` installer (incl. the builtin `download`), with an explicit `source.url` | tomei enforces — HTTP `Last-Modified` (**best-effort**: see limitations) |
+| via a delegation installer (binstall, brew, custom) | **Not enforced by tomei** — the user's `commands.install` must honor the `{{.MinimumReleaseAge}}` template var |
+| via `runtimeRef` (any runtime — `go`, `cargo`, `uv`, … — regardless of the runtime's `type`) | **Not enforced by tomei** — `runtimeRef` installs are never gated; the runtime's install commands must honor the var |
+| Commands pattern (Tool with `commands:`) | Out of scope — not gated |
+
+- For delegation paths the value is exposed only as the `{{.MinimumReleaseAge}}`
+  [command template variable](#commandset) (rendered as the literal duration
+  string, e.g. `168h`); tomei performs no release-age check itself. `tomei plan`
+  and `tomei validate` emit a lint warning when the field is set but no install
+  command references the variable. See [usage](usage.md#minimum-release-age-gate).
+
+Tracking issue: [#257](https://github.com/terassyi/tomei/issues/257).
 
 ### InstallerRepository
 
@@ -538,7 +593,7 @@ package: {name: "golang.org/x/tools/gopls"}
 }
 ```
 
-Commands support Go template variables: `{{.Package}}`, `{{.Version}}`, `{{.Name}}`, `{{.BinPath}}`.
+Commands support Go template variables: `{{.Package}}`, `{{.Version}}`, `{{.Name}}`, `{{.BinPath}}`, `{{.MinimumReleaseAge}}` (the configured [minimum release age](#minimum-release-age), rendered as the literal duration string; tomei does not act on it for delegation paths).
 
 ### Aqua Template Variables
 

@@ -171,6 +171,70 @@ Mode:  headless (server, CI, container, SSH), desktop (GUI)
 - No shell injection — `exec.Command` with explicit arguments
 - Atomic state writes (tmp + rename)
 
+### Minimum release age
+
+`minimumReleaseAge` defends against the "fresh malicious release" supply-chain
+window: an attacker compromises a maintainer account, pushes a malicious
+version, and downstream users pull it before the community detects the
+compromise (chalk/debug, ua-parser-js, etc.). The defense is simple — refuse to
+install a release younger than a configured threshold (e.g. a week), so a
+compromised upload has time to be flagged before you take it. Enforcement runs
+at apply time (not plan time) so the plan→apply TOCTOU window is minimized: the
+plan advisory is best-effort and apply re-fetches and re-decides.
+
+It is a speed bump, not a fence. The limitations are deliberate and worth
+understanding before relying on it:
+
+- **Fail-open by design.** Any condition that prevents fetching the release time
+  — a network error, an aqua tag that doesn't match the GitHub release (see
+  below), an unresolved `latest` version, or a missing `Last-Modified` header —
+  lets the install **proceed**, not abort. An attacker who can make the
+  timestamp unfetchable bypasses the gate. tomei surfaces this (a `WARN` log that
+  survives `--quiet`, plus an "installed anyway" summary line), so treat that
+  line as a security signal — the absence of a skip message is not proof the
+  gate held. A fail-closed `--strict` mode is a possible future addition.
+- **Delegation and runtime installs are not enforced by tomei at all.** For
+  delegation installers (binstall, brew, custom) and runtimes (go, cargo, uv),
+  tomei only exposes the threshold as the `{{.MinimumReleaseAge}}` template
+  variable; it performs no release-age check. Setting the field there protects
+  nothing unless the user's own install command implements the check. `tomei
+  plan`/`validate` lint-warn when the field is set on such a resource but no
+  install command references the variable.
+- **Timestamps are publisher-controlled, not cryptographic.** GitHub
+  `published_at` and HTTP `Last-Modified` are not attestations. `Last-Modified`
+  in particular is the object's storage modification time — reset by any
+  re-upload or mirror sync and fully controlled by whoever serves the object —
+  so download-URL gating is a weaker signal than the aqua `published_at` check,
+  not equivalent to it. (Cryptographic provenance — cosign / SLSA — is a
+  separate, complementary concern.)
+- **aqua tag derivation is best-effort.** The release tag is taken directly from
+  `spec.version`. aqua-registry packages commonly apply a `version_prefix` /
+  `trimV`, so the GitHub tag can differ from `spec.version`; on mismatch the
+  lookup 404s and the gate fails open. Registry-based tag resolution is a
+  possible future improvement.
+- **First installs are gated**, not exempt — new tools are exactly what an
+  attacker introduces. Plan accordingly when bootstrapping a fresh environment
+  (or use `--ignore-min-release-age`).
+
+Operational notes:
+
+- **Recommended initial value: `24h`–`168h`** (one day to one week). The right
+  value is per-tool and depends on your attacker-detection window: a longer gate
+  maximizes that window but means you always lag fast-moving tools by that much.
+  Set it per installer override; there is no global default.
+- The aqua check hits the GitHub API (60 requests/hour unauthenticated,
+  5000/hour authenticated). Set `GITHUB_TOKEN` (or `GH_TOKEN`) for production
+  use; the token is sent only to GitHub hosts, and the raw-download
+  `Last-Modified` check uses no token, so configuring it adds no credential
+  exposure. The download check is HTTPS-only and rejects URLs whose host is an IP
+  literal in a private, loopback, link-local, multicast, or unspecified range
+  (on the initial request and every redirect hop). Host *names* are not resolved,
+  so a DNS name is not range-checked — the CUE manifest is the trust boundary.
+
+See [usage](usage.md#minimum-release-age-gate) and the
+[schema reference](cue-schema.md#minimum-release-age). Tracking issue:
+[#257](https://github.com/terassyi/tomei/issues/257).
+
 ## 8. Schema Versioning
 
 The CUE schema is published as part of the `tomei.terassyi.net@v0` module on the OCI registry (`ghcr.io/terassyi`). User manifests can `import "tomei.terassyi.net/schema"` for explicit type validation and editor completion via CUE LSP.
