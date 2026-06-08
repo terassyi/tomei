@@ -14,7 +14,8 @@ import (
 
 // lastModifiedFetcher resolves SourceLastModified keys by HEAD'ing the
 // URL and reading the Last-Modified header. Falls back to a 1-byte
-// Range GET if the server returns 405 or 501.
+// Range GET when the HEAD returns 405/501, or succeeds (2xx) but omits
+// the Last-Modified header — some CDNs only emit it on body responses.
 type lastModifiedFetcher struct {
 	client        *http.Client
 	timeout       time.Duration

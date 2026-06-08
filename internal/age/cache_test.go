@@ -116,6 +116,43 @@ func TestCachedFetcher_SingleflightDedupsConcurrent(t *testing.T) {
 	}
 }
 
+// flakyFetcher returns errFirst on its first call and (ts, true, nil)
+// on every call after, so a test can prove whether the first result was
+// memoized (one call) or not (two calls).
+type flakyFetcher struct {
+	calls    atomic.Int64
+	errFirst error
+	ts       time.Time
+}
+
+func (f *flakyFetcher) Fetch(_ context.Context, _ Key) (time.Time, bool, error) {
+	if f.calls.Add(1) == 1 {
+		return time.Time{}, false, f.errFirst
+	}
+	return f.ts, true, nil
+}
+
+func TestCachedFetcher_ContextErrorsAreNotCached(t *testing.T) {
+	t.Parallel()
+	want := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	// First lookup fails with a context error; it must NOT be memoized,
+	// so a later lookup (fresh ctx) re-invokes inner and can succeed.
+	cf := &flakyFetcher{errFirst: context.DeadlineExceeded, ts: want}
+	c := &cachedFetcher{inner: cf, cache: make(map[Key]cacheEntry)}
+	k := Key{Source: SourceLastModified, URL: "https://example.com/ctx"}
+
+	if _, _, err := c.Fetch(context.Background(), k); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first call err = %v, want DeadlineExceeded", err)
+	}
+	got, ok, err := c.Fetch(context.Background(), k)
+	if err != nil || !ok || !got.Equal(want) {
+		t.Fatalf("second call = (%v,%v,%v), want (%v,true,nil)", got, ok, err, want)
+	}
+	if n := cf.calls.Load(); n != 2 {
+		t.Errorf("inner Fetch called %d times, want 2 (ctx error must not cache)", n)
+	}
+}
+
 func TestCachedFetcher_WaiterAbortsOnContextCancel(t *testing.T) {
 	t.Parallel()
 	cf := &countingFetcher{

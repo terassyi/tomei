@@ -2,6 +2,7 @@ package age
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -18,7 +19,11 @@ import (
 // Errors are cached: a transient network failure on first lookup is
 // returned for every subsequent call to that key in the same
 // invocation. This is intentional — callers expect invocation-local
-// consistency, and the package does not retry.
+// consistency, and the package does not retry. The one exception is
+// context cancellation/timeout: those are caller-driven and per-call,
+// not upstream-derived, so they are not memoized (otherwise one batch
+// timeout would poison the key for every later lookup, even under a
+// fresh context).
 type cachedFetcher struct {
 	inner Fetcher
 	mu    sync.Mutex
@@ -57,9 +62,15 @@ func (c *cachedFetcher) Fetch(ctx context.Context, key Key) (time.Time, bool, er
 	// select below, instead of blocking until that shared fetch returns.
 	ch := c.sf.DoChan(keyString(key), func() (any, error) {
 		t, ok, e := c.inner.Fetch(ctx, key)
-		c.mu.Lock()
-		c.cache[key] = cacheEntry{publishedAt: t, ok: ok, err: e}
-		c.mu.Unlock()
+		// Don't memoize context cancellation/timeout — those are
+		// caller-driven and per-call, so caching them would poison the
+		// key for the rest of the invocation. Only upstream-derived
+		// results/errors are cached.
+		if !errors.Is(e, context.Canceled) && !errors.Is(e, context.DeadlineExceeded) {
+			c.mu.Lock()
+			c.cache[key] = cacheEntry{publishedAt: t, ok: ok, err: e}
+			c.mu.Unlock()
+		}
 		return sfResult{publishedAt: t, ok: ok}, e
 	})
 	select {

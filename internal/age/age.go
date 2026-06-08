@@ -6,9 +6,10 @@
 //
 //   - SourceAquaGitHubReleases — GitHub Releases API's published_at,
 //     consulted for tools installed via the builtin aqua installer.
-//   - SourceLastModified — HTTP Last-Modified header (with HEAD→GET Range
-//     fallback for servers that return 405/501 on HEAD), consulted for
-//     tools installed via the builtin download installer.
+//   - SourceLastModified — HTTP Last-Modified header (with a HEAD→GET
+//     Range fallback when HEAD returns 405/501, or succeeds but omits
+//     Last-Modified), consulted for tools installed via the builtin
+//     download installer.
 //
 // Tools installed via delegation (custom Installer or Runtime commands)
 // are out of scope here — issue #253 threads the duration string through
