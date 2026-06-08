@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/terassyi/tomei/internal/age"
 	"github.com/terassyi/tomei/internal/graph"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
@@ -164,6 +165,35 @@ type Engine struct {
 	// Counterpart of the privilegeHandler==nil skip for priv tools.
 	skipUserKindRemovals   bool
 	skippedUserKindRemoves int // count of user-kind removals skipped (--system-only)
+
+	// ageFetcher resolves upstream release publication time for the
+	// minimumReleaseAge gate. nil disables the gate entirely.
+	ageFetcher age.Fetcher
+	// skipMu guards skippedReleaseAge and unverifiedReleaseAge, which are
+	// appended from parallel tool-node goroutines during Apply.
+	skipMu               sync.Mutex
+	skippedReleaseAge    []SkipInfo
+	unverifiedReleaseAge []UnverifiedInfo
+}
+
+// SkipInfo records a tool whose install was skipped because its upstream
+// release is younger than the configured minimumReleaseAge.
+type SkipInfo struct {
+	Kind      resource.Kind
+	Name      string
+	MinAge    time.Duration
+	ActualAge time.Duration
+	Source    age.Source
+}
+
+// UnverifiedInfo records a tool whose minimumReleaseAge gate was enabled but
+// could not be evaluated (fetch error or no upstream timestamp available), and
+// which was therefore installed anyway (fail-open). Surfaced so a configured
+// supply-chain control failing open is visible rather than silent.
+type UnverifiedInfo struct {
+	Name   string
+	Source age.Source
+	Reason string
 }
 
 // UpdateConfig holds update-related flags for apply and plan commands.
@@ -174,6 +204,8 @@ type UpdateConfig struct {
 	UpdateTools bool
 	// UpdateRuntimes taints runtimes with VersionKind=alias or latest (for --update-runtimes).
 	UpdateRuntimes bool
+	// IgnoreMinReleaseAge bypasses the minimumReleaseAge gate (for --ignore-min-release-age).
+	IgnoreMinReleaseAge bool
 }
 
 // NewEngine creates a new Engine.
@@ -249,6 +281,30 @@ func (e *Engine) SkippedPrivileged() int {
 	return e.skippedPrivileged
 }
 
+// SetAgeFetcher sets the release-age fetcher backing the minimumReleaseAge
+// gate. A nil fetcher (the default) disables the gate entirely.
+func (e *Engine) SetAgeFetcher(f age.Fetcher) {
+	e.ageFetcher = f
+}
+
+// SkippedReleaseAge returns tools whose install was skipped because their
+// upstream release was younger than the configured minimumReleaseAge. Call
+// after Apply() completes.
+func (e *Engine) SkippedReleaseAge() []SkipInfo {
+	e.skipMu.Lock()
+	defer e.skipMu.Unlock()
+	return slices.Clone(e.skippedReleaseAge)
+}
+
+// UnverifiedReleaseAge returns tools whose minimumReleaseAge gate was enabled
+// but could not be evaluated (and which were installed anyway). Call after
+// Apply() completes.
+func (e *Engine) UnverifiedReleaseAge() []UnverifiedInfo {
+	e.skipMu.Lock()
+	defer e.skipMu.Unlock()
+	return slices.Clone(e.unverifiedReleaseAge)
+}
+
 // SetSkipUserKindRemovals enables the symmetric counterpart of the priv-
 // removal skip for --system-only mode. When true, handleRemovals filters
 // out ActionRemove for non-privileged Tools, Runtimes, and
@@ -307,6 +363,12 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// when the Engine instance is reused (e.g., in tests or orchestration).
 	e.skippedPrivileged = 0
 	e.skippedUserKindRemoves = 0
+	// Guards a concurrent SkippedReleaseAge()/UnverifiedReleaseAge() reader;
+	// Apply itself is not re-entrant (store.Lock + wg.Wait serialize it).
+	e.skipMu.Lock()
+	e.skippedReleaseAge = nil
+	e.unverifiedReleaseAge = nil
+	e.skipMu.Unlock()
 
 	// Expand set resources (ToolSet, etc.) into individual resources
 	var err error
@@ -731,7 +793,7 @@ func (e *Engine) executeNode(
 	case resource.KindInstallerRepository:
 		return e.executeInstallerRepositoryNode(ctx, res.(*resource.InstallerRepository), totalActions)
 	case resource.KindTool:
-		return e.executeToolNode(ctx, res.(*resource.Tool), totalActions)
+		return e.executeToolNode(ctx, res.(*resource.Tool), resourceMap, totalActions)
 	default:
 		slog.Debug("skipping unknown resource kind", "kind", node.Kind, "name", node.Name)
 		return nil
@@ -926,6 +988,7 @@ func (e *Engine) executeInstallerRepositoryNode(
 func (e *Engine) executeToolNode(
 	ctx context.Context,
 	t *resource.Tool,
+	resourceMap map[string]resource.Resource,
 	totalActions *int,
 ) error {
 	// Build a single-tool state map to avoid removing other tools
@@ -949,6 +1012,16 @@ func (e *Engine) executeToolNode(
 	action := actions[0]
 	if action.Type == resource.ActionNone {
 		return nil
+	}
+
+	// minimumReleaseAge gate: skip installs/upgrades/reinstalls whose upstream
+	// release is younger than the configured threshold. Skipped tools are not
+	// executed, not written to state, and not counted (no error).
+	switch action.Type {
+	case resource.ActionInstall, resource.ActionUpgrade, resource.ActionReinstall:
+		if e.checkReleaseAgeGate(ctx, t, resourceMap) {
+			return nil
+		}
 	}
 
 	// Determine install method
@@ -996,6 +1069,142 @@ func (e *Engine) executeToolNode(
 	return nil
 }
 
+// lookupInstaller resolves the Installer resource a tool references by name.
+// Returns nil for an un-overridden builtin (aqua/download), which is absent
+// from resources (and thus from resourceMap).
+func lookupInstaller(ref string, resourceMap map[string]resource.Resource) *resource.Installer {
+	if ref == "" {
+		return nil
+	}
+	if res, ok := resourceMap[graph.NewNodeID(resource.KindInstaller, ref).String()]; ok {
+		if inst, ok := res.(*resource.Installer); ok {
+			return inst
+		}
+	}
+	return nil
+}
+
+// releaseAgeKeyAndThreshold classifies a tool for the minimumReleaseAge gate.
+// It is pure (no I/O). enabled is false when the gate does not apply: commands
+// pattern, runtime delegation, delegation installer, no fetchable source, or a
+// zero/unset threshold.
+//
+// Classification is by installer TYPE, not name: any download-type installer
+// (builtin aqua/download, an override, or a user-declared type:download
+// installer) is gateable. The source is chosen by what the tool carries — a
+// registry package (owner/repo) uses the GitHub Releases published_at; an
+// explicit Source.URL uses the HTTP Last-Modified header.
+//
+// v1 limitation: the aqua tag is taken directly from spec.Version. aqua
+// registries often apply version_prefix/trimV, so the GitHub tag may differ;
+// on mismatch GetReleaseByTag 404s and the gate fails open (surfaced via
+// UnverifiedReleaseAge). Registry-based tag resolution is a follow-up.
+func (e *Engine) releaseAgeKeyAndThreshold(
+	t *resource.Tool,
+	resourceMap map[string]resource.Resource,
+) (age.Key, time.Duration, bool) {
+	spec := t.ToolSpec
+
+	// Commands pattern and runtime delegation are the tool's own / the user
+	// command's responsibility (#253), never gated here.
+	if spec.Commands != nil || spec.RuntimeRef != "" {
+		return age.Key{}, 0, false
+	}
+
+	inst := lookupInstaller(spec.InstallerRef, resourceMap)
+	if inst != nil && inst.InstallerSpec != nil && inst.InstallerSpec.Type.IsDelegation() {
+		return age.Key{}, 0, false
+	}
+
+	var key age.Key
+	switch {
+	case spec.Package.IsRegistry():
+		key = age.Key{
+			Source: age.SourceAquaGitHubReleases,
+			Owner:  spec.Package.Owner,
+			Repo:   spec.Package.Repo,
+			Tag:    spec.Version,
+		}
+	case spec.Source != nil && spec.Source.URL != "":
+		key = age.Key{Source: age.SourceLastModified, URL: spec.Source.URL}
+	default:
+		return age.Key{}, 0, false
+	}
+
+	// Threshold comes from the referenced installer's spec. An un-overridden
+	// builtin (inst == nil) carries no threshold, so the gate is opt-in.
+	if inst == nil || inst.InstallerSpec == nil {
+		return age.Key{}, 0, false
+	}
+	minAge, err := inst.InstallerSpec.ParsedMinimumReleaseAge()
+	if err != nil || minAge == 0 {
+		return age.Key{}, 0, false
+	}
+	return key, minAge, true
+}
+
+// checkReleaseAgeGate reports whether a tool install should be SKIPPED because
+// its upstream release is younger than the configured minimumReleaseAge.
+//
+// Fail-open: if the gate is enabled but the release time cannot be fetched
+// (network error, 404 tag mismatch, missing header), the install proceeds and
+// the tool is recorded via UnverifiedReleaseAge so the failure is visible
+// rather than silent.
+func (e *Engine) checkReleaseAgeGate(
+	ctx context.Context,
+	t *resource.Tool,
+	resourceMap map[string]resource.Resource,
+) bool {
+	if e.ageFetcher == nil || e.updateCfg.IgnoreMinReleaseAge {
+		return false
+	}
+	key, minAge, enabled := e.releaseAgeKeyAndThreshold(t, resourceMap)
+	if !enabled {
+		return false
+	}
+
+	publishedAt, ok, err := e.ageFetcher.Fetch(ctx, key)
+	if err != nil {
+		slog.Warn("minimumReleaseAge gate could not be evaluated; installing anyway",
+			"tool", t.Name(), "source", key.Source, "error", err)
+		e.recordUnverified(UnverifiedInfo{Name: t.Name(), Source: key.Source, Reason: "fetch error: " + err.Error()})
+		return false
+	}
+	if !ok {
+		slog.Warn("minimumReleaseAge gate could not be evaluated; installing anyway",
+			"tool", t.Name(), "source", key.Source, "reason", "no release timestamp available")
+		e.recordUnverified(UnverifiedInfo{Name: t.Name(), Source: key.Source, Reason: "no release timestamp available"})
+		return false
+	}
+
+	actualAge := time.Since(publishedAt)
+	if actualAge >= minAge {
+		return false
+	}
+
+	// Warn (not Info) so a fired gate is never wholly silent under --quiet,
+	// which suppresses the fmt summary but not Warn-level logs.
+	slog.Warn("skipping install: release younger than minimumReleaseAge",
+		"tool", t.Name(), "source", key.Source, "minAge", minAge, "actualAge", actualAge)
+	e.recordSkip(SkipInfo{
+		Kind: resource.KindTool, Name: t.Name(),
+		MinAge: minAge, ActualAge: actualAge, Source: key.Source,
+	})
+	return true
+}
+
+func (e *Engine) recordSkip(s SkipInfo) {
+	e.skipMu.Lock()
+	defer e.skipMu.Unlock()
+	e.skippedReleaseAge = append(e.skippedReleaseAge, s)
+}
+
+func (e *Engine) recordUnverified(u UnverifiedInfo) {
+	e.skipMu.Lock()
+	defer e.skipMu.Unlock()
+	e.unverifiedReleaseAge = append(e.unverifiedReleaseAge, u)
+}
+
 // determineInstallMethod returns the install method string for a tool.
 func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 	spec := t.ToolSpec
@@ -1033,13 +1242,9 @@ func delegationKeyForTool(t *resource.Tool, resourceMap map[string]resource.Reso
 	}
 	// Check InstallerRef for delegation-type installers via resource map
 	if ref := t.ToolSpec.InstallerRef; ref != "" {
-		instID := graph.NewNodeID(resource.KindInstaller, ref).String()
-		if inst, ok := resourceMap[instID]; ok {
-			if installer, ok := inst.(*resource.Installer); ok && installer.InstallerSpec != nil {
-				if installer.InstallerSpec.Type.IsDelegation() {
-					return "installer:" + ref
-				}
-			}
+		if inst := lookupInstaller(ref, resourceMap); inst != nil &&
+			inst.InstallerSpec != nil && inst.InstallerSpec.Type.IsDelegation() {
+			return "installer:" + ref
 		}
 	}
 	return "" // download pattern
