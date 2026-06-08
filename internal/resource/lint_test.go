@@ -48,6 +48,7 @@ func TestLintMinimumReleaseAge_Installer(t *testing.T) {
 		{"delegation whitespace variant", delegationInstaller("168h", []string{"x {{ .MinimumReleaseAge }}"}), false},
 		{"delegation trim-marker variant", delegationInstaller("168h", []string{"x {{- .MinimumReleaseAge -}}"}), false},
 		{"delegation pipeline variant", delegationInstaller("168h", []string{`x {{.MinimumReleaseAge | printf "%s"}}`}), false},
+		{"delegation longer-identifier typo still warns", delegationInstaller("168h", []string{"x {{.MinimumReleaseAgeFoo}}"}), true},
 		{"delegation no threshold", delegationInstaller("", []string{"brew install {{.Name}}"}), false},
 		{"download type excluded", &Installer{
 			BaseResource:  BaseResource{ResourceKind: KindInstaller, Metadata: Metadata{Name: "aqua"}},

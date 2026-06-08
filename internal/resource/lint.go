@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -10,11 +11,13 @@ import (
 // in the warning as the canonical form users should write.
 const minReleaseAgeVarRef = "{{.MinimumReleaseAge}}"
 
-// minReleaseAgeFieldRef is the substring actually matched. Matching the field
-// reference rather than the full delimited action tolerates legitimate template
-// forms — `{{ .MinimumReleaseAge }}`, `{{- .MinimumReleaseAge -}}`,
-// `{{.MinimumReleaseAge | quote}}` — that a delimiter-literal match would miss.
-const minReleaseAgeFieldRef = ".MinimumReleaseAge"
+// minReleaseAgeRefRe matches a reference to the .MinimumReleaseAge template
+// field. Matching the field reference (not the full delimited action) tolerates
+// legitimate forms — `{{ .MinimumReleaseAge }}`, `{{- .MinimumReleaseAge -}}`,
+// `{{.MinimumReleaseAge | quote}}`. The trailing \b word boundary ensures an
+// exact field match, so a typo or longer identifier like
+// `{{.MinimumReleaseAgeFoo}}` does NOT count as a reference (and still warns).
+var minReleaseAgeRefRe = regexp.MustCompile(`\.MinimumReleaseAge\b`)
 
 // LintMinimumReleaseAge returns advisory (non-fatal) warnings for delegation
 // Installers and Runtimes that declare minimumReleaseAge but whose install
@@ -63,9 +66,9 @@ func lintWarning(kind Kind, name string) string {
 
 // referencesMinReleaseAge reports whether any of the given command strings
 // references the {{.MinimumReleaseAge}} template variable, tolerating spacing,
-// trim markers, and pipelines by matching the field reference.
+// trim markers, and pipelines while rejecting longer-identifier typos.
 func referencesMinReleaseAge(cmds []string) bool {
-	return strings.Contains(strings.Join(cmds, "\n"), minReleaseAgeFieldRef)
+	return minReleaseAgeRefRe.MatchString(strings.Join(cmds, "\n"))
 }
 
 func installerInstallCommands(spec *InstallerSpec) []string {
