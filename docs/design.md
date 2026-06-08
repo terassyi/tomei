@@ -276,7 +276,7 @@ Completed:
 - CUE `@if()` boolean platform tags: `@if(darwin)`, `@if(arm64)`, `@if(headless)` for file-level branching
 - Disabled resource filtering: `enabled: false` resources excluded from ExpandSets and shown as "skip" in `tomei plan`
 - Aqua template variable `AssetWithoutExt` for `files[].src` path references
-- System package management: SystemInstaller validation (APT) via per-user state, sudo delegation, distro detection (Debian/Ubuntu family)
+- System package management (APT): SystemInstaller validation, SystemPackageRepository and SystemPackageSet install/remove, per-user state, sudo delegation, distro detection (Debian/Ubuntu family)
 - Privileged download/registry tools route through SystemBinDir
 
 ## 10. System Package Management
@@ -296,7 +296,7 @@ System resource state lives under `<dataDir>/system/state.json` (by default, `~/
 
 This is a deliberate trade-off for the tool's target use case (single-developer dev environment setup). It is **not** suitable for coordinated multi-user system administration:
 
-- **No cross-user coordination.** State files are independent. Once `SystemPackageSet` reconciliation is implemented (see Roadmap below), dropping a package from user A's manifest would cause tomei to run a system-wide removal (e.g., `apt-get remove vim`) — affecting user B who also relied on the package. Idempotent installs (`apt-get install`) are safe to overlap; removals are not.
+- **No cross-user coordination.** State files are independent. Because `SystemPackageSet` reconciliation runs system-wide package operations, dropping a package from user A's manifest causes tomei to run a system-wide removal (e.g., `apt-get remove vim`) — affecting user B who also relied on the package. Idempotent installs (`apt-get install`) are safe to overlap; removals are not.
 - **No drift detection.** Reconciliation compares the declared spec against tomei's own state file. Out-of-band changes (manual `apt install`, distro upgrades, packages installed by other tools) are invisible.
 
 For shared servers, use a configuration management tool (Ansible, Chef, Puppet) instead.

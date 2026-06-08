@@ -387,18 +387,18 @@ spec: {
 
 #### Fields
 
-The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The `commands.*` entries below are not consumed by the engine at apply time; they are documented here as the conventional shape for `SystemPackageRepository` / `SystemPackageSet` reconciliation, which will start consuming them once the concrete installers land.
+The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The concrete installer is APT-based and hardcodes its `apt-get` / `dpkg-query` invocations (see [SystemPackageRepository](#systempackagerepository) and [SystemPackageSet](#systempackageset)); it does **not** read `spec.commands.*`. The `commands.*` entries below are therefore inert at apply time — they remain required by the schema and document the conventional shape a future non-`apt` installer would follow.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
 | `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
-| `spec.commands.install` | object | recommended | `{command: string}` — used by future package operations |
-| `spec.commands.remove` | object | recommended | `{command: string}` — used by future package operations |
-| `spec.commands.check` | object | recommended | `{command: string}` — used by future package operations |
-| `spec.commands.update` | string | no | Optional update command |
+| `spec.commands.install` | object | required by schema | `{command: string}` — inert; the APT installer hardcodes `apt-get install` and ignores this |
+| `spec.commands.remove` | object | required by schema | `{command: string}` — inert; the APT installer hardcodes `apt-get remove` and ignores this |
+| `spec.commands.check` | object | required by schema | `{command: string}` — inert; the APT installer probes via `dpkg-query` and ignores this |
+| `spec.commands.update` | string | no | Optional update command; inert for the APT installer (which runs `apt-get update` directly) |
 
-The `spec.commands.*` declarations are not consumed by the engine at apply time today; once concrete installers are implemented, the engine is expected to append package names per [SystemPackageSet](#systempackageset), and any Go template variable conventions for these commands will be documented as part of that implementation.
+Because the only wired-in installer (`apt`) hardcodes its package operations, these `commands.*` declarations are inert for `apt` today. They are kept schema-required for forward compatibility; if a non-`apt` installer is added later, any Go template-variable conventions for these commands will be documented as part of that work.
 
 ### SystemPackageRepository
 
@@ -416,9 +416,8 @@ at `/etc/apt/sources.list.d/<metadata.name>.list`, then refreshes the APT
 index. If the just-added repository fails to fetch
 (`W: Failed to fetch …` against the configured URL), the helper rolls
 back both files automatically so the host state does not regress.
-Engine wiring of the concrete installer is tracked in a separate issue
-(#196); declared repositories run through the installer once the engine
-is updated to construct it.
+Declared repositories run through this installer at apply time; the
+engine wiring shipped in [#196](https://github.com/terassyi/tomei/issues/196).
 
 ```cue
 apiVersion: "tomei.terassyi.net/v1beta1"
