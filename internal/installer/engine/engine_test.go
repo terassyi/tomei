@@ -809,6 +809,21 @@ func TestApply_ReleaseAgeGate_FailOpenVisible(t *testing.T) {
 		assert.True(t, rec.installed("gh"))
 		require.Len(t, eng.UnverifiedReleaseAge(), 1)
 	})
+	// An unresolved aqua tag (empty / "latest") is reported as unverified
+	// without consulting the fetcher.
+	t.Run("unresolved version pre-flight", func(t *testing.T) {
+		t.Parallel()
+		rec := &installRecorder{}
+		fetcher := &fakeFetcher{}
+		eng := newGateEngine(t, rec, fetcher)
+		require.NoError(t, eng.Apply(context.Background(), []resource.Resource{
+			aquaInstallerOverride(), aquaToolResource("gh", "cli", "cli", "latest"),
+		}))
+		assert.True(t, rec.installed("gh"))
+		require.Len(t, eng.UnverifiedReleaseAge(), 1)
+		assert.Contains(t, eng.UnverifiedReleaseAge()[0].Reason, "unresolved")
+		assert.Equal(t, int64(0), fetcher.calls.Load(), "pre-flight must not call the fetcher")
+	})
 }
 
 func TestReleaseAgeKeyAndThreshold(t *testing.T) {

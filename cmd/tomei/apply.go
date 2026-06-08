@@ -379,7 +379,7 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 		fmt.Fprintf(w, "\n%d tool(s) skipped (release younger than minimumReleaseAge):\n", len(skips))
 		for _, s := range skips {
 			fmt.Fprintf(w, "  - %s: released %s ago, requires %s (source: %s)\n",
-				s.Name, s.ActualAge.Round(time.Hour), s.MinAge, s.Source)
+				s.Name, s.ActualAge.Truncate(time.Minute), s.MinAge, s.Source)
 		}
 		fmt.Fprintln(w, "Use --ignore-min-release-age to override.")
 	}

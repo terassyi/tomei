@@ -1163,17 +1163,21 @@ func (e *Engine) checkReleaseAgeGate(
 		return false
 	}
 
+	// Pre-flight: an aqua key whose tag is unresolved (empty / "latest") can
+	// never match a GitHub release, so the fetcher would just fail open with a
+	// generic reason. Surface a precise one instead, without a pointless call.
+	if key.Source == age.SourceAquaGitHubReleases && resource.ClassifyVersion(key.Tag) != resource.VersionExact {
+		e.failOpenReleaseAge(t.Name(), key.Source, "tool version is unresolved (e.g. latest); cannot determine the GitHub release tag")
+		return false
+	}
+
 	publishedAt, ok, err := e.ageFetcher.Fetch(ctx, key)
 	if err != nil {
-		slog.Warn("minimumReleaseAge gate could not be evaluated; installing anyway",
-			"tool", t.Name(), "source", key.Source, "error", err)
-		e.recordUnverified(UnverifiedInfo{Name: t.Name(), Source: key.Source, Reason: "fetch error: " + err.Error()})
+		e.failOpenReleaseAge(t.Name(), key.Source, "fetch error: "+err.Error())
 		return false
 	}
 	if !ok {
-		slog.Warn("minimumReleaseAge gate could not be evaluated; installing anyway",
-			"tool", t.Name(), "source", key.Source, "reason", "no release timestamp available")
-		e.recordUnverified(UnverifiedInfo{Name: t.Name(), Source: key.Source, Reason: "no release timestamp available"})
+		e.failOpenReleaseAge(t.Name(), key.Source, "no release timestamp available")
 		return false
 	}
 
@@ -1203,6 +1207,14 @@ func (e *Engine) recordUnverified(u UnverifiedInfo) {
 	e.skipMu.Lock()
 	defer e.skipMu.Unlock()
 	e.unverifiedReleaseAge = append(e.unverifiedReleaseAge, u)
+}
+
+// failOpenReleaseAge records that an enabled gate could not be evaluated and
+// warns (Warn so it survives --quiet), so the fail-open is visible, not silent.
+func (e *Engine) failOpenReleaseAge(name string, source age.Source, reason string) {
+	slog.Warn("minimumReleaseAge gate could not be evaluated; installing anyway",
+		"tool", name, "source", source, "reason", reason)
+	e.recordUnverified(UnverifiedInfo{Name: name, Source: source, Reason: reason})
 }
 
 // determineInstallMethod returns the install method string for a tool.
