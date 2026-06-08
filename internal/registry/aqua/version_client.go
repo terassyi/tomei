@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"time"
+
+	"github.com/terassyi/tomei/internal/github"
 )
 
 const (
@@ -60,6 +63,68 @@ func (c *VersionClient) GetLatestRef(ctx context.Context) (string, error) {
 	}
 
 	return release.TagName, nil
+}
+
+// GetReleaseByTag fetches a specific release by tag from the GitHub
+// Releases API. Used by internal/age for publication-time lookups when
+// gating apply-time install on minimumReleaseAge.
+// Path: /repos/{owner}/{repo}/releases/tags/{tag}.
+func (c *VersionClient) GetReleaseByTag(ctx context.Context, repoOwner, repoName, tag string) (github.Release, error) {
+	if err := validatePathComponent(repoOwner); err != nil {
+		return github.Release{}, fmt.Errorf("invalid repo owner: %w", err)
+	}
+	if err := validatePathComponent(repoName); err != nil {
+		return github.Release{}, fmt.Errorf("invalid repo name: %w", err)
+	}
+	if err := validatePathComponent(tag); err != nil {
+		return github.Release{}, fmt.Errorf("invalid tag: %w", err)
+	}
+
+	// path.Join would collapse a tag containing '/' (legal in git refs,
+	// e.g. "release/v1.0") into extra path segments, producing a wrong
+	// request. Escape the tag and carry it in RawPath while keeping the
+	// decoded form in Path, so url.URL.String() emits "%2F" for the slash
+	// instead of a path separator. validatePathComponent already rejects
+	// traversal sequences ("..") above.
+	basePath := path.Join("/repos", repoOwner, repoName, "releases", "tags") + "/"
+	apiURL := &url.URL{
+		Scheme:  "https",
+		Host:    "api.github.com",
+		Path:    basePath + tag,
+		RawPath: basePath + url.PathEscape(tag),
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL.String(), nil)
+	if err != nil {
+		return github.Release{}, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return github.Release{}, fmt.Errorf("failed to fetch release by tag: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return github.Release{}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var raw releaseByTagResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return github.Release{}, fmt.Errorf("failed to decode response: %w", err)
+	}
+	if raw.TagName == "" {
+		return github.Release{}, fmt.Errorf("tag_name is empty")
+	}
+	return github.Release{TagName: raw.TagName, PublishedAt: raw.PublishedAt}, nil
+}
+
+// releaseByTagResponse mirrors the subset of GitHub's release-by-tag
+// payload we consume.
+type releaseByTagResponse struct {
+	TagName     string    `json:"tag_name"`
+	PublishedAt time.Time `json:"published_at"`
 }
 
 // GetLatestToolVersion fetches the latest version of the specified tool.
