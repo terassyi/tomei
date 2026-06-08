@@ -821,6 +821,6 @@ func annotateReleaseAgeAdvisoryWith(ctx context.Context, errW io.Writer, resourc
 	if unverified > 0 {
 		// Visible fail-open: a configured gate that couldn't be evaluated must
 		// not be silent (parity with apply's UnverifiedReleaseAge).
-		fmt.Fprintf(errW, "note: minimumReleaseAge advisory could not be computed for %d tool(s) (network/token unavailable); apply will re-check\n", unverified)
+		fmt.Fprintf(errW, "note: minimumReleaseAge advisory could not be computed for %d tool(s) (release date unavailable); apply will re-check\n", unverified)
 	}
 }
