@@ -22,6 +22,10 @@ type ResourceInfo struct {
 	SHA        string
 	Action     resource.ActionType
 	Privileged bool
+	// Note is an informational advisory suffix rendered after the action tag
+	// for change actions (e.g. plan-time minimumReleaseAge would-skip). It
+	// never affects Action or apply behavior. Empty = no annotation.
+	Note string
 }
 
 // TreePrinter prints dependency graphs as ASCII trees with colors.
@@ -207,6 +211,16 @@ func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool)
 			sb.WriteString(actionColor.Sprint(nodeName + versionStr + actionStr))
 		} else {
 			sb.WriteString(nodeName + versionStr)
+		}
+
+		// Advisory note (e.g. plan-time minimumReleaseAge would-skip). Rendered
+		// only for change actions and colored separately from the action so it
+		// stays readable; informational, never affects apply.
+		if info.Note != "" &&
+			(info.Action == resource.ActionInstall ||
+				info.Action == resource.ActionUpgrade ||
+				info.Action == resource.ActionReinstall) {
+			sb.WriteString(p.skipColor.Sprintf(" [⚠ would-skip: %s]", info.Note))
 		}
 	} else {
 		sb.WriteString(nodeName)

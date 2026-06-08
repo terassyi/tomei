@@ -27,6 +27,50 @@ func TestShortSHA(t *testing.T) {
 	}
 }
 
+// TestFormatNode_NoteRendering pins the plan-time minimumReleaseAge advisory:
+// a Note renders as " [⚠ would-skip: <note>]" after the action tag for change
+// actions.
+func TestFormatNode_NoteRendering(t *testing.T) {
+	t.Parallel()
+	const note = "released 24h0m0s ago, requires 168h0m0s"
+	for _, action := range []resource.ActionType{
+		resource.ActionInstall, resource.ActionUpgrade, resource.ActionReinstall,
+	} {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			p := NewTreePrinter(&bytes.Buffer{}, true)
+			info := ResourceInfo{Kind: resource.KindTool, Name: "gh", Version: "v2.0.0", Action: action, Note: note}
+			out := p.formatNode(NewNodeID(resource.KindTool, "gh"), info, true)
+			assert.Contains(t, out, "[⚠ would-skip: "+note+"]")
+		})
+	}
+}
+
+// TestFormatNode_Note_NotRenderedForSkipRemoveNone: the advisory is only for
+// change actions; Skip/Remove/None never render a note even if one is set.
+func TestFormatNode_Note_NotRenderedForSkipRemoveNone(t *testing.T) {
+	t.Parallel()
+	for _, action := range []resource.ActionType{
+		resource.ActionSkip, resource.ActionRemove, resource.ActionNone,
+	} {
+		t.Run(string(action), func(t *testing.T) {
+			t.Parallel()
+			p := NewTreePrinter(&bytes.Buffer{}, true)
+			info := ResourceInfo{Kind: resource.KindTool, Name: "gh", Version: "v2.0.0", Action: action, Note: "should not show"}
+			out := p.formatNode(NewNodeID(resource.KindTool, "gh"), info, true)
+			assert.NotContains(t, out, "would-skip")
+		})
+	}
+}
+
+func TestFormatNode_NoNote(t *testing.T) {
+	t.Parallel()
+	p := NewTreePrinter(&bytes.Buffer{}, true)
+	info := ResourceInfo{Kind: resource.KindTool, Name: "gh", Version: "v2.0.0", Action: resource.ActionInstall}
+	out := p.formatNode(NewNodeID(resource.KindTool, "gh"), info, true)
+	assert.NotContains(t, out, "would-skip")
+}
+
 // TestFormatNode_SHARendering pins the tree's sha display: SHA-pinned tools
 // render as " (sha: <12chars>…)" instead of the usual " (version)" slot,
 // preserving the full SHA only in state (not in the rendered tree).

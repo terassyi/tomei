@@ -838,8 +838,7 @@ func TestReleaseAgeKeyAndThreshold(t *testing.T) {
 			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDelegation, MinimumReleaseAge: "168h", Commands: &resource.CommandsSpec{Install: []string{"x"}}},
 		},
 	}
-	rm := buildResourceMap(resources)
-	eng := &Engine{ageFetcher: &fakeFetcher{}} // ageFetcher non-nil so the helper isn't bypassed
+	rm := BuildResourceMap(resources)
 
 	tests := []struct {
 		name        string
@@ -861,7 +860,7 @@ func TestReleaseAgeKeyAndThreshold(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			key, minAge, enabled := eng.releaseAgeKeyAndThreshold(tt.tool, rm)
+			key, minAge, enabled := ReleaseAgeKeyAndThreshold(tt.tool, rm)
 			assert.Equal(t, tt.wantEnabled, enabled)
 			if tt.wantEnabled {
 				assert.Equal(t, tt.wantSource, key.Source)
@@ -874,8 +873,8 @@ func TestReleaseAgeKeyAndThreshold(t *testing.T) {
 	// absent from the resource map) is disabled — the gate never fires by default.
 	t.Run("aqua builtin no override disabled", func(t *testing.T) {
 		t.Parallel()
-		rmNoOverride := buildResourceMap([]resource.Resource{}) // no Installer/aqua
-		_, _, enabled := eng.releaseAgeKeyAndThreshold(aquaToolResource("gh", "cli", "cli", "v2.0.0"), rmNoOverride)
+		rmNoOverride := BuildResourceMap([]resource.Resource{}) // no Installer/aqua
+		_, _, enabled := ReleaseAgeKeyAndThreshold(aquaToolResource("gh", "cli", "cli", "v2.0.0"), rmNoOverride)
 		assert.False(t, enabled)
 	})
 }

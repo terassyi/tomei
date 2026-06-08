@@ -434,7 +434,7 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	applyUpdateTaints(st, e.updateCfg)
 
 	// Build resource maps for quick lookup
-	resourceMap := buildResourceMap(resources)
+	resourceMap := BuildResourceMap(resources)
 
 	// Collect the spec-declared minimumReleaseAge per runtime, keyed by name, so the
 	// runtime-delegation tool-install path can expose it as {{.MinimumReleaseAge}}.
@@ -1088,8 +1088,9 @@ func lookupInstaller(ref string, resourceMap map[string]resource.Resource) *reso
 	return nil
 }
 
-// releaseAgeKeyAndThreshold classifies a tool for the minimumReleaseAge gate.
-// It is pure (no I/O). enabled is false when the gate does not apply: commands
+// ReleaseAgeKeyAndThreshold classifies a tool for the minimumReleaseAge gate.
+// It is pure (no I/O) and shared between apply (the engine gate) and plan (the
+// advisory display). enabled is false when the gate does not apply: commands
 // pattern, runtime delegation, delegation installer, no fetchable source, or a
 // zero/unset threshold.
 //
@@ -1103,7 +1104,7 @@ func lookupInstaller(ref string, resourceMap map[string]resource.Resource) *reso
 // registries often apply version_prefix/trimV, so the GitHub tag may differ;
 // on mismatch GetReleaseByTag 404s and the gate fails open (surfaced via
 // UnverifiedReleaseAge). Registry-based tag resolution is a follow-up.
-func (e *Engine) releaseAgeKeyAndThreshold(
+func ReleaseAgeKeyAndThreshold(
 	t *resource.Tool,
 	resourceMap map[string]resource.Resource,
 ) (age.Key, time.Duration, bool) {
@@ -1162,7 +1163,7 @@ func (e *Engine) checkReleaseAgeGate(
 	if e.ageFetcher == nil || e.updateCfg.IgnoreMinReleaseAge {
 		return false
 	}
-	key, minAge, enabled := e.releaseAgeKeyAndThreshold(t, resourceMap)
+	key, minAge, enabled := ReleaseAgeKeyAndThreshold(t, resourceMap)
 	if !enabled {
 		return false
 	}
@@ -1520,8 +1521,8 @@ func (e *Engine) handleTaintedTools(
 	return nil
 }
 
-// buildResourceMap creates a map of resources by their node ID.
-func buildResourceMap(resources []resource.Resource) map[string]resource.Resource {
+// BuildResourceMap creates a map of resources by their node ID.
+func BuildResourceMap(resources []resource.Resource) map[string]resource.Resource {
 	m := make(map[string]resource.Resource)
 	for _, res := range resources {
 		id := graph.NewNodeID(res.Kind(), res.Name())
@@ -1659,7 +1660,7 @@ func (e *Engine) handleRemovals(ctx context.Context, resources []resource.Resour
 	}
 
 	// Update tool bin paths for InstallerRepository remove commands (e.g., helm repo remove)
-	e.updateToolBinPaths(buildResourceMap(resources), st)
+	e.updateToolBinPaths(BuildResourceMap(resources), st)
 
 	if err := executeRemovals(ctx, e, resource.KindInstallerRepository, repoActions, e.installerRepoExecutor, totalActions); err != nil {
 		return err

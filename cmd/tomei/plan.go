@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
+	"github.com/terassyi/tomei/internal/age"
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/graph"
@@ -132,6 +134,14 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Inject disabled resource info into the plan
 	addDisabledResourceInfo(result.resourceInfo, disabledResources)
 
+	// Delegation lint (non-fatal): warn when minimumReleaseAge is declared but
+	// no install command references it. Emitted to stderr regardless of output
+	// format so machine-readable plan output stays clean.
+	errW := cmd.ErrOrStderr()
+	for _, w := range resource.LintMinimumReleaseAge(resources) {
+		fmt.Fprintf(errW, "warning: %s\n", w)
+	}
+
 	// Output based on format
 	switch planCfg.outputFormat {
 	case outputJSON:
@@ -143,6 +153,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	case outputText:
 		fallthrough
 	default:
+		// minimumReleaseAge advisory annotation (text path only — Note is not
+		// serialized into JSON/YAML, and fetching there would be wasted).
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		annotateReleaseAgeAdvisory(ctx, errW, resources, result.resourceInfo)
 		return printTextPlan(cmd, args, resources, result)
 	}
 }
@@ -717,4 +734,92 @@ func syncRegistryForPlan(ctx context.Context) error {
 
 	ghClient := github.NewHTTPClient(github.TokenFromEnv())
 	return aqua.SyncRegistry(ctx, store, ghClient)
+}
+
+// advisoryEntry pairs a tool's plan node with its release-age gate key and
+// per-tool threshold (two tools may share a key but carry different thresholds).
+type advisoryEntry struct {
+	nodeID graph.NodeID
+	key    age.Key
+	minAge time.Duration
+}
+
+// annotateReleaseAgeAdvisory annotates ResourceInfo.Note for change-action
+// Tools whose upstream release is younger than a configured minimumReleaseAge.
+// Informational only — apply re-fetches and re-decides. It builds the real
+// release-age fetcher (token only reaches api.github.com; nil httpClient gives
+// age its SSRF-hardened client for arbitrary Last-Modified hosts) and delegates
+// to annotateReleaseAgeAdvisoryWith, which is the testable seam.
+func annotateReleaseAgeAdvisory(ctx context.Context, errW io.Writer, resources []resource.Resource, info map[graph.NodeID]graph.ResourceInfo) {
+	f := age.New(aqua.NewVersionClient(github.NewHTTPClient(github.TokenFromEnv())), nil)
+	annotateReleaseAgeAdvisoryWith(ctx, errW, resources, info, f)
+}
+
+func annotateReleaseAgeAdvisoryWith(ctx context.Context, errW io.Writer, resources []resource.Resource, info map[graph.NodeID]graph.ResourceInfo, f age.Fetcher) {
+	resourceMap := engine.BuildResourceMap(resources)
+
+	var entries []advisoryEntry
+	seen := make(map[age.Key]bool)
+	var keys []age.Key
+	for _, res := range resources {
+		tool, ok := res.(*resource.Tool)
+		if !ok {
+			continue
+		}
+		nodeID := graph.NewNodeID(resource.KindTool, tool.Name())
+		ri, ok := info[nodeID]
+		if !ok {
+			continue
+		}
+		switch ri.Action {
+		case resource.ActionInstall, resource.ActionUpgrade, resource.ActionReinstall:
+		default:
+			continue // Skip/None/Remove are never gated (matches apply)
+		}
+		key, minAge, enabled := engine.ReleaseAgeKeyAndThreshold(tool, resourceMap)
+		if !enabled {
+			continue
+		}
+		// Pre-flight: an unresolved aqua tag (empty/"latest") can't match a
+		// release — don't fetch (mirrors the engine gate).
+		if key.Source == age.SourceAquaGitHubReleases && resource.ClassifyVersion(key.Tag) != resource.VersionExact {
+			continue
+		}
+		entries = append(entries, advisoryEntry{nodeID: nodeID, key: key, minAge: minAge})
+		if !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return // opt-in fast path: no gated tools → no network
+	}
+
+	// The fetch can take up to age.FetchAll's batch timeout on a slow network;
+	// give the user feedback rather than a silent pause before the tree prints.
+	fmt.Fprintf(errW, "checking minimum release ages for %d tool(s)...\n", len(keys))
+	results := age.FetchAll(ctx, f, keys)
+	byKey := make(map[age.Key]age.Result, len(results))
+	for _, r := range results {
+		byKey[r.Key] = r
+	}
+
+	unverified := 0
+	for _, e := range entries {
+		r, ok := byKey[e.key]
+		if !ok || !r.OK || r.Err != nil {
+			unverified++ // gate configured but couldn't be evaluated
+			continue
+		}
+		if actual := time.Since(r.PublishedAt); actual < e.minAge {
+			ri := info[e.nodeID]
+			ri.Note = fmt.Sprintf("released %s ago, requires %s", actual.Truncate(time.Minute), e.minAge)
+			info[e.nodeID] = ri
+		}
+	}
+	if unverified > 0 {
+		// Visible fail-open: a configured gate that couldn't be evaluated must
+		// not be silent (parity with apply's UnverifiedReleaseAge).
+		fmt.Fprintf(errW, "note: minimumReleaseAge advisory could not be computed for %d tool(s) (network/token unavailable); apply will re-check\n", unverified)
+	}
 }
