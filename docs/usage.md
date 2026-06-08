@@ -274,6 +274,126 @@ Constraints:
 - `tomei plan` displays the SHA truncated to 12 characters; state retains
   the full SHA.
 
+### Minimum release age gate
+
+`minimumReleaseAge` refuses to install a tool version whose upstream release is
+younger than a configured threshold — a supply-chain defense against freshly
+compromised releases. It is **opt-in**: declare it on an `Installer`/`Runtime`
+spec (the builtin installers carry no threshold). Format is a
+[Go duration](https://pkg.go.dev/time#ParseDuration) — note there is no day
+unit, so use `"168h"` for a week and `"24h"` for a day. See the
+[schema reference](cue-schema.md#minimum-release-age) for the full enforcement
+matrix.
+
+**aqua-installed tools** — override the builtin `aqua` installer (the override
+must keep `type: "download"`); tomei checks the GitHub release `published_at`:
+
+```cue
+aqua: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Installer"
+    metadata: name: "aqua"
+    spec: {
+        type:              "download"
+        minimumReleaseAge: "168h"
+    }
+}
+```
+
+**Raw-download tools** — the gate attaches to a `type: "download"` installer and
+fires for any tool that installs from a `source.url`, using the HTTP
+`Last-Modified` header. You need both the installer (with the threshold) and a
+tool that references it:
+
+```cue
+download: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Installer"
+    metadata: name: "download"
+    spec: {
+        type:              "download"
+        minimumReleaseAge: "168h"
+    }
+}
+
+jq: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Tool"
+    metadata: name: "jq"
+    spec: {
+        installerRef: "download"
+        version:      "1.7.1"
+        source: url: "https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64"
+    }
+}
+```
+
+(`jq-linux-amd64` is platform-specific; real manifests typically template the
+asset name by OS/arch.)
+
+> `Last-Modified` reflects the object's storage modification time, not
+> necessarily the release date (a re-upload resets it). Treat download-URL
+> gating as a weaker signal than the aqua `published_at` check.
+
+**Delegation installers and runtimes are NOT gated by tomei.** Setting
+`minimumReleaseAge` on a delegation `Installer`, or on any `Runtime` (tools
+installed via `runtimeRef` are never gated, regardless of the runtime's `type`),
+does not make tomei check anything — it only renders the value as the
+`{{.MinimumReleaseAge}}` template variable (the literal duration string, e.g.
+`168h`) for your install commands. No mainstream installer (`cargo binstall`,
+`brew`, `go install`, `uv`) accepts a release-age flag, so honoring it requires a
+shell guard you write yourself:
+
+```cue
+binstall: {
+    apiVersion: "tomei.terassyi.net/v1beta1"
+    kind:       "Installer"
+    metadata: name: "binstall"
+    spec: {
+        type:    "delegation"
+        toolRef: "cargo-binstall"
+        minimumReleaseAge: "168h"
+        // tomei does NOT enforce this — your command must. {{.MinimumReleaseAge}}
+        // renders to the raw string "168h"; a real guard would resolve the
+        // upstream release date and compare before delegating the install.
+        commands: install: "your-release-age-guard {{.MinimumReleaseAge}} && cargo binstall -y {{.Package}}@{{.Version}}"
+    }
+}
+```
+
+`tomei plan` and `tomei validate` emit a lint warning when `minimumReleaseAge`
+is set on a delegation installer or runtime but no install command references
+`{{.MinimumReleaseAge}}` — i.e. a policy declared but not enforced.
+
+**When a tool is gated**, `tomei apply` skips it and prints a summary:
+
+```text
+1 tool(s) skipped (release younger than minimumReleaseAge):
+  - rg: released 18h0m0s ago, requires 168h0m0s (source: aqua-github-release)
+Use --ignore-min-release-age to override.
+```
+
+If the release age can't be determined (network error, an aqua tag that doesn't
+match the GitHub release, a missing `Last-Modified` header), the gate **fails
+open** — the tool installs anyway and is reported separately. A *missing* skip
+line is therefore not proof the gate held:
+
+```text
+1 tool(s): minimumReleaseAge could not be verified, installed anyway:
+  - gh (source: aqua-github-release): no release timestamp available
+```
+
+`tomei plan` shows the same intent ahead of apply, annotating a change action
+with `[⚠ would-skip: …]` (best-effort; apply re-fetches and re-decides).
+
+- **First installs are gated too.** Bootstrapping a fresh environment, or adding
+  a tool on its release day, will skip any tool younger than its threshold.
+- `--ignore-min-release-age` (on `tomei apply` only) bypasses the gate for every
+  tool in that run — use it for intentional fresh bootstraps, CI, or emergency
+  restores. There is no `tomei plan` flag; plan only previews.
+- Set `GITHUB_TOKEN` (or `GH_TOKEN`) for the aqua check: the GitHub API rate
+  limit is 60/h unauthenticated vs 5000/h with a token.
+
 ### Self-Managed Tools (Commands Pattern)
 
 Tools with `spec.commands` manage their own installation via shell commands, without needing a runtime or installer dependency.
