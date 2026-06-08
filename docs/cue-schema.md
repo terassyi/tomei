@@ -211,6 +211,7 @@ spec: {
 | `spec.source` | [DownloadSource](#downloadsource) | no | Explicit download source |
 | `spec.package` | [Package](#package) | no | Package identifier for registry or delegation |
 | `spec.binaryName` | string | no | Override binary name for both the placed binary and the symlink (e.g., `"kubectl-krew"` for krew). Affects `state.installPath` and `state.binPath`. Must match `^[a-zA-Z0-9][a-zA-Z0-9._-]*$` |
+| `spec.privileged` | bool | no | Default `false`. Opt into elevated placement for download/registry/`commands` tools: the symlink is placed in the system bin directory (default `/usr/local/bin`) via a `sudo` fallback instead of `~/.local/bin`. Ignored for installer/name-delegation tools; **rejected with `runtimeRef`**. Requires `tomei apply --system` (or `--system-only`); without it the tool is skipped. See [design.md §11 Privileged Tools](./design.md#11-privileged-tools). |
 
 \* Exactly one of `installerRef`, `runtimeRef`, or `commands` is required.
 

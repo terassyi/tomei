@@ -460,6 +460,30 @@ spec: {
 
 Both `SystemPackage` and `SystemPackageSet` require `--system` at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
 
+#### Privileged tools (`spec.privileged`)
+
+A download/registry tool can set `spec.privileged: true` to place its symlink in the system bin directory (default `/usr/local/bin`) instead of `~/.local/bin` — useful for binaries that must sit on a system-wide `PATH`. The binary itself still lives under the user-owned tools directory (`~/.local/share/tomei/tools/<name>/<version>/`); only the symlink is privileged, placed via `os.Symlink` with a `sudo -n ln -snf` fallback on a permission error.
+
+```cue
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    privileged:   true
+    version:      "2.62.0"
+    source: {
+        url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_\(_os)_\(_arch).tar.gz"
+        checksum: url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
+    }
+}
+```
+
+Like system resources, privileged tools require `--system` (or `--system-only`); without it they are skipped. `privileged: true` is **rejected with `runtimeRef`** and **ignored** for installer/name-delegation tools (the installer owns placement). See [CUE Schema → Tool](./cue-schema.md#tool) and [design.md §11 Privileged Tools](./design.md#11-privileged-tools).
+
 Without `--system`, system resources and privileged tools are skipped at apply time:
 
 ```text

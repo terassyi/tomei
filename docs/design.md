@@ -328,7 +328,7 @@ SystemInstaller → SystemPackageRepository → SystemPackageSet
 
 ## 11. Privileged Tools
 
-Tools may set `spec.privileged: true` to opt into elevation semantics. The behavior depends on the install pattern; the new placement behavior introduced in this phase is documented below.
+Tools may set `spec.privileged: true` to opt into elevation semantics. The behavior depends on the install pattern, as documented below.
 
 Without `--system`, `tomei plan` keeps privileged tools in its output and marks them as `skip`. `tomei apply` filters them out of execution and logs a summary noting that privileged tools require a sudo cache for shell commands or for placing symlinks in the system bin directory.
 
