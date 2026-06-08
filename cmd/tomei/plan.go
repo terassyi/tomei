@@ -797,7 +797,8 @@ func annotateReleaseAgeAdvisoryWith(ctx context.Context, errW io.Writer, resourc
 
 	// The fetch can take up to age.FetchAll's batch timeout on a slow network;
 	// give the user feedback rather than a silent pause before the tree prints.
-	fmt.Fprintf(errW, "checking minimum release ages for %d tool(s)...\n", len(keys))
+	// Count tools (entries), not keys — tools sharing a release dedup to one fetch.
+	fmt.Fprintf(errW, "checking minimum release ages for %d tool(s)...\n", len(entries))
 	results := age.FetchAll(ctx, f, keys)
 	byKey := make(map[age.Key]age.Result, len(results))
 	for _, r := range results {

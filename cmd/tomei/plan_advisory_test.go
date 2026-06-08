@@ -173,9 +173,12 @@ func TestAnnotateAdvisory_DedupsSharedKey_AnnotatesBoth(t *testing.T) {
 	}
 	resources := []resource.Resource{aquaOverride(), aquaTool("gh-a", "v2.0.0"), aquaTool("gh-b", "v2.0.0")}
 
-	annotateReleaseAgeAdvisoryWith(context.Background(), io.Discard, resources, info, f)
+	var errW bytes.Buffer
+	annotateReleaseAgeAdvisoryWith(context.Background(), &errW, resources, info, f)
 
 	assert.NotEmpty(t, info[idA].Note)
 	assert.NotEmpty(t, info[idB].Note)
 	assert.Equal(t, int64(1), f.calls.Load(), "shared key must be fetched once")
+	// Progress message counts tools (2), not the deduped key (1).
+	assert.Contains(t, errW.String(), "2 tool(s)")
 }
