@@ -780,7 +780,7 @@ tomei version [flags]
 |------|-------------|
 | `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. Mutually exclusive with `--system-only`. tomei itself runs as the invoking user; manifests use `sudo` explicitly for elevation, and tomei keeps the sudo timestamp refreshed so re-prompts are rare. Do not run `sudo tomei`. System state is stored per-user under `<dataDir>/system/` (by default `~/.local/share/tomei/system/`); in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
 | `--system-only` | Apply (and plan) **only** privileged tools and system resources, forcing non-privileged resources to skip. Mutually exclusive with `--system`. Useful for CI provisioning and cron-driven privileged reapply. See [Privileged + system reapply](#privileged--system-reapply---system-only). |
-| `--log-level` | Log verbosity: `debug`, `info`, `warn`, `error` (default `info`). |
+| `--log-level` | Log verbosity: `debug`, `info`, `warn`, `error` (default `warn`). |
 
 ## Environment Variables
 

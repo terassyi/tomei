@@ -388,18 +388,18 @@ spec: {
 
 #### Fields
 
-The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The concrete installer is APT-based and hardcodes its `apt-get` / `dpkg-query` invocations (see [SystemPackageRepository](#systempackagerepository) and [SystemPackageSet](#systempackageset)); it does **not** read `spec.commands.*`. The `commands.*` entries below are therefore inert at apply time — they remain required by the schema and document the conventional shape a future non-`apt` installer would follow.
+The CUE schema requires `spec.pattern`, `spec.privileged`, and `spec.commands` (with `commands` as an open struct). Beyond that, current Go-side validation only checks `spec.pattern`, and the engine validates `SystemInstaller` resources by checking that the named package manager exists on the host (see error list above). The concrete installer is APT-based and hardcodes its `apt-get` / `dpkg-query` invocations (see [SystemPackageRepository](#systempackagerepository) and [SystemPackageSet](#systempackageset)); it does **not** read `spec.commands.*`. The `commands.*` entries below are therefore inert at apply time. The schema only requires the `commands` object itself (an open struct); the `install` / `remove` / `check` subkeys are not enforced — they are the conventional shape shown in the example and document what a future non-`apt` installer would consume.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `spec.pattern` | string | yes | Installer pattern. Currently only `"delegation"` is meaningful |
 | `spec.privileged` | bool | yes | Whether package operations require elevated privileges |
-| `spec.commands.install` | object | required by schema | `{command: string}` — inert; the APT installer hardcodes `apt-get install` and ignores this |
-| `spec.commands.remove` | object | required by schema | `{command: string}` — inert; the APT installer hardcodes `apt-get remove` and ignores this |
-| `spec.commands.check` | object | required by schema | `{command: string}` — inert; the APT installer probes via `dpkg-query` and ignores this |
+| `spec.commands.install` | object | no | `{command: string}` — inert; the APT installer hardcodes `apt-get install` and ignores this |
+| `spec.commands.remove` | object | no | `{command: string}` — inert; the APT installer hardcodes `apt-get remove` and ignores this |
+| `spec.commands.check` | object | no | `{command: string}` — inert; the APT installer probes via `dpkg-query` and ignores this |
 | `spec.commands.update` | string | no | Optional update command; inert for the APT installer (which runs `apt-get update` directly) |
 
-Because the only wired-in installer (`apt`) hardcodes its package operations, these `commands.*` declarations are inert for `apt` today. They are kept schema-required for forward compatibility; if a non-`apt` installer is added later, any Go template-variable conventions for these commands will be documented as part of that work.
+Because the only wired-in installer (`apt`) hardcodes its package operations, these `commands.*` declarations are inert for `apt` today. They are kept as the conventional shape for forward compatibility; if a non-`apt` installer is added later, any Go template-variable conventions for these commands will be documented as part of that work.
 
 ### SystemPackageRepository
 
