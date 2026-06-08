@@ -847,6 +847,99 @@ func TestToolInstaller_Install_Args(t *testing.T) {
 	}
 }
 
+// TestInstallByRuntime_MinimumReleaseAgeVarExposed verifies the runtime spec's
+// MinimumReleaseAge is threaded into the delegation install command's Vars, so a
+// preset can reference {{.MinimumReleaseAge}}. tomei does not enforce it here.
+func TestInstallByRuntime_MinimumReleaseAgeVarExposed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		minAge string
+		want   string
+	}{
+		{name: "set", minAge: "168h", want: "168h"},
+		{name: "unset", minAge: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{checkResult: true}
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
+			inst.RegisterRuntime("rt", &RuntimeInfo{
+				ToolBinPath:       t.TempDir(),
+				MinimumReleaseAge: tt.minAge,
+				Commands: &resource.CommandsSpec{
+					Install: []string{"echo {{.MinimumReleaseAge}}"},
+				},
+			})
+
+			tool := &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "mytool"}},
+				ToolSpec: &resource.ToolSpec{
+					RuntimeRef: "rt",
+					Version:    "1.0.0",
+					Package:    &resource.Package{Name: "mytool"},
+				},
+			}
+
+			_, err := inst.Install(context.Background(), tool, tool.Name())
+			require.NoError(t, err)
+			// Exactly one command (install); index [0] is unambiguous and a
+			// future Check on this path would fail here rather than silently shift.
+			require.Len(t, runner.executedVars, 1)
+			assert.Equal(t, tt.want, runner.executedVars[0].MinimumReleaseAge)
+		})
+	}
+}
+
+// TestInstallByInstaller_MinimumReleaseAgeVarExposed mirrors the runtime case for
+// the installer-delegation path.
+func TestInstallByInstaller_MinimumReleaseAgeVarExposed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		minAge string
+		want   string
+	}{
+		{name: "set", minAge: "168h", want: "168h"},
+		{name: "unset", minAge: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{checkResult: true}
+			inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
+			inst.RegisterInstaller("inst", &InstallerInfo{
+				Type:              resource.InstallTypeDelegation,
+				MinimumReleaseAge: tt.minAge,
+				Commands: &resource.CommandsSpec{
+					Install: []string{"echo {{.MinimumReleaseAge}}"},
+				},
+			})
+
+			tool := &resource.Tool{
+				BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "mytool"}},
+				ToolSpec: &resource.ToolSpec{
+					InstallerRef: "inst",
+					Version:      "1.0.0",
+					Package:      &resource.Package{Name: "mytool"},
+				},
+			}
+
+			_, err := inst.Install(context.Background(), tool, tool.Name())
+			require.NoError(t, err)
+			// Exactly one command (install); index [0] is unambiguous and a
+			// future Check on this path would fail here rather than silently shift.
+			require.Len(t, runner.executedVars, 1)
+			assert.Equal(t, tt.want, runner.executedVars[0].MinimumReleaseAge)
+		})
+	}
+}
+
 // TestToolInstaller_RuntimeRef_SubstitutesIntoVersion locks the install-time
 // invariant: when ToolSpec.SHA is set, the SHA is substituted into the
 // {{.Version}} template slot so the preset's "go install pkg@{{.Version}}"

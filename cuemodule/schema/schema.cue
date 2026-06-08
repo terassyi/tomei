@@ -90,10 +90,13 @@ package schema
 		// duration. Go duration string (e.g. "168h" for 1 week). Empty =
 		// disabled.
 		//
-		// Go-side parses and validates the value; the schema accepts any
-		// string and defers semantic checks to Validate(). Enforcement is
-		// performed at apply time by the installer engine (see issue
-		// #257); declaring this field before that gate lands is a no-op.
+		// Schema accepts any string; semantic validation (Go duration shape,
+		// non-negative) is deferred to the Go-side ParsedMinimumReleaseAge(),
+		// the authoritative validator on the apply path for both CUE and
+		// JSON/YAML manifests — the schema layer does not duplicate the parser.
+		// For delegation installs the value is exposed to commands as
+		// {{.MinimumReleaseAge}}; tomei's own apply-time gate for aqua/download
+		// is issue #257.
 		minimumReleaseAge?: string
 
 		// Conditional required fields
@@ -135,10 +138,13 @@ package schema
 		// duration. Go duration string (e.g. "168h" for 1 week). Empty =
 		// disabled.
 		//
-		// Go-side parses and validates the value; the schema accepts any
-		// string and defers semantic checks to Validate(). Enforcement is
-		// performed at apply time by the installer engine (see issue
-		// #257); declaring this field before that gate lands is a no-op.
+		// Schema accepts any string; semantic validation (Go duration shape,
+		// non-negative) is deferred to the Go-side ParsedMinimumReleaseAge(),
+		// the authoritative validator on the apply path for both CUE and
+		// JSON/YAML manifests — the schema layer does not duplicate the parser.
+		// For delegation installs the value is exposed to commands as
+		// {{.MinimumReleaseAge}}; tomei's own apply-time gate for aqua/download
+		// is issue #257.
 		minimumReleaseAge?: string
 
 		// Conditional required fields

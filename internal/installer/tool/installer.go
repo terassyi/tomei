@@ -32,6 +32,9 @@ type RuntimeInfo struct {
 	ToolBinPath string            // Path where tools should be installed (e.g., ~/go/bin)
 	Env         map[string]string // Environment variables (e.g., GOROOT, GOBIN)
 	Commands    *resource.CommandsSpec
+	// MinimumReleaseAge is the Go duration string from the Runtime spec, exposed
+	// to delegation install commands as {{.MinimumReleaseAge}}. Empty when unset.
+	MinimumReleaseAge string
 }
 
 // InstallerInfo contains the information needed to install tools via installer delegation.
@@ -39,6 +42,9 @@ type InstallerInfo struct {
 	Type     resource.InstallType // "download" or "delegation"
 	ToolRef  string               // Reference to tool (optional, e.g., cargo-binstall)
 	Commands *resource.CommandsSpec
+	// MinimumReleaseAge is the Go duration string from the Installer spec, exposed
+	// to delegation install commands as {{.MinimumReleaseAge}}. Empty when unset.
+	MinimumReleaseAge string
 }
 
 // CommandRunner is the interface for executing shell commands.
@@ -795,11 +801,12 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 		versionSlot = spec.SHA
 	}
 	vars := command.Vars{
-		Package: spec.Package.String(),
-		Version: versionSlot,
-		Name:    name,
-		BinPath: filepath.Join(info.ToolBinPath, binName),
-		Args:    strings.Join(spec.Args, " "),
+		Package:           spec.Package.String(),
+		Version:           versionSlot,
+		Name:              name,
+		BinPath:           filepath.Join(info.ToolBinPath, binName),
+		Args:              strings.Join(spec.Args, " "),
+		MinimumReleaseAge: info.MinimumReleaseAge,
 	}
 
 	// Build environment with PATH including runtime's bin directory
@@ -866,11 +873,12 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 	}
 
 	vars := command.Vars{
-		Package: pkg,
-		Version: spec.Version,
-		Name:    name,
-		BinPath: "", // installer manages the path
-		Args:    strings.Join(spec.Args, " "),
+		Package:           pkg,
+		Version:           spec.Version,
+		Name:              name,
+		BinPath:           "", // installer manages the path
+		Args:              strings.Join(spec.Args, " "),
+		MinimumReleaseAge: info.MinimumReleaseAge,
 	}
 
 	// Build environment with PATH including the installer's toolRef binary directory

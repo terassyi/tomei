@@ -1914,6 +1914,66 @@ func TestRuntimeInstaller_ProgressCallback_Priority(t *testing.T) {
 
 // --- test helpers for delegation tests ---
 
+// TestInstallDelegation_MinimumReleaseAgeVarExposed verifies the runtime spec's
+// MinimumReleaseAge is threaded into the bootstrap install AND check command Vars
+// (a single Vars feeds both), so {{.MinimumReleaseAge}} resolves. This is the
+// runtime's own self-install; tomei does not enforce the value here.
+func TestInstallDelegation_MinimumReleaseAgeVarExposed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		minAge string
+		want   string
+	}{
+		{name: "set", minAge: "168h", want: "168h"},
+		{name: "unset", minAge: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			runner := &mockCommandRunner{checkResult: true}
+			installer, runtimesDir := newTestInstaller(t, runner)
+			binDir := filepath.Join(runtimesDir, "bin")
+
+			rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+				s.MinimumReleaseAge = tt.minAge
+				s.Bootstrap.Remove = nil
+			})
+
+			_, err := installer.Install(context.Background(), rt, "mock")
+			require.NoError(t, err)
+
+			require.Len(t, runner.executeWithEnvCalls, 1)
+			assert.Equal(t, tt.want, runner.executeWithEnvCalls[0].vars.MinimumReleaseAge)
+			require.Len(t, runner.checkCalls, 1)
+			assert.Equal(t, tt.want, runner.checkCalls[0].vars.MinimumReleaseAge)
+		})
+	}
+
+	t.Run("upgrade update branch", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		installer, runtimesDir := newTestInstaller(t, runner)
+		binDir := filepath.Join(runtimesDir, "bin")
+
+		rt := newDelegationSpec(binDir, func(s *resource.RuntimeSpec) {
+			s.MinimumReleaseAge = "168h"
+			s.Bootstrap.Update = []string{"update-cmd {{.MinimumReleaseAge}}"}
+			s.Bootstrap.Remove = nil
+		})
+
+		ctx := executor.WithAction(context.Background(), resource.ActionUpgrade)
+		_, err := installer.Install(ctx, rt, "mock")
+		require.NoError(t, err)
+
+		require.Len(t, runner.executeWithEnvCalls, 1)
+		assert.Equal(t, []string{"update-cmd {{.MinimumReleaseAge}}"}, runner.executeWithEnvCalls[0].cmds)
+		assert.Equal(t, "168h", runner.executeWithEnvCalls[0].vars.MinimumReleaseAge)
+	})
+}
+
 // newDelegationSpec creates a base delegation Runtime with functional options for customization.
 // Default spec: Type=Delegation, Version="1.0.0", ToolBinPath=<binDir>,
 // Bootstrap={Install: ["install-cmd {{.Version}}"], Check: ["check-cmd"], Remove: ["remove-cmd"]}.
