@@ -187,6 +187,19 @@ func TestVersionClient_GetReleaseByTag(t *testing.T) {
 			wantPubZero: true,
 		},
 		{
+			// time.Time.UnmarshalJSON treats a literal null as a no-op,
+			// so a draft/unpublished release's "published_at":null decodes
+			// to the zero time rather than erroring out.
+			name:        "null published_at decodes to zero time",
+			owner:       "o",
+			repo:        "r",
+			tag:         "v1",
+			statusCode:  http.StatusOK,
+			body:        `{"tag_name":"v1","published_at":null}`,
+			wantTag:     "v1",
+			wantPubZero: true,
+		},
+		{
 			name:    "invalid owner path component",
 			owner:   "../etc",
 			repo:    "r",

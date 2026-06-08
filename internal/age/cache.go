@@ -83,7 +83,10 @@ func (c *cachedFetcher) Fetch(ctx context.Context, key Key) (time.Time, bool, er
 }
 
 // keyString builds the singleflight dedup key. Doesn't have to be
-// human-readable, only unique per Key value.
+// human-readable, only unique per Key value. Fields are %q-quoted (not
+// plain "|"-joined) so a "|" embedded in any field — git tags and URLs
+// can contain one — can't make two distinct Keys collide onto the same
+// dedup string.
 func keyString(k Key) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%s", k.Source, k.Owner, k.Repo, k.Tag, k.URL)
+	return fmt.Sprintf("%q|%q|%q|%q|%q", k.Source, k.Owner, k.Repo, k.Tag, k.URL)
 }

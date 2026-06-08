@@ -200,6 +200,27 @@ func TestCachedFetcher_WaiterAbortsOnContextCancel(t *testing.T) {
 	<-leaderDone
 }
 
+func TestCachedFetcher_PipeInFieldDoesNotCollide(t *testing.T) {
+	t.Parallel()
+	// Two distinct keys whose fields would produce the same plain
+	// "|"-joined string ("a|b" vs "a"+"|b"). They must NOT dedupe onto
+	// one inner Fetch, i.e. keyString must keep them distinct.
+	cf := &countingFetcher{ts: time.Now(), ok: true}
+	c := &cachedFetcher{inner: cf, cache: make(map[Key]cacheEntry)}
+	k1 := Key{Source: SourceLastModified, URL: "a|b"}
+	k2 := Key{Source: SourceLastModified, Tag: "a", URL: "b"}
+
+	if _, _, err := c.Fetch(context.Background(), k1); err != nil {
+		t.Fatalf("Fetch k1: %v", err)
+	}
+	if _, _, err := c.Fetch(context.Background(), k2); err != nil {
+		t.Fatalf("Fetch k2: %v", err)
+	}
+	if got := cf.calls.Load(); got != 2 {
+		t.Errorf("inner Fetch called %d times, want 2 (keys must not collide)", got)
+	}
+}
+
 func TestCachedFetcher_ErrorsAreCached(t *testing.T) {
 	t.Parallel()
 	cf := &countingFetcher{err: errors.New("transient")}
