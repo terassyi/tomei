@@ -431,8 +431,11 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 		errAction = "update"
 	}
 
-	// Execute bootstrap command
-	vars := command.Vars{Version: resolvedVersion}
+	// Execute bootstrap command.
+	// MinimumReleaseAge is exposed to bootstrap/check commands as {{.MinimumReleaseAge}}
+	// for symmetry with the tool-delegation path; tomei does not enforce it here (this is
+	// the runtime's own self-install), so honoring it is the bootstrap command's choice.
+	vars := command.Vars{Version: resolvedVersion, MinimumReleaseAge: spec.MinimumReleaseAge}
 	if err := i.executeBootstrap(ctx, cmds, vars, env); err != nil {
 		return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
 	}

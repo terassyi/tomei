@@ -53,10 +53,11 @@ type Vars struct {
 	Args string
 	// MinimumReleaseAge is the Go duration string declared on the owning
 	// Installer/Runtime spec (e.g., "168h"). Empty when unset. Threaded by
-	// the installer engine; currently a no-op until issue #257's apply-time
-	// gate consumes it. The slot exists here so delegation commands can
-	// reference {{.MinimumReleaseAge}} without further plumbing once the
-	// gate lands.
+	// the installer engine and rendered into delegation install commands as
+	// {{.MinimumReleaseAge}}. For delegation paths tomei does NOT itself gate
+	// the install — honoring the value is the user command's responsibility.
+	// (tomei's own apply-time gate for aqua/download installers is issue #257.)
+	// Validated as a Go duration before it reaches the command template.
 	MinimumReleaseAge string
 }
 

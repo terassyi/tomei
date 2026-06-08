@@ -26,6 +26,14 @@ import (
 type mockToolInstaller struct {
 	installFunc func(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error)
 	removeFunc  func(ctx context.Context, st *resource.ToolState, name string) error
+
+	// registeredRuntimes/registeredInstallers capture the Info passed to
+	// RegisterRuntime/RegisterInstaller so tests can assert what the engine
+	// threaded from the resource specs (e.g. MinimumReleaseAge). No mutex:
+	// the engine only registers on the serial Apply goroutine between layers,
+	// never from parallel node execution (mirrors the unlocked production type).
+	registeredRuntimes   map[string]*tool.RuntimeInfo
+	registeredInstallers map[string]*tool.InstallerInfo
 }
 
 func (m *mockToolInstaller) Install(ctx context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
@@ -47,9 +55,19 @@ func (m *mockToolInstaller) Remove(ctx context.Context, st *resource.ToolState, 
 	return nil
 }
 
-func (m *mockToolInstaller) RegisterRuntime(_ string, _ *tool.RuntimeInfo) {}
+func (m *mockToolInstaller) RegisterRuntime(name string, info *tool.RuntimeInfo) {
+	if m.registeredRuntimes == nil {
+		m.registeredRuntimes = make(map[string]*tool.RuntimeInfo)
+	}
+	m.registeredRuntimes[name] = info
+}
 
-func (m *mockToolInstaller) RegisterInstaller(_ string, _ *tool.InstallerInfo) {}
+func (m *mockToolInstaller) RegisterInstaller(name string, info *tool.InstallerInfo) {
+	if m.registeredInstallers == nil {
+		m.registeredInstallers = make(map[string]*tool.InstallerInfo)
+	}
+	m.registeredInstallers[name] = info
+}
 
 func (m *mockToolInstaller) SetToolBinPaths(_ map[string]string) {}
 
@@ -376,6 +394,106 @@ tool: {
 	require.NoError(t, err)
 	assert.NotNil(t, st.Runtimes["myruntime"])
 	assert.NotNil(t, st.Tools["test-tool"])
+}
+
+// TestEngine_Apply_ThreadsMinimumReleaseAge verifies the engine populates
+// RuntimeInfo/InstallerInfo.MinimumReleaseAge from each resource's spec. Two
+// runtimes (one set, one unset) catch map mis-keying that a single runtime would
+// hide; the installer hop is asserted too.
+func TestEngine_Apply_ThreadsMinimumReleaseAge(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	toolMock := &mockToolInstaller{}
+	runtimeMock := &mockRuntimeInstaller{}
+	eng := NewEngine(toolMock, runtimeMock, &mockInstallerRepositoryInstaller{}, store)
+
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "rt-set"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:              resource.InstallTypeDownload,
+				Version:           "1.0.0",
+				Binaries:          []string{"rt-set"},
+				ToolBinPath:       "~/rt-set/bin",
+				MinimumReleaseAge: "168h",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/rt-set.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "rt-unset"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:        resource.InstallTypeDownload,
+				Version:     "1.0.0",
+				Binaries:    []string{"rt-unset"},
+				ToolBinPath: "~/rt-unset/bin",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/rt-unset.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:1111111111111111111111111111111111111111111111111111111111111111"},
+				},
+			},
+		},
+		&resource.Installer{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: "myinst"}},
+			InstallerSpec: &resource.InstallerSpec{
+				Type:              resource.InstallTypeDelegation,
+				MinimumReleaseAge: "72h",
+				Commands:          &resource.CommandsSpec{Install: []string{"echo {{.MinimumReleaseAge}}"}},
+			},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.NoError(t, err)
+
+	require.Contains(t, toolMock.registeredRuntimes, "rt-set")
+	require.Contains(t, toolMock.registeredRuntimes, "rt-unset")
+	assert.Equal(t, "168h", toolMock.registeredRuntimes["rt-set"].MinimumReleaseAge)
+	assert.Empty(t, toolMock.registeredRuntimes["rt-unset"].MinimumReleaseAge)
+
+	require.Contains(t, toolMock.registeredInstallers, "myinst")
+	assert.Equal(t, "72h", toolMock.registeredInstallers["myinst"].MinimumReleaseAge)
+}
+
+// TestEngine_Apply_RejectsInvalidRuntimeMinimumReleaseAge verifies the Go-side
+// guard: RuntimeSpec.Validate() is not called on the apply path, so the engine
+// validates the duration itself before it could reach a delegation shell command
+// (the CUE regex is the boundary for CUE manifests; this guards JSON/YAML bypass).
+func TestEngine_Apply_RejectsInvalidRuntimeMinimumReleaseAge(t *testing.T) {
+	t.Parallel()
+
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+
+	eng := NewEngine(&mockToolInstaller{}, &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+
+	resources := []resource.Resource{
+		&resource.Runtime{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindRuntime, Metadata: resource.Metadata{Name: "bad-rt"}},
+			RuntimeSpec: &resource.RuntimeSpec{
+				Type:              resource.InstallTypeDownload,
+				Version:           "1.0.0",
+				Binaries:          []string{"bad-rt"},
+				ToolBinPath:       "~/bad-rt/bin",
+				MinimumReleaseAge: "; rm -rf ~ #",
+				Source: &resource.DownloadSource{
+					URL:      "https://example.com/bad-rt.tar.gz",
+					Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+				},
+			},
+		},
+	}
+
+	err = eng.Apply(context.Background(), resources)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid runtime")
 }
 
 func TestEngine_TaintDependentTools(t *testing.T) {

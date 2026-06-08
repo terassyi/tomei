@@ -370,6 +370,24 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 	// Build resource maps for quick lookup
 	resourceMap := buildResourceMap(resources)
 
+	// Collect the spec-declared minimumReleaseAge per runtime, keyed by name, so the
+	// runtime-delegation tool-install path can expose it as {{.MinimumReleaseAge}}.
+	// Sourced from the live manifest (not persisted state) and validated here, since
+	// RuntimeSpec.Validate() is otherwise not called on the apply path (unlike
+	// InstallerSpec, validated below) — this keeps an unparseable/negative duration
+	// from reaching a delegation shell command.
+	runtimeMinReleaseAge := make(map[string]string)
+	for _, rt := range extractByKind[*resource.Runtime](resources) {
+		if rt.RuntimeSpec == nil {
+			continue
+		}
+		// Parse to validate; the value is threaded as a raw string below.
+		if _, err := rt.RuntimeSpec.ParsedMinimumReleaseAge(); err != nil {
+			return fmt.Errorf("invalid runtime %q: %w", rt.Name(), err)
+		}
+		runtimeMinReleaseAge[rt.Name()] = rt.RuntimeSpec.MinimumReleaseAge
+	}
+
 	// Register installers for delegation type and save to state
 	for _, res := range resources {
 		if inst, ok := res.(*resource.Installer); ok && inst.InstallerSpec != nil {
@@ -377,9 +395,10 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				return fmt.Errorf("invalid installer %q: %w", inst.Name(), err)
 			}
 			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
-				Type:     inst.InstallerSpec.Type,
-				ToolRef:  inst.InstallerSpec.ToolRef,
-				Commands: inst.InstallerSpec.Commands,
+				Type:              inst.InstallerSpec.Type,
+				ToolRef:           inst.InstallerSpec.ToolRef,
+				Commands:          inst.InstallerSpec.Commands,
+				MinimumReleaseAge: inst.InstallerSpec.MinimumReleaseAge,
 			})
 			// Persist installer state (including ToolRef and BinDir) for removal lookup and env
 			if st.Installers == nil {
@@ -465,6 +484,8 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				ToolBinPath: runtimeState.ToolBinPath,
 				Env:         runtimeState.Env,
 				Commands:    runtimeState.Commands,
+				// Spec-sourced (live manifest), not state — see runtimeMinReleaseAge above.
+				MinimumReleaseAge: runtimeMinReleaseAge[name],
 			})
 		}
 	}
