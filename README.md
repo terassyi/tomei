@@ -67,7 +67,7 @@ Presets provide ready-made definitions for common runtimes and tools. Available 
 | Import | Provides |
 |--------|----------|
 | `tomei.terassyi.net/presets/go` | `#GoRuntime`, `#GoTool`, `#GoToolSet` |
-| `tomei.terassyi.net/presets/rust` | `#RustRuntime`, `#CargoBinstall`, `#BinstallInstaller`, `#BinstallToolSet` |
+| `tomei.terassyi.net/presets/rust` | `#RustRuntime`, `#CargoBinstall`, `#BinstallInstaller`, `#BinstallToolSet`, `#RustupComponentInstaller`, `#RustupComponentToolSet` |
 | `tomei.terassyi.net/presets/aqua` | `#AquaTool`, `#AquaToolSet` |
 | `tomei.terassyi.net/presets/node` | `#PnpmRuntime`, `#PnpmTool`, `#PnpmToolSet` |
 | `tomei.terassyi.net/presets/python` | `#UvRuntime`, `#UvTool`, `#UvToolSet` |
@@ -118,6 +118,26 @@ cliTools: aqua.#AquaToolSet & {
 	spec: tools: {
 		rg: {package: "BurntSushi/ripgrep", version: "latest"}
 		jq: {package: "jqlang/jq", version: "latest"}
+	}
+}
+```
+
+Rustup-managed components (e.g. `rust-analyzer`, `rust-src`) install via `#RustupComponentToolSet`, which requires `#RustRuntime` and `#RustupComponentInstaller` to be declared alongside it:
+
+```cue
+package tomei
+
+import "tomei.terassyi.net/presets/rust"
+
+rustRuntime: rust.#RustRuntime & {spec: version: "stable"}
+
+rustupComponentInstaller: rust.#RustupComponentInstaller
+
+rustComponents: rust.#RustupComponentToolSet & {
+	metadata: name: "rust-components"
+	spec: tools: {
+		"rust-analyzer": {}
+		"rust-src":      {}
 	}
 }
 ```
