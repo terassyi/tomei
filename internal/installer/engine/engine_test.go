@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terassyi/tomei/internal/age"
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/graph"
 	"github.com/terassyi/tomei/internal/installer/download"
@@ -494,6 +495,389 @@ func TestEngine_Apply_RejectsInvalidRuntimeMinimumReleaseAge(t *testing.T) {
 	err = eng.Apply(context.Background(), resources)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid runtime")
+}
+
+// --- minimumReleaseAge apply-time gate (#254) ---
+
+// fakeFetcher is an age.Fetcher whose answers are keyed by age.Key (an
+// all-string, comparable struct). It returns absolute timestamps and counts
+// calls so tests can assert the classifier short-circuits before any I/O.
+type fakeFetcher struct {
+	times  map[age.Key]time.Time
+	errs   map[age.Key]error
+	misses map[age.Key]bool // ok=false, nil err
+	calls  atomic.Int64
+}
+
+func (f *fakeFetcher) Fetch(_ context.Context, k age.Key) (time.Time, bool, error) {
+	f.calls.Add(1)
+	if e, ok := f.errs[k]; ok {
+		return time.Time{}, false, e
+	}
+	if f.misses[k] {
+		return time.Time{}, false, nil
+	}
+	if t, ok := f.times[k]; ok {
+		return t, true, nil
+	}
+	return time.Time{}, false, nil
+}
+
+// installRecorder captures which tools the engine actually installed. Install
+// runs on parallel node goroutines, so access is mutex-guarded.
+type installRecorder struct {
+	mu    sync.Mutex
+	names map[string]bool
+}
+
+func (r *installRecorder) toolMock() *mockToolInstaller {
+	return &mockToolInstaller{
+		installFunc: func(_ context.Context, res *resource.Tool, name string) (*resource.ToolState, error) {
+			r.mu.Lock()
+			if r.names == nil {
+				r.names = make(map[string]bool)
+			}
+			r.names[name] = true
+			r.mu.Unlock()
+			return &resource.ToolState{
+				InstallerRef: res.ToolSpec.InstallerRef,
+				Version:      res.ToolSpec.Version,
+				InstallPath:  "/tools/" + name,
+				BinPath:      "/bin/" + name,
+			}, nil
+		},
+	}
+}
+
+func (r *installRecorder) installed(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.names[name]
+}
+
+func aquaInstallerOverride() *resource.Installer {
+	return &resource.Installer{
+		BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: resource.InstallerNameAqua}},
+		InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload, MinimumReleaseAge: "168h"},
+	}
+}
+
+func aquaToolResource(name, owner, repo, version string) *resource.Tool {
+	return &resource.Tool{
+		BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: name}},
+		ToolSpec:     &resource.ToolSpec{InstallerRef: resource.InstallerNameAqua, Version: version, Package: &resource.Package{Owner: owner, Repo: repo}},
+	}
+}
+
+func downloadInstallerResource(name, minAge string) *resource.Installer {
+	return &resource.Installer{
+		BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: name}},
+		InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDownload, MinimumReleaseAge: minAge},
+	}
+}
+
+func downloadToolResource(name, installerRef, url, version string) *resource.Tool {
+	return &resource.Tool{
+		BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: name}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: installerRef,
+			Version:      version,
+			Source: &resource.DownloadSource{
+				URL:      url,
+				Checksum: &resource.Checksum{Value: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+			},
+		},
+	}
+}
+
+func newGateEngine(t *testing.T, rec *installRecorder, fetcher age.Fetcher) *Engine {
+	t.Helper()
+	store, err := state.NewStore[state.UserState](t.TempDir())
+	require.NoError(t, err)
+	eng := NewEngine(rec.toolMock(), &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetAgeFetcher(fetcher)
+	return eng
+}
+
+func TestApply_ReleaseAgeGate_Aqua(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+	fetcher := &fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-1 * time.Hour)}}
+	eng := newGateEngine(t, rec, fetcher)
+
+	resources := []resource.Resource{
+		aquaInstallerOverride(),
+		aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.False(t, rec.installed("gh"), "young aqua release must be skipped")
+	skips := eng.SkippedReleaseAge()
+	require.Len(t, skips, 1)
+	assert.Equal(t, "gh", skips[0].Name)
+	assert.Equal(t, age.SourceAquaGitHubReleases, skips[0].Source)
+	assert.Equal(t, 168*time.Hour, skips[0].MinAge)
+	// fetcher returned now-1h; loose bounds keep the assertion deterministic.
+	assert.Greater(t, skips[0].ActualAge, 30*time.Minute)
+	assert.Less(t, skips[0].ActualAge, 168*time.Hour)
+	assert.Empty(t, eng.UnverifiedReleaseAge())
+}
+
+func TestApply_ReleaseAgeGate_LastModified(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	url := "https://example.com/tool.tar.gz"
+	key := age.Key{Source: age.SourceLastModified, URL: url}
+	fetcher := &fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-1 * time.Hour)}}
+	eng := newGateEngine(t, rec, fetcher)
+
+	resources := []resource.Resource{
+		downloadInstallerResource(resource.InstallerNameDownload, "168h"),
+		downloadToolResource("rg", resource.InstallerNameDownload, url, "14.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.False(t, rec.installed("rg"))
+	require.Len(t, eng.SkippedReleaseAge(), 1)
+	assert.Equal(t, age.SourceLastModified, eng.SkippedReleaseAge()[0].Source)
+}
+
+// Proves classification is by installer TYPE, not the literal name "download":
+// a user-declared type:download installer with a custom name is gated too.
+func TestApply_ReleaseAgeGate_CustomDownloadInstaller(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	url := "https://example.com/mytool.tar.gz"
+	key := age.Key{Source: age.SourceLastModified, URL: url}
+	fetcher := &fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-2 * time.Hour)}}
+	eng := newGateEngine(t, rec, fetcher)
+
+	resources := []resource.Resource{
+		downloadInstallerResource("mydl", "168h"),
+		downloadToolResource("mytool", "mydl", url, "1.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.False(t, rec.installed("mytool"))
+	require.Len(t, eng.SkippedReleaseAge(), 1)
+}
+
+func TestApply_ReleaseAgeGate_OverThreshold(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+	fetcher := &fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-1000 * time.Hour)}}
+	eng := newGateEngine(t, rec, fetcher)
+
+	resources := []resource.Resource{
+		aquaInstallerOverride(),
+		aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.True(t, rec.installed("gh"), "release older than threshold must install")
+	assert.Empty(t, eng.SkippedReleaseAge())
+}
+
+// The gate must also fire on the upgrade path (not just first install), and a
+// skipped upgrade must NOT advance persisted state.
+func TestApply_ReleaseAgeGate_Upgrade(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	stateDir := t.TempDir()
+	store, err := state.NewStore[state.UserState](stateDir)
+	require.NoError(t, err)
+	require.NoError(t, store.Lock())
+	initial := state.NewUserState()
+	initial.Tools["gh"] = &resource.ToolState{InstallerRef: resource.InstallerNameAqua, Version: "v1.0.0", InstallPath: "/tools/gh/v1.0.0", BinPath: "/bin/gh"}
+	require.NoError(t, store.Save(initial))
+	_ = store.Unlock()
+
+	key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+	eng := NewEngine(rec.toolMock(), &mockRuntimeInstaller{}, &mockInstallerRepositoryInstaller{}, store)
+	eng.SetAgeFetcher(&fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-1 * time.Hour)}})
+
+	resources := []resource.Resource{
+		aquaInstallerOverride(),
+		aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.False(t, rec.installed("gh"), "young upgrade must be skipped")
+	require.Len(t, eng.SkippedReleaseAge(), 1)
+
+	require.NoError(t, store.Lock())
+	defer func() { _ = store.Unlock() }()
+	st, err := store.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "v1.0.0", st.Tools["gh"].Version, "skipped upgrade must not advance state")
+}
+
+// Locks the `actualAge >= minAge` boundary direction (at/over threshold installs).
+func TestApply_ReleaseAgeGate_ThresholdBoundary(t *testing.T) {
+	t.Parallel()
+	key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+	tests := []struct {
+		name        string
+		publishedAt time.Time
+		wantInstall bool
+	}{
+		{"just over threshold installs", time.Now().Add(-168*time.Hour - time.Minute), true},
+		{"just under threshold skips", time.Now().Add(-167 * time.Hour), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := &installRecorder{}
+			eng := newGateEngine(t, rec, &fakeFetcher{times: map[age.Key]time.Time{key: tt.publishedAt}})
+			require.NoError(t, eng.Apply(context.Background(), []resource.Resource{
+				aquaInstallerOverride(), aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+			}))
+			assert.Equal(t, tt.wantInstall, rec.installed("gh"))
+		})
+	}
+}
+
+func TestApply_ReleaseAgeGate_DelegationNoOp(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	fetcher := &fakeFetcher{} // any Fetch would be a bug
+	eng := newGateEngine(t, rec, fetcher)
+
+	resources := []resource.Resource{
+		&resource.Installer{
+			BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: "brew"}},
+			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDelegation, MinimumReleaseAge: "168h", Commands: &resource.CommandsSpec{Install: []string{"brew install {{.Name}}"}}},
+		},
+		&resource.Tool{
+			BaseResource: resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindTool, Metadata: resource.Metadata{Name: "jq"}},
+			ToolSpec:     &resource.ToolSpec{InstallerRef: "brew", Version: "1.7", Package: &resource.Package{Name: "jq"}},
+		},
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.True(t, rec.installed("jq"), "delegation installs are never gated")
+	assert.Empty(t, eng.SkippedReleaseAge())
+	assert.Equal(t, int64(0), fetcher.calls.Load(), "classifier must short-circuit before any fetch")
+}
+
+func TestApply_IgnoreMinReleaseAge(t *testing.T) {
+	t.Parallel()
+	rec := &installRecorder{}
+	key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+	fetcher := &fakeFetcher{times: map[age.Key]time.Time{key: time.Now().Add(-1 * time.Hour)}} // would gate
+	eng := newGateEngine(t, rec, fetcher)
+	eng.SetUpdateConfig(UpdateConfig{IgnoreMinReleaseAge: true})
+
+	resources := []resource.Resource{
+		aquaInstallerOverride(),
+		aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+	}
+	require.NoError(t, eng.Apply(context.Background(), resources))
+
+	assert.True(t, rec.installed("gh"), "--ignore-min-release-age installs regardless")
+	assert.Empty(t, eng.SkippedReleaseAge())
+}
+
+// Fail-open must be VISIBLE: an enabled gate that can't be evaluated installs
+// anyway but is recorded in UnverifiedReleaseAge.
+func TestApply_ReleaseAgeGate_FailOpenVisible(t *testing.T) {
+	t.Parallel()
+	t.Run("fetch error", func(t *testing.T) {
+		t.Parallel()
+		rec := &installRecorder{}
+		key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+		fetcher := &fakeFetcher{errs: map[age.Key]error{key: fmt.Errorf("boom")}}
+		eng := newGateEngine(t, rec, fetcher)
+		require.NoError(t, eng.Apply(context.Background(), []resource.Resource{
+			aquaInstallerOverride(), aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+		}))
+		assert.True(t, rec.installed("gh"))
+		require.Len(t, eng.UnverifiedReleaseAge(), 1)
+		assert.Equal(t, "gh", eng.UnverifiedReleaseAge()[0].Name)
+	})
+	t.Run("source unavailable", func(t *testing.T) {
+		t.Parallel()
+		rec := &installRecorder{}
+		key := age.Key{Source: age.SourceAquaGitHubReleases, Owner: "cli", Repo: "cli", Tag: "v2.0.0"}
+		fetcher := &fakeFetcher{misses: map[age.Key]bool{key: true}}
+		eng := newGateEngine(t, rec, fetcher)
+		require.NoError(t, eng.Apply(context.Background(), []resource.Resource{
+			aquaInstallerOverride(), aquaToolResource("gh", "cli", "cli", "v2.0.0"),
+		}))
+		assert.True(t, rec.installed("gh"))
+		require.Len(t, eng.UnverifiedReleaseAge(), 1)
+	})
+	// An unresolved aqua tag (empty / "latest") is reported as unverified
+	// without consulting the fetcher.
+	t.Run("unresolved version pre-flight", func(t *testing.T) {
+		t.Parallel()
+		rec := &installRecorder{}
+		fetcher := &fakeFetcher{}
+		eng := newGateEngine(t, rec, fetcher)
+		require.NoError(t, eng.Apply(context.Background(), []resource.Resource{
+			aquaInstallerOverride(), aquaToolResource("gh", "cli", "cli", "latest"),
+		}))
+		assert.True(t, rec.installed("gh"))
+		require.Len(t, eng.UnverifiedReleaseAge(), 1)
+		assert.Contains(t, eng.UnverifiedReleaseAge()[0].Reason, "unresolved")
+		assert.Equal(t, int64(0), fetcher.calls.Load(), "pre-flight must not call the fetcher")
+	})
+}
+
+func TestReleaseAgeKeyAndThreshold(t *testing.T) {
+	t.Parallel()
+	url := "https://example.com/x.tar.gz"
+	resources := []resource.Resource{
+		aquaInstallerOverride(),
+		downloadInstallerResource(resource.InstallerNameDownload, "72h"),
+		downloadInstallerResource("mydl", "24h"),
+		&resource.Installer{
+			BaseResource:  resource.BaseResource{APIVersion: resource.GroupVersion, ResourceKind: resource.KindInstaller, Metadata: resource.Metadata{Name: "brew"}},
+			InstallerSpec: &resource.InstallerSpec{Type: resource.InstallTypeDelegation, MinimumReleaseAge: "168h", Commands: &resource.CommandsSpec{Install: []string{"x"}}},
+		},
+	}
+	rm := buildResourceMap(resources)
+	eng := &Engine{ageFetcher: &fakeFetcher{}} // ageFetcher non-nil so the helper isn't bypassed
+
+	tests := []struct {
+		name        string
+		tool        *resource.Tool
+		wantEnabled bool
+		wantSource  age.Source
+		wantMinAge  time.Duration
+	}{
+		{"aqua", aquaToolResource("gh", "cli", "cli", "v2.0.0"), true, age.SourceAquaGitHubReleases, 168 * time.Hour},
+		{"download builtin", downloadToolResource("rg", resource.InstallerNameDownload, url, "1.0.0"), true, age.SourceLastModified, 72 * time.Hour},
+		{"custom download", downloadToolResource("c", "mydl", url, "1.0.0"), true, age.SourceLastModified, 24 * time.Hour},
+		{"delegation", &resource.Tool{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "jq"}}, ToolSpec: &resource.ToolSpec{InstallerRef: "brew", Version: "1.7", Package: &resource.Package{Name: "jq"}}}, false, "", 0},
+		{"runtime", &resource.Tool{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "gopls"}}, ToolSpec: &resource.ToolSpec{RuntimeRef: "go", Version: "v1", Package: &resource.Package{Name: "x"}}}, false, "", 0},
+		{"commands", &resource.Tool{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "cm"}}, ToolSpec: &resource.ToolSpec{Commands: &resource.ToolCommandSet{}, Version: "1"}}, false, "", 0},
+		{"aqua override different repo", aquaToolResource("other", "o", "r", "v1"), true, age.SourceAquaGitHubReleases, 168 * time.Hour}, // resolves the Installer/aqua override in rm
+		// download installer referenced but neither registry package nor Source.URL → no fetchable source → disabled.
+		{"download no source", &resource.Tool{BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "ns"}}, ToolSpec: &resource.ToolSpec{InstallerRef: resource.InstallerNameDownload, Version: "1", Package: &resource.Package{Name: "ns"}}}, false, "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			key, minAge, enabled := eng.releaseAgeKeyAndThreshold(tt.tool, rm)
+			assert.Equal(t, tt.wantEnabled, enabled)
+			if tt.wantEnabled {
+				assert.Equal(t, tt.wantSource, key.Source)
+				assert.Equal(t, tt.wantMinAge, minAge)
+			}
+		})
+	}
+
+	// Opt-in contract: an aqua tool with NO Installer/aqua override (builtin,
+	// absent from the resource map) is disabled — the gate never fires by default.
+	t.Run("aqua builtin no override disabled", func(t *testing.T) {
+		t.Parallel()
+		rmNoOverride := buildResourceMap([]resource.Resource{}) // no Installer/aqua
+		_, _, enabled := eng.releaseAgeKeyAndThreshold(aquaToolResource("gh", "cli", "cli", "v2.0.0"), rmNoOverride)
+		assert.False(t, enabled)
+	})
 }
 
 func TestEngine_TaintDependentTools(t *testing.T) {

@@ -10,6 +10,9 @@ import (
 // (all aqua keys return ok=false, nil).
 type aquaFetcher struct {
 	client AquaReleaseClient
+	// timeout bounds a single GetReleaseByTag call. Zero means no per-request
+	// bound is applied here (the client's own Timeout, if any, still applies).
+	timeout time.Duration
 }
 
 func (a *aquaFetcher) Fetch(ctx context.Context, key Key) (time.Time, bool, error) {
@@ -18,6 +21,11 @@ func (a *aquaFetcher) Fetch(ctx context.Context, key Key) (time.Time, bool, erro
 	}
 	if key.Owner == "" || key.Repo == "" || key.Tag == "" {
 		return time.Time{}, false, nil
+	}
+	if a.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, a.timeout)
+		defer cancel()
 	}
 	rel, err := a.client.GetReleaseByTag(ctx, key.Owner, key.Repo, key.Tag)
 	if err != nil {

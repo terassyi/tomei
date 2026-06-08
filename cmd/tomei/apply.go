@@ -19,6 +19,7 @@ import (
 	"github.com/fatih/color"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
+	"github.com/terassyi/tomei/internal/age"
 	"github.com/terassyi/tomei/internal/config"
 	"github.com/terassyi/tomei/internal/github"
 	"github.com/terassyi/tomei/internal/installer/download"
@@ -38,10 +39,11 @@ import (
 // applyConfig holds configuration for the apply command.
 type applyConfig struct {
 	loadConfig
-	quiet    bool
-	parallel int
-	yes      bool
-	timeout  time.Duration
+	quiet               bool
+	parallel            int
+	yes                 bool
+	timeout             time.Duration
+	ignoreMinReleaseAge bool
 }
 
 var applyCfg applyConfig
@@ -94,6 +96,7 @@ func init() {
 	applyCmd.Flags().IntVar(&applyCfg.parallel, "parallel", engine.DefaultParallelism, "Maximum number of parallel installations (1-20)")
 	applyCmd.Flags().BoolVarP(&applyCfg.yes, "yes", "y", false, "Skip confirmation prompt")
 	applyCmd.Flags().DurationVar(&applyCfg.timeout, "timeout", download.DefaultDownloadTimeout, "Per-download timeout (e.g., 5m, 10m, 1h)")
+	applyCmd.Flags().BoolVar(&applyCfg.ignoreMinReleaseAge, "ignore-min-release-age", false, "Bypass the minimumReleaseAge gate and install regardless of upstream release age (aqua gating is best-effort: tag mismatches fail open)")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -231,9 +234,10 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 
 	// Show plan and ask for confirmation when there are changes
 	updCfg := engine.UpdateConfig{
-		SyncMode:       cfg.syncRegistry,
-		UpdateTools:    cfg.updateTools || cfg.updateAll,
-		UpdateRuntimes: cfg.updateRuntimes || cfg.updateAll,
+		SyncMode:            cfg.syncRegistry,
+		UpdateTools:         cfg.updateTools || cfg.updateAll,
+		UpdateRuntimes:      cfg.updateRuntimes || cfg.updateAll,
+		IgnoreMinReleaseAge: cfg.ignoreMinReleaseAge,
 	}
 	// Show plan with all resources (system + user) for complete picture
 	hasChanges, err := planForResources(w, resources, cfg.noColor, updCfg, scope)
@@ -267,6 +271,13 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	eng := engine.NewEngine(toolInstaller, runtimeInstaller, repoInstaller, store)
 	eng.SetParallelism(cfg.parallel)
 	eng.SetUpdateConfig(updCfg)
+	// minimumReleaseAge gate. Pass a nil httpClient so age builds its own
+	// SSRF-hardened client for arbitrary Last-Modified hosts — the
+	// token-bearing dlClient must not be reused (PAT-leak hazard). The aqua
+	// client only ever talks to api.github.com.
+	if !cfg.ignoreMinReleaseAge {
+		eng.SetAgeFetcher(age.New(aqua.NewVersionClient(ghClient), nil))
+	}
 	// Under --system-only, filterNonPrivilegedWithLog stripped non-priv
 	// resources from userResources before the engine sees them, so the
 	// reconciler would otherwise emit ActionRemove for their state
@@ -362,6 +373,22 @@ func executeApply(ctx context.Context, paths []string, w io.Writer, cfg *applyCo
 	// the desired resource list but still intended to be installed).
 	if n := eng.SkippedPrivileged(); n > 0 && !cfg.quiet {
 		fmt.Fprintf(w, "\n%d privileged resource action(s) skipped (%s). Use 'tomei apply --system' or 'tomei apply --system-only' to manage privileged resources.\n", n, privilegedSkipReasonsFragment)
+	}
+
+	if skips := eng.SkippedReleaseAge(); len(skips) > 0 && !cfg.quiet {
+		fmt.Fprintf(w, "\n%d tool(s) skipped (release younger than minimumReleaseAge):\n", len(skips))
+		for _, s := range skips {
+			fmt.Fprintf(w, "  - %s: released %s ago, requires %s (source: %s)\n",
+				s.Name, s.ActualAge.Truncate(time.Minute), s.MinAge, s.Source)
+		}
+		fmt.Fprintln(w, "Use --ignore-min-release-age to override.")
+	}
+
+	if unv := eng.UnverifiedReleaseAge(); len(unv) > 0 && !cfg.quiet {
+		fmt.Fprintf(w, "\n%d tool(s): minimumReleaseAge could not be verified, installed anyway:\n", len(unv))
+		for _, u := range unv {
+			fmt.Fprintf(w, "  - %s (source: %s): %s\n", u.Name, u.Source, u.Reason)
+		}
 	}
 
 	return applyErr

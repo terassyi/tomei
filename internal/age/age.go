@@ -172,7 +172,7 @@ func New(aquaClient AquaReleaseClient, httpClient *http.Client, opts ...Option) 
 		}
 	}
 	inner := &dispatchFetcher{
-		aqua:         &aquaFetcher{client: aquaClient},
+		aqua:         &aquaFetcher{client: aquaClient, timeout: cfg.perRequestTimeout},
 		lastModified: &lastModifiedFetcher{client: httpClient, timeout: cfg.perRequestTimeout, allowLoopback: cfg.allowLoopback},
 	}
 	return &cachedFetcher{inner: inner, cache: make(map[Key]cacheEntry), cfg: cfg}
