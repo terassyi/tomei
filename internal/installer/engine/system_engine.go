@@ -155,7 +155,7 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 	e.stateCache.Init(st)
 
 	// Build resource map for quick lookup
-	resourceMap := buildResourceMap(resources)
+	resourceMap := BuildResourceMap(resources)
 
 	totalActions := 0
 

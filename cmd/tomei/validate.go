@@ -104,6 +104,12 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	cmd.Printf("  %s No circular dependencies\n", style.SuccessMark)
 	cmd.Println()
 
+	// Delegation lint (non-fatal): minimumReleaseAge declared but no install
+	// command references it. To stderr so it doesn't disturb success output.
+	for _, w := range resource.LintMinimumReleaseAge(resources) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w)
+	}
+
 	cmd.Printf("%s Validation successful (%d resources)\n", style.SuccessMark, len(resources))
 	return nil
 }
