@@ -101,6 +101,10 @@ const (
 // install via direct download (no delegation, no runtime).
 const MethodDownload = "download"
 
+// MethodCommands is the value reported in Event.Method for self-managed
+// tools using the commands pattern.
+const MethodCommands = "commands"
+
 // Event represents an engine event for progress reporting.
 type Event struct {
 	Type       EventType
@@ -1223,7 +1227,7 @@ func (e *Engine) determineInstallMethod(t *resource.Tool) string {
 
 	// Self-managed tool (commands pattern)
 	if spec.Commands != nil {
-		return "commands"
+		return MethodCommands
 	}
 
 	// Runtime delegation (e.g., "go install")
