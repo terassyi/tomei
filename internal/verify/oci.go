@@ -34,6 +34,8 @@ const (
 	cosignChainKey = "dev.sigstore.cosign/chain"
 	// cosignBundleKey is the annotation key for the Rekor entry JSON (cosign v2 format).
 	cosignBundleKey = "dev.sigstore.cosign/bundle"
+	// pemTypeCertificate is the PEM block type for X.509 certificates.
+	pemTypeCertificate = "CERTIFICATE"
 )
 
 // CosignSigTag returns the cosign signature tag for the given digest.
@@ -296,7 +298,7 @@ func parsePEMCertificates(pemData string) ([]*protocommon.X509Certificate, error
 		if block == nil {
 			break
 		}
-		if block.Type != "CERTIFICATE" {
+		if block.Type != pemTypeCertificate {
 			continue
 		}
 		certs = append(certs, &protocommon.X509Certificate{

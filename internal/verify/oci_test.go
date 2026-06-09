@@ -143,7 +143,7 @@ func generateTestCert(t *testing.T) string {
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	require.NoError(t, err)
 
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes}))
+	return string(pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: derBytes}))
 }
 
 // buildTestRekorJSON builds a valid cosignRekorEntry JSON string for testing.
@@ -167,7 +167,7 @@ func buildTestRekorJSON(t *testing.T) string {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	require.NoError(t, err)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: pemTypeCertificate, Bytes: der})
 
 	// hashedrekord records the artifact's SHA-256 digest and a signature over
 	// that digest; rekor verifies the signature against the digest.
