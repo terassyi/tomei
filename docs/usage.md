@@ -341,9 +341,12 @@ asset name by OS/arch.)
 installed via `runtimeRef` are never gated, regardless of the runtime's `type`),
 does not make tomei check anything — it only renders the value as the
 `{{.MinimumReleaseAge}}` template variable (the literal duration string, e.g.
-`168h`) for your install commands. No mainstream installer (`cargo binstall`,
-`brew`, `go install`, `uv`) accepts a release-age flag, so honoring it requires a
-shell guard you write yourself:
+`168h`) for your install commands. Most delegation installers (`cargo binstall`,
+`brew`, `go install`) accept no release-age flag, so honoring the value requires a
+shell guard you write yourself. The exception is `uv`, which has `--exclude-newer`
+— but it takes an RFC3339 cutoff date, not the duration string this variable
+renders, so you would still have to convert `now − minimumReleaseAge` to a date
+yourself. Either way, tomei does not do it for you:
 
 ```cue
 binstall: {
