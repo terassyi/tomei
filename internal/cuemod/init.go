@@ -28,7 +28,7 @@ var platformTmpl string
 
 const (
 	DefaultModuleName = "manifests.local@v0"
-	DefaultModuleVer  = "v0.1.10"
+	DefaultModuleVer  = "v0.2.0"
 )
 
 // ModuleParams holds the parameters for module.cue template rendering.
