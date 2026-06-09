@@ -458,7 +458,7 @@ spec: {
 }
 ```
 
-Both `SystemPackage` and `SystemPackageSet` require `--system` at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
+Both `SystemPackage` and `SystemPackageSet` require `--system` (or `--system-only`) at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
 
 #### Privileged tools (`spec.privileged`)
 
