@@ -212,6 +212,7 @@ tomei apply <files or directories...> [flags]
 | `--timeout` | Per-download timeout (e.g., `5m`, `10m`, `1h`; default `5m`) |
 | `--quiet` | Suppress progress output |
 | `--no-color` | Disable colored output |
+| `--ignore-min-release-age` | Bypass the `minimumReleaseAge` gate and install regardless of upstream release age (aqua gating is best-effort: tag mismatches fail open) |
 | `--ignore-cosign` | Skip cosign signature verification for CUE module dependencies (global flag) |
 
 Before applying, `tomei apply` shows the execution plan and asks for confirmation (`y/N`). Use `--yes` to skip the prompt. If the current state already matches the manifests, no changes are made.
@@ -457,7 +458,31 @@ spec: {
 }
 ```
 
-Both `SystemPackage` and `SystemPackageSet` require `--system` at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
+Both `SystemPackage` and `SystemPackageSet` require `--system` (or `--system-only`) at apply time. See [CUE Schema → SystemPackage](./cue-schema.md#systempackage) for field details.
+
+#### Privileged tools (`spec.privileged`)
+
+A download/registry tool can set `spec.privileged: true` to place its symlink in the system bin directory (default `/usr/local/bin`) instead of `~/.local/bin` — useful for binaries that must sit on a system-wide `PATH`. The binary itself still lives under the user-owned tools directory (`~/.local/share/tomei/tools/<name>/<version>/`); only the symlink is privileged, placed via `os.Symlink` with a `sudo -n ln -snf` fallback on a permission error.
+
+```cue
+_os:   string @tag(os)
+_arch: string @tag(arch)
+
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "gh"
+spec: {
+    installerRef: "download"
+    privileged:   true
+    version:      "2.62.0"
+    source: {
+        url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_\(_os)_\(_arch).tar.gz"
+        checksum: url: "https://github.com/cli/cli/releases/download/v\(spec.version)/gh_\(spec.version)_checksums.txt"
+    }
+}
+```
+
+Like system resources, privileged tools require `--system` (or `--system-only`); without it they are skipped. `privileged: true` is **rejected with `runtimeRef`** and **ignored** for installer/name-delegation tools (the installer owns placement). See [CUE Schema → Tool](./cue-schema.md#tool) and [design.md §11 Privileged Tools](./design.md#11-privileged-tools).
 
 Without `--system`, system resources and privileged tools are skipped at apply time:
 
@@ -468,6 +493,18 @@ $ tomei apply .
 ```
 
 `tomei plan .` (without `--system`) shows the same resources marked `skip` in the graph and summary, without the count lines above.
+
+#### Privileged + system reapply (`--system-only`)
+
+`--system-only` is the inverse half of `--system`: it applies **only** privileged tools and system resources, forcing non-privileged resources (`Runtime`, non-privileged `Tool`, `Installer`, `InstallerRepository`) to skip. It is mutually exclusive with `--system`, but composes with `--yes`, `--sync`, and the `--update-*` flags. This is useful for CI provisioning and cron-driven privileged reapply, where the user-level environment is managed separately.
+
+```bash
+# CI / cron: reapply only privileged tools and system resources
+tomei apply --system-only --yes .
+# => N non-privileged resource(s) skipped (--system-only restricts apply to privileged tools and system resources).
+```
+
+`tomei plan --system-only .` honors the same scope, marking non-privileged resources as `skip` in the graph.
 
 Behavior notes:
 
@@ -741,7 +778,9 @@ tomei version [flags]
 
 | Flag | Description |
 |------|-------------|
-| `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. tomei itself runs as the invoking user; manifests use `sudo` explicitly for elevation, and tomei keeps the sudo timestamp refreshed so re-prompts are rare. Do not run `sudo tomei`. System state is stored per-user under `<dataDir>/system/` (by default `~/.local/share/tomei/system/`); in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
+| `--system` | Enable system package management and privileged tool operations. Used with `apply` and `plan`. Mutually exclusive with `--system-only`. tomei itself runs as the invoking user; manifests use `sudo` explicitly for elevation, and tomei keeps the sudo timestamp refreshed so re-prompts are rare. Do not run `sudo tomei`. System state is stored per-user under `<dataDir>/system/` (by default `~/.local/share/tomei/system/`); in multi-user environments each user maintains an independent view, and out-of-band system changes are not detected. |
+| `--system-only` | Apply (and plan) **only** privileged tools and system resources, forcing non-privileged resources to skip. Mutually exclusive with `--system`. Useful for CI provisioning and cron-driven privileged reapply. See [Privileged + system reapply](#privileged--system-reapply---system-only). |
+| `--log-level` | Log verbosity: `debug`, `info`, `warn`, `error` (default `warn`). |
 
 ## Environment Variables
 
