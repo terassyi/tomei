@@ -4,9 +4,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -145,10 +147,41 @@ func generateTestCert(t *testing.T) string {
 }
 
 // buildTestRekorJSON builds a valid cosignRekorEntry JSON string for testing.
+//
+// The embedded body is a complete, signature-valid hashedrekord v0.0.1 entry:
+// sigstore-go v1.2.0 decodes and validates the canonicalized body inside
+// bundle.NewBundle (via TlogEntries), so a minimal stub no longer suffices.
+// The entry is self-contained — a freshly generated key signs the artifact
+// digest, and that key's certificate is embedded as the entry's public key, so
+// hashedrekord's cross-field signature verification passes.
 func buildTestRekorJSON(t *testing.T) string {
 	t.Helper()
 
-	bodyJSON := `{"apiVersion":"0.0.1","kind":"hashedrekord"}`
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "rekor-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	// hashedrekord records the artifact's SHA-256 digest and a signature over
+	// that digest; rekor verifies the signature against the digest.
+	digest := sha256.Sum256([]byte("rekor-test-artifact"))
+	sig, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	require.NoError(t, err)
+
+	bodyJSON := fmt.Sprintf(
+		`{"apiVersion":"0.0.1","kind":"hashedrekord","spec":{"data":{"hash":{"algorithm":"sha256","value":"%s"}},"signature":{"content":"%s","publicKey":{"content":"%s"}}}}`,
+		hex.EncodeToString(digest[:]),
+		base64.StdEncoding.EncodeToString(sig),
+		base64.StdEncoding.EncodeToString(certPEM),
+	)
+
 	entry := cosignRekorEntry{
 		SignedEntryTimestamp: base64.StdEncoding.EncodeToString([]byte("test-set")),
 	}
