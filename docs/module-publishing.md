@@ -19,7 +19,7 @@ While in `@v0`, breaking changes are permitted.
 
 ```cue
 deps: {
-    "tomei.terassyi.net@v0": v: "v0.1.10"
+    "tomei.terassyi.net@v0": v: "v0.2.0"
 }
 ```
 
