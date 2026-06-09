@@ -4,10 +4,20 @@ package tests
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cuelang.org/go/mod/module"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -95,7 +105,7 @@ func TestFetchCosignSignatures_WithSignature(t *testing.T) {
 	// cryptographic verification because the certificate and signature are fake.
 	dummyBytes := base64.StdEncoding.EncodeToString([]byte("test"))
 	dummyCertPEM := "-----BEGIN CERTIFICATE-----\n" + dummyBytes + "\n-----END CERTIFICATE-----"
-	rekorBody := base64.StdEncoding.EncodeToString([]byte(`{"kind":"hashedrekord","apiVersion":"0.0.1"}`))
+	rekorBody := validHashedrekordBodyB64(t)
 	rekorJSON := fmt.Sprintf(`{
 		"SignedEntryTimestamp": "%s",
 		"Payload": {
@@ -144,4 +154,38 @@ func TestFetchCosignSignatures_WithSignature(t *testing.T) {
 	assert.True(t, results[0].Skipped)
 	// Should NOT say "no cosign signature found" — it found one but verification failed
 	assert.NotEqual(t, "no cosign signature found (unsigned module)", results[0].SkipReason)
+}
+
+// validHashedrekordBodyB64 returns a base64-encoded, signature-valid
+// hashedrekord v0.0.1 entry body. sigstore-go v1.2.0 decodes and validates the
+// Rekor body inside bundle.NewBundle, so a minimal stub no longer parses; the
+// signature must verify against the recorded digest. The entry is
+// self-contained — a generated key signs the digest and its certificate is
+// embedded as the entry's public key.
+func validHashedrekordBodyB64(t *testing.T) string {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "rekor-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+
+	digest := sha256.Sum256([]byte("rekor-test-artifact"))
+	sig, err := ecdsa.SignASN1(rand.Reader, key, digest[:])
+	require.NoError(t, err)
+
+	body := fmt.Sprintf(
+		`{"apiVersion":"0.0.1","kind":"hashedrekord","spec":{"data":{"hash":{"algorithm":"sha256","value":"%s"}},"signature":{"content":"%s","publicKey":{"content":"%s"}}}}`,
+		hex.EncodeToString(digest[:]),
+		base64.StdEncoding.EncodeToString(sig),
+		base64.StdEncoding.EncodeToString(certPEM),
+	)
+	return base64.StdEncoding.EncodeToString([]byte(body))
 }
