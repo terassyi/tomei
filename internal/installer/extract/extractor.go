@@ -474,19 +474,19 @@ func (e *gzExtractor) Extract(r io.Reader, destDir string) error {
 		return fmt.Errorf("failed to create binary file: %w", err)
 	}
 
+	// io.Copy reads to EOF, so the gzip reader has already verified the CRC32/ISIZE
+	// trailer by the time Copy returns — a truncated/corrupt stream (one that slipped
+	// past the archive checksum) surfaces as an error here, not at gr.Close().
 	if _, err := io.Copy(f, gr); err != nil {
 		f.Close()
 		return fmt.Errorf("failed to write binary file: %w", err)
 	}
 
-	// Check Close explicitly (unlike the sibling rawExtractor): f.Close flushes
-	// buffered writes, and gr.Close verifies the gzip CRC32/ISIZE trailer — catching
-	// truncated/corrupt downloads that slipped past the archive checksum.
+	// Check f.Close explicitly (unlike the sibling rawExtractor) to surface flush
+	// errors. gr is closed once via the deferred call above; gr.Close adds no
+	// further validation beyond what io.Copy already performed.
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("failed to close binary file: %w", err)
-	}
-	if err := gr.Close(); err != nil {
-		return fmt.Errorf("gzip stream validation failed (possibly truncated): %w", err)
 	}
 
 	slog.Debug("gzip binary extracted", "target", target)
