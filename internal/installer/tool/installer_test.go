@@ -155,6 +155,61 @@ func TestToolInstaller_Install(t *testing.T) {
 	}
 }
 
+// TestToolInstaller_Install_GzFormat installs a bare gzipped single binary
+// (issue #272). It uses a REAL place.Placer so the installer's gz subdir
+// special-case (installByDownload, mirroring raw) is exercised end-to-end:
+// the decompressed file is named after the tool so findBinary locates it.
+// A mockPlacer would skip findBinary and hide a regression of that special-case.
+func TestToolInstaller_Install_GzFormat(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho tree-sitter")
+	gzContent := createGzipContent(t, binaryContent)
+	archiveHash := sha256Hash(gzContent)
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	userBinDir := filepath.Join(tmpDir, "bin")
+
+	dl := &mockDownloader{archiveData: gzContent}
+	installer := NewInstaller(dl, place.NewPlacer(toolsDir), userBinDir, "/system-bin")
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "tree-sitter"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "0.26.9",
+			Source: &resource.DownloadSource{
+				URL: "https://example.com/tree-sitter-linux-x64.gz",
+				Checksum: &resource.Checksum{
+					Value: "sha256:" + archiveHash,
+				},
+				ArchiveType: "gz",
+			},
+		},
+	}
+
+	state, err := installer.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// The placed binary lives under tools/<name>/<version>/<name>: findBinary
+	// matched the decompressed file because the gz subdir special-case named it
+	// after the tool. Its content round-trips and the executable bit is set.
+	binPath := filepath.Join(toolsDir, "tree-sitter", "0.26.9", "tree-sitter")
+	got, err := os.ReadFile(binPath)
+	require.NoError(t, err)
+	assert.Equal(t, binaryContent, got)
+
+	info, err := os.Stat(binPath)
+	require.NoError(t, err)
+	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "placed gz binary must be executable")
+
+	// User (non-privileged) install: the symlink lands in userBinDir.
+	assert.Equal(t, filepath.Join(userBinDir, "tree-sitter"), state.BinPath)
+}
+
 // TestBuildResolvedTool_PreservesPrivileged pins SUB5 #228: the registry
 // install path (installFromRegistry) hands a re-shaped Tool to installByDownload,
 // and Privileged MUST flow through that re-shaping. Dropping it would route
@@ -676,6 +731,20 @@ func createTarGzContent(t *testing.T, binaryName string, content []byte) []byte 
 	require.NoError(t, err)
 
 	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	return buf.Bytes()
+}
+
+// createGzipContent builds a bare gzip stream (a single gzip-compressed file, NOT a
+// tar.gz) wrapping content — the shape aqua's `format: gz` packages use.
+func createGzipContent(t *testing.T, content []byte) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write(content)
+	require.NoError(t, err)
 	require.NoError(t, gw.Close())
 
 	return buf.Bytes()

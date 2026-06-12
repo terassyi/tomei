@@ -523,6 +523,37 @@ func TestResolver_Resolve_RawFormatAutoDetect(t *testing.T) {
 	assert.Equal(t, extract.ArchiveTypeRaw, result.Format, "should auto-detect raw format when asset has no archive extension")
 }
 
+func TestResolver_Resolve_GzFormat(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	ref := RegistryRef("v4.465.0")
+	pkg := "tree-sitter/tree-sitter"
+
+	// A bare gzipped single binary: format: gz (NOT tar.gz).
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: tree-sitter
+    repo_name: tree-sitter
+    asset: tree-sitter-{{.OS}}-{{.Arch}}.{{.Format}}
+    format: gz
+    replacements:
+      amd64: x64
+      darwin: macos
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	resolver := NewResolver(cacheDir, nil)
+
+	result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v0.26.9", "darwin", "arm64")
+
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.9/tree-sitter-macos-arm64.gz", result.URL)
+	assert.Equal(t, extract.ArchiveTypeGz, result.Format)
+	assert.Empty(t, result.Errors)
+}
+
 func TestResolver_Resolve_FilesSrcRendering(t *testing.T) {
 	t.Parallel()
 	cacheDir := t.TempDir()
