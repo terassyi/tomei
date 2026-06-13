@@ -31,6 +31,8 @@ func TestNormalizeArchiveType(t *testing.T) {
 		{name: "zip", input: "zip", want: ArchiveTypeZip},
 		{name: "raw", input: "raw", want: ArchiveTypeRaw},
 		{name: "pkg", input: "pkg", want: ArchiveTypePkg},
+		{name: "gz", input: "gz", want: ArchiveTypeGz},
+		{name: "GZ uppercase", input: "GZ", want: ArchiveTypeGz},
 		{name: "unknown", input: "unknown", want: ArchiveType("unknown")},
 		{name: "empty", input: "", want: ArchiveType("")},
 	}
@@ -96,6 +98,41 @@ func TestDetectArchiveType(t *testing.T) {
 			expected: ArchiveTypePkg,
 		},
 		{
+			name:     "gz extension (bare gzipped binary)",
+			input:    "https://github.com/tree-sitter/tree-sitter/releases/download/v0.26.9/tree-sitter-linux-x64.gz",
+			expected: ArchiveTypeGz,
+		},
+		{
+			name:     "simple filename gz",
+			input:    "tree-sitter-macos-arm64.gz",
+			expected: ArchiveTypeGz,
+		},
+		{
+			name:     "tar.gz not shadowed by gz",
+			input:    "tool-linux-amd64.tar.gz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "tgz not shadowed by gz",
+			input:    "tool.tgz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "uppercase gz extension (case-insensitive)",
+			input:    "tree-sitter-linux-x64.GZ",
+			expected: ArchiveTypeGz,
+		},
+		{
+			name:     "mixed-case tar.gz (case-insensitive)",
+			input:    "tool.Tar.Gz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "uppercase zip extension (case-insensitive)",
+			input:    "TOOL.ZIP",
+			expected: ArchiveTypeZip,
+		},
+		{
 			name:     "unknown extension",
 			input:    "https://example.com/tool.exe",
 			expected: "",
@@ -152,6 +189,11 @@ func TestNewExtractor(t *testing.T) {
 		{
 			name:        "pkg extractor",
 			archiveType: ArchiveTypePkg,
+			wantErr:     false,
+		},
+		{
+			name:        "gz extractor",
+			archiveType: ArchiveTypeGz,
 			wantErr:     false,
 		},
 		{
@@ -582,6 +624,110 @@ func TestExtractor_Raw_CreatesParentDirectory(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestExtractor_Extract_Gz(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		destDirName string // final component of destDir becomes binary name
+		content     string
+	}{
+		{
+			name:        "extract gz binary",
+			destDirName: "tree-sitter",
+			content:     "tree-sitter binary content",
+		},
+		{
+			name:        "extract gz binary with different name",
+			destDirName: "mytool",
+			content:     "#!/bin/sh\necho hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tmpDir := t.TempDir()
+			destDir := filepath.Join(tmpDir, tt.destDirName)
+
+			extractor, err := NewExtractor(ArchiveTypeGz)
+			require.NoError(t, err)
+
+			err = extractor.Extract(createGzipStream(t, []byte(tt.content)), destDir)
+			require.NoError(t, err)
+
+			// The single decompressed file is named after the destDir basename,
+			// so the placer's findBinary(searchName) locates it.
+			binaryPath := filepath.Join(destDir, tt.destDirName)
+			got, err := os.ReadFile(binaryPath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.content, string(got))
+
+			// gz carries no mode; the extractor assigns the executable bit.
+			info, err := os.Stat(binaryPath)
+			require.NoError(t, err)
+			assert.NotEqual(t, fs.FileMode(0), info.Mode()&0111, "expected executable permission")
+		})
+	}
+}
+
+func TestExtractor_Gz_InvalidStream(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "tool")
+
+	extractor, err := NewExtractor(ArchiveTypeGz)
+	require.NoError(t, err)
+
+	// Not a gzip stream: gzip.NewReader fails on the magic-byte header.
+	err = extractor.Extract(bytes.NewReader([]byte("this is not gzip data")), destDir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "gzip reader")
+}
+
+func TestExtractor_Gz_CorruptStream(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "tool")
+
+	// Build a valid gzip stream, then truncate the trailing CRC32/ISIZE bytes.
+	// The gzip reader verifies the trailer during the final Read, so decompression
+	// surfaces the corruption via io.Copy (not gr.Close).
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write([]byte("some reasonably sized binary payload to compress"))
+	require.NoError(t, err)
+	require.NoError(t, gw.Close())
+
+	full := buf.Bytes()
+	truncated := full[:len(full)-4] // drop part of the gzip trailer
+
+	extractor, err := NewExtractor(ArchiveTypeGz)
+	require.NoError(t, err)
+
+	err = extractor.Extract(bytes.NewReader(truncated), destDir)
+	require.Error(t, err)
+	// A valid header but corrupt body is caught during decompression (io.Copy),
+	// distinct from TestExtractor_Gz_InvalidStream where the header read fails
+	// ("gzip reader").
+	assert.Contains(t, err.Error(), "failed to write binary file")
+}
+
+func TestExtractor_Gz_CreatesParentDirectory(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	destDir := filepath.Join(tmpDir, "nested", "path", "toolname")
+
+	extractor, err := NewExtractor(ArchiveTypeGz)
+	require.NoError(t, err)
+
+	err = extractor.Extract(createGzipStream(t, []byte("binary content")), destDir)
+	require.NoError(t, err)
+
+	binaryPath := filepath.Join(destDir, "toolname")
+	_, err = os.Stat(binaryPath)
+	require.NoError(t, err)
+}
+
 func TestExtractTar_DeferredLinks(t *testing.T) {
 	t.Parallel()
 
@@ -766,6 +912,20 @@ func createTarGzStreamWithExecutable(t *testing.T) io.Reader {
 	require.NoError(t, err)
 
 	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+
+	return &buf
+}
+
+// createGzipStream builds a bare gzip stream (a single gzip-compressed file, NOT a
+// tar.gz) wrapping the given content — the shape aqua's `format: gz` packages use.
+func createGzipStream(t *testing.T, content []byte) io.Reader {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	_, err := gw.Write(content)
+	require.NoError(t, err)
 	require.NoError(t, gw.Close())
 
 	return &buf

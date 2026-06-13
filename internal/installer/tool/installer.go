@@ -345,9 +345,10 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		return nil, fmt.Errorf("failed to create extractor: %w", err)
 	}
 
-	// For raw binaries, use tool name as subdirectory so the binary gets the correct name
+	// For single-file binaries (raw, bare gz), use the tool name as the subdirectory
+	// so the extracted binary is named after the tool and findBinary can locate it.
 	extractDir := filepath.Join(tmpDir, "extracted")
-	if archiveType == extract.ArchiveTypeRaw {
+	if extract.IsSingleFileArchive(archiveType) {
 		extractDir = filepath.Join(tmpDir, "extracted", name)
 	}
 
@@ -362,7 +363,7 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Reset extractDir for placer to search from
-	if archiveType == extract.ArchiveTypeRaw {
+	if extract.IsSingleFileArchive(archiveType) {
 		extractDir = filepath.Join(tmpDir, "extracted")
 	}
 

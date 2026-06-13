@@ -34,6 +34,11 @@ const (
 	// ArchiveTypePkg represents a macOS flat package (.pkg).
 	// Extracted using pkgutil --expand-full (available on macOS without sudo).
 	ArchiveTypePkg ArchiveType = "pkg"
+
+	// ArchiveTypeGz represents a bare gzipped single binary (.gz) — a single
+	// gzip-compressed file, NOT a tar.gz. Aqua's `format: gz` packages (e.g.
+	// tree-sitter/tree-sitter) use this. Decompresses to one executable file.
+	ArchiveTypeGz ArchiveType = "gz"
 )
 
 // Common alias names for archive types accepted by NormalizeArchiveType.
@@ -46,6 +51,15 @@ const (
 // (and other archives created on macOS). Tomei filters it out during extraction
 // and archive root detection.
 const MacOSMetadataDir = "__MACOSX"
+
+// IsSingleFileArchive reports whether archiveType extracts to a single binary
+// named after the destination directory (rather than a multi-file tree). The
+// raw and gz extractors both write one file named after destDir's base, so the
+// caller must extract into a tool-named subdirectory for the placer's findBinary
+// to locate it. Tar/zip/pkg archives carry their own paths and do not need this.
+func IsSingleFileArchive(archiveType ArchiveType) bool {
+	return archiveType == ArchiveTypeRaw || archiveType == ArchiveTypeGz
+}
 
 // NormalizeArchiveType normalizes an archive type string to a canonical ArchiveType constant.
 // It handles common aliases (e.g., "tgz" → ArchiveTypeTarGz, "txz" → ArchiveTypeTarXz).
@@ -62,6 +76,8 @@ func NormalizeArchiveType(raw string) ArchiveType {
 		return ArchiveTypeRaw
 	case string(ArchiveTypePkg):
 		return ArchiveTypePkg
+	case string(ArchiveTypeGz):
+		return ArchiveTypeGz
 	default:
 		return ArchiveType(raw)
 	}
@@ -70,7 +86,8 @@ func NormalizeArchiveType(raw string) ArchiveType {
 // DetectArchiveType detects the archive type from a URL or filename.
 // Returns empty string if the type cannot be detected.
 func DetectArchiveType(urlOrFilename string) ArchiveType {
-	lower := filepath.Base(urlOrFilename)
+	// Lowercase so suffix matching is case-insensitive (e.g. tool.GZ, tool.ZIP).
+	lower := strings.ToLower(filepath.Base(urlOrFilename))
 
 	// Check for compound extensions first
 	if hasSuffix(lower, ".tar.gz") || hasSuffix(lower, ".tgz") {
@@ -84,6 +101,11 @@ func DetectArchiveType(urlOrFilename string) ArchiveType {
 	}
 	if hasSuffix(lower, ".pkg") {
 		return ArchiveTypePkg
+	}
+	// Bare gzip MUST be checked last: the compound .tar.gz / .tgz checks above
+	// return earlier, so this cannot shadow them.
+	if hasSuffix(lower, ".gz") {
+		return ArchiveTypeGz
 	}
 	return ""
 }
@@ -117,6 +139,8 @@ func NewExtractor(archiveType ArchiveType) (Extractor, error) {
 		return &rawExtractor{}, nil
 	case ArchiveTypePkg:
 		return &pkgExtractor{}, nil
+	case ArchiveTypeGz:
+		return &gzExtractor{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported archive type: %s", archiveType)
 	}
@@ -128,6 +152,7 @@ var (
 	_ Extractor = (*zipExtractor)(nil)
 	_ Extractor = (*rawExtractor)(nil)
 	_ Extractor = (*pkgExtractor)(nil)
+	_ Extractor = (*gzExtractor)(nil)
 )
 
 // tarGzExtractor implements Extractor for tar.gz archives.
@@ -412,5 +437,59 @@ func (e *rawExtractor) Extract(r io.Reader, destDir string) error {
 	}
 
 	slog.Debug("raw binary extracted", "target", target)
+	return nil
+}
+
+// gzExtractor implements Extractor for bare gzipped single binaries (.gz) —
+// a single gzip-compressed file, NOT a tar.gz. Aqua's `format: gz` packages use this.
+type gzExtractor struct{}
+
+// Extract decompresses a single gzip stream to one binary file in destDir.
+//
+// The output is named after destDir's base name (the tool name), like rawExtractor,
+// so the placer's findBinary(BinaryName) can locate it. The gzip header's optional
+// FNAME field is intentionally ignored (it need not match the tool name and could
+// carry a path). Like rawExtractor it does not honor a registry files[].src mapping.
+//
+// gzip carries no Unix mode, so the binary is created executable (0755).
+func (e *gzExtractor) Extract(r io.Reader, destDir string) error {
+	slog.Debug("extracting gzip binary", "dest", destDir)
+
+	gr, err := gzip.NewReader(r)
+	if err != nil {
+		return fmt.Errorf("failed to create gzip reader: %w", err)
+	}
+	defer gr.Close()
+
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Use the directory name as the binary name.
+	binName := filepath.Base(destDir)
+	target := filepath.Join(destDir, binName)
+
+	// Create the binary file with executable permissions.
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create binary file: %w", err)
+	}
+
+	// io.Copy reads to EOF, so the gzip reader has already verified the CRC32/ISIZE
+	// trailer by the time Copy returns — a truncated/corrupt stream (one that slipped
+	// past the archive checksum) surfaces as an error here, not at gr.Close().
+	if _, err := io.Copy(f, gr); err != nil {
+		f.Close()
+		return fmt.Errorf("failed to write binary file: %w", err)
+	}
+
+	// Check f.Close explicitly (unlike the sibling rawExtractor) to surface flush
+	// errors. gr is closed once via the deferred call above; gr.Close adds no
+	// further validation beyond what io.Copy already performed.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("failed to close binary file: %w", err)
+	}
+
+	slog.Debug("gzip binary extracted", "target", target)
 	return nil
 }
