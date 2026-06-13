@@ -86,7 +86,8 @@ func NormalizeArchiveType(raw string) ArchiveType {
 // DetectArchiveType detects the archive type from a URL or filename.
 // Returns empty string if the type cannot be detected.
 func DetectArchiveType(urlOrFilename string) ArchiveType {
-	lower := filepath.Base(urlOrFilename)
+	// Lowercase so suffix matching is case-insensitive (e.g. tool.GZ, tool.ZIP).
+	lower := strings.ToLower(filepath.Base(urlOrFilename))
 
 	// Check for compound extensions first
 	if hasSuffix(lower, ".tar.gz") || hasSuffix(lower, ".tgz") {

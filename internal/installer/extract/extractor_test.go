@@ -118,6 +118,21 @@ func TestDetectArchiveType(t *testing.T) {
 			expected: ArchiveTypeTarGz,
 		},
 		{
+			name:     "uppercase gz extension (case-insensitive)",
+			input:    "tree-sitter-linux-x64.GZ",
+			expected: ArchiveTypeGz,
+		},
+		{
+			name:     "mixed-case tar.gz (case-insensitive)",
+			input:    "tool.Tar.Gz",
+			expected: ArchiveTypeTarGz,
+		},
+		{
+			name:     "uppercase zip extension (case-insensitive)",
+			input:    "TOOL.ZIP",
+			expected: ArchiveTypeZip,
+		},
+		{
 			name:     "unknown extension",
 			input:    "https://example.com/tool.exe",
 			expected: "",
@@ -674,8 +689,9 @@ func TestExtractor_Gz_CorruptStream(t *testing.T) {
 	tmpDir := t.TempDir()
 	destDir := filepath.Join(tmpDir, "tool")
 
-	// Build a valid gzip stream, then truncate the trailing CRC32/ISIZE bytes
-	// so decompression detects corruption (via io.Copy and/or gr.Close).
+	// Build a valid gzip stream, then truncate the trailing CRC32/ISIZE bytes.
+	// The gzip reader verifies the trailer during the final Read, so decompression
+	// surfaces the corruption via io.Copy (not gr.Close).
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	_, err := gw.Write([]byte("some reasonably sized binary payload to compress"))
