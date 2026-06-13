@@ -309,6 +309,9 @@ func TestEnsureExecutable(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "tool")
 		require.NoError(t, os.WriteFile(path, []byte("x"), 0o640))
+		// Force the exact starting mode: os.WriteFile's mode is subject to umask
+		// (e.g. 0077 would yield 0600), os.Chmod is not.
+		require.NoError(t, os.Chmod(path, 0o640))
 
 		require.NoError(t, EnsureExecutable(path))
 
@@ -324,6 +327,8 @@ func TestEnsureExecutable(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "tool")
 		require.NoError(t, os.WriteFile(path, []byte("x"), 0o755))
+		// Force the exact starting mode: os.WriteFile's mode is subject to umask, os.Chmod is not.
+		require.NoError(t, os.Chmod(path, 0o755))
 
 		require.NoError(t, EnsureExecutable(path))
 
