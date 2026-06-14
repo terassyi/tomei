@@ -179,6 +179,13 @@ func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
 		return nil, fmt.Errorf("failed to copy binary: %w", err)
 	}
 
+	// A tool binary must be runnable. Some archives carry a non-executable mode
+	// (zip stores 0644; gz/raw carry none) which copyFile preserves, so ensure
+	// the executable bit here (#273). Fail loudly — a non-runnable install is useless.
+	if err := EnsureExecutable(destPath); err != nil {
+		return nil, fmt.Errorf("failed to make binary executable: %w", err)
+	}
+
 	slog.Debug("binary placed", "path", destPath)
 	return &Result{BinaryPath: destPath}, nil
 }
@@ -288,6 +295,24 @@ func findBinary(srcDir, binaryName string) (string, error) {
 	}
 
 	return found, nil
+}
+
+// EnsureExecutable sets the executable bit on path for all classes (owner/group/other),
+// preserving the existing read/write bits, when it is not already executable. It is
+// idempotent: a no-op when path already has any execute bit. A tool binary is meant to be
+// run, so this is safe regardless of the archive's stored mode (#273).
+func EnsureExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("ensure executable: %w", err)
+	}
+	if info.Mode()&0o111 != 0 {
+		return nil
+	}
+	if err := os.Chmod(path, info.Mode()|0o111); err != nil {
+		return fmt.Errorf("ensure executable: %w", err)
+	}
+	return nil
 }
 
 // copyFile copies a file preserving permissions.

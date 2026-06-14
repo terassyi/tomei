@@ -134,6 +134,21 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "place non-executable source binary (zip 0644) is made executable",
+			setup: func(t *testing.T, srcDir string) {
+				binPath := filepath.Join(srcDir, "tool")
+				// zip stores 0644; the placed tool binary must still be runnable (#273).
+				err := os.WriteFile(binPath, []byte("binary content"), 0o644)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:       "mytool",
+				Version:    "1.0.0",
+				BinaryName: "tool",
+			},
+			wantErr: false,
+		},
+		{
 			name: "place binary from nested directory",
 			setup: func(t *testing.T, srcDir string) {
 				// Create nested structure like GitHub releases
@@ -266,6 +281,67 @@ func TestPlacer_Place(t *testing.T) {
 			assert.NotEqual(t, os.FileMode(0), info.Mode()&0111, "expected executable permission")
 		})
 	}
+}
+
+func TestEnsureExecutable(t *testing.T) {
+	t.Parallel()
+
+	t.Run("adds exec bit to non-executable file and preserves content", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "tool")
+		content := []byte("binary content")
+		require.NoError(t, os.WriteFile(path, content, 0o644))
+
+		require.NoError(t, EnsureExecutable(path))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "expected executable permission")
+
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, content, got, "content must be unchanged")
+	})
+
+	t.Run("preserves existing read/write bits (0640 -> 0751)", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "tool")
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o640))
+		// Force the exact starting mode: os.WriteFile's mode is subject to umask
+		// (e.g. 0077 would yield 0600), os.Chmod is not.
+		require.NoError(t, os.Chmod(path, 0o640))
+
+		require.NoError(t, EnsureExecutable(path))
+
+		// mode|0o111 adds exec for all classes while preserving r/w bits
+		// (0640 -> 0751), unlike a blunt chmod 0755. os.Chmod is not subject to umask.
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o751), info.Mode().Perm())
+	})
+
+	t.Run("idempotent no-op when already executable", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "tool")
+		require.NoError(t, os.WriteFile(path, []byte("x"), 0o755))
+		// Force the exact starting mode: os.WriteFile's mode is subject to umask, os.Chmod is not.
+		require.NoError(t, os.Chmod(path, 0o755))
+
+		require.NoError(t, EnsureExecutable(path))
+
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o755), info.Mode().Perm(), "mode must be unchanged")
+	})
+
+	t.Run("returns error when path does not exist", func(t *testing.T) {
+		t.Parallel()
+		err := EnsureExecutable(filepath.Join(t.TempDir(), "missing"))
+		require.Error(t, err)
+	})
 }
 
 func TestPlacer_Symlink(t *testing.T) {

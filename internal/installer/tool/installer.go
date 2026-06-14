@@ -283,6 +283,13 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	switch action {
 	case place.ValidateActionSkip:
 		slog.Debug("tool already installed, skipping", "name", name, "version", spec.Version)
+		// Heal binaries placed non-executable by an older tomei (#273): the skip path
+		// never calls Place, so a 0644 binary would stay non-runnable forever. Best-effort
+		// — the binary already validated, so a chmod failure (e.g. read-only tools dir)
+		// must not turn this previously-infallible branch into a hard failure.
+		if err := place.EnsureExecutable(i.placer.BinaryPath(target)); err != nil {
+			slog.Warn("failed to ensure tool binary is executable", "name", name, "error", err)
+		}
 		// Even if binary exists, ensure symlink points to correct version.
 		// SUB5 #228: privileged tools route through the system bin dir.
 		linkPath, binDirKind, err := i.createSymlink(ctx, res, target)

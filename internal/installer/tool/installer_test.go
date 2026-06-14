@@ -646,6 +646,54 @@ func TestToolInstaller_Install_Skip(t *testing.T) {
 	assert.Equal(t, tool.ToolSpec.Version, state.Version)
 }
 
+// TestToolInstaller_Install_Skip_HealsNonExecutable pins issue #273: a binary placed
+// non-executable (0644) by an older tomei is re-applied with a matching hash, so Validate
+// returns ValidateActionSkip and Place is never called. The skip branch must still heal the
+// executable bit so the tool is runnable.
+func TestToolInstaller_Install_Skip_HealsNonExecutable(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho hello")
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	binDir := filepath.Join(tmpDir, "bin")
+
+	// Pre-install the binary as NON-executable (0644), as a zip-sourced install by an
+	// older tomei would have left it.
+	installDir := filepath.Join(toolsDir, "ripgrep", "14.1.1")
+	require.NoError(t, os.MkdirAll(installDir, 0o755))
+	binPath := filepath.Join(installDir, "ripgrep")
+	require.NoError(t, os.WriteFile(binPath, binaryContent, 0o644))
+
+	downloader := download.NewDownloader()
+	placer := place.NewPlacer(toolsDir)
+	inst := NewInstaller(downloader, placer, binDir, "/system-bin")
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "ripgrep"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "download",
+			Version:      "14.1.1",
+			Source: &resource.DownloadSource{
+				URL:         "https://example.com/ripgrep.tar.gz",
+				Checksum:    nil, // No checksum = existence check only → ValidateActionSkip
+				ArchiveType: "tar.gz",
+			},
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, "ripgrep")
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// The skip branch healed the executable bit on the already-placed binary.
+	info, err := os.Stat(binPath)
+	require.NoError(t, err)
+	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "skip path must ensure the binary is executable")
+}
+
 func TestToolInstaller_InstallFromRegistry_NoResolver(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
