@@ -559,3 +559,69 @@ func TestRenderSectionedTree(t *testing.T) {
 		assert.Contains(t, out, "Tool/gone-priv (1.0.0) [- remove]")
 	})
 }
+
+// TestToolAction pins the plan-layer action decision, whose branch ordering
+// must match reconciler.ToolComparator. The "sha pin already installed" case
+// is the #271 regression guard: spec.sha == state.sha (both versions empty)
+// must yield ActionNone, not a perpetual upgrade.
+func TestToolAction(t *testing.T) {
+	t.Parallel()
+
+	const (
+		shaA = "0123456789abcdef0123456789abcdef01234567"
+		shaB = "fedcba9876543210fedcba9876543210fedcba98"
+	)
+
+	tests := []struct {
+		name        string
+		specSHA     string
+		specVersion string
+		state       *resource.ToolState
+		want        resource.ActionType
+	}{
+		{
+			name:    "sha pin already installed at that sha -> none (#271)",
+			specSHA: shaA,
+			state:   &resource.ToolState{SHA: shaA, Version: "", VersionKind: resource.VersionExact},
+			want:    resource.ActionNone,
+		},
+		{
+			name:    "sha rotated -> upgrade",
+			specSHA: shaB,
+			state:   &resource.ToolState{SHA: shaA, Version: ""},
+			want:    resource.ActionUpgrade,
+		},
+		{
+			name:    "tainted -> reinstall",
+			specSHA: shaA,
+			state:   &resource.ToolState{SHA: shaA, Version: "", TaintReason: resource.TaintReason("runtime upgraded")},
+			want:    resource.ActionReinstall,
+		},
+		{
+			name:        "version match, no sha/taint -> none",
+			specVersion: "1.2.3",
+			state:       &resource.ToolState{Version: "1.2.3"},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "version differs -> upgrade",
+			specVersion: "1.2.4",
+			state:       &resource.ToolState{Version: "1.2.3"},
+			want:        resource.ActionUpgrade,
+		},
+		{
+			// sha takes precedence over a would-be taint reinstall.
+			name:    "sha change wins over taint",
+			specSHA: shaB,
+			state:   &resource.ToolState{SHA: shaA, TaintReason: resource.TaintReason("x")},
+			want:    resource.ActionUpgrade,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, toolAction(tt.specSHA, tt.specVersion, tt.state))
+		})
+	}
+}

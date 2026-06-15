@@ -164,6 +164,27 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 }
 
+// toolAction computes the plan action for a Tool that already has a persisted
+// state entry, by comparing the spec's sha/version against state. Branch
+// ordering MUST match reconciler.ToolComparator
+// (internal/installer/reconciler/tool.go) — otherwise `tomei plan` and the
+// engine disagree on the reason surfaced when multiple signals fire at once.
+// In particular sha is checked first, so a sha-pinned tool already installed at
+// that sha (spec.sha == state.sha, both versions empty) reports ActionNone
+// rather than a perpetual upgrade (#271).
+func toolAction(specSHA, specVersion string, st *resource.ToolState) resource.ActionType {
+	switch {
+	case st.SHA != specSHA:
+		return resource.ActionUpgrade
+	case st.IsTainted():
+		return resource.ActionReinstall
+	case st.Version == specVersion:
+		return resource.ActionNone
+	default:
+		return resource.ActionUpgrade
+	}
+}
+
 func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig, scope ApplyScope) map[graph.NodeID]graph.ResourceInfo {
 	info := make(map[graph.NodeID]graph.ResourceInfo)
 
@@ -260,20 +281,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 				}
 			case resource.KindTool:
 				if tool, ok := userState.Tools[res.Name()]; ok && tool != nil {
-					// Branch ordering MUST match reconciler.ToolComparator
-					// (internal/installer/reconciler/tool.go) — otherwise
-					// `tomei plan` and the engine disagree on the reason
-					// surfaced when multiple signals fire at once.
-					switch {
-					case tool.SHA != resInfo.SHA:
-						resInfo.Action = resource.ActionUpgrade
-					case tool.IsTainted():
-						resInfo.Action = resource.ActionReinstall
-					case tool.Version == resInfo.Version:
-						resInfo.Action = resource.ActionNone
-					default:
-						resInfo.Action = resource.ActionUpgrade
-					}
+					resInfo.Action = toolAction(resInfo.SHA, resInfo.Version, tool)
 				}
 			case resource.KindInstaller:
 				// Installers don't have versions in state typically
