@@ -399,6 +399,40 @@ func TestIsLatestVersion(t *testing.T) {
 	}
 }
 
+func TestSpecVersionDiffers(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name             string
+		specVersion      string
+		vk               VersionKind
+		stateVersion     string
+		stateSpecVersion string
+		want             bool
+	}{
+		// VersionExact (and zero-value kind)
+		{"exact match", "1.2.3", VersionExact, "1.2.3", "1.2.3", false},
+		{"exact mismatch", "1.2.4", VersionExact, "1.2.3", "1.2.3", true},
+		{"zero kind match", "1.2.3", VersionKind(""), "1.2.3", "", false},
+		{"both empty exact", "", VersionExact, "", "", false},
+		// VersionLatest — the #270 case: empty spec, resolved state.Version, must NOT differ
+		{"latest version-less with resolved state", "", VersionLatest, "5.1.15", "", false},
+		{"latest literal with resolved state", "latest", VersionLatest, "5.1.15", "", false},
+		{"latest switched to explicit", "1.2.3", VersionLatest, "5.1.15", "", true},
+		// VersionAlias — compares spec against the stored alias
+		{"alias unchanged", "stable", VersionAlias, "1.2.3", "stable", false},
+		{"alias changed", "lts", VersionAlias, "1.2.3", "stable", true},
+		{"alias vs empty stored alias differs", "stable", VersionAlias, "1.2.3", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := SpecVersionDiffers(tt.specVersion, tt.vk, tt.stateVersion, tt.stateSpecVersion)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestClassifyVersion(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -4,23 +4,12 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
-// specVersionChanged determines whether the spec's version specification
-// has changed compared to what is recorded in state, based on the VersionKind.
-//
-// Rules:
-//   - VersionLatest: only changed if spec switches to a non-empty version
-//     (actual latest updates are driven by --sync taint, not reconciler)
-//   - VersionAlias: changed if spec version differs from the stored alias (state.SpecVersion)
-//   - VersionExact: changed if spec version differs from the installed version (state.Version)
+// specVersionChanged is a thin alias for resource.SpecVersionDiffers, kept so the
+// tool/runtime comparators (and their tests) read naturally. The version-change
+// rules live in resource.SpecVersionDiffers — the single source of truth shared
+// with `tomei plan` so plan and apply never disagree.
 func specVersionChanged(specVersion string, stateVersionKind resource.VersionKind, stateVersion, stateSpecVersion string) bool {
-	switch stateVersionKind {
-	case resource.VersionLatest:
-		return !resource.IsLatestVersion(specVersion)
-	case resource.VersionAlias:
-		return specVersion != stateSpecVersion
-	default: // VersionExact
-		return specVersion != stateVersion
-	}
+	return resource.SpecVersionDiffers(specVersion, stateVersionKind, stateVersion, stateSpecVersion)
 }
 
 // ToolComparator returns a comparator for Tool resources.
