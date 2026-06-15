@@ -1766,9 +1766,11 @@ func TestInstallByInstaller_PrependsBinDirToPath(t *testing.T) {
 		_, err := inst.Install(context.Background(), newTool(), "mytool")
 		require.NoError(t, err)
 		require.Len(t, runner.executedEnv, 1)
-		path := runner.executedEnv[0]["PATH"]
-		assert.True(t, strings.HasPrefix(path, "/opt/homebrew/bin"+sep),
-			"installer binDir must be prepended; got %q", path)
+		// Assert on the first component (not a trailing separator): an empty
+		// inherited $PATH legitimately yields exactly "/opt/homebrew/bin".
+		parts := strings.Split(runner.executedEnv[0]["PATH"], sep)
+		assert.Equal(t, "/opt/homebrew/bin", parts[0],
+			"installer binDir must be the first PATH component; got %q", runner.executedEnv[0]["PATH"])
 	})
 
 	t.Run("binDir precedes toolRef binDir", func(t *testing.T) {
@@ -1781,9 +1783,10 @@ func TestInstallByInstaller_PrependsBinDirToPath(t *testing.T) {
 		_, err := inst.Install(context.Background(), newTool(), "mytool")
 		require.NoError(t, err)
 		require.Len(t, runner.executedEnv, 1)
-		path := runner.executedEnv[0]["PATH"]
-		assert.True(t, strings.HasPrefix(path, "/opt/homebrew/bin"+sep+"/tool/bin"+sep),
-			"order must be installer binDir, then toolRef binDir, then inherited; got %q", path)
+		parts := strings.Split(runner.executedEnv[0]["PATH"], sep)
+		require.GreaterOrEqual(t, len(parts), 2)
+		assert.Equal(t, "/opt/homebrew/bin", parts[0], "installer binDir must come first")
+		assert.Equal(t, "/tool/bin", parts[1], "toolRef binDir must come second")
 	})
 
 	t.Run("no binDir and no toolRef -> no PATH override", func(t *testing.T) {

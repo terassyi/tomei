@@ -402,8 +402,11 @@ func TestToolInstaller_InstallerDelegation_BinDirResolvesStub(t *testing.T) {
 	require.NoError(t, os.MkdirAll(binDir, 0o755))
 	marker := filepath.Join(tmpDir, "installed.marker")
 
-	// Stub executable resolvable only via PATH (bare name in the command).
-	stub := "#!/bin/sh\ntouch " + marker + "\n"
+	// Stub executable resolvable only via PATH (bare name in the command). The
+	// stub creates the marker with a shell builtin (`: >`) rather than external
+	// `touch`, so the test depends only on the installer binDir being on PATH,
+	// not on coreutils being present in a minimal/empty PATH.
+	stub := "#!/bin/sh\n: > " + marker + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(binDir, "faketool"), []byte(stub), 0o755))
 
 	dl := download.NewDownloader()
