@@ -616,12 +616,105 @@ func TestToolAction(t *testing.T) {
 			state:   &resource.ToolState{SHA: shaA, TaintReason: resource.TaintReason("x")},
 			want:    resource.ActionUpgrade,
 		},
+		{
+			// #270: version-less commands tool (e.g. #Homebrew) whose resolveVersion
+			// populated state.Version. Empty spec + VersionLatest must NOT upgrade.
+			name:        "version-less latest with resolved state -> none (#270)",
+			specVersion: "",
+			state:       &resource.ToolState{Version: "5.1.15", VersionKind: resource.VersionLatest},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "alias unchanged -> none",
+			specVersion: "stable",
+			state:       &resource.ToolState{Version: "1.2.3", VersionKind: resource.VersionAlias, SpecVersion: "stable"},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "alias changed -> upgrade",
+			specVersion: "lts",
+			state:       &resource.ToolState{Version: "1.2.3", VersionKind: resource.VersionAlias, SpecVersion: "stable"},
+			want:        resource.ActionUpgrade,
+		},
+		{
+			// Pins the plan-layer branch order: taint is checked before version,
+			// so a tool that is both tainted AND version-changed reports Reinstall.
+			name:        "tainted and version differs -> reinstall (taint wins)",
+			specVersion: "2.0.0",
+			state:       &resource.ToolState{Version: "1.0.0", VersionKind: resource.VersionExact, TaintReason: resource.TaintReason("x")},
+			want:        resource.ActionReinstall,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tt.want, toolAction(tt.specSHA, tt.specVersion, tt.state))
+		})
+	}
+}
+
+// TestRuntimeAction pins the plan-layer runtime action decision. Like toolAction
+// it must be VersionKind-aware so a version-less runtime (resolveVersion populates
+// state.Version) is not perpetually [~ upgrade] (#270). Branch order is taint ->
+// version (preserved from the original inline branch); runtimes have no SHA.
+func TestRuntimeAction(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		specVersion string
+		state       *resource.RuntimeState
+		want        resource.ActionType
+	}{
+		{
+			name:        "exact match -> none",
+			specVersion: "1.25.5",
+			state:       &resource.RuntimeState{Version: "1.25.5"},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "exact mismatch -> upgrade",
+			specVersion: "1.25.6",
+			state:       &resource.RuntimeState{Version: "1.25.5"},
+			want:        resource.ActionUpgrade,
+		},
+		{
+			name:        "tainted -> reinstall",
+			specVersion: "1.25.5",
+			state:       &resource.RuntimeState{Version: "1.25.5", TaintReason: resource.TaintReason("dep upgraded")},
+			want:        resource.ActionReinstall,
+		},
+		{
+			name:        "version-less latest with resolved state -> none (#270)",
+			specVersion: "",
+			state:       &resource.RuntimeState{Version: "1.89.0", VersionKind: resource.VersionLatest},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "alias unchanged -> none",
+			specVersion: "stable",
+			state:       &resource.RuntimeState{Version: "1.89.0", VersionKind: resource.VersionAlias, SpecVersion: "stable"},
+			want:        resource.ActionNone,
+		},
+		{
+			name:        "alias changed -> upgrade",
+			specVersion: "nightly",
+			state:       &resource.RuntimeState{Version: "1.89.0", VersionKind: resource.VersionAlias, SpecVersion: "stable"},
+			want:        resource.ActionUpgrade,
+		},
+		{
+			// Pins the branch order: taint precedes version.
+			name:        "tainted and version differs -> reinstall (taint wins)",
+			specVersion: "1.25.6",
+			state:       &resource.RuntimeState{Version: "1.25.5", VersionKind: resource.VersionExact, TaintReason: resource.TaintReason("x")},
+			want:        resource.ActionReinstall,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, runtimeAction(tt.specVersion, tt.state))
 		})
 	}
 }

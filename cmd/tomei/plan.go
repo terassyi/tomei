@@ -165,23 +165,48 @@ func runPlan(cmd *cobra.Command, args []string) error {
 }
 
 // toolAction computes the plan action for a Tool that already has a persisted
-// state entry, by comparing the spec's sha/version against state. Branch
-// ordering MUST match reconciler.ToolComparator
-// (internal/installer/reconciler/tool.go) — otherwise `tomei plan` and the
-// engine disagree on the reason surfaced when multiple signals fire at once.
-// In particular sha is checked first, so a sha-pinned tool already installed at
-// that sha (spec.sha == state.sha, both versions empty) reports ActionNone
-// rather than a perpetual upgrade (#271).
+// state entry, by comparing the spec's sha/version against state.
+//
+// sha is checked first, so a sha-pinned tool already installed at that sha
+// (spec.sha == state.sha, both versions empty) reports ActionNone (#271). The
+// version comparison uses resource.SpecVersionDiffers (VersionKind-aware), the
+// same predicate the reconciler uses, so a version-less tool whose resolveVersion
+// populated state.Version (e.g. #Homebrew) is not perpetually [~ upgrade] (#270).
+//
+// Ordering vs reconciler.ToolComparator: sha is checked first in both. The
+// taint/version order intentionally differs (here taint precedes version) — a
+// pre-existing choice. Note that plan surfaces a tainted resource as
+// ActionReinstall whereas the reconciler maps any change to ActionUpgrade; that
+// plan/apply label difference is pre-existing and out of scope here.
 func toolAction(specSHA, specVersion string, st *resource.ToolState) resource.ActionType {
 	switch {
 	case st.SHA != specSHA:
 		return resource.ActionUpgrade
 	case st.IsTainted():
 		return resource.ActionReinstall
-	case st.Version == specVersion:
-		return resource.ActionNone
-	default:
+	case resource.SpecVersionDiffers(specVersion, st.VersionKind, st.Version, st.SpecVersion):
 		return resource.ActionUpgrade
+	default:
+		return resource.ActionNone
+	}
+}
+
+// runtimeAction computes the plan action for a Runtime that already has a
+// persisted state entry. Branch order (taint -> version) is preserved from the
+// original inline branch; runtimes have no sha. The version comparison uses the
+// shared VersionKind-aware resource.SpecVersionDiffers so a version-less runtime
+// whose resolveVersion populated state.Version is not perpetually [~ upgrade]
+// (#270). As with toolAction, this preserves the existing taint-as-Reinstall
+// labeling, which differs from reconciler.RuntimeComparator (version-first,
+// mapping any change to ActionUpgrade) — pre-existing and out of scope here.
+func runtimeAction(specVersion string, st *resource.RuntimeState) resource.ActionType {
+	switch {
+	case st.IsTainted():
+		return resource.ActionReinstall
+	case resource.SpecVersionDiffers(specVersion, st.VersionKind, st.Version, st.SpecVersion):
+		return resource.ActionUpgrade
+	default:
+		return resource.ActionNone
 	}
 }
 
@@ -271,13 +296,7 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			switch res.Kind() {
 			case resource.KindRuntime:
 				if rt, ok := userState.Runtimes[res.Name()]; ok && rt != nil {
-					if rt.IsTainted() {
-						resInfo.Action = resource.ActionReinstall
-					} else if rt.Version == resInfo.Version {
-						resInfo.Action = resource.ActionNone
-					} else {
-						resInfo.Action = resource.ActionUpgrade
-					}
+					resInfo.Action = runtimeAction(resInfo.Version, rt)
 				}
 			case resource.KindTool:
 				if tool, ok := userState.Tools[res.Name()]; ok && tool != nil {

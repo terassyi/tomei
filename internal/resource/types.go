@@ -223,6 +223,30 @@ func IsLatestVersion(version string) bool {
 	return version == "" || version == string(VersionLatest)
 }
 
+// SpecVersionDiffers reports whether a spec's version specification differs from
+// what is recorded in state, honoring VersionKind. It is the single source of
+// truth for the reconciler comparators and `tomei plan`; both MUST agree,
+// otherwise plan and apply disagree (see #270/#271).
+//
+// Rules:
+//   - VersionLatest: changed only if the spec switches to a non-empty/non-"latest"
+//     version. A version-less tool whose resolveVersion populated stateVersion
+//     therefore does NOT differ (no perpetual upgrade).
+//   - VersionAlias: changed if the spec alias differs from the stored alias
+//     (stateSpecVersion), since stateVersion holds the resolved value.
+//   - VersionExact (and the zero value): changed if the spec version differs from
+//     the installed version (stateVersion).
+func SpecVersionDiffers(specVersion string, vk VersionKind, stateVersion, stateSpecVersion string) bool {
+	switch vk {
+	case VersionLatest:
+		return !IsLatestVersion(specVersion)
+	case VersionAlias:
+		return specVersion != stateSpecVersion
+	default: // VersionExact (and zero value "")
+		return specVersion != stateVersion
+	}
+}
+
 // ClassifyVersion determines the VersionKind for a given spec version string.
 // Empty string or "latest" → VersionLatest, otherwise VersionExact.
 // VersionAlias is only assigned by runtime installers that use ResolveVersion.

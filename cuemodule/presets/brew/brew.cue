@@ -24,6 +24,11 @@ _brew:       _brewPrefix + "/bin/brew"
 			install: [
 				"NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
 			]
+			// update runs only on the --update-tools path (a version-less tool is
+			// otherwise satisfied and skipped). `brew update` refreshes Homebrew
+			// itself + formula metadata — the manager's "upgrade" — without
+			// re-running install.sh. Runs as the invoking user (brew refuses root).
+			update: [_brew + " update"]
 			check: [_brew + " --version"]
 			remove: ["NONINTERACTIVE=1 /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)\""]
 			resolveVersion: [_brew + " --version 2>/dev/null | head -1 | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo ''"]
