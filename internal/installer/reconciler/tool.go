@@ -7,7 +7,9 @@ import (
 // specVersionChanged is a thin alias for resource.SpecVersionDiffers, kept so the
 // tool/runtime comparators (and their tests) read naturally. The version-change
 // rules live in resource.SpecVersionDiffers — the single source of truth shared
-// with `tomei plan` so plan and apply never disagree.
+// with `tomei plan` so the two agree on *version drift* specifically. (Plan and
+// apply can still differ on other axes, e.g. plan labels a tainted resource
+// ActionReinstall while the reconciler maps any change to ActionUpgrade.)
 func specVersionChanged(specVersion string, stateVersionKind resource.VersionKind, stateVersion, stateSpecVersion string) bool {
 	return resource.SpecVersionDiffers(specVersion, stateVersionKind, stateVersion, stateSpecVersion)
 }
