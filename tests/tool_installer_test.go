@@ -391,3 +391,45 @@ func toolSha256Hash(data []byte) string {
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
+
+// TestToolInstaller_InstallerDelegation_BinDirResolvesStub reproduces #269: a
+// delegation installer's command uses a bare binary name that is only resolvable
+// via the installer's own binDir on PATH. Before the fix this failed with exit
+// 127 ("command not found"); the installer's binDir must be prepended to PATH.
+func TestToolInstaller_InstallerDelegation_BinDirResolvesStub(t *testing.T) {
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "installerbin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	marker := filepath.Join(tmpDir, "installed.marker")
+
+	// Stub executable resolvable only via PATH (bare name in the command).
+	stub := "#!/bin/sh\ntouch " + marker + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "faketool"), []byte(stub), 0o755))
+
+	dl := download.NewDownloader()
+	placer := place.NewPlacer(filepath.Join(tmpDir, "tools"))
+	installer := toolpkg.NewInstaller(dl, placer, filepath.Join(tmpDir, "bin"), filepath.Join(tmpDir, "system-bin"))
+
+	// Delegation installer whose binDir holds the stub; bare command relies on PATH.
+	installer.RegisterInstaller("fake", &toolpkg.InstallerInfo{
+		Type:   resource.InstallTypeDelegation,
+		BinDir: binDir,
+		Commands: &resource.CommandsSpec{
+			Install: []string{"faketool install {{.Package}}"},
+		},
+	})
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "ffmpeg"}},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "fake",
+			Version:      "1.0.0",
+			Package:      &resource.Package{Name: "ffmpeg"},
+		},
+	}
+
+	_, err := installer.Install(context.Background(), tool, "ffmpeg")
+	require.NoError(t, err, "install must not fail with exit 127 when the stub is on PATH via the installer binDir")
+	_, statErr := os.Stat(marker)
+	require.NoError(t, statErr, "stub binary should have run (marker created), proving binDir was on PATH")
+}

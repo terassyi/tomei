@@ -460,16 +460,9 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 			if err := inst.InstallerSpec.Validate(); err != nil {
 				return fmt.Errorf("invalid installer %q: %w", inst.Name(), err)
 			}
-			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
-				Type:              inst.InstallerSpec.Type,
-				ToolRef:           inst.InstallerSpec.ToolRef,
-				Commands:          inst.InstallerSpec.Commands,
-				MinimumReleaseAge: inst.InstallerSpec.MinimumReleaseAge,
-			})
-			// Persist installer state (including ToolRef and BinDir) for removal lookup and env
-			if st.Installers == nil {
-				st.Installers = make(map[string]*resource.InstallerState)
-			}
+			// Expand the installer's own binDir up front: it is both passed to the
+			// tool installer (so delegation commands get it on PATH, #269) and
+			// persisted in InstallerState below.
 			var expandedBinDir string
 			if inst.InstallerSpec.BinDir != "" {
 				var err error
@@ -477,6 +470,17 @@ func (e *Engine) Apply(ctx context.Context, resources []resource.Resource) error
 				if err != nil {
 					return fmt.Errorf("failed to expand binDir for installer %q: %w", inst.Name(), err)
 				}
+			}
+			e.toolInstaller.RegisterInstaller(inst.Name(), &tool.InstallerInfo{
+				Type:              inst.InstallerSpec.Type,
+				ToolRef:           inst.InstallerSpec.ToolRef,
+				BinDir:            expandedBinDir,
+				Commands:          inst.InstallerSpec.Commands,
+				MinimumReleaseAge: inst.InstallerSpec.MinimumReleaseAge,
+			})
+			// Persist installer state (including ToolRef and BinDir) for removal lookup and env
+			if st.Installers == nil {
+				st.Installers = make(map[string]*resource.InstallerState)
 			}
 			// Preserve existing state fields (e.g., Version) that are not set here
 			existing := st.Installers[inst.Name()]

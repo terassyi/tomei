@@ -39,8 +39,13 @@ type RuntimeInfo struct {
 
 // InstallerInfo contains the information needed to install tools via installer delegation.
 type InstallerInfo struct {
-	Type     resource.InstallType // "download" or "delegation"
-	ToolRef  string               // Reference to tool (optional, e.g., cargo-binstall)
+	Type    resource.InstallType // "download" or "delegation"
+	ToolRef string               // Reference to tool (optional, e.g., cargo-binstall)
+	// BinDir is the installer's own bin directory (expanded), e.g. /opt/homebrew/bin
+	// for #BrewInstaller. Prepended to PATH when running the installer's delegation
+	// commands so a bare command (e.g. `brew install`) resolves even when Homebrew
+	// was bootstrapped in the same run (#269). Empty when the spec omits binDir.
+	BinDir   string
 	Commands *resource.CommandsSpec
 	// MinimumReleaseAge is the Go duration string from the Installer spec, exposed
 	// to delegation install commands as {{.MinimumReleaseAge}}. Empty when unset.
@@ -122,19 +127,31 @@ func (i *Installer) SetToolBinPaths(paths map[string]string) {
 	i.toolBinPaths = paths
 }
 
-// buildEnvWithToolPath builds an environment map with the tool's bin directory prepended to PATH.
-// This ensures installer delegation commands (e.g., helm pull) can find their toolRef binary.
-func (i *Installer) buildEnvWithToolPath(installerName string) map[string]string {
-	if i.toolBinPaths == nil {
+// buildEnvWithToolPath builds an environment map whose PATH lets an installer's
+// delegation commands find their binary. PATH is composed, highest precedence
+// first, of: the installer's own binDir (installerBinDir; e.g. /opt/homebrew/bin
+// for #BrewInstaller — the production location of the delegated CLI, #269), then
+// the installer's toolRef tool bin dir (toolBinPaths[installerName]; e.g. for
+// cargo-binstall installed via cargo), then the inherited $PATH. The installer's
+// own binDir wins because it is the authoritative location for its CLI; the
+// toolRef dir is a fallback. Empty components are skipped; returns nil (PATH left
+// inherited) when neither is available.
+func (i *Installer) buildEnvWithToolPath(installerName, installerBinDir string) map[string]string {
+	var parts []string
+	if installerBinDir != "" {
+		parts = append(parts, installerBinDir)
+	}
+	if i.toolBinPaths != nil {
+		if binDir := i.toolBinPaths[installerName]; binDir != "" {
+			parts = append(parts, binDir)
+		}
+	}
+	if len(parts) == 0 {
 		return nil
 	}
-	binDir, ok := i.toolBinPaths[installerName]
-	if !ok || binDir == "" {
-		return nil
-	}
-	currentPath := os.Getenv("PATH")
+	parts = append(parts, os.Getenv("PATH"))
 	return map[string]string{
-		"PATH": binDir + string(os.PathListSeparator) + currentPath,
+		"PATH": strings.Join(parts, string(os.PathListSeparator)),
 	}
 }
 
@@ -889,8 +906,9 @@ func (i *Installer) installByInstaller(ctx context.Context, res *resource.Tool, 
 		MinimumReleaseAge: info.MinimumReleaseAge,
 	}
 
-	// Build environment with PATH including the installer's toolRef binary directory
-	env := i.buildEnvWithToolPath(spec.InstallerRef)
+	// Build environment with PATH including the installer's own binDir (#269) and
+	// its toolRef binary directory.
+	env := i.buildEnvWithToolPath(spec.InstallerRef, info.BinDir)
 
 	// Execute install command with output streaming
 	if err := i.executeCommand(ctx, info.Commands.Install, vars, env); err != nil {
