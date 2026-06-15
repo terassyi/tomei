@@ -1203,7 +1203,8 @@ func TestToolInstaller_ProgressCallback_Priority(t *testing.T) {
 type mockCommandRunner struct {
 	executedCmds [][]string
 	executedVars []command.Vars
-	methods      []string // "Execute", "ExecuteWithEnv", "ExecuteWithOutput", "Check"
+	executedEnv  []map[string]string // env map per delegation command (nil for Execute)
+	methods      []string            // "Execute", "ExecuteWithEnv", "ExecuteWithOutput", "Check"
 	checkedCmds  [][]string
 	checkResult  bool
 	executeErr   error
@@ -1213,27 +1214,31 @@ func (m *mockCommandRunner) Execute(_ context.Context, cmds []string, vars comma
 	m.methods = append(m.methods, "Execute")
 	m.executedCmds = append(m.executedCmds, cmds)
 	m.executedVars = append(m.executedVars, vars)
+	m.executedEnv = append(m.executedEnv, nil)
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, _ map[string]string) error {
+func (m *mockCommandRunner) ExecuteWithEnv(_ context.Context, cmds []string, vars command.Vars, env map[string]string) error {
 	m.methods = append(m.methods, "ExecuteWithEnv")
 	m.executedCmds = append(m.executedCmds, cmds)
 	m.executedVars = append(m.executedVars, vars)
+	m.executedEnv = append(m.executedEnv, env)
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, _ map[string]string, _ command.OutputCallback) error {
+func (m *mockCommandRunner) ExecuteWithOutput(_ context.Context, cmds []string, vars command.Vars, env map[string]string, _ command.OutputCallback) error {
 	m.methods = append(m.methods, "ExecuteWithOutput")
 	m.executedCmds = append(m.executedCmds, cmds)
 	m.executedVars = append(m.executedVars, vars)
+	m.executedEnv = append(m.executedEnv, env)
 	return m.executeErr
 }
 
-func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, _ map[string]string) bool {
+func (m *mockCommandRunner) Check(_ context.Context, cmds []string, vars command.Vars, env map[string]string) bool {
 	m.methods = append(m.methods, "Check")
 	m.checkedCmds = append(m.checkedCmds, cmds)
 	m.executedVars = append(m.executedVars, vars)
+	m.executedEnv = append(m.executedEnv, env)
 	return m.checkResult
 }
 
@@ -1725,4 +1730,78 @@ func TestExtractBinaryMapping(t *testing.T) {
 			assert.Equal(t, tt.wantSrcBinaryName, cfg.SrcBinaryName)
 		})
 	}
+}
+
+// TestInstallByInstaller_PrependsBinDirToPath pins #269: a delegation installer's
+// own binDir is prepended to the PATH used to run its commands, so a bare command
+// (e.g. `brew install`) resolves even when the binary isn't otherwise on PATH.
+func TestInstallByInstaller_PrependsBinDirToPath(t *testing.T) {
+	t.Parallel()
+	sep := string(os.PathListSeparator)
+
+	newTool := func() *resource.Tool {
+		return &resource.Tool{
+			BaseResource: resource.BaseResource{Metadata: resource.Metadata{Name: "mytool"}},
+			ToolSpec: &resource.ToolSpec{
+				InstallerRef: "inst",
+				Version:      "1.0.0",
+				Package:      &resource.Package{Name: "mytool"},
+			},
+		}
+	}
+	registerWithBinDir := func(inst *Installer) {
+		inst.RegisterInstaller("inst", &InstallerInfo{
+			Type:     resource.InstallTypeDelegation,
+			BinDir:   "/opt/homebrew/bin",
+			Commands: &resource.CommandsSpec{Install: []string{"faketool install {{.Package}}"}},
+		})
+	}
+
+	t.Run("binDir prepended to PATH", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
+		registerWithBinDir(inst)
+
+		_, err := inst.Install(context.Background(), newTool(), "mytool")
+		require.NoError(t, err)
+		require.Len(t, runner.executedEnv, 1)
+		// Assert on the first component (not a trailing separator): an empty
+		// inherited $PATH legitimately yields exactly "/opt/homebrew/bin".
+		parts := strings.Split(runner.executedEnv[0]["PATH"], sep)
+		assert.Equal(t, "/opt/homebrew/bin", parts[0],
+			"installer binDir must be the first PATH component; got %q", runner.executedEnv[0]["PATH"])
+	})
+
+	t.Run("binDir precedes toolRef binDir", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
+		registerWithBinDir(inst)
+		inst.SetToolBinPaths(map[string]string{"inst": "/tool/bin"})
+
+		_, err := inst.Install(context.Background(), newTool(), "mytool")
+		require.NoError(t, err)
+		require.Len(t, runner.executedEnv, 1)
+		parts := strings.Split(runner.executedEnv[0]["PATH"], sep)
+		require.GreaterOrEqual(t, len(parts), 2)
+		assert.Equal(t, "/opt/homebrew/bin", parts[0], "installer binDir must come first")
+		assert.Equal(t, "/tool/bin", parts[1], "toolRef binDir must come second")
+	})
+
+	t.Run("no binDir and no toolRef -> no PATH override", func(t *testing.T) {
+		t.Parallel()
+		runner := &mockCommandRunner{checkResult: true}
+		inst := NewInstallerWithRunner(download.NewDownloader(), &mockPlacer{}, "/bin", "/system-bin", runner)
+		inst.RegisterInstaller("inst", &InstallerInfo{
+			Type:     resource.InstallTypeDelegation,
+			Commands: &resource.CommandsSpec{Install: []string{"faketool install {{.Package}}"}},
+		})
+
+		_, err := inst.Install(context.Background(), newTool(), "mytool")
+		require.NoError(t, err)
+		require.Len(t, runner.executedEnv, 1)
+		_, hasPath := runner.executedEnv[0]["PATH"]
+		assert.False(t, hasPath, "no binDir/toolRef should leave PATH unset (inherited): %v", runner.executedEnv[0])
+	})
 }
