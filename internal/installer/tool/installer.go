@@ -149,7 +149,11 @@ func (i *Installer) buildEnvWithToolPath(installerName, installerBinDir string) 
 	if len(parts) == 0 {
 		return nil
 	}
-	parts = append(parts, os.Getenv("PATH"))
+	// Only append the inherited PATH when non-empty: a trailing separator
+	// (e.g. "/opt/homebrew/bin:") makes shells treat the cwd as on PATH.
+	if current := os.Getenv("PATH"); current != "" {
+		parts = append(parts, current)
+	}
 	return map[string]string{
 		"PATH": strings.Join(parts, string(os.PathListSeparator)),
 	}
