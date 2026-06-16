@@ -55,8 +55,10 @@ const MacOSMetadataDir = "__MACOSX"
 // IsSingleFileArchive reports whether archiveType extracts to a single binary
 // named after the destination directory (rather than a multi-file tree). The
 // raw and gz extractors both write one file named after destDir's base, so the
-// caller must extract into a tool-named subdirectory for the placer's findBinary
-// to locate it. Tar/zip/pkg archives carry their own paths and do not need this.
+// caller must extract into a subdirectory named after the placer's search name
+// (place.Target.SearchName) for the placer's findBinary to locate it — this is
+// what lets aqua's files[].src mapping work (#281). Tar/zip/pkg archives carry
+// their own paths and do not need this.
 func IsSingleFileArchive(archiveType ArchiveType) bool {
 	return archiveType == ArchiveTypeRaw || archiveType == ArchiveTypeGz
 }
@@ -412,7 +414,9 @@ func isInsideDir(baseDir, target string) bool {
 type rawExtractor struct{}
 
 // Extract copies a raw binary file to the destination directory.
-// The binary is named after the base name of destDir (the tool name).
+// The binary is named after the base name of destDir. The caller sets destDir's
+// base to the placer's search name (place.Target.SearchName), so findBinary can
+// locate it even when aqua's files[].src differs from the tool name (#281).
 func (e *rawExtractor) Extract(r io.Reader, destDir string) error {
 	slog.Debug("extracting raw binary", "dest", destDir)
 
@@ -446,10 +450,11 @@ type gzExtractor struct{}
 
 // Extract decompresses a single gzip stream to one binary file in destDir.
 //
-// The output is named after destDir's base name (the tool name), like rawExtractor,
-// so the placer's findBinary(BinaryName) can locate it. The gzip header's optional
-// FNAME field is intentionally ignored (it need not match the tool name and could
-// carry a path). Like rawExtractor it does not honor a registry files[].src mapping.
+// The output is named after destDir's base name, like rawExtractor, so the
+// placer's findBinary can locate it. The caller sets destDir's base to the
+// placer's search name (place.Target.SearchName), so a registry files[].src
+// mapping IS honored (#281). The gzip header's optional FNAME field is
+// intentionally ignored (it need not match the search name and could carry a path).
 //
 // gzip carries no Unix mode, so the binary is created executable (0755).
 func (e *gzExtractor) Extract(r io.Reader, destDir string) error {
