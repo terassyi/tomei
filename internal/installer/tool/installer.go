@@ -202,12 +202,13 @@ func (i *Installer) executeCommand(ctx context.Context, cmds []string, vars comm
 // binaryNameRegexp matches the CUE schema constraint: ^[a-zA-Z0-9][a-zA-Z0-9._-]*$
 var binaryNameRegexp = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
 
-// validateBinaryName checks that binaryName is safe for use in file paths.
-// Enforces the same regex as the CUE schema (^[a-zA-Z0-9][a-zA-Z0-9._-]*$)
-// as defense-in-depth for inputs that bypass CUE validation (e.g., JSON/YAML).
-func validateBinaryName(name string) error {
+// validateName checks that a path-bound name (kind labels which one, e.g.
+// "binaryName" or "srcBinaryName") is safe for use in file paths. Enforces the
+// same regex as the CUE schema (^[a-zA-Z0-9][a-zA-Z0-9._-]*$) as defense-in-depth
+// for inputs that bypass CUE validation (e.g., JSON/YAML or untrusted registry data).
+func validateName(kind, name string) error {
 	if !binaryNameRegexp.MatchString(name) {
-		return fmt.Errorf("invalid binaryName %q: must match ^[a-zA-Z0-9][a-zA-Z0-9._-]*$", name)
+		return fmt.Errorf("invalid %s %q: must match ^[a-zA-Z0-9][a-zA-Z0-9._-]*$", kind, name)
 	}
 	return nil
 }
@@ -218,7 +219,7 @@ func (i *Installer) Install(ctx context.Context, res *resource.Tool, name string
 
 	// Validate binaryName to prevent path traversal (defense-in-depth; CUE schema also enforces this)
 	if spec.BinaryName != "" {
-		if err := validateBinaryName(spec.BinaryName); err != nil {
+		if err := validateName("binaryName", spec.BinaryName); err != nil {
 			return nil, err
 		}
 	}
@@ -272,8 +273,16 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	}
 
 	// Validate effective binary name (after registry mapping and spec override)
-	if err := validateBinaryName(cfg.BinaryName); err != nil {
+	if err := validateName("binaryName", cfg.BinaryName); err != nil {
 		return nil, err
+	}
+	// SrcBinaryName (from untrusted registry files[].src) is now used as the
+	// single-file extraction subdirectory name via Target.SearchName(), so it
+	// must also be path-safe. path.Base does not neutralize ".." (#281).
+	if cfg.SrcBinaryName != "" {
+		if err := validateName("srcBinaryName", cfg.SrcBinaryName); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validate spec
@@ -373,11 +382,14 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 		return nil, fmt.Errorf("failed to create extractor: %w", err)
 	}
 
-	// For single-file binaries (raw, bare gz), use the tool name as the subdirectory
-	// so the extracted binary is named after the tool and findBinary can locate it.
+	// For single-file binaries (raw, bare gz), name the subdirectory after the
+	// placer's search name. The gz/raw extractor names the extracted file after
+	// the subdirectory's base name, so this makes the extracted file name match
+	// what place.Place searches for — including aqua's files[].src case where
+	// SrcBinaryName differs from the tool name (e.g. tree-sitter-linux-arm64). See #281.
 	extractDir := filepath.Join(tmpDir, "extracted")
 	if extract.IsSingleFileArchive(archiveType) {
-		extractDir = filepath.Join(tmpDir, "extracted", name)
+		extractDir = filepath.Join(tmpDir, "extracted", target.SearchName())
 	}
 
 	archiveFile, err := os.Open(archivePath)

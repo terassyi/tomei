@@ -210,6 +210,136 @@ func TestToolInstaller_Install_GzFormat(t *testing.T) {
 	assert.Equal(t, filepath.Join(userBinDir, "tree-sitter"), state.BinPath)
 }
 
+// TestToolInstaller_Install_GzFormat_FilesSrcMapping pins #281: a gz single-file
+// package whose aqua registry maps files[].name != files[].src (the tree-sitter
+// shape) must install. The decompressed file is named after SearchName()
+// (SrcBinaryName = tree-sitter-<os>-<arch>), and place.Place must locate it by
+// that search name and place it as BinaryName (tree-sitter). Before the fix the
+// gz subdir was named after the resource, so findBinary searched the src name and
+// failed with "binary not found".
+func TestToolInstaller_Install_GzFormat_FilesSrcMapping(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho tree-sitter")
+	gzContent := createGzipContent(t, binaryContent)
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	userBinDir := filepath.Join(tmpDir, "bin")
+	cacheDir := t.TempDir()
+	ref := aqua.RegistryRef("v4.465.0")
+	pkg := "tree-sitter/tree-sitter"
+
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: tree-sitter
+    repo_name: tree-sitter
+    asset: tree-sitter-{{.OS}}-{{.Arch}}.gz
+    format: gz
+    files:
+      - name: tree-sitter
+        src: tree-sitter-{{.OS}}-{{.Arch}}
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	dl := &mockDownloader{archiveData: gzContent}
+	inst := NewInstaller(dl, place.NewPlacer(toolsDir), userBinDir, "/system-bin")
+	inst.SetResolver(aqua.NewResolver(cacheDir, nil), ref)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "tree-sitter"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v0.26.9",
+			Package: &resource.Package{
+				Owner: "tree-sitter",
+				Repo:  "tree-sitter",
+			},
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// Placed as BinaryName (tree-sitter) despite the src being tree-sitter-<os>-<arch>.
+	binPath := filepath.Join(toolsDir, "tree-sitter", "v0.26.9", "tree-sitter")
+	got, err := os.ReadFile(binPath)
+	require.NoError(t, err)
+	assert.Equal(t, binaryContent, got)
+
+	info, err := os.Stat(binPath)
+	require.NoError(t, err)
+	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "placed gz binary must be executable")
+}
+
+// TestToolInstaller_Install_GzFormat_SpecBinaryNameOverride pins the interaction
+// between a user spec.BinaryName override and a registry files[].src mapping for a
+// gz single-file package (the #281 path). The registry sets SrcBinaryName, so the
+// override branch (installByDownload: spec.BinaryName != "") keeps the registry's
+// SrcBinaryName for archive search via SearchName() and places the binary under the
+// spec-overridden name. This exercises the override branch the FilesSrcMapping test
+// does not reach.
+func TestToolInstaller_Install_GzFormat_SpecBinaryNameOverride(t *testing.T) {
+	t.Parallel()
+	binaryContent := []byte("#!/bin/sh\necho custom")
+	gzContent := createGzipContent(t, binaryContent)
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	userBinDir := filepath.Join(tmpDir, "bin")
+	cacheDir := t.TempDir()
+	ref := aqua.RegistryRef("v4.465.0")
+	pkg := "mytool/mytool"
+
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: mytool
+    repo_name: mytool
+    asset: mytool-{{.OS}}-{{.Arch}}.gz
+    format: gz
+    files:
+      - name: mytool
+        src: mytool-{{.OS}}-{{.Arch}}
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	dl := &mockDownloader{archiveData: gzContent}
+	inst := NewInstaller(dl, place.NewPlacer(toolsDir), userBinDir, "/system-bin")
+	inst.SetResolver(aqua.NewResolver(cacheDir, nil), ref)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "mytool"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v1.0.0",
+			Package:      &resource.Package{Owner: "mytool", Repo: "mytool"},
+			BinaryName:   "custom", // spec override differs from registry files[].name
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// Found via registry's SrcBinaryName (mytool-<os>-<arch>), placed as the override name.
+	binPath := filepath.Join(toolsDir, "mytool", "v1.0.0", "custom")
+	got, err := os.ReadFile(binPath)
+	require.NoError(t, err)
+	assert.Equal(t, binaryContent, got)
+
+	info, err := os.Stat(binPath)
+	require.NoError(t, err)
+	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "placed gz binary must be executable")
+}
+
 // TestBuildResolvedTool_PreservesPrivileged pins SUB5 #228: the registry
 // install path (installFromRegistry) hands a re-shaped Tool to installByDownload,
 // and Privileged MUST flow through that re-shaping. Dropping it would route
@@ -1730,6 +1860,51 @@ func TestExtractBinaryMapping(t *testing.T) {
 			assert.Equal(t, tt.wantSrcBinaryName, cfg.SrcBinaryName)
 		})
 	}
+}
+
+// TestToolInstaller_Install_RejectsUnsafeSrcBinaryName pins the #281 defense-in-depth:
+// SrcBinaryName (from untrusted registry files[].src) is now used as a path component
+// via Target.SearchName(), and path.Base does not neutralize "..". A registry mapping
+// whose src basename is path-unsafe must be rejected before any download/extraction.
+func TestToolInstaller_Install_RejectsUnsafeSrcBinaryName(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	cacheDir := t.TempDir()
+	ref := aqua.RegistryRef("v4.465.0")
+	pkg := "evil/evil"
+
+	// src renders to ".."; path.Base("..") == ".." → must be rejected.
+	registryYAML := `packages:
+  - type: github_release
+    repo_owner: evil
+    repo_name: evil
+    asset: evil-{{.OS}}-{{.Arch}}.gz
+    format: gz
+    files:
+      - name: evil
+        src: ".."
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	inst := NewInstaller(&mockDownloader{}, place.NewPlacer(filepath.Join(tmpDir, "tools")), filepath.Join(tmpDir, "bin"), "/system-bin")
+	inst.SetResolver(aqua.NewResolver(cacheDir, nil), ref)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "evil"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v1.0.0",
+			Package:      &resource.Package{Owner: "evil", Repo: "evil"},
+		},
+	}
+
+	_, err := inst.Install(context.Background(), tool, tool.Name())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "srcBinaryName")
 }
 
 // TestInstallByInstaller_PrependsBinDirToPath pins #269: a delegation installer's

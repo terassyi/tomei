@@ -183,6 +183,25 @@ func TestPlacer_Place(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			// #281: gz/raw single-file install extracts into a subdirectory named
+			// after SearchName(); the extracted file carries that same name. The
+			// placer must search SrcBinaryName, find it, and place it as BinaryName.
+			name: "place single-file gz/raw with files[].src subdir (tree-sitter pattern)",
+			setup: func(t *testing.T, srcDir string) {
+				dir := filepath.Join(srcDir, "tree-sitter-linux-arm64")
+				require.NoError(t, os.MkdirAll(dir, 0755))
+				err := os.WriteFile(filepath.Join(dir, "tree-sitter-linux-arm64"), []byte("binary content"), 0755)
+				require.NoError(t, err)
+			},
+			target: Target{
+				Name:          "tree-sitter",
+				Version:       "0.26.9",
+				BinaryName:    "tree-sitter",
+				SrcBinaryName: "tree-sitter-linux-arm64",
+			},
+			wantErr: false,
+		},
+		{
 			name: "place binary found by WalkDir in subdirectory (helm pattern)",
 			setup: func(t *testing.T, srcDir string) {
 				// Archive layout: linux-arm64/helm — installer has already extracted path.Base("linux-arm64/helm") = "helm"
@@ -279,6 +298,38 @@ func TestPlacer_Place(t *testing.T) {
 			info, err := os.Stat(result.BinaryPath)
 			require.NoError(t, err)
 			assert.NotEqual(t, os.FileMode(0), info.Mode()&0111, "expected executable permission")
+		})
+	}
+}
+
+func TestTarget_SearchName(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		target Target
+		want   string
+	}{
+		{
+			name:   "SrcBinaryName set takes precedence",
+			target: Target{BinaryName: "tree-sitter", SrcBinaryName: "tree-sitter-linux-arm64"},
+			want:   "tree-sitter-linux-arm64",
+		},
+		{
+			name:   "empty SrcBinaryName falls back to BinaryName",
+			target: Target{BinaryName: "rg", SrcBinaryName: ""},
+			want:   "rg",
+		},
+		{
+			name:   "both empty returns empty",
+			target: Target{},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.target.SearchName())
 		})
 	}
 }

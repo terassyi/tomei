@@ -20,6 +20,18 @@ type Target struct {
 	SrcBinaryName string // Binary name to search in archive (e.g., krew-linux_arm64); empty = BinaryName
 }
 
+// SearchName returns the binary name to search for in extracted archives.
+// SrcBinaryName (the archive-specific asset name, e.g. tree-sitter-linux-arm64)
+// takes precedence over BinaryName when set. This is the single source of truth
+// for the search name, shared by Place and the download installer's single-file
+// extraction so the extracted file name and the search name cannot diverge.
+func (t Target) SearchName() string {
+	if t.SrcBinaryName != "" {
+		return t.SrcBinaryName
+	}
+	return t.BinaryName
+}
+
 // Result contains information about the placed tool.
 type Result struct {
 	BinaryPath string // Path to the placed binary
@@ -153,10 +165,7 @@ func (p *filePlacer) calculateHash(path string) (string, error) {
 
 // Place finds and places a binary from srcDir to the tools directory.
 func (p *filePlacer) Place(srcDir string, target Target) (*Result, error) {
-	searchName := target.BinaryName
-	if target.SrcBinaryName != "" {
-		searchName = target.SrcBinaryName
-	}
+	searchName := target.SearchName()
 
 	destDir := filepath.Join(p.toolsDir, target.Name, target.Version)
 	slog.Debug("placing binary", "src", srcDir, "dest", destDir, "binary", target.BinaryName, "search", searchName)
