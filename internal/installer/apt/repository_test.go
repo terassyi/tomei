@@ -383,7 +383,7 @@ func TestDearmorKey(t *testing.T) {
 		dst := filepath.Join(t.TempDir(), "out.gpg")
 		_, err := dearmorKey(src, dst)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "decode armor")
+		assert.Contains(t, err.Error(), "no ASCII-armored OpenPGP block found")
 	})
 
 	t.Run("well-formed but empty armor yields zero bytes", func(t *testing.T) {

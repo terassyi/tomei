@@ -297,10 +297,10 @@ func decodeAllArmorBlocks(data []byte, w io.Writer) (int64, error) {
 		block, err := armor.Decode(bytes.NewReader(rest))
 		if errors.Is(err, io.EOF) {
 			// No (further) armor block. If we never found one, the input is
-			// not armored — surface that as a hard error; otherwise we are
-			// simply past the last block.
+			// not armored — surface that as a clear hard error; otherwise we
+			// are simply past the last block.
 			if blocks == 0 {
-				return total, fmt.Errorf("decode armor: %w", err)
+				return total, fmt.Errorf("no ASCII-armored OpenPGP block found in key")
 			}
 			return total, nil
 		}
