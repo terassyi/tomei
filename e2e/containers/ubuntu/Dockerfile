@@ -1,6 +1,10 @@
 FROM ubuntu:24.04
 
-# Install minimal dependencies
+# Install minimal dependencies.
+# gnupg is NOT a tomei runtime dependency — SystemPackageRepository apply
+# dearmors signing keys in-process (#283). It is kept here solely as the test
+# oracle for the keyring-validation spec (`gpg --list-keys`) in
+# e2e/system_package_test.go.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \

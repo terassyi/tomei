@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/terassyi/tomei/internal/installer/command"
 	"github.com/terassyi/tomei/internal/installer/download"
 	"github.com/terassyi/tomei/internal/installer/executor"
@@ -62,12 +64,11 @@ var repoNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
 var failedToFetchRE = regexp.MustCompile(`(?m)^W: Failed to fetch (\S+)`)
 
 // defaultRepoInstallTimeout caps the cumulative cost of an Install's
-// post-validation work (key download + verify + dearmor + sudo install
-// of the keyring and sources.list + apt-get update). Surfaced as a var
+// post-validation work (key download + verify + in-process dearmor + sudo
+// install of the keyring and sources.list + apt-get update). Surfaced as a var
 // (not const) so tests and a future cross-installer timeout knob can
-// override it. 10 minutes is roomy enough for slow dearmor on
-// constrained hardware plus a worst-case apt-get update against a
-// healthy-but-distant mirror, while still bounding a hang against a
+// override it. 10 minutes is roomy enough for a worst-case apt-get update
+// against a healthy-but-distant mirror, while still bounding a hang against a
 // dead mirror.
 var defaultRepoInstallTimeout = 10 * time.Minute
 
@@ -137,10 +138,11 @@ func (s destinationSnapshot) dataFor(path string) []byte {
 // executor.Installer[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState]
 // and is obtained from Client.PackageRepositoryInstaller.
 //
-// Host requirements: Linux, GNU coreutils `install`, passwordless `sudo -n`,
-// and `gpg` (gnupg) in PATH. See Install for the full caller contract,
-// trust model, and concurrency notes; the struct itself is just a handle
-// that bundles the runner with a download.Downloader for the key fetch.
+// Host requirements: Linux, GNU coreutils `install`, and passwordless
+// `sudo -n`. The signing key is dearmored in-process (no gnupg dependency,
+// #283). See Install for the full caller contract, trust model, and
+// concurrency notes; the struct itself is just a handle that bundles the
+// runner with a download.Downloader for the key fetch.
 type PackageRepositoryInstaller struct {
 	client     *Client
 	downloader download.Downloader
@@ -226,6 +228,49 @@ func sourcesListPath(name string) string {
 	return filepath.Join(sourcesListDir, name+".list")
 }
 
+// dearmorKey reads an ASCII-armored OpenPGP key from armoredPath, decodes it to
+// raw binary OpenPGP packets, and writes the result to dstPath (0600; the later
+// `sudo install` re-chmods to 0644). It returns the number of bytes written.
+//
+// This is the in-process equivalent of `gpg --dearmor` for the single-key
+// apt-signing contract, and is what lets tomei configure third-party
+// repositories on minimal images without gnupg in PATH (#283). armor.Decode
+// reads only the FIRST armor block (gpg --dearmor concatenates all blocks),
+// which suffices for the single-key contract. ProtonMail/go-crypto does NOT
+// validate the armor CRC24 checksum — integrity is guaranteed upstream by
+// keyHash (sha256 of the armored bytes, verified before this call) and by
+// apt's own Release-signature check at update time.
+func dearmorKey(armoredPath, dstPath string) (int64, error) {
+	in, err := os.Open(armoredPath)
+	if err != nil {
+		return 0, fmt.Errorf("open armored key: %w", err)
+	}
+	defer in.Close()
+
+	// A non-armored input yields io.EOF here ("no armored data found").
+	block, err := armor.Decode(in)
+	if err != nil {
+		return 0, fmt.Errorf("decode armor: %w", err)
+	}
+
+	out, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return 0, fmt.Errorf("create keyring: %w", err)
+	}
+	// base64 / structural corruption surfaces while reading block.Body, NOT at
+	// armor.Decode — checking copyErr is load-bearing: dropping it would write a
+	// truncated/corrupt keyring and let apt fail opaquely later.
+	n, copyErr := io.Copy(out, block.Body)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return n, fmt.Errorf("copy decoded key: %w", copyErr)
+	}
+	if closeErr != nil {
+		return n, fmt.Errorf("close keyring: %w", closeErr)
+	}
+	return n, nil
+}
+
 // buildSourcesListLine renders a single APT one-line sources.list entry
 // for the given repository. The returned string includes a trailing
 // newline so it can be written verbatim into /etc/apt/sources.list.d/.
@@ -297,25 +342,22 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 // via spec.Validate() called at the top of this function, and
 // download.Downloader's own validateDownloadURL all enforce the same
 // rule, with a localhost http:// escape hatch for integration tests),
-// verify its SHA256 against spec.Apt.KeyHash, convert to the binary
-// keyring format with `gpg --dearmor`, place it under
-// /usr/share/keyrings/, write a one-line sources.list entry under
-// /etc/apt/sources.list.d/, and refresh the APT index.
+// verify its SHA256 against spec.Apt.KeyHash, decode the ASCII-armored
+// key to binary OpenPGP packet form in-process (no gnupg dependency,
+// #283), place it under /usr/share/keyrings/, write a one-line
+// sources.list entry under /etc/apt/sources.list.d/, and refresh the APT index.
 //
-// Shell commands executed (the first three via ExecuteCapture; the
+// Shell commands executed (the first two via ExecuteCapture; the
 // apt-get update step via ExecuteWithOutput with a per-line callback
 // that scans both stdout and stderr for partial-fetch warnings):
 //
-//   - gpg --no-default-keyring --no-options --homedir '<tmp>' --batch --yes --output '<tmp>/<name>.gpg' --dearmor '<tmp>/<name>.armored'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.gpg' '/usr/share/keyrings/<name>.gpg'
 //   - sudo -n install -D -m 0644 -o root -g root -- '<tmp>/<name>.list' '/etc/apt/sources.list.d/<name>.list'
 //   - sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update
 //
 // The `-D` flag on `install` ensures the destination directory exists
 // (Ubuntu 20.04 minimal images may ship without /usr/share/keyrings/).
-// The dearmor step uses an ephemeral `--homedir` so user-level
-// `~/.gnupg/gpg.conf` cannot redirect logs or output; `LC_ALL=C
-// LANGUAGE=C` on apt-get update ensures the `W: Failed to fetch`
+// `LC_ALL=C LANGUAGE=C` on apt-get update ensures the `W: Failed to fetch`
 // partial-fetch detector matches against the canonical English warning
 // regardless of the host's locale. The update step's stdout and stderr
 // are read concurrently (no shell `2>&1` redirection) and only the
@@ -333,7 +375,7 @@ func buildSourcesListLine(name string, src *resource.AptSource) (string, error) 
 //     options / URL / suite / components / disallowed Options key).
 //     Callers wanting the name in a uniform position should use
 //     errors.Is / errors.As on sentinel errors rather than the prefix.
-//   - download / verify / dearmor failure: (nil, wrapped error). No
+//   - download / verify / decode failure: (nil, wrapped error). No
 //     files placed.
 //   - sudo install failure for the keyring: (nil, wrapped error). No
 //     files placed.
@@ -404,7 +446,7 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 	// Cap the cumulative cost of the post-validation steps so a slow or
 	// dead mirror (DNS hang, half-routed CDN) cannot block tomei apply
 	// indefinitely. ctx.WithTimeout ensures the spawned subprocesses
-	// (gpg / sudo install / apt-get update) receive SIGTERM via
+	// (sudo install / apt-get update) receive SIGTERM via
 	// command.Executor's CommandContext path on deadline expiry, which
 	// is the only way to release the dpkg-frontend lock cleanly;
 	// wall-clock kill would leave orphan apt holding the lock.
@@ -446,23 +488,18 @@ func (p *PackageRepositoryInstaller) Install(ctx context.Context, res *resource.
 		return nil, fmt.Errorf("apt: repository %q: verify key: %w", name, err)
 	}
 
+	// Decode the armored key to binary keyring form in-process (no gnupg
+	// dependency, #283). keyHash was already verified above, so the armored
+	// bytes are trusted at this point.
 	dearmoredPath := filepath.Join(tmpDir, name+".gpg")
-	dearmorCmd := fmt.Sprintf(
-		"gpg --no-default-keyring --no-options --homedir %s --batch --yes --output %s --dearmor %s",
-		shellQuote(tmpDir), shellQuote(dearmoredPath), shellQuote(armoredPath))
-	if _, err := p.client.runner.ExecuteCapture(ctx, []string{dearmorCmd}, command.Vars{}, nil); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, fmt.Errorf("apt: repository %q: dearmor key: %w", name, ctxErr)
-		}
+	n, err := dearmorKey(armoredPath, dearmoredPath)
+	if err != nil {
 		return nil, fmt.Errorf("apt: repository %q: dearmor key: %w", name, err)
 	}
-	// Defense-in-depth: gpg returning success while producing a 0-byte
-	// keyring would otherwise sail through to apt-get update which would
-	// then fail opaquely with "the repository is not signed". The lenient
-	// err==nil guard avoids a hard failure when the test mock runner
-	// hasn't written a file (the integration test exercises the strict
-	// path against a real gpg binary).
-	if info, statErr := os.Stat(dearmoredPath); statErr == nil && info.Size() == 0 {
+	// Defense-in-depth: a well-formed but empty armor envelope decodes to a
+	// 0-byte keyring, which would otherwise sail through to apt-get update and
+	// fail opaquely with "the repository is not signed".
+	if n == 0 {
 		return nil, fmt.Errorf("apt: repository %q: dearmor produced empty keyring", name)
 	}
 

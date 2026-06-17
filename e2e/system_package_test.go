@@ -157,8 +157,9 @@ func systemPackageTests() {
 	//
 	// The apply / removal / idempotency arms of the spec are exercised
 	// against the host in the sibling Ordered Context "Apply --system
-	// installs SystemPackageRepository (#218)" below (gnupg now ships in
-	// the e2e runner image; see e2e/containers/ubuntu/Dockerfile).
+	// installs SystemPackageRepository (#218)" below (gnupg ships in the
+	// e2e runner image only as the keyring-validation oracle now that apply
+	// dearmors in-process, #283; see e2e/containers/ubuntu/Dockerfile).
 	Context("SystemPackageRepository (#197)", func() {
 		It("validates the manifest", func() {
 			out, err := testExec.Exec("tomei", "validate", cfgPath)
@@ -520,7 +521,8 @@ func systemPackageTests() {
 	// that exercise the SystemPackageSet apply path WITHOUT pgdgRepo.
 	// SystemPackageRepository apply now lives in the sibling
 	// "Apply --system installs SystemPackageRepository (#218)" Context
-	// below (gnupg is now installed in the runner image; see
+	// below (gnupg is in the runner image only as the keyring-validation
+	// oracle now that apply dearmors in-process, #283; see
 	// e2e/containers/ubuntu/Dockerfile). Keeping the SystemPackageSet
 	// apply heredocs PGDG-free lets that Context exercise the package-
 	// install path in isolation, without reaching apt.postgresql.org
@@ -1777,26 +1779,27 @@ EOF`, dir, repoBlock)
 		BeforeAll(func() {
 			skipIfNotLinux()
 
-			// gpg is required by apt.PackageRepositoryInstaller (gpg
-			// --dearmor) AND by the keyring assertion in spec 1.
-			// skipIfNotLinux only probes apt-get / dpkg-query, so a
-			// native opt-in run on a minimal Debian/Ubuntu host without
-			// gnupg would fail mid-apply with a confusing error instead
-			// of skipping with a clear prerequisite message.
+			// gpg is NO LONGER required by apt.PackageRepositoryInstaller:
+			// the key is dearmored in-process now (#283), so apply works on
+			// minimal images without gnupg. gpg is still needed here purely
+			// as the TEST ORACLE that validates the decoded keyring via
+			// `gpg --list-keys` (the "lists ... public key" spec below) —
+			// the strongest proof that the in-process decode byte-matches
+			// `gpg --dearmor`.
 			//
-			// In TOMEI_E2E_CONTAINER mode the Dockerfile is supposed to
-			// install gnupg (see e2e/containers/ubuntu/Dockerfile). A
-			// regression that drops the gnupg apt-get line must FAIL
-			// CI rather than turn this whole Context into a silent
-			// skip, so the missing-gpg branch only Skips for native
-			// opt-in runs and Expects in container mode.
+			// In TOMEI_E2E_CONTAINER mode the Dockerfile installs gnupg for
+			// that oracle (see e2e/containers/ubuntu/Dockerfile). A
+			// regression that drops the gnupg apt-get line must FAIL CI
+			// rather than turn the keyring-validation coverage into a silent
+			// skip, so the missing-gpg branch only Skips for native opt-in
+			// runs and Expects in container mode.
 			_, gpgErr := testExec.ExecBash("command -v gpg >/dev/null 2>&1")
 			if gpgErr != nil {
 				if os.Getenv("TOMEI_E2E_CONTAINER") != "" {
 					Expect(gpgErr).NotTo(HaveOccurred(),
-						"gpg missing in TOMEI_E2E_CONTAINER mode: the runner image is supposed to install gnupg via e2e/containers/ubuntu/Dockerfile — a regression there silently turned repository apply coverage into a skip")
+						"gpg missing in TOMEI_E2E_CONTAINER mode: the runner image installs gnupg via e2e/containers/ubuntu/Dockerfile as the keyring-validation oracle — a regression there silently turned that coverage into a skip")
 				}
-				Skip("gpg not found on PATH: SystemPackageRepository apply requires gnupg (install `gnupg` or use the container e2e runner)")
+				Skip("gpg not found on PATH: the keyring-validation oracle requires gnupg (apply itself no longer needs it, #283); install `gnupg` or use the container e2e runner")
 			}
 
 			// NOPASSWD probe — same rationale as the #200 BeforeAll.
@@ -1965,14 +1968,17 @@ EOF`, dir, repoBlock)
 					// to /dev/null so a real gpg failure (corrupt keyring,
 					// missing agent socket) surfaces in test logs instead of
 					// being silenced — pipefail propagates the non-zero exit.
-					// Isolate gpg from the host's GNUPGHOME / gpg.conf:
-					// `--homedir` to a fresh /tmp directory, `--no-options`
-					// so a developer's gpg.conf can't change command
-					// semantics, and `--batch` to prevent any pinentry/
-					// agent prompt. Mirrors the dearmor isolation done by
-					// the installer in internal/installer/apt/repository.go.
-					// trap-cleanup removes the homedir on success or
-					// failure so a leaked /tmp/gpghome-* does not pile up.
+					// Isolate this validation-oracle gpg from the host's
+					// GNUPGHOME / gpg.conf: `--homedir` to a fresh /tmp
+					// directory, `--no-options` so a developer's gpg.conf
+					// can't change command semantics, and `--batch` to
+					// prevent any pinentry/agent prompt. (The installer no
+					// longer runs gpg at all — it dearmors in-process,
+					// #283; this gpg invocation is purely the test oracle
+					// proving the in-process-decoded keyring is a valid,
+					// parseable OpenPGP keyring.) trap-cleanup removes the
+					// homedir on success or failure so a leaked
+					// /tmp/gpghome-* does not pile up.
 					gpgOut, err := testExec.ExecBash(
 						"set -o pipefail; H=$(mktemp -d -t tomei-e2e-gpg-XXXXXX); trap 'rm -rf -- \"$H\"' EXIT; gpg --homedir \"$H\" --no-options --batch --no-default-keyring --keyring " + pgdgKeyringPath + " --with-colons --list-keys 2>&1")
 					Expect(err).NotTo(HaveOccurred(),

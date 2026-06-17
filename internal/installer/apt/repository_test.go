@@ -71,6 +71,17 @@ func dockerSpec(name string) *resource.SystemPackageRepository {
 	}
 }
 
+// armoredKeyFixture returns a real single-block ASCII-armored OpenPGP public
+// key. Install now dearmors in-process (#283), so tests that proceed past the
+// dearmor step must feed valid armored bytes (mockDownloader writes downloadBody
+// verbatim to the temp path that dearmorKey then decodes).
+func armoredKeyFixture(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("testdata", "tomei-integration-test.asc"))
+	require.NoError(t, err)
+	return b
+}
+
 // --- buildSourcesListLine ---
 
 func TestBuildSourcesListLine(t *testing.T) {
@@ -276,7 +287,7 @@ func TestMain(m *testing.M) {
 func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 	t.Parallel()
 	runner := &mockCommandRunner{}
-	dl := &mockDownloader{downloadBody: []byte("armored key body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 
 	state, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.NoError(t, err)
@@ -287,29 +298,22 @@ func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 	assert.Equal(t, "https://download.docker.com/linux/ubuntu/gpg", dl.downloadURLs[0])
 	require.Len(t, dl.verifyPaths, 1)
 
-	// Shell call sequence: 4 calls (dearmor, install keyring, install
-	// sources, apt-get update). Each call has exactly one cmd string.
-	require.Len(t, runner.captureCallCmds, 4)
+	// Shell call sequence: 3 calls (install keyring, install sources, apt-get
+	// update). The dearmor step is now in-process (#283), not a shell command.
+	// Each call has exactly one cmd string.
+	require.Len(t, runner.captureCallCmds, 3)
 	for i, cmds := range runner.captureCallCmds {
 		require.Len(t, cmds, 1, "call %d", i)
 	}
 
 	// Sub-string anchors on each cmd (full strings vary by tmpDir path).
-	// Dearmor invocation uses --no-options + ephemeral --homedir to
-	// neutralize any user ~/.gnupg/gpg.conf side-effects, and explicit
-	// --output to avoid relying on shell redirection.
-	assert.Contains(t, runner.captureCallCmds[0][0], "gpg ")
-	assert.Contains(t, runner.captureCallCmds[0][0], "--no-default-keyring")
-	assert.Contains(t, runner.captureCallCmds[0][0], "--no-options")
-	assert.Contains(t, runner.captureCallCmds[0][0], "--homedir")
-	assert.Contains(t, runner.captureCallCmds[0][0], "--dearmor")
+	assert.Contains(t, runner.captureCallCmds[0][0], "sudo -n install -D -m 0644 -o root -g root --")
+	assert.Contains(t, runner.captureCallCmds[0][0], keyringPath("docker"))
 	assert.Contains(t, runner.captureCallCmds[1][0], "sudo -n install -D -m 0644 -o root -g root --")
-	assert.Contains(t, runner.captureCallCmds[1][0], keyringPath("docker"))
-	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n install -D -m 0644 -o root -g root --")
-	assert.Contains(t, runner.captureCallCmds[2][0], sourcesListPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[1][0], sourcesListPath("docker"))
 	assert.Equal(t,
 		"sudo -n env DEBIAN_FRONTEND=noninteractive LC_ALL=C LANGUAGE=C apt-get update",
-		runner.captureCallCmds[3][0])
+		runner.captureCallCmds[2][0])
 
 	// State contract: keyring first, then sources.list.
 	assert.Equal(t, resource.InstallerRefApt, state.InstallerRef)
@@ -317,6 +321,75 @@ func TestPackageRepositoryInstaller_Install_Success(t *testing.T) {
 		keyringPath("docker"),
 		sourcesListPath("docker"),
 	}, state.InstalledFiles)
+}
+
+// TestDearmorKey pins the in-process dearmor (#283): it must decode a real
+// armored key to non-empty binary OpenPGP packets, and surface errors instead
+// of writing a partial/empty keyring.
+func TestDearmorKey(t *testing.T) {
+	t.Parallel()
+
+	write := func(t *testing.T, data []byte) string {
+		t.Helper()
+		p := filepath.Join(t.TempDir(), "in.asc")
+		require.NoError(t, os.WriteFile(p, data, 0o600))
+		return p
+	}
+
+	t.Run("decodes armored key to binary packets", func(t *testing.T) {
+		t.Parallel()
+		src := write(t, armoredKeyFixture(t))
+		dst := filepath.Join(t.TempDir(), "out.gpg")
+		n, err := dearmorKey(src, dst)
+		require.NoError(t, err)
+		assert.Positive(t, n)
+		out, err := os.ReadFile(dst)
+		require.NoError(t, err)
+		assert.Len(t, out, int(n))
+		// Binary OpenPGP packets, not the ASCII armor envelope.
+		assert.NotContains(t, string(out), "-----BEGIN PGP")
+	})
+
+	t.Run("non-armored input is a hard error", func(t *testing.T) {
+		t.Parallel()
+		src := write(t, []byte("this is not an armored key"))
+		dst := filepath.Join(t.TempDir(), "out.gpg")
+		_, err := dearmorKey(src, dst)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "decode armor")
+	})
+
+	t.Run("well-formed but empty armor yields zero bytes", func(t *testing.T) {
+		t.Parallel()
+		// A structurally valid armor block with no packet body. dearmorKey
+		// returns n==0 (no error); the Install caller maps n==0 to the
+		// "dearmor produced empty keyring" guard.
+		empty := "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n=twTO\n-----END PGP PUBLIC KEY BLOCK-----\n"
+		src := write(t, []byte(empty))
+		dst := filepath.Join(t.TempDir(), "out.gpg")
+		n, err := dearmorKey(src, dst)
+		require.NoError(t, err)
+		assert.Zero(t, n)
+	})
+
+	t.Run("corrupt base64 body errors at copy time", func(t *testing.T) {
+		t.Parallel()
+		// Valid armor header but garbage base64 in the body: armor.Decode
+		// succeeds, the failure surfaces while reading block.Body.
+		corrupt := "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n!!!!notbase64!!!!\n-----END PGP PUBLIC KEY BLOCK-----\n"
+		src := write(t, []byte(corrupt))
+		dst := filepath.Join(t.TempDir(), "out.gpg")
+		_, err := dearmorKey(src, dst)
+		require.Error(t, err)
+	})
+
+	t.Run("missing source file errors", func(t *testing.T) {
+		t.Parallel()
+		dst := filepath.Join(t.TempDir(), "out.gpg")
+		_, err := dearmorKey(filepath.Join(t.TempDir(), "nope.asc"), dst)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "open armored key")
+	})
 }
 
 // --- Install: error paths ---
@@ -366,46 +439,70 @@ func TestPackageRepositoryInstaller_Install_VerifyFailure(t *testing.T) {
 
 func TestPackageRepositoryInstaller_Install_DearmorFailure(t *testing.T) {
 	t.Parallel()
-	runner := &mockCommandRunner{captureErrs: []error{errors.New("gpg failed")}}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	runner := &mockCommandRunner{}
+	// Non-armored bytes make the in-process armor.Decode fail (#283) before
+	// any shell command runs — no gnupg, no runner call.
+	dl := &mockDownloader{downloadBody: []byte("not an armored key")}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": dearmor key`)
-	// Only dearmor was attempted (no keyring install yet).
-	require.Len(t, runner.captureCallCmds, 1)
+	// Decode fails before any host mutation: zero shell commands attempted.
+	assert.Empty(t, runner.captureCallCmds)
 }
 
 func TestPackageRepositoryInstaller_Install_KeyringInstallFailure_RollsBackKeyring(t *testing.T) {
 	t.Parallel()
-	// call 0 (dearmor) succeeds; call 1 (install keyring) fails; call 2
-	// must be the rollback `sudo rm -f --` of the keyring — `install`
-	// can leave a partially-created destination on error, so the rm is
-	// load-bearing for the "no host state regression on failure"
-	// contract.
-	runner := &mockCommandRunner{captureErrs: []error{nil, errors.New("sudo denied"), nil}}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	// call 0 (install keyring) fails; call 1 must be the rollback
+	// `sudo rm -f --` of the keyring — `install` can leave a
+	// partially-created destination on error, so the rm is load-bearing
+	// for the "no host state regression on failure" contract. (Dearmor is
+	// now in-process, #283, so it no longer occupies call 0.)
+	runner := &mockCommandRunner{captureErrs: []error{errors.New("sudo denied"), nil}}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": install keyring`)
-	require.Len(t, runner.captureCallCmds, 3)
-	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[2][0], keyringPath("docker"))
+	require.Len(t, runner.captureCallCmds, 2)
+	assert.Contains(t, runner.captureCallCmds[1][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[1][0], keyringPath("docker"))
 }
 
 func TestPackageRepositoryInstaller_Install_SourcesInstallFailure_RollsBackBoth(t *testing.T) {
 	t.Parallel()
-	// call 0 dearmor ok, call 1 install keyring ok, call 2 install sources
-	// fails. Rollback must remove BOTH sourcesDst (the install command may
-	// have partially placed it before failing) AND keyringDst, in that
-	// order (sources first so a brief window doesn't leave a sources.list
-	// pointing at a missing keyring). Calls 3 and 4 are the rm operations.
+	// call 0 install keyring ok, call 1 install sources fails. Rollback must
+	// remove BOTH sourcesDst (the install command may have partially placed it
+	// before failing) AND keyringDst, in that order (sources first so a brief
+	// window doesn't leave a sources.list pointing at a missing keyring). Calls
+	// 2 and 3 are the rm operations. (Dearmor is in-process now, #283.)
 	runner := &mockCommandRunner{
-		captureErrs: []error{nil, nil, errors.New("sudo denied"), nil, nil},
+		captureErrs: []error{nil, errors.New("sudo denied"), nil, nil},
 	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": install sources`)
+	require.Len(t, runner.captureCallCmds, 4)
+	assert.Contains(t, runner.captureCallCmds[2][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[2][0], sourcesListPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[3][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[3][0], keyringPath("docker"))
+}
+
+func TestPackageRepositoryInstaller_Install_UpdateFailure_RollsBackBoth(t *testing.T) {
+	t.Parallel()
+	// install keyring ok, install sources ok, update fails hard (non-zero
+	// exit) → rollback both placed files. The follow-up update is
+	// intentionally skipped on hard failure because the cache is already in an
+	// indeterminate state and re-running won't help. (Dearmor is in-process
+	// now, #283, so it no longer occupies call 0.)
+	runner := &mockCommandRunner{
+		captureErrs: []error{nil, nil, errors.New("update broke")},
+	}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
+	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `apt: repository "docker": update`)
+	// 3 (success path) + 2 rollback rm = 5 calls.
 	require.Len(t, runner.captureCallCmds, 5)
 	assert.Contains(t, runner.captureCallCmds[3][0], "sudo -n rm -f --")
 	assert.Contains(t, runner.captureCallCmds[3][0], sourcesListPath("docker"))
@@ -413,49 +510,30 @@ func TestPackageRepositoryInstaller_Install_SourcesInstallFailure_RollsBackBoth(
 	assert.Contains(t, runner.captureCallCmds[4][0], keyringPath("docker"))
 }
 
-func TestPackageRepositoryInstaller_Install_UpdateFailure_RollsBackBoth(t *testing.T) {
-	t.Parallel()
-	// dearmor ok, install keyring ok, install sources ok, update fails
-	// hard (non-zero exit) → rollback both placed files. The follow-up
-	// update is intentionally skipped on hard failure because the cache
-	// is already in an indeterminate state and re-running won't help.
-	runner := &mockCommandRunner{
-		captureErrs: []error{nil, nil, nil, errors.New("update broke")},
-	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
-	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `apt: repository "docker": update`)
-	// 4 (success path) + 2 rollback rm = 6 calls.
-	require.Len(t, runner.captureCallCmds, 6)
-	assert.Contains(t, runner.captureCallCmds[4][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[4][0], sourcesListPath("docker"))
-	assert.Contains(t, runner.captureCallCmds[5][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[5][0], keyringPath("docker"))
-}
-
 func TestPackageRepositoryInstaller_Install_PartialFetchFailure_RollsBackBoth(t *testing.T) {
 	t.Parallel()
-	// All four success-path calls succeed; the apt-get update output
+	// All three success-path calls succeed; the apt-get update output
 	// contains a `W: Failed to fetch` line targeting the configured URL,
-	// triggering rollback even though exit code was zero.
+	// triggering rollback even though exit code was zero. (Dearmor is
+	// in-process now, #283, so update is call 2 not call 3.)
 	failedOutput := `Hit:1 https://archive.ubuntu.com/ubuntu jammy InRelease
 W: Failed to fetch https://download.docker.com/linux/ubuntu/dists/jammy/InRelease  404 Not Found
 Reading package lists... Done
 `
 	runner := &mockCommandRunner{
-		captureOutputs: []string{"", "", "", failedOutput},
+		captureOutputs: []string{"", "", failedOutput},
 	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `apt: repository "docker": failed to fetch`)
 	assert.Contains(t, err.Error(), "https://download.docker.com/linux/ubuntu/dists/jammy/InRelease")
-	require.Len(t, runner.captureCallCmds, 7)
+	// 3 (success path) + 2 rollback rm + 1 follow-up update = 6 calls.
+	require.Len(t, runner.captureCallCmds, 6)
+	assert.Contains(t, runner.captureCallCmds[3][0], "sudo -n rm -f --")
+	assert.Contains(t, runner.captureCallCmds[3][0], sourcesListPath("docker"))
 	assert.Contains(t, runner.captureCallCmds[4][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[4][0], sourcesListPath("docker"))
-	assert.Contains(t, runner.captureCallCmds[5][0], "sudo -n rm -f --")
-	assert.Contains(t, runner.captureCallCmds[5][0], keyringPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[4][0], keyringPath("docker"))
 }
 
 func TestPackageRepositoryInstaller_Install_PartialFetchFailure_UnrelatedURLIgnored(t *testing.T) {
@@ -466,14 +544,14 @@ func TestPackageRepositoryInstaller_Install_PartialFetchFailure_UnrelatedURLIgno
 Reading package lists... Done
 `
 	runner := &mockCommandRunner{
-		captureOutputs: []string{"", "", "", output},
+		captureOutputs: []string{"", "", output},
 	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	state, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.NoError(t, err)
 	require.NotNil(t, state)
-	// Exactly the 4 success-path commands, no rollback.
-	require.Len(t, runner.captureCallCmds, 4)
+	// Exactly the 3 success-path commands, no rollback (dearmor is in-process, #283).
+	require.Len(t, runner.captureCallCmds, 3)
 }
 
 // TestFailedToFetchURLs_PrefixBoundary pins the path-boundary rule:
@@ -509,7 +587,6 @@ func TestPackageRepositoryInstaller_Install_UpdateFailure_RollbackRmAlsoFails_Do
 	t.Parallel()
 	runner := &mockCommandRunner{
 		captureErrs: []error{
-			nil,                        // dearmor
 			nil,                        // install keyring
 			nil,                        // install sources
 			errors.New("update broke"), // update fails
@@ -517,7 +594,7 @@ func TestPackageRepositoryInstaller_Install_UpdateFailure_RollbackRmAlsoFails_Do
 			errors.New("sudo denied"),  // rollback rm keyring fails
 		},
 	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
 	// The original update failure remains the surfaced cause.
@@ -732,20 +809,20 @@ func TestPackageRepositoryInstaller_Install_PartialFetchFailure_RestoresPreexist
 
 	failedOutput := `W: Failed to fetch https://download.docker.com/linux/ubuntu/dists/jammy/InRelease  404 Not Found`
 	runner := &mockCommandRunner{
-		captureOutputs: []string{"", "", "", failedOutput},
+		captureOutputs: []string{"", "", failedOutput},
 	}
-	dl := &mockDownloader{downloadBody: []byte("body")}
+	dl := &mockDownloader{downloadBody: armoredKeyFixture(t)}
 	_, err := New(runner).PackageRepositoryInstaller(dl).Install(context.Background(), dockerSpec("docker"), "docker")
 	require.Error(t, err)
-	// Rollback path: calls 4 and 5 are the per-destination restores
-	// (sudo install -D back to root:root 0644 from a tmp file). Call 6
-	// is the follow-up apt-get update. Crucially, NO `rm -f` is issued
-	// because the destinations preexisted.
-	require.GreaterOrEqual(t, len(runner.captureCallCmds), 6)
+	// Rollback path (dearmor is in-process now, #283, so indices shift down by
+	// one): calls 3 and 4 are the per-destination restores (sudo install -D
+	// back to root:root 0644 from a tmp file). Call 5 is the follow-up apt-get
+	// update. Crucially, NO `rm -f` is issued because the destinations preexisted.
+	require.GreaterOrEqual(t, len(runner.captureCallCmds), 5)
+	assert.Contains(t, runner.captureCallCmds[3][0], "sudo -n install -D")
+	assert.Contains(t, runner.captureCallCmds[3][0], sourcesListPath("docker"))
 	assert.Contains(t, runner.captureCallCmds[4][0], "sudo -n install -D")
-	assert.Contains(t, runner.captureCallCmds[4][0], sourcesListPath("docker"))
-	assert.Contains(t, runner.captureCallCmds[5][0], "sudo -n install -D")
-	assert.Contains(t, runner.captureCallCmds[5][0], keyringPath("docker"))
+	assert.Contains(t, runner.captureCallCmds[4][0], keyringPath("docker"))
 	for _, cmds := range runner.captureCallCmds {
 		assert.NotContains(t, cmds[0], "sudo -n rm -f --",
 			"rollback must restore preexisting files, never rm them")
