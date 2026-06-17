@@ -598,8 +598,10 @@ func TestSystemEngine_Apply_Events(t *testing.T) {
 // TestSystemEngine_Apply_Events_DisplayKind pins #285 on the apply path: a sugar
 // SystemPackage (expanded to a single-element set) emits events whose dispatch
 // Kind is SystemPackageSet but whose DisplayKind surfaces the authored
-// SystemPackage, while a directly-authored set leaves DisplayKind empty (so
-// labels fall back to SystemPackageSet). Dispatch is unchanged either way.
+// SystemPackage, while a directly-authored set emits DisplayKind equal to its
+// dispatch kind (SystemPackageSet) — reconcileAndExecute always sets DisplayKind
+// from resource.DisplayKindOf, which falls back to Kind() for non-sugar resources.
+// Dispatch is unchanged either way.
 func TestSystemEngine_Apply_Events_DisplayKind(t *testing.T) {
 	t.Parallel()
 	s := newSystemEngineTestSetup(t)
