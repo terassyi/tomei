@@ -32,7 +32,7 @@ const keyHashSHA256 = "sha256:c136badca3a932d7d4ae3a48068370d203ae3fb876dec76fa8
 
 // TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure
 // exercises Install end-to-end against the real local filesystem, real
-// sudo, real gpg --dearmor, and real apt-get update — but with a
+// sudo, in-process dearmor (#283), and real apt-get update — but with a
 // localhost httptest server standing in for the third-party APT
 // repository. The server returns the test fixture key for /key.asc and
 // 404 for every other path, so apt-get update emits
@@ -46,8 +46,8 @@ const keyHashSHA256 = "sha256:c136badca3a932d7d4ae3a48068370d203ae3fb876dec76fa8
 //   - download.NewDownloader actually fetches the armored key over
 //     HTTP from the httptest server (the validator allows
 //     http://127.0.0.1 / localhost for tests).
-//   - The committed fixture key dearmors successfully through the real
-//     /usr/bin/gpg binary.
+//   - The committed fixture key dearmors successfully through the
+//     in-process armor decoder (no gnupg dependency, #283).
 //   - `sudo -n install -D -m 0644 -o root -g root --` actually creates
 //     /usr/share/keyrings/<name>.gpg and /etc/apt/sources.list.d/<name>.list
 //     as root:root with 0644 permissions.
@@ -62,8 +62,9 @@ const keyHashSHA256 = "sha256:c136badca3a932d7d4ae3a48068370d203ae3fb876dec76fa8
 // APT repository). Successful Install / Remove ordering is covered by
 // the unit tests in internal/installer/apt/repository_test.go.
 //
-// Requires Linux + gpg + apt-get + sudo + passwordless sudo. Skips on
-// any other configuration.
+// Requires Linux + apt-get + dpkg + install + rm + sudo + passwordless sudo.
+// No longer requires gpg (dearmor is in-process now, #283). Skips on any
+// other configuration.
 func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt repository integration test requires Linux")
@@ -74,7 +75,7 @@ func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testin
 	// on any system that ships apt-get, but the explicit check makes a
 	// minimal/stripped image skip cleanly instead of failing with an
 	// unexpected error shape mid-run.
-	for _, bin := range []string{"apt-get", "dpkg", "sudo", "gpg", "install", "rm"} {
+	for _, bin := range []string{"apt-get", "dpkg", "sudo", "install", "rm"} {
 		if _, err := exec.LookPath(bin); err != nil {
 			t.Skipf("%s not found in PATH", bin)
 		}
