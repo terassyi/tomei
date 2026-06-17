@@ -325,9 +325,10 @@ func buildResourceInfo(resources []resource.Resource, updCfg engine.UpdateConfig
 			if resource.IsSystemKind(res.Kind()) {
 				nodeID := graph.NewNodeID(res.Kind(), res.Name())
 				info[nodeID] = graph.ResourceInfo{
-					Kind:   res.Kind(),
-					Name:   res.Name(),
-					Action: resource.ActionSkip,
+					Kind:        res.Kind(),
+					DisplayKind: resource.DisplayKindOf(res), // surface authored SystemPackage (#285)
+					Name:        res.Name(),
+					Action:      resource.ActionSkip,
 				}
 			}
 		}
@@ -489,6 +490,10 @@ func resolvePlan(resources []resource.Resource, updateCfg engine.UpdateConfig, s
 	if err != nil {
 		return nil, err
 	}
+
+	// Surface each node's authored kind (e.g. sugar SystemPackage) in layer/JSON
+	// labels without touching the dispatch Kind or NodeID. Display-only (#285).
+	graph.SetNodeDisplayKinds(layers, engine.BuildResourceMap(engine.AppendBuiltinInstallers(resources)))
 
 	var filteredLayers []graph.Layer
 	for _, layer := range layers {
@@ -704,9 +709,10 @@ func markAllSystemAsInstall(info map[graph.NodeID]graph.ResourceInfo, resources 
 		if resource.IsSystemKind(res.Kind()) {
 			nodeID := graph.NewNodeID(res.Kind(), res.Name())
 			info[nodeID] = graph.ResourceInfo{
-				Kind:   res.Kind(),
-				Name:   res.Name(),
-				Action: resource.ActionInstall,
+				Kind:        res.Kind(),
+				DisplayKind: resource.DisplayKindOf(res), // surface authored SystemPackage (#285)
+				Name:        res.Name(),
+				Action:      resource.ActionInstall,
 			}
 		}
 	}
@@ -730,11 +736,17 @@ func convertActions[R resource.Resource, S resource.State](
 	actions []reconciler.Action[R, S],
 ) {
 	for _, action := range actions {
+		// NodeID/Kind stay on the dispatch kind; DisplayKind surfaces a sugar
+		// resource's authored kind (e.g. SystemPackage). action.Resource is the
+		// zero value for Remove, where DisplayKindOf falls back to the dispatch
+		// kind — so removals display as SystemPackageSet (state has no authored
+		// kind to recover). (#285)
 		nodeID := graph.NewNodeID(kind, action.Name)
 		info[nodeID] = graph.ResourceInfo{
-			Kind:   kind,
-			Name:   action.Name,
-			Action: action.Type,
+			Kind:        kind,
+			DisplayKind: resource.DisplayKindOf(action.Resource),
+			Name:        action.Name,
+			Action:      action.Type,
 		}
 	}
 }

@@ -240,7 +240,11 @@ func spinnerFrame(startTime time.Time) string {
 
 // taskLabel returns the display label for a task, e.g. "Runtime/go 1.25.6" or "Tool/bat 0.25.0 (aqua install)".
 func taskLabel(t *taskState) string {
-	label := fmt.Sprintf("%s/%s", t.kind, t.name)
+	kind := t.kind
+	if t.displayKind != "" {
+		kind = t.displayKind // surface authored kind, e.g. sugar SystemPackage (#285)
+	}
+	label := fmt.Sprintf("%s/%s", kind, t.name)
 	if t.version != "" {
 		label += " " + t.version
 	}

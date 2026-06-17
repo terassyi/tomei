@@ -24,8 +24,35 @@ func (id NodeID) String() string {
 // Node represents a resource in the dependency graph.
 type Node struct {
 	ID   NodeID        // Kind/Name format (e.g., "Runtime/go", "Tool/ripgrep")
-	Kind resource.Kind // Resource kind
+	Kind resource.Kind // Dispatch kind (drives ID and execution dispatch)
 	Name string        // Resource name
+	// DisplayKind is the kind to SURFACE in user-facing output (plan tree/JSON,
+	// apply layer labels) when it differs from the dispatch Kind — e.g. a
+	// SystemPackage authored as sugar dispatches as SystemPackageSet but should
+	// display as SystemPackage. Empty means "use Kind". (#285)
+	DisplayKind resource.Kind
+}
+
+// DisplayKindOrKind returns DisplayKind when set, else the dispatch Kind.
+func (n Node) DisplayKindOrKind() resource.Kind {
+	if n.DisplayKind != "" {
+		return n.DisplayKind
+	}
+	return n.Kind
+}
+
+// SetNodeDisplayKinds populates each layer node's display-only DisplayKind from
+// its resource in resourceMap (keyed by NodeID string), so sugar resources like
+// SystemPackage surface their authored kind in labels without changing the
+// dispatch Kind/NodeID. Shared by the plan and apply paths. (#285)
+func SetNodeDisplayKinds(layers []Layer, resourceMap map[string]resource.Resource) {
+	for _, layer := range layers {
+		for _, node := range layer.Nodes {
+			if res, ok := resourceMap[node.ID.String()]; ok {
+				node.DisplayKind = resource.DisplayKindOf(res)
+			}
+		}
+	}
 }
 
 // Layer represents a group of nodes that can be executed in parallel.

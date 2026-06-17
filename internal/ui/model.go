@@ -32,8 +32,12 @@ const (
 
 // taskState holds the state for a single resource being installed.
 type taskState struct {
-	key         string
-	kind        resource.Kind
+	key  string
+	kind resource.Kind
+	// displayKind is the surfaced kind for the label when it differs from the
+	// dispatch kind (e.g. sugar SystemPackage). Empty means "use kind". The
+	// task key still uses kind. (#285)
+	displayKind resource.Kind
 	name        string
 	version     string
 	method      string

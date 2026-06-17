@@ -12,14 +12,26 @@ import (
 
 // cmdTask represents a single command execution task.
 type cmdTask struct {
-	kind      resource.Kind
-	name      string
-	version   string
-	method    string // installation method (e.g., "go install", "brew install")
-	startTime time.Time
-	lastLog   string // most recent log line (for TTY spinner display)
-	done      bool
-	err       error
+	kind resource.Kind
+	// displayKind is the surfaced kind for labels when it differs from the
+	// dispatch kind (e.g. sugar SystemPackage). Empty means "use kind". (#285)
+	displayKind resource.Kind
+	name        string
+	version     string
+	method      string // installation method (e.g., "go install", "brew install")
+	startTime   time.Time
+	lastLog     string // most recent log line (for TTY spinner display)
+	done        bool
+	err         error
+}
+
+// labelKind returns the surfaced kind for display: displayKind when set, else
+// the dispatch kind.
+func (t *cmdTask) labelKind() resource.Kind {
+	if t.displayKind != "" {
+		return t.displayKind
+	}
+	return t.kind
 }
 
 // elapsed returns the duration since task start, rounded to 100ms.
@@ -46,17 +58,19 @@ func NewCommandView(w io.Writer) *CommandView {
 	}
 }
 
-// StartTask begins tracking a new command task.
-func (v *CommandView) StartTask(key string, kind resource.Kind, name, version, method string) {
+// StartTask begins tracking a new command task. displayKind is the surfaced
+// kind for labels (empty => use kind); the task key still uses the dispatch kind.
+func (v *CommandView) StartTask(key string, kind, displayKind resource.Kind, name, version, method string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
 	v.tasks[key] = &cmdTask{
-		kind:      kind,
-		name:      name,
-		version:   version,
-		method:    method,
-		startTime: time.Now(),
+		kind:        kind,
+		displayKind: displayKind,
+		name:        name,
+		version:     version,
+		method:      method,
+		startTime:   time.Now(),
 	}
 }
 
@@ -124,7 +138,7 @@ func (v *CommandView) PrintTaskStart(key string) {
 
 	style := NewStyle()
 	fmt.Fprintf(v.w, " => %s/%s %s (%s)\n",
-		task.kind, style.Path.Sprint(task.name), task.version, task.method)
+		task.labelKind(), style.Path.Sprint(task.name), task.version, task.method)
 }
 
 // PrintOutput prints a single output line for non-TTY output.
@@ -150,10 +164,10 @@ func (v *CommandView) PrintTaskComplete(key string) {
 
 	if task.err != nil {
 		fmt.Fprintf(v.w, " => %s/%s failed (%.1fs): %v\n",
-			task.kind, task.name, elapsed.Seconds(), task.err)
+			task.labelKind(), task.name, elapsed.Seconds(), task.err)
 	} else {
 		fmt.Fprintf(v.w, " => %s/%s %s done (%.1fs)\n",
-			task.kind, style.Path.Sprint(task.name), task.version, elapsed.Seconds())
+			task.labelKind(), style.Path.Sprint(task.name), task.version, elapsed.Seconds())
 	}
 }
 

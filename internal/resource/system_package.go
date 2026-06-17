@@ -358,9 +358,19 @@ func (s *SystemPackageSetSpec) Dependencies() []Ref {
 type SystemPackageSet struct {
 	BaseResource
 	SystemPackageSetSpec *SystemPackageSetSpec `json:"spec"`
+
+	// authoredKind records the kind the user actually wrote when this set was
+	// produced by expanding a sugar resource (SystemPackage -> single-element
+	// set). Empty for a directly-authored SystemPackageSet. It is display-only:
+	// surfaced via DisplayKindOf for plan/apply output, never used for dispatch,
+	// NodeID, or state (which key on Kind()/name). Unexported and unserialized
+	// so it cannot leak into state.json or the reconciler. (#285)
+	authoredKind Kind
 }
 
-// Kind returns the resource kind (can be called on nil).
+// Kind returns the resource kind (can be called on nil). This is the DISPATCH
+// kind and is always KindSystemPackageSet, including for sugar-expanded sets;
+// the authored kind is surfaced separately via DisplayKindOf (#285).
 func (*SystemPackageSet) Kind() Kind { return KindSystemPackageSet }
 
 // Spec returns the spec as Spec interface.
@@ -603,6 +613,25 @@ func (s *SystemPackage) Expand() ([]Resource, error) {
 				RepositoryRef: s.SystemPackageSpec.RepositoryRef,
 				Packages:      []string{s.SystemPackageSpec.Package},
 			},
+			// Remember the authored kind so plan/apply output surfaces
+			// SystemPackage/<name>, matching what the user wrote, while the
+			// resource still dispatches/installs as a SystemPackageSet (#285).
+			authoredKind: KindSystemPackage,
 		},
 	}, nil
+}
+
+// DisplayKindOf returns the kind to SURFACE to users (plan JSON, progress tree,
+// apply log): a sugar resource's authored kind when set, else the resource's
+// dispatch Kind(). Display-only — never used for dispatch, NodeID, or state, all
+// of which key on Kind()/name. Nil-safe so it can be called on the zero-value
+// resource of a Remove action. (#285)
+func DisplayKindOf(res Resource) Kind {
+	if sps, ok := res.(*SystemPackageSet); ok && sps != nil && sps.authoredKind != "" {
+		return sps.authoredKind
+	}
+	if res == nil {
+		return ""
+	}
+	return res.Kind()
 }

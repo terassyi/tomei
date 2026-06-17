@@ -118,12 +118,12 @@ func systemPackageTests() {
 		out, err := testExec.Exec("tomei", "validate", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("SystemInstaller/apt"))
-		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		// #285: a resource authored `kind: SystemPackage` surfaces with its
+		// authored kind (SystemPackage/<name>), even though it is internally
+		// expanded to a single-element SystemPackageSet for dispatch. A
+		// directly-authored set still surfaces as SystemPackageSet.
+		Expect(out).To(ContainSubstring("SystemPackage/tree"))
 		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-		// Desugar contract: pre-expand SystemPackage names must not surface
-		// in user-visible output. ExpandSets rewrites SystemPackage into
-		// SystemPackageSet before any kind/name printing.
-		Expect(out).NotTo(ContainSubstring("SystemPackage/tree"))
 		Expect(out).To(ContainSubstring("Validation successful"))
 	})
 
@@ -132,7 +132,7 @@ func systemPackageTests() {
 		// regardless of installer wiring. Action label is not asserted.
 		out, err := testExec.Exec("tomei", "plan", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		Expect(out).To(ContainSubstring("SystemPackage/tree")) // authored kind surfaces (#285)
 		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
 	})
 
@@ -144,7 +144,7 @@ func systemPackageTests() {
 		out, err := testExec.Exec("tomei", "plan", "--system", cfgPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(out).To(ContainSubstring("SystemInstaller/apt"))
-		Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+		Expect(out).To(ContainSubstring("SystemPackage/tree")) // authored kind surfaces (#285)
 		Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
 	})
 
@@ -1438,7 +1438,7 @@ EOF`, dir, repoBlock)
 				out, err := ExecApply(testExec, "--system", installCfgPath)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(out).To(ContainSubstring("SystemPackageSet/cli-tools"))
-				Expect(out).To(ContainSubstring("SystemPackageSet/tree"))
+				Expect(out).To(ContainSubstring("SystemPackage/tree")) // sugar surfaces authored kind (#285)
 				assertInstalled("cowsay")
 				assertInstalled("sl")
 				assertInstalled("tree")

@@ -15,7 +15,7 @@ func TestCommandView_StartTask(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/rg", resource.KindTool, "rg", "14.1.1", "download")
+	cv.StartTask("Tool/rg", resource.KindTool, "", "rg", "14.1.1", "download")
 
 	cv.mu.Lock()
 	task, ok := cv.tasks["Tool/rg"]
@@ -34,7 +34,7 @@ func TestCommandView_AddOutput(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/gopls", resource.KindTool, "gopls", "0.17.0", "go install")
+	cv.StartTask("Tool/gopls", resource.KindTool, "", "gopls", "0.17.0", "go install")
 	cv.AddOutput("Tool/gopls", "downloading golang.org/x/tools...")
 
 	assert.Equal(t, "downloading golang.org/x/tools...", cv.LastLog("Tool/gopls"))
@@ -54,7 +54,7 @@ func TestCommandView_AddOutput_IgnoresDoneTask(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/rg", resource.KindTool, "rg", "1.0.0", "download")
+	cv.StartTask("Tool/rg", resource.KindTool, "", "rg", "1.0.0", "download")
 	cv.CompleteTask("Tool/rg")
 	cv.AddOutput("Tool/rg", "should be ignored")
 
@@ -72,7 +72,7 @@ func TestCommandView_LastLog(t *testing.T) {
 		{
 			name: "returns last log",
 			setup: func(cv *CommandView) {
-				cv.StartTask("Tool/a", resource.KindTool, "a", "1.0", "go install")
+				cv.StartTask("Tool/a", resource.KindTool, "", "a", "1.0", "go install")
 				cv.AddOutput("Tool/a", "line 1")
 				cv.AddOutput("Tool/a", "line 2")
 			},
@@ -88,7 +88,7 @@ func TestCommandView_LastLog(t *testing.T) {
 		{
 			name: "returns empty after complete",
 			setup: func(cv *CommandView) {
-				cv.StartTask("Tool/b", resource.KindTool, "b", "1.0", "download")
+				cv.StartTask("Tool/b", resource.KindTool, "", "b", "1.0", "download")
 				cv.AddOutput("Tool/b", "some log")
 				cv.CompleteTask("Tool/b")
 			},
@@ -113,7 +113,7 @@ func TestCommandView_CompleteTask(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/rg", resource.KindTool, "rg", "1.0.0", "download")
+	cv.StartTask("Tool/rg", resource.KindTool, "", "rg", "1.0.0", "download")
 	cv.AddOutput("Tool/rg", "some log")
 	cv.CompleteTask("Tool/rg")
 
@@ -131,7 +131,7 @@ func TestCommandView_FailTask(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/rg", resource.KindTool, "rg", "1.0.0", "download")
+	cv.StartTask("Tool/rg", resource.KindTool, "", "rg", "1.0.0", "download")
 	testErr := assert.AnError
 	cv.FailTask("Tool/rg", testErr)
 
@@ -148,7 +148,7 @@ func TestCommandView_PrintTaskStart(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/gopls", resource.KindTool, "gopls", "0.17.0", "go install")
+	cv.StartTask("Tool/gopls", resource.KindTool, "", "gopls", "0.17.0", "go install")
 	cv.PrintTaskStart("Tool/gopls")
 
 	output := buf.String()
@@ -164,8 +164,8 @@ func TestCommandView_PrintTaskStart_HeaderOnce(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/a", resource.KindTool, "a", "1.0", "go install")
-	cv.StartTask("Tool/b", resource.KindTool, "b", "2.0", "go install")
+	cv.StartTask("Tool/a", resource.KindTool, "", "a", "1.0", "go install")
+	cv.StartTask("Tool/b", resource.KindTool, "", "b", "2.0", "go install")
 	cv.PrintTaskStart("Tool/a")
 	cv.PrintTaskStart("Tool/b")
 
@@ -207,7 +207,7 @@ func TestCommandView_PrintTaskComplete_Success(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/gopls", resource.KindTool, "gopls", "0.17.0", "go install")
+	cv.StartTask("Tool/gopls", resource.KindTool, "", "gopls", "0.17.0", "go install")
 	cv.CompleteTask("Tool/gopls")
 	cv.PrintTaskComplete("Tool/gopls")
 
@@ -221,7 +221,7 @@ func TestCommandView_PrintTaskComplete_Error(t *testing.T) {
 	var buf bytes.Buffer
 	cv := NewCommandView(&buf)
 
-	cv.StartTask("Tool/gopls", resource.KindTool, "gopls", "0.17.0", "go install")
+	cv.StartTask("Tool/gopls", resource.KindTool, "", "gopls", "0.17.0", "go install")
 	cv.FailTask("Tool/gopls", assert.AnError)
 	cv.PrintTaskComplete("Tool/gopls")
 
@@ -300,7 +300,7 @@ func TestCommandView_ConcurrentAccess(t *testing.T) {
 
 		go func(k string) {
 			defer wg.Done()
-			cv.StartTask(k, resource.KindTool, "tool", "1.0", "download")
+			cv.StartTask(k, resource.KindTool, "", "tool", "1.0", "download")
 		}(key)
 
 		go func(k string) {

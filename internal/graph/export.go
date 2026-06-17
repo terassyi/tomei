@@ -78,7 +78,10 @@ func (e *Exporter) BuildOutput() PlanOutput {
 		deps[edge.From] = append(deps[edge.From], string(edge.To))
 	}
 
-	// Build resources and layers
+	// Build resources and layers. emitted is keyed by the dispatch NodeID (not
+	// the surfaced Kind) so the skip-collection dedup below is unaffected by the
+	// display-kind surfacing for sugar resources. (#285)
+	emitted := make(map[NodeID]bool)
 	for i, layer := range e.layers {
 		planLayer := PlanLayer{
 			Index:     i + 1,
@@ -90,7 +93,7 @@ func (e *Exporter) BuildOutput() PlanOutput {
 			info := e.resourceInfo[nodeID]
 
 			planResource := PlanResource{
-				Kind:         node.Kind,
+				Kind:         node.DisplayKindOrKind(),
 				Name:         node.Name,
 				Version:      info.Version,
 				SHA:          info.SHA,
@@ -100,6 +103,7 @@ func (e *Exporter) BuildOutput() PlanOutput {
 			}
 			output.Resources = append(output.Resources, planResource)
 			planLayer.Resources = append(planLayer.Resources, string(nodeID))
+			emitted[nodeID] = true
 		}
 
 		output.Layers = append(output.Layers, planLayer)
@@ -107,15 +111,11 @@ func (e *Exporter) BuildOutput() PlanOutput {
 
 	// Collect ActionSkip resources that are not part of any layer.
 	// Build sorted slice first for deterministic JSON/YAML output.
-	emitted := make(map[NodeID]bool)
-	for _, res := range output.Resources {
-		emitted[NewNodeID(res.Kind, res.Name)] = true
-	}
 	var skipResources []PlanResource
 	for nodeID, info := range e.resourceInfo {
 		if info.Action == resource.ActionSkip && !emitted[nodeID] {
 			skipResources = append(skipResources, PlanResource{
-				Kind:    info.Kind,
+				Kind:    info.DisplayKindOrKind(),
 				Name:    info.Name,
 				Version: info.Version,
 				SHA:     info.SHA,

@@ -157,13 +157,19 @@ func (e *SystemEngine) Apply(ctx context.Context, resources []resource.Resource)
 	// Build resource map for quick lookup
 	resourceMap := BuildResourceMap(resources)
 
+	// Populate each system node's surfaced (display) kind from its resource, so
+	// a sugar SystemPackage shows as SystemPackage/<name> in layer labels while
+	// still dispatching as a SystemPackageSet (#285). Display-only; node.Kind
+	// (the dispatch kind / NodeID) is untouched.
+	graph.SetNodeDisplayKinds(layers, resourceMap)
+
 	totalActions := 0
 
 	// Build node names for all layers (for event reporting)
 	allLayerNodes := make([][]string, len(layers))
 	for i, layer := range layers {
 		for _, node := range layer.Nodes {
-			allLayerNodes[i] = append(allLayerNodes[i], node.ID.String())
+			allLayerNodes[i] = append(allLayerNodes[i], fmt.Sprintf("%s/%s", node.DisplayKindOrKind(), node.Name))
 		}
 	}
 
@@ -286,32 +292,39 @@ func reconcileAndExecute[R resource.Resource, S resource.State](
 		return nil
 	}
 
+	// Surface the authored kind (e.g. SystemPackage) in user-facing labels while
+	// keeping Kind (dispatch) as SystemPackageSet. Display-only (#285).
+	displayKind := resource.DisplayKindOf(res)
+
 	emitter.emitEvent(Event{
-		Type:   EventStart,
-		Kind:   kind,
-		Name:   action.Name,
-		Action: action.Type,
-		Method: methodSystem,
+		Type:        EventStart,
+		Kind:        kind,
+		DisplayKind: displayKind,
+		Name:        action.Name,
+		Action:      action.Type,
+		Method:      methodSystem,
 	})
 
 	if err := exec.Execute(ctx, action); err != nil {
 		emitter.emitEvent(Event{
-			Type:   EventError,
-			Kind:   kind,
-			Name:   action.Name,
-			Action: action.Type,
-			Method: methodSystem,
-			Error:  err,
+			Type:        EventError,
+			Kind:        kind,
+			DisplayKind: displayKind,
+			Name:        action.Name,
+			Action:      action.Type,
+			Method:      methodSystem,
+			Error:       err,
 		})
 		return fmt.Errorf("failed to execute action %s for %s %s: %w", action.Type, kind, action.Name, err)
 	}
 
 	emitter.emitEvent(Event{
-		Type:   EventComplete,
-		Kind:   kind,
-		Name:   action.Name,
-		Action: action.Type,
-		Method: methodSystem,
+		Type:        EventComplete,
+		Kind:        kind,
+		DisplayKind: displayKind,
+		Name:        action.Name,
+		Action:      action.Type,
+		Method:      methodSystem,
 	})
 
 	*totalActions++

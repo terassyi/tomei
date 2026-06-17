@@ -87,9 +87,20 @@ func (pm *ProgressManager) HandleEvent(event engine.Event, results *ApplyResults
 	}
 }
 
-// resourceKey returns a unique key for a resource.
+// resourceKey returns a unique key for a resource. Keys always use the dispatch
+// Kind (not DisplayKind) so Start/Progress/Complete events for the same task
+// match regardless of display surfacing.
 func resourceKey(kind resource.Kind, name string) string {
 	return fmt.Sprintf("%s/%s", kind, name)
+}
+
+// eventDisplayKind returns the surfaced kind for an event's label: DisplayKind
+// when set, else the dispatch Kind. Used only for user-facing labels, never keys. (#285)
+func eventDisplayKind(event engine.Event) resource.Kind {
+	if event.DisplayKind != "" {
+		return event.DisplayKind
+	}
+	return event.Kind
 }
 
 // isDownloadMethod returns true if the method is a download pattern.
@@ -110,7 +121,7 @@ func (pm *ProgressManager) handleDownloadStart(event engine.Event, key string) {
 			mpb.BarFillerClearOnComplete(),
 			mpb.PrependDecorators(
 				decor.Name(fmt.Sprintf("  %s %s/%s ",
-					style.ActionIcon(event.Action), event.Kind, style.Path.Sprint(event.Name)),
+					style.ActionIcon(event.Action), eventDisplayKind(event), style.Path.Sprint(event.Name)),
 					decor.WC{W: 30, C: decor.DindentRight}),
 				decor.Name(event.Version, decor.WC{W: 12}),
 			),
@@ -126,19 +137,19 @@ func (pm *ProgressManager) handleDownloadStart(event engine.Event, key string) {
 			fmt.Fprintln(pm.w, "Downloads:")
 		}
 		fmt.Fprintf(pm.w, "  %s %s/%s %s\n",
-			style.ActionIcon(event.Action), event.Kind, style.Path.Sprint(event.Name), event.Version)
+			style.ActionIcon(event.Action), eventDisplayKind(event), style.Path.Sprint(event.Name), event.Version)
 		pm.mu.Unlock()
 	}
 }
 
 // handleCommandStart handles EventStart for delegation pattern.
 func (pm *ProgressManager) handleCommandStart(event engine.Event, key string) {
-	pm.cmdView.StartTask(key, event.Kind, event.Name, event.Version, event.Method)
+	pm.cmdView.StartTask(key, event.Kind, event.DisplayKind, event.Name, event.Version, event.Method)
 
 	if pm.isTTY {
 		style := NewStyle()
 		label := fmt.Sprintf(" => %s/%s %s (%s) ",
-			event.Kind, style.Path.Sprint(event.Name), event.Version, event.Method)
+			eventDisplayKind(event), style.Path.Sprint(event.Name), event.Version, event.Method)
 
 		bar, _ := pm.progress.Add(0,
 			mpb.SpinnerStyle(spinnerFrames...).Build(),
@@ -240,7 +251,7 @@ func (pm *ProgressManager) handleError(event engine.Event, results *ApplyResults
 			}
 		}
 		fmt.Fprintf(pm.w, "  %s %s/%s failed: %v\n",
-			style.FailMark, event.Kind, event.Name, event.Error)
+			style.FailMark, eventDisplayKind(event), event.Name, event.Error)
 		pm.mu.Unlock()
 	} else {
 		pm.cmdView.FailTask(key, event.Error)
