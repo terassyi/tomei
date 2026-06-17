@@ -107,17 +107,21 @@ const MethodCommands = "commands"
 
 // Event represents an engine event for progress reporting.
 type Event struct {
-	Type       EventType
-	Phase      Phase // execution phase (default PhaseDAG)
-	Kind       resource.Kind
-	Name       string
-	Version    string
-	Action     resource.ActionType
-	Error      error
-	Downloaded int64  // bytes downloaded (for EventProgress)
-	Total      int64  // total bytes (-1 if unknown, for EventProgress)
-	Output     string // output line (for EventOutput)
-	Method     string // install method: MethodDownload, "go install", etc.
+	Type  EventType
+	Phase Phase // execution phase (default PhaseDAG)
+	Kind  resource.Kind
+	// DisplayKind is the surfaced kind for user-facing labels when it differs
+	// from the dispatch Kind (e.g. a sugar SystemPackage dispatched as a
+	// SystemPackageSet). Empty means "use Kind". UI keys stay on Kind. (#285)
+	DisplayKind resource.Kind
+	Name        string
+	Version     string
+	Action      resource.ActionType
+	Error       error
+	Downloaded  int64  // bytes downloaded (for EventProgress)
+	Total       int64  // total bytes (-1 if unknown, for EventProgress)
+	Output      string // output line (for EventOutput)
+	Method      string // install method: MethodDownload, "go install", etc.
 
 	// EventLayerStart fields
 	Layer         int        // current layer index (0-based)

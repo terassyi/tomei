@@ -13,9 +13,13 @@ import (
 
 // ResourceInfo holds information about a resource for display.
 type ResourceInfo struct {
-	Kind    resource.Kind
-	Name    string
-	Version string
+	Kind resource.Kind
+	// DisplayKind is the surfaced kind when it differs from the dispatch Kind
+	// (e.g. a sugar SystemPackage). Empty means "use Kind". Used for plan
+	// JSON/skip/sort/removal rendering; the NodeID key still uses Kind. (#285)
+	DisplayKind resource.Kind
+	Name        string
+	Version     string
 	// SHA holds the git commit SHA for SHA-pinned tools. Mutually exclusive
 	// with Version (Validate enforces this on the spec side). Stored in full
 	// here; the tree renderer truncates for display.
@@ -26,6 +30,14 @@ type ResourceInfo struct {
 	// for change actions (e.g. plan-time minimumReleaseAge would-skip). It
 	// never affects Action or apply behavior. Empty = no annotation.
 	Note string
+}
+
+// DisplayKindOrKind returns DisplayKind when set, else the dispatch Kind.
+func (r ResourceInfo) DisplayKindOrKind() resource.Kind {
+	if r.DisplayKind != "" {
+		return r.DisplayKind
+	}
+	return r.Kind
 }
 
 // TreePrinter prints dependency graphs as ASCII trees with colors.
@@ -170,8 +182,12 @@ func shortSHA(sha string) string {
 func (p *TreePrinter) formatNode(nodeID NodeID, info ResourceInfo, hasInfo bool) string {
 	var sb strings.Builder
 
-	// Node name (Kind/Name)
+	// Node name (Kind/Name). Surface the display kind when it differs from the
+	// dispatch kind embedded in nodeID (e.g. sugar SystemPackage -> SystemPackage). (#285)
 	nodeName := string(nodeID)
+	if hasInfo && info.DisplayKind != "" {
+		nodeName = fmt.Sprintf("%s/%s", info.DisplayKind, info.Name)
+	}
 
 	if hasInfo {
 		// Version / SHA (mutually exclusive — SHA wins when both are set,
@@ -235,7 +251,7 @@ func (p *TreePrinter) PrintLayers(layers []Layer, resourceInfo map[NodeID]Resour
 	for i, layer := range layers {
 		var nodeNames []string
 		for _, node := range layer.Nodes {
-			nodeNames = append(nodeNames, fmt.Sprintf("%s/%s", node.Kind, node.Name))
+			nodeNames = append(nodeNames, fmt.Sprintf("%s/%s", node.DisplayKindOrKind(), node.Name))
 		}
 		fmt.Fprintf(p.writer, "  Layer %d: %s\n", i+1, strings.Join(nodeNames, ", "))
 	}

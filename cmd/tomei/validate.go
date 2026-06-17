@@ -74,11 +74,14 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	cmd.Println("Resources:")
 	validationFailed := false
 	for _, res := range resources {
+		// Surface the authored kind (e.g. sugar SystemPackage) rather than the
+		// post-expansion dispatch kind (#285).
+		label := style.Path.Sprintf("%s/%s", resource.DisplayKindOf(res), res.Name())
 		if err := res.Spec().Validate(); err != nil {
-			cmd.Printf("  %s %s - %v\n", style.FailMark, style.Path.Sprintf("%s/%s", res.Kind(), res.Name()), err)
+			cmd.Printf("  %s %s - %v\n", style.FailMark, label, err)
 			validationFailed = true
 		} else {
-			cmd.Printf("  %s %s\n", style.SuccessMark, style.Path.Sprintf("%s/%s", res.Kind(), res.Name()))
+			cmd.Printf("  %s %s\n", style.SuccessMark, label)
 		}
 	}
 	cmd.Println()

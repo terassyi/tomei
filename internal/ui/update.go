@@ -129,14 +129,15 @@ func (m *ApplyModel) handleStart(event engine.Event) (tea.Model, tea.Cmd) {
 	}
 
 	m.tasks[key] = &taskState{
-		key:       key,
-		kind:      event.Kind,
-		name:      event.Name,
-		version:   event.Version,
-		method:    event.Method,
-		action:    event.Action,
-		status:    taskRunning,
-		startTime: time.Now(),
+		key:         key,
+		kind:        event.Kind,
+		displayKind: event.DisplayKind,
+		name:        event.Name,
+		version:     event.Version,
+		method:      event.Method,
+		action:      event.Action,
+		status:      taskRunning,
+		startTime:   time.Now(),
 	}
 	m.taskOrder = append(m.taskOrder, key)
 

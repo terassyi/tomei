@@ -595,6 +595,48 @@ func TestSystemEngine_Apply_Events(t *testing.T) {
 	}
 }
 
+// TestSystemEngine_Apply_Events_DisplayKind pins #285 on the apply path: a sugar
+// SystemPackage (expanded to a single-element set) emits events whose dispatch
+// Kind is SystemPackageSet but whose DisplayKind surfaces the authored
+// SystemPackage, while a directly-authored set leaves DisplayKind empty (so
+// labels fall back to SystemPackageSet). Dispatch is unchanged either way.
+func TestSystemEngine_Apply_Events_DisplayKind(t *testing.T) {
+	t.Parallel()
+	s := newSystemEngineTestSetup(t)
+
+	expanded, err := (&resource.SystemPackage{
+		BaseResource:      resource.BaseResource{Metadata: resource.Metadata{Name: "gcloud"}},
+		SystemPackageSpec: &resource.SystemPackageSpec{InstallerRef: "apt", Package: "google-cloud-cli"},
+	}).Expand()
+	require.NoError(t, err)
+
+	resources := []resource.Resource{
+		testSystemInstaller("apt"),
+		expanded[0], // sugar SystemPackage -> *SystemPackageSet with authoredKind
+		testSystemPackageSet("dev", "apt", "", []string{"jq"}), // directly authored set
+	}
+
+	require.NoError(t, s.engine.Apply(context.Background(), resources))
+
+	starts := make(map[string]Event)
+	for _, e := range s.getEvents() {
+		if e.Type == EventStart {
+			starts[e.Name] = e
+		}
+	}
+
+	// Sugar package: dispatch kind stays SystemPackageSet, display surfaces SystemPackage.
+	require.Contains(t, starts, "gcloud")
+	assert.Equal(t, resource.KindSystemPackageSet, starts["gcloud"].Kind, "dispatch kind must stay SystemPackageSet")
+	assert.Equal(t, resource.KindSystemPackage, starts["gcloud"].DisplayKind, "sugar package must surface SystemPackage")
+
+	// Directly-authored set: DisplayKindOf falls back to the dispatch kind, so
+	// both Kind and DisplayKind are SystemPackageSet (no divergence).
+	require.Contains(t, starts, "dev")
+	assert.Equal(t, resource.KindSystemPackageSet, starts["dev"].Kind)
+	assert.Equal(t, resource.KindSystemPackageSet, starts["dev"].DisplayKind, "directly-authored set surfaces SystemPackageSet")
+}
+
 func TestSystemEngine_Apply_UpgradeRepo(t *testing.T) {
 	t.Parallel()
 	s := newSystemEngineTestSetup(t)

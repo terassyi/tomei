@@ -339,8 +339,16 @@ func TestSystemPackage_Expand_Basic(t *testing.T) {
 	if set.APIVersion != GroupVersion {
 		t.Errorf("expanded APIVersion = %q, want %q", set.APIVersion, GroupVersion)
 	}
+	// Dispatch kind stays SystemPackageSet (the engine/state key on this), but
+	// the authored kind is preserved for display surfacing (#285).
 	if set.Kind() != KindSystemPackageSet {
 		t.Errorf("expanded Kind = %s, want %s", set.Kind(), KindSystemPackageSet)
+	}
+	if set.authoredKind != KindSystemPackage {
+		t.Errorf("expanded authoredKind = %s, want %s", set.authoredKind, KindSystemPackage)
+	}
+	if got := DisplayKindOf(set); got != KindSystemPackage {
+		t.Errorf("DisplayKindOf(expanded) = %s, want %s", got, KindSystemPackage)
 	}
 	if set.SystemPackageSetSpec.InstallerRef != "apt" {
 		t.Errorf("expanded InstallerRef = %q, want %q", set.SystemPackageSetSpec.InstallerRef, "apt")
@@ -654,6 +662,45 @@ func TestSystemPackage_Expand_Verbatim(t *testing.T) {
 			if got, want := set.SystemPackageSetSpec.Packages, []string{pkg}; !slices.Equal(got, want) {
 				t.Errorf("Packages = %v, want %v (verbatim)", got, want)
 			}
+		})
+	}
+}
+
+// TestDisplayKindOf pins the surfaced-kind helper (#285): a sugar-expanded
+// SystemPackage surfaces as SystemPackage, a directly-authored set surfaces as
+// SystemPackageSet, non-sugar resources surface their own Kind, and nil is safe.
+func TestDisplayKindOf(t *testing.T) {
+	t.Parallel()
+
+	expanded, err := (&SystemPackage{
+		BaseResource:      BaseResource{Metadata: Metadata{Name: "gcloud"}},
+		SystemPackageSpec: &SystemPackageSpec{InstallerRef: "apt", Package: "google-cloud-cli"},
+	}).Expand()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		res  Resource
+		want Kind
+	}{
+		{name: "sugar-expanded SystemPackage surfaces SystemPackage", res: expanded[0], want: KindSystemPackage},
+		{
+			name: "directly-authored set surfaces SystemPackageSet",
+			res:  &SystemPackageSet{BaseResource: BaseResource{ResourceKind: KindSystemPackageSet, Metadata: Metadata{Name: "dev"}}},
+			want: KindSystemPackageSet,
+		},
+		{
+			name: "non-sugar resource surfaces its own kind",
+			res:  &Tool{BaseResource: BaseResource{Metadata: Metadata{Name: "rg"}}},
+			want: KindTool,
+		},
+		{name: "nil interface is empty and safe", res: nil, want: ""},
+		{name: "typed-nil set falls back to dispatch kind", res: (*SystemPackageSet)(nil), want: KindSystemPackageSet},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, DisplayKindOf(tt.res))
 		})
 	}
 }

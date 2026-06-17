@@ -8,6 +8,41 @@ import (
 	"github.com/terassyi/tomei/internal/resource"
 )
 
+// TestBuildOutput_DisplayKind pins #285: a sugar SystemPackage (dispatch kind
+// SystemPackageSet, DisplayKind SystemPackage) surfaces as SystemPackage in the
+// plan JSON .kind for both layer and skip entries, while the NodeID/dispatch
+// stay on SystemPackageSet. A directly-authored set (no DisplayKind) is unchanged.
+func TestBuildOutput_DisplayKind(t *testing.T) {
+	t.Parallel()
+
+	spsNode := NewNodeID(resource.KindSystemPackageSet, "gcloud")
+	setNode := NewNodeID(resource.KindSystemPackageSet, "dev")
+	skipNode := NewNodeID(resource.KindSystemPackageSet, "media")
+	layers := []Layer{
+		{Nodes: []*Node{
+			{ID: spsNode, Kind: resource.KindSystemPackageSet, Name: "gcloud", DisplayKind: resource.KindSystemPackage},
+			{ID: setNode, Kind: resource.KindSystemPackageSet, Name: "dev"}, // no DisplayKind -> stays a set
+		}},
+	}
+	resourceInfo := map[NodeID]ResourceInfo{
+		spsNode:  {Kind: resource.KindSystemPackageSet, DisplayKind: resource.KindSystemPackage, Name: "gcloud", Action: resource.ActionInstall},
+		setNode:  {Kind: resource.KindSystemPackageSet, Name: "dev", Action: resource.ActionInstall},
+		skipNode: {Kind: resource.KindSystemPackageSet, DisplayKind: resource.KindSystemPackage, Name: "media", Action: resource.ActionSkip},
+	}
+
+	output := NewExporter(layers, resourceInfo, nil).BuildOutput()
+
+	byName := make(map[string]PlanResource, len(output.Resources))
+	for _, r := range output.Resources {
+		byName[r.Name] = r
+	}
+	assert.Equal(t, resource.KindSystemPackage, byName["gcloud"].Kind, "sugar package surfaces SystemPackage in JSON")
+	assert.Equal(t, resource.KindSystemPackageSet, byName["dev"].Kind, "directly-authored set stays SystemPackageSet")
+	assert.Equal(t, resource.KindSystemPackage, byName["media"].Kind, "skipped sugar package surfaces SystemPackage")
+	// NodeID (dispatch identity) is unchanged — still SystemPackageSet/<name>.
+	assert.Contains(t, output.Layers[0].Resources, spsNode.String())
+}
+
 func TestBuildOutput_SkipResources(t *testing.T) {
 	t.Parallel()
 
