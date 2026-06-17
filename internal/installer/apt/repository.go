@@ -139,7 +139,8 @@ func (s destinationSnapshot) dataFor(path string) []byte {
 // executor.Installer[*resource.SystemPackageRepository, *resource.SystemPackageRepositoryState]
 // and is obtained from Client.PackageRepositoryInstaller.
 //
-// Host requirements: Linux, GNU coreutils `install`, and passwordless
+// Host requirements: Linux, `apt-get` (for `apt-get update`), GNU coreutils
+// `install` and `rm` (the latter for the rollback path), and passwordless
 // `sudo -n`. The signing key is dearmored in-process (no gnupg dependency,
 // #283). See Install for the full caller contract, trust model, and
 // concurrency notes; the struct itself is just a handle that bundles the

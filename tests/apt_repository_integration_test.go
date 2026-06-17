@@ -62,8 +62,9 @@ const keyHashSHA256 = "sha256:c136badca3a932d7d4ae3a48068370d203ae3fb876dec76fa8
 // APT repository). Successful Install / Remove ordering is covered by
 // the unit tests in internal/installer/apt/repository_test.go.
 //
-// Requires Linux + apt-get + sudo + passwordless sudo. No longer requires
-// gpg (dearmor is in-process now, #283). Skips on any other configuration.
+// Requires Linux + apt-get + dpkg + install + rm + sudo + passwordless sudo.
+// No longer requires gpg (dearmor is in-process now, #283). Skips on any
+// other configuration.
 func TestPackageRepositoryInstaller_RealSystem_RollbackOnUpdateFailure(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("apt repository integration test requires Linux")
