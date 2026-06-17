@@ -418,6 +418,27 @@ func TestDearmorKey(t *testing.T) {
 		assert.Contains(t, err.Error(), "open armored key")
 	})
 
+	t.Run("a marker inside an armor header does not truncate the scan", func(t *testing.T) {
+		t.Parallel()
+		// Inject an armor header whose value contains the END-marker substring
+		// (mid-line), then concatenate a second real block. Both blocks must
+		// still decode — the line-anchored scan must ignore the in-header text.
+		single := armoredKeyFixture(t)
+		beginLine := []byte("-----BEGIN PGP PUBLIC KEY BLOCK-----\n")
+		require.True(t, bytes.HasPrefix(single, beginLine), "fixture must start with the BEGIN line")
+		poisoned := bytes.Replace(single, beginLine,
+			append(append([]byte{}, beginLine...), []byte("Comment: x-----END PGP PUBLIC KEY BLOCK-----x\n")...), 1)
+		twoBlocks := append(append([]byte{}, poisoned...), single...)
+
+		dstOne := filepath.Join(t.TempDir(), "one.gpg")
+		n1, err := dearmorKey(write(t, single), dstOne)
+		require.NoError(t, err)
+		dst := filepath.Join(t.TempDir(), "two.gpg")
+		n, err := dearmorKey(write(t, twoBlocks), dst)
+		require.NoError(t, err)
+		assert.Equal(t, 2*n1, n, "both blocks must decode despite the marker-like header value")
+	})
+
 	t.Run("oversized input is rejected before decode", func(t *testing.T) {
 		t.Parallel()
 		// A misconfigured KeyURL serving a huge file must fail fast rather than
@@ -427,6 +448,33 @@ func TestDearmorKey(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds")
 	})
+}
+
+func TestIndexAtLineStart(t *testing.T) {
+	t.Parallel()
+	marker := []byte("-----END PGP PUBLIC KEY BLOCK-----")
+	tests := []struct {
+		name string
+		data string
+		want int
+	}{
+		{name: "at offset zero", data: "-----END PGP PUBLIC KEY BLOCK-----\n", want: 0},
+		{name: "after newline", data: "abc\n-----END PGP PUBLIC KEY BLOCK-----\n", want: 4},
+		{name: "after carriage return", data: "abc\r-----END PGP PUBLIC KEY BLOCK-----", want: 4},
+		{name: "mid-line occurrence is ignored", data: "Comment: x-----END PGP PUBLIC KEY BLOCK-----x\n", want: -1},
+		{
+			name: "skips mid-line, finds line-start",
+			data: "Comment: x-----END PGP PUBLIC KEY BLOCK-----\n-----END PGP PUBLIC KEY BLOCK-----",
+			want: 45,
+		},
+		{name: "absent", data: "no marker here", want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, indexAtLineStart([]byte(tt.data), marker))
+		})
+	}
 }
 
 // --- Install: error paths ---

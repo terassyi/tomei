@@ -315,16 +315,37 @@ func decodeAllArmorBlocks(data []byte, w io.Writer) (int64, error) {
 			return total, fmt.Errorf("copy decoded key: %w", copyErr)
 		}
 		// Advance past this block's END line so the next iteration can find any
-		// subsequent concatenated block. The base64 alphabet has no '-', so the
-		// END marker cannot occur inside a block body.
+		// subsequent concatenated block. Anchor the match to a line start: the
+		// END marker is, per the armor grammar, a whole line, and a marker-like
+		// substring could otherwise appear inside an armor header value (e.g.
+		// `Comment: ...-----END PGP PUBLIC KEY BLOCK-----...`) and mis-advance.
 		endMarker := []byte("-----END " + block.Type + "-----")
-		idx := bytes.Index(rest, endMarker)
+		idx := indexAtLineStart(rest, endMarker)
 		if idx < 0 {
 			// A successful Decode implies a terminated block; defensive.
 			return total, nil
 		}
 		rest = rest[idx+len(endMarker):]
 	}
+}
+
+// indexAtLineStart returns the offset of the first occurrence of marker that
+// begins a line (at offset 0 or immediately after '\n' or '\r'), or -1 if none.
+// Anchoring to a line start prevents a marker-like substring inside an armor
+// header value from being mistaken for the block's terminating END line.
+func indexAtLineStart(data, marker []byte) int {
+	for off := 0; off <= len(data)-len(marker); {
+		i := bytes.Index(data[off:], marker)
+		if i < 0 {
+			return -1
+		}
+		abs := off + i
+		if abs == 0 || data[abs-1] == '\n' || data[abs-1] == '\r' {
+			return abs
+		}
+		off = abs + 1
+	}
+	return -1
 }
 
 // buildSourcesListLine renders a single APT one-line sources.list entry
