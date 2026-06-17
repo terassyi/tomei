@@ -350,6 +350,32 @@ func TestDearmorKey(t *testing.T) {
 		assert.NotContains(t, string(out), "-----BEGIN PGP")
 	})
 
+	t.Run("decodes all concatenated armor blocks", func(t *testing.T) {
+		t.Parallel()
+		// gpg --dearmor concatenates the packets of every armor block; a key
+		// file with two concatenated blocks (e.g. during key rotation) must
+		// decode to both keys, not just the first.
+		single := armoredKeyFixture(t)
+		two := append(append([]byte{}, single...), single...)
+
+		dstOne := filepath.Join(t.TempDir(), "one.gpg")
+		n1, err := dearmorKey(write(t, single), dstOne)
+		require.NoError(t, err)
+		require.Positive(t, n1)
+
+		dstTwo := filepath.Join(t.TempDir(), "two.gpg")
+		n2, err := dearmorKey(write(t, two), dstTwo)
+		require.NoError(t, err)
+
+		assert.Equal(t, 2*n1, n2, "two concatenated blocks must decode to double the bytes")
+		one, err := os.ReadFile(dstOne)
+		require.NoError(t, err)
+		got, err := os.ReadFile(dstTwo)
+		require.NoError(t, err)
+		assert.Equal(t, append(append([]byte{}, one...), one...), got,
+			"two-block output must equal the single block's packets repeated")
+	})
+
 	t.Run("non-armored input is a hard error", func(t *testing.T) {
 		t.Parallel()
 		src := write(t, []byte("this is not an armored key"))

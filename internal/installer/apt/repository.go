@@ -1,6 +1,7 @@
 package apt
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -232,43 +233,79 @@ func sourcesListPath(name string) string {
 // raw binary OpenPGP packets, and writes the result to dstPath (0600; the later
 // `sudo install` re-chmods to 0644). It returns the number of bytes written.
 //
-// This is the in-process equivalent of `gpg --dearmor` for the single-key
-// apt-signing contract, and is what lets tomei configure third-party
-// repositories on minimal images without gnupg in PATH (#283). armor.Decode
-// reads only the FIRST armor block (gpg --dearmor concatenates all blocks),
-// which suffices for the single-key contract. ProtonMail/go-crypto does NOT
+// This is the in-process equivalent of `gpg --dearmor`, and is what lets tomei
+// configure third-party repositories on minimal images without gnupg in PATH
+// (#283). Like `gpg --dearmor`, it decodes EVERY concatenated armor block and
+// appends their packets — a repo may publish multiple public keys in one key
+// file during key rotation, and apt must hold all of them to verify a Release
+// signed by either the old or the new key. ProtonMail/go-crypto does NOT
 // validate the armor CRC24 checksum — integrity is guaranteed upstream by
 // keyHash (sha256 of the armored bytes, verified before this call) and by
 // apt's own Release-signature check at update time.
+//
+// The whole (hash-pinned, small) file is read into memory: armor.Decode wraps
+// its input in a throwaway bufio that swallows read-ahead, so it cannot be
+// called repeatedly on one stream without losing bytes between blocks.
 func dearmorKey(armoredPath, dstPath string) (int64, error) {
-	in, err := os.Open(armoredPath)
+	data, err := os.ReadFile(armoredPath)
 	if err != nil {
 		return 0, fmt.Errorf("open armored key: %w", err)
-	}
-	defer in.Close()
-
-	// A non-armored input yields io.EOF here ("no armored data found").
-	block, err := armor.Decode(in)
-	if err != nil {
-		return 0, fmt.Errorf("decode armor: %w", err)
 	}
 
 	out, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return 0, fmt.Errorf("create keyring: %w", err)
 	}
-	// base64 / structural corruption surfaces while reading block.Body, NOT at
-	// armor.Decode — checking copyErr is load-bearing: dropping it would write a
-	// truncated/corrupt keyring and let apt fail opaquely later.
-	n, copyErr := io.Copy(out, block.Body)
+	n, decodeErr := decodeAllArmorBlocks(data, out)
 	closeErr := out.Close()
-	if copyErr != nil {
-		return n, fmt.Errorf("copy decoded key: %w", copyErr)
+	if decodeErr != nil {
+		return n, decodeErr
 	}
 	if closeErr != nil {
 		return n, fmt.Errorf("close keyring: %w", closeErr)
 	}
 	return n, nil
+}
+
+// decodeAllArmorBlocks decodes every concatenated ASCII-armor block in data and
+// writes each block's raw binary OpenPGP packets to w, returning the total bytes
+// written. It errors if data contains no armor block at all (not armored input).
+func decodeAllArmorBlocks(data []byte, w io.Writer) (int64, error) {
+	var total int64
+	rest := data
+	for blocks := 0; ; blocks++ {
+		block, err := armor.Decode(bytes.NewReader(rest))
+		if errors.Is(err, io.EOF) {
+			// No (further) armor block. If we never found one, the input is
+			// not armored — surface that as a hard error; otherwise we are
+			// simply past the last block.
+			if blocks == 0 {
+				return total, fmt.Errorf("decode armor: %w", err)
+			}
+			return total, nil
+		}
+		if err != nil {
+			return total, fmt.Errorf("decode armor: %w", err)
+		}
+		// base64 / structural corruption surfaces while reading block.Body, NOT
+		// at armor.Decode — checking copyErr is load-bearing: dropping it would
+		// write a truncated/corrupt keyring and let apt fail opaquely later.
+		n, copyErr := io.Copy(w, block.Body)
+		total += n
+		if copyErr != nil {
+			return total, fmt.Errorf("copy decoded key: %w", copyErr)
+		}
+		// Advance past this block's END line so the next iteration can find any
+		// subsequent concatenated block. The base64 alphabet has no '-', so the
+		// END marker cannot occur inside a block body.
+		endMarker := []byte("-----END " + block.Type + "-----")
+		idx := bytes.Index(rest, endMarker)
+		if idx < 0 {
+			// A successful Decode implies a terminated block; defensive.
+			return total, nil
+		}
+		rest = rest[idx+len(endMarker):]
+	}
 }
 
 // buildSourcesListLine renders a single APT one-line sources.list entry
