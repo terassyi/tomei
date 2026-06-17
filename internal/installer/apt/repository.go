@@ -229,6 +229,12 @@ func sourcesListPath(name string) string {
 	return filepath.Join(sourcesListDir, name+".list")
 }
 
+// maxArmoredKeyBytes bounds how much of a downloaded key file dearmorKey reads
+// into memory. Real apt signing keys are a few kilobytes (tens of KB even when a
+// file concatenates several rotated keys); 4 MiB is a generous defense-in-depth
+// ceiling against a misconfigured KeyURL, not a functional limit.
+const maxArmoredKeyBytes = 4 << 20
+
 // dearmorKey reads an ASCII-armored OpenPGP key from armoredPath, decodes it to
 // raw binary OpenPGP packets, and writes the result to dstPath (0600; the later
 // `sudo install` re-chmods to 0644). It returns the number of bytes written.
@@ -243,13 +249,26 @@ func sourcesListPath(name string) string {
 // keyHash (sha256 of the armored bytes, verified before this call) and by
 // apt's own Release-signature check at update time.
 //
-// The whole (hash-pinned, small) file is read into memory: armor.Decode wraps
-// its input in a throwaway bufio that swallows read-ahead, so it cannot be
-// called repeatedly on one stream without losing bytes between blocks.
+// The whole file is read into memory (capped at maxArmoredKeyBytes): armor.Decode
+// wraps its input in a throwaway bufio that swallows read-ahead, so it cannot be
+// called repeatedly on one stream without losing bytes between blocks. The cap
+// keeps a misconfigured KeyURL pointing at a huge file from OOMing the process —
+// the download layer does not bound response size, and real apt signing keys are
+// kilobytes even when a file concatenates several rotated keys.
 func dearmorKey(armoredPath, dstPath string) (int64, error) {
-	data, err := os.ReadFile(armoredPath)
+	in, err := os.Open(armoredPath)
 	if err != nil {
 		return 0, fmt.Errorf("open armored key: %w", err)
+	}
+	defer in.Close()
+	// Read one byte past the cap so an over-limit file is detected rather than
+	// silently truncated mid-decode.
+	data, err := io.ReadAll(io.LimitReader(in, maxArmoredKeyBytes+1))
+	if err != nil {
+		return 0, fmt.Errorf("read armored key: %w", err)
+	}
+	if int64(len(data)) > maxArmoredKeyBytes {
+		return 0, fmt.Errorf("armored key exceeds %d bytes", int64(maxArmoredKeyBytes))
 	}
 
 	out, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)

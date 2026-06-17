@@ -1,6 +1,7 @@
 package apt
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -415,6 +416,16 @@ func TestDearmorKey(t *testing.T) {
 		_, err := dearmorKey(filepath.Join(t.TempDir(), "nope.asc"), dst)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "open armored key")
+	})
+
+	t.Run("oversized input is rejected before decode", func(t *testing.T) {
+		t.Parallel()
+		// A misconfigured KeyURL serving a huge file must fail fast rather than
+		// OOM the process (the download layer does not bound response size).
+		huge := bytes.Repeat([]byte("A"), maxArmoredKeyBytes+1)
+		_, err := dearmorKey(write(t, huge), filepath.Join(t.TempDir(), "out.gpg"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeds")
 	})
 }
 
