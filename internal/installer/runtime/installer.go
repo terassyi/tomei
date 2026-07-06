@@ -432,10 +432,22 @@ func (i *Installer) installDelegation(ctx context.Context, spec *resource.Runtim
 	}
 
 	// Execute bootstrap command.
+	//
+	// Bootstrap install/update/check receive the DECLARED spec version, not the
+	// resolved concrete version. Delegation tools (rustup, pnpm, uv, ...) manage
+	// their own version channels, so an alias like "stable"/"latest" must reach
+	// them verbatim: `rustup update {{.Version}}` has to expand to
+	// `rustup update stable`, and `pnpm self-update{{if ne .Version "latest"}}...`
+	// relies on `.Version` being the alias. Passing the resolved concrete version
+	// (e.g. "1.96.0") would freeze the channel to whatever was first installed and
+	// turn updates into no-ops. The resolved version is still recorded in state
+	// (buildStateResolved below) for visibility and drift reporting. For exact
+	// versions spec.Version == resolvedVersion, so this is a no-op there.
+	//
 	// MinimumReleaseAge is exposed to bootstrap/check commands as {{.MinimumReleaseAge}}
 	// for symmetry with the tool-delegation path; tomei does not enforce it here (this is
 	// the runtime's own self-install), so honoring it is the bootstrap command's choice.
-	vars := command.Vars{Version: resolvedVersion, MinimumReleaseAge: spec.MinimumReleaseAge}
+	vars := command.Vars{Version: spec.Version, MinimumReleaseAge: spec.MinimumReleaseAge}
 	if err := i.executeBootstrap(ctx, cmds, vars, env); err != nil {
 		return nil, fmt.Errorf("bootstrap %s failed: %w", errAction, err)
 	}

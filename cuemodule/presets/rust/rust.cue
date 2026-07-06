@@ -23,7 +23,16 @@ import "tomei.terassyi.net/schema"
 		version: string | *"stable"
 		bootstrap: {
 			install: ["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain {{.Version}}"]
-			update: ["\(_cargoBin)/rustup update {{.Version}}"]
+			// Update the declared toolchain, then (re)assert it as the default. The
+			// second step keeps the runtime tracking the channel even on machines
+			// whose default was previously pinned to a concrete version — otherwise
+			// `rustup update stable` advances the stable channel but leaves rustc on
+			// the old pinned toolchain. rustup accepts channel names ("stable",
+			// "nightly") and exact versions alike, and `rustup default` is idempotent.
+			update: [
+				"\(_cargoBin)/rustup update {{.Version}}",
+				"\(_cargoBin)/rustup default {{.Version}}",
+			]
 			check: ["\(_cargoBin)/rustc --version"]
 			remove: ["\(_cargoBin)/rustup self uninstall -y"]
 			resolveVersion: ["\(_cargoBin)/rustc --version 2>/dev/null | grep -oP '\\d+\\.\\d+\\.\\d+' || echo ''"]

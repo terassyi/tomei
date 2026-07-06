@@ -287,13 +287,15 @@ func TestInstaller_Install(t *testing.T) {
 		require.Len(t, runner.captureCalls, 1)
 		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 
-		// Verify install was called with resolved version
+		// Bootstrap receives the declared alias/channel, not the resolved concrete
+		// version — so delegation tools that manage their own channels update the
+		// channel rather than pin to a frozen version.
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
+		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
 
-		// Verify check receives resolved version
+		// Check likewise operates on the declared version.
 		require.Len(t, runner.checkCalls, 1)
-		assert.Equal(t, "1.83.0", runner.checkCalls[0].vars.Version)
+		assert.Equal(t, "stable", runner.checkCalls[0].vars.Version)
 	})
 
 	t.Run("delegation install calls resolveVersion", func(t *testing.T) {
@@ -320,9 +322,9 @@ func TestInstaller_Install(t *testing.T) {
 		require.Len(t, runner.captureCalls, 1)
 		assert.Equal(t, []string{"resolve-cmd"}, runner.captureCalls[0].cmds)
 
-		// install command receives resolved version
+		// install command receives the declared alias/channel, not the resolved version
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "1.83.0", runner.executeWithEnvCalls[0].vars.Version)
+		assert.Equal(t, "stable", runner.executeWithEnvCalls[0].vars.Version)
 	})
 
 	t.Run("delegation upgrade calls resolveVersion", func(t *testing.T) {
@@ -476,9 +478,10 @@ func TestInstaller_Install(t *testing.T) {
 		assert.Equal(t, resource.VersionAlias, state.VersionKind)
 		assert.Equal(t, "latest", state.SpecVersion)
 
-		// Verify install was called with resolved version
+		// Bootstrap receives the declared alias ("latest"), not the resolved version;
+		// state still records the resolved concrete version above.
 		require.Len(t, runner.executeWithEnvCalls, 1)
-		assert.Equal(t, "1.42.0", runner.executeWithEnvCalls[0].vars.Version)
+		assert.Equal(t, "latest", runner.executeWithEnvCalls[0].vars.Version)
 
 		// Verify no shell capture was called (resolved via http-text, not ExecuteCapture)
 		assert.Empty(t, runner.captureCalls, "http-text resolver should not use ExecuteCapture")
