@@ -121,6 +121,23 @@ spec: {
 }
 ```
 
+When a registry package ships multiple binaries in one archive (e.g.
+`gravitational/teleport` contains `tbot`, `tctl`, `teleport`, and `tsh`),
+tomei installs the registry file entry whose name matches `spec.binaryName`
+(if set) or the tool name; a name that matches none of the entries is an
+error. Declare one Tool per binary you want:
+
+```cue
+apiVersion: "tomei.terassyi.net/v1beta1"
+kind:       "Tool"
+metadata: name: "tsh"
+spec: {
+    installerRef: "aqua"
+    version:      "v18.1.0"
+    package:      "gravitational/teleport"
+}
+```
+
 #### Via explicit download
 
 ```cue

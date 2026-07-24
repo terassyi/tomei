@@ -140,6 +140,162 @@ func TestResolver_Resolve_WithOSOverrides(t *testing.T) {
 	assert.Equal(t, extract.ArchiveTypeZip, result.Format)
 }
 
+func TestResolver_Resolve_HTTPWithOverrideURLAndFiles(t *testing.T) {
+	t.Parallel()
+	// Mirrors the shape of packages like gravitational/teleport: type http
+	// where the download url and file mappings are defined only inside
+	// per-OS overrides, and one archive ships multiple binaries.
+	registryYAML := `packages:
+  - type: http
+    repo_owner: example
+    repo_name: multitool
+    files:
+      - name: agent
+      - name: server
+      - name: client
+    overrides:
+      - goos: linux
+        url: https://cdn.example.com/multitool-{{.Version}}-linux-{{.Arch}}-bin.{{.Format}}
+        format: tar.gz
+        files:
+          - name: agent
+            src: multitool/agent
+          - name: server
+            src: multitool/server
+          - name: client
+            src: multitool/client
+      - goos: darwin
+        url: https://cdn.example.com/multitool-tools-{{trimV .Version}}.{{.Format}}
+        format: pkg
+        files:
+          - name: client
+            src: client-{{trimV .Version}}.pkg/Payload/client.app/Contents/MacOS/client
+      - goos: windows
+        url: https://cdn.example.com/multitool-{{.Version}}-windows-amd64-bin.{{.Format}}
+        format: zip
+        files:
+          - name: agent
+          - name: client
+`
+
+	tests := []struct {
+		name       string
+		goos       string
+		goarch     string
+		wantURL    string
+		wantFormat extract.ArchiveType
+		wantFiles  []FileSpec
+	}{
+		{
+			name:       "linux amd64",
+			goos:       "linux",
+			goarch:     "amd64",
+			wantURL:    "https://cdn.example.com/multitool-v1.2.3-linux-amd64-bin.tar.gz",
+			wantFormat: extract.ArchiveTypeTarGz,
+			wantFiles: []FileSpec{
+				{Name: "agent", Src: "multitool/agent"},
+				{Name: "server", Src: "multitool/server"},
+				{Name: "client", Src: "multitool/client"},
+			},
+		},
+		{
+			name:       "darwin arm64",
+			goos:       "darwin",
+			goarch:     "arm64",
+			wantURL:    "https://cdn.example.com/multitool-tools-1.2.3.pkg",
+			wantFormat: extract.ArchiveTypePkg,
+			wantFiles: []FileSpec{
+				{Name: "client", Src: "client-1.2.3.pkg/Payload/client.app/Contents/MacOS/client"},
+			},
+		},
+		{
+			name:       "windows amd64",
+			goos:       "windows",
+			goarch:     "amd64",
+			wantURL:    "https://cdn.example.com/multitool-v1.2.3-windows-amd64-bin.zip",
+			wantFormat: extract.ArchiveTypeZip,
+			wantFiles: []FileSpec{
+				{Name: "agent"},
+				{Name: "client"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cacheDir := t.TempDir()
+			ref := RegistryRef("v4.465.0")
+			pkg := "example/multitool"
+
+			cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+			require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+			resolver := NewResolver(cacheDir, nil)
+
+			result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.2.3", tt.goos, tt.goarch)
+
+			require.NoError(t, err)
+			assert.Empty(t, result.Errors)
+			assert.Equal(t, tt.wantURL, result.URL)
+			assert.Equal(t, tt.wantFormat, result.Format)
+			assert.Equal(t, tt.wantFiles, result.Files)
+		})
+	}
+}
+
+func TestResolver_Resolve_MissingDownloadSource(t *testing.T) {
+	t.Parallel()
+	// Simulates registry definitions whose url/asset lives only in fields
+	// tomei does not support, which would otherwise resolve to a broken
+	// download URL that only fails at download time.
+	tests := []struct {
+		name         string
+		registryYAML string
+	}{
+		{
+			name: "http without url",
+			registryYAML: `packages:
+  - type: http
+    repo_owner: example
+    repo_name: no-url
+    format: tar.gz
+`,
+		},
+		{
+			name: "github_release without asset",
+			registryYAML: `packages:
+  - type: github_release
+    repo_owner: example
+    repo_name: no-asset
+    format: tar.gz
+`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cacheDir := t.TempDir()
+			ref := RegistryRef("v4.465.0")
+			pkg := "example/tool"
+
+			cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+			require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+			require.NoError(t, os.WriteFile(cacheFile, []byte(tt.registryYAML), 0o644))
+
+			resolver := NewResolver(cacheDir, nil)
+
+			result, err := resolver.ResolveWithOS(context.Background(), ref, pkg, "v1.0.0", "linux", "amd64")
+
+			require.NoError(t, err)
+			require.NotEmpty(t, result.Errors)
+			assert.Contains(t, result.Errors[0], "no download source")
+		})
+	}
+}
+
 func TestResolver_Resolve_WithReplacements(t *testing.T) {
 	t.Parallel()
 	cacheDir := t.TempDir()

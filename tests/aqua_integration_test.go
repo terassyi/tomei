@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -341,6 +342,38 @@ func TestAquaErrorHandling(t *testing.T) {
 		// linux/arm64 is not in supported_envs (only darwin and linux/amd64)
 		assert.NotEmpty(t, resolved.Errors, "should have errors for unsupported env")
 	})
+}
+
+// TestAquaResolve_Teleport_RealRegistry resolves gravitational/teleport (the
+// motivating case for override url/files support) against the real
+// aqua-registry (raw.githubusercontent.com, no token required).
+//
+// The registry ref is a pinned immutable git tag, so the fetched definition
+// never changes. Assertions are structural (non-empty URL containing the
+// requested version, a tsh file mapping) rather than exact URLs, and the tool
+// version is arbitrary — resolution only renders it into the URL template —
+// so the test does not depend on any specific teleport release existing.
+func TestAquaResolve_Teleport_RealRegistry(t *testing.T) {
+	cacheDir := t.TempDir()
+	resolver := aqua.NewResolver(cacheDir, nil)
+	ctx := context.Background()
+
+	version := "v1.2.3"
+	resolved, err := resolver.ResolveWithOS(ctx, aqua.RegistryRef("v4.465.0"), "gravitational/teleport", version, "linux", "amd64")
+	require.NoError(t, err)
+	require.Empty(t, resolved.Errors)
+
+	assert.True(t, strings.HasPrefix(resolved.URL, "https://"), "resolved URL should be https, got %q", resolved.URL)
+	assert.Contains(t, resolved.URL, version, "resolved URL should contain the requested version")
+	assert.NotEmpty(t, resolved.Format)
+
+	var tshSrc string
+	for _, f := range resolved.Files {
+		if f.Name == "tsh" {
+			tshSrc = f.Src
+		}
+	}
+	assert.NotEmpty(t, tshSrc, "files should contain a tsh entry with a src mapping, got %+v", resolved.Files)
 }
 
 // TestAquaReplacementsMerge tests that replacements are correctly merged

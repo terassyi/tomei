@@ -153,6 +153,32 @@ format: tar.gz
 				Format: "tar.gz",
 			},
 		},
+		{
+			// Some packages (e.g. gravitational/teleport) define the download
+			// url and file mappings only inside per-OS overrides.
+			name: "url and files in overrides",
+			yaml: `
+type: http
+overrides:
+  - goos: linux
+    url: https://cdn.example.com/tool-{{.Version}}.tar.gz
+    files:
+      - name: tool
+        src: dist/tool
+`,
+			expected: PackageInfo{
+				Type: "http",
+				Overrides: []Override{
+					{
+						GOOS: "linux",
+						URL:  "https://cdn.example.com/tool-{{.Version}}.tar.gz",
+						Files: []FileSpec{
+							{Name: "tool", Src: "dist/tool"},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

@@ -71,18 +71,9 @@ func ApplyVersionOverrides(info *PackageInfo, version string) *PackageInfo {
 
 	for _, override := range info.VersionOverrides {
 		if matchVersionConstraint(override.VersionConstraint, version) {
-			// Apply override fields if they are set
-			if override.Asset != "" {
-				result.Asset = override.Asset
-			}
-			if override.URL != "" {
-				result.URL = override.URL
-			}
+			applyCommonOverrideFields(&result, override.Asset, override.URL, override.Format, override.Files)
 			if override.VersionPrefix != nil {
 				result.VersionPrefix = *override.VersionPrefix
-			}
-			if override.Format != "" {
-				result.Format = override.Format
 			}
 			if override.Checksum != nil {
 				result.Checksum = override.Checksum

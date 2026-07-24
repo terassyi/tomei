@@ -108,6 +108,7 @@ type VersionOverride struct {
 	VersionConstraint string            `yaml:"version_constraint"`
 	Asset             string            `yaml:"asset,omitempty"`
 	URL               string            `yaml:"url,omitempty"`
+	Files             []FileSpec        `yaml:"files,omitempty"`
 	Format            string            `yaml:"format,omitempty"`
 	VersionPrefix     *string           `yaml:"version_prefix,omitempty"`
 	Checksum          *ChecksumSpec     `yaml:"checksum,omitempty"`
@@ -118,10 +119,17 @@ type VersionOverride struct {
 }
 
 // Override specifies OS/Arch-specific configuration overrides.
+//
+// Known unsupported fields from aqua's Override (type, checksum,
+// complete_windows_ext, windows_ext, envs, cosign, slsa_provenance, minisign):
+// packages relying on them resolve without the override applied. The resolver
+// reports an error when this leaves the download URL empty.
 type Override struct {
 	GOOS         string            `yaml:"goos,omitempty"`
 	GOArch       string            `yaml:"goarch,omitempty"`
 	Format       string            `yaml:"format,omitempty"`
 	Asset        string            `yaml:"asset,omitempty"`
+	URL          string            `yaml:"url,omitempty"`
+	Files        []FileSpec        `yaml:"files,omitempty"`
 	Replacements map[string]string `yaml:"replacements,omitempty"`
 }
