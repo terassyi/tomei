@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -263,14 +264,12 @@ func (i *Installer) installByDownload(ctx context.Context, res *resource.Tool, n
 	if cfg.BinaryName == "" {
 		cfg.BinaryName = name
 	}
-	// User spec binaryName takes highest priority
-	if spec.BinaryName != "" {
-		// Preserve original binary name as SrcBinaryName for archive search
-		if cfg.SrcBinaryName == "" {
-			cfg.SrcBinaryName = cfg.BinaryName
-		}
-		cfg.BinaryName = spec.BinaryName
+	// User spec binaryName takes highest priority; preserve the pre-override
+	// binary name as SrcBinaryName for archive search.
+	if spec.BinaryName != "" && cfg.SrcBinaryName == "" {
+		cfg.SrcBinaryName = cfg.BinaryName
 	}
+	cfg.BinaryName = effectiveBinaryName(spec, cfg.BinaryName)
 
 	// Validate effective binary name (after registry mapping and spec override)
 	if err := validateName("binaryName", cfg.BinaryName); err != nil {
@@ -471,12 +470,12 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 		slog.Warn("registry warning", "package", pkgName, "warning", w)
 	}
 
-	// Check for errors from resolution (e.g., unsupported OS/Arch)
+	// Check for errors from resolution (e.g., unsupported OS/Arch, empty URL)
 	if len(resolved.Errors) > 0 {
 		for _, e := range resolved.Errors {
 			slog.Error("registry error", "package", pkgName, "error", e)
 		}
-		return nil, fmt.Errorf("package %s is not supported on this platform: %s", pkgName, resolved.Errors[0])
+		return nil, fmt.Errorf("cannot install package %s: %s", pkgName, resolved.Errors[0])
 	}
 
 	// Build DownloadSource from resolved info
@@ -496,11 +495,10 @@ func (i *Installer) installFromRegistry(ctx context.Context, res *resource.Tool,
 	// Create a modified tool with resolved source for download.
 	resolvedTool := buildResolvedTool(res, source, version)
 
-	// Build install config from resolved files
-	cfg := extractBinaryMapping(name, resolved.Files)
-	if len(resolved.Files) > 1 {
-		slog.Warn("multiple files in registry entry, using first entry only",
-			"package", spec.Package.String(), "fileCount", len(resolved.Files))
+	// Build install config from resolved files.
+	cfg, err := extractBinaryMapping(effectiveBinaryName(spec, name), resolved.Files)
+	if err != nil {
+		return nil, fmt.Errorf("package %s: %w", pkgName, err)
 	}
 
 	// Use existing download logic (name = resource name for storage path)
@@ -539,24 +537,49 @@ func buildResolvedTool(orig *resource.Tool, source *resource.DownloadSource, ver
 	}
 }
 
-// extractBinaryMapping builds an InstallConfig from aqua registry files metadata.
-// It extracts the binary name (files[].name) and source binary name (path.Base of files[].src)
-// from the first entry. Only the first file entry is used; callers should warn on multiple entries.
-func extractBinaryMapping(defaultName string, files []aqua.FileSpec) *installer.InstallConfig {
+// extractBinaryMapping builds an InstallConfig from aqua registry files
+// metadata: binary name from files[].name, source binary name from path.Base
+// of files[].src. When a package ships multiple binaries (e.g.
+// gravitational/teleport), the entry matching desiredName is selected, and no
+// match is an error — installing files[0] instead would silently place the
+// wrong binary. A single unmatched entry is kept: that is the legitimate
+// name-mapping case (tool "cli" → files: [{name: gh}]).
+func extractBinaryMapping(desiredName string, files []aqua.FileSpec) (*installer.InstallConfig, error) {
 	cfg := &installer.InstallConfig{
-		BinaryName: defaultName,
+		BinaryName: desiredName,
 	}
 	if len(files) == 0 {
-		return cfg
+		return cfg, nil
 	}
 	f := files[0]
+	if len(files) > 1 {
+		idx := slices.IndexFunc(files, func(c aqua.FileSpec) bool { return c.Name == desiredName })
+		if idx < 0 {
+			names := make([]string, len(files))
+			for i, c := range files {
+				names[i] = c.Name
+			}
+			return nil, fmt.Errorf("package ships multiple binaries (%s) and none matches %q; set binaryName to select one",
+				strings.Join(names, ", "), desiredName)
+		}
+		f = files[idx]
+	}
 	if f.Name != "" {
 		cfg.BinaryName = f.Name
 	}
 	if f.Src != "" {
 		cfg.SrcBinaryName = path.Base(f.Src)
 	}
-	return cfg
+	return cfg, nil
+}
+
+// effectiveBinaryName returns the binary name a tool installs as: the
+// spec-level binaryName override when set, otherwise the resource name.
+func effectiveBinaryName(spec *resource.ToolSpec, name string) string {
+	if spec.BinaryName != "" {
+		return spec.BinaryName
+	}
+	return name
 }
 
 // createSymlink resolves the bin directory based on Tool.IsPrivileged() and
@@ -828,10 +851,7 @@ func (i *Installer) installByRuntime(ctx context.Context, res *resource.Tool, na
 	}
 
 	// Build variables for command substitution
-	binName := name
-	if spec.BinaryName != "" {
-		binName = spec.BinaryName
-	}
+	binName := effectiveBinaryName(spec, name)
 	// SHA pins this install to a git commit. The preset template
 	// (e.g. "go install {{.Package}}@{{.Version}}") receives the SHA via
 	// .Version, expanding to `@<sha>` without modifying the preset.

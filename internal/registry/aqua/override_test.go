@@ -133,6 +133,63 @@ func TestApplyOSOverrides(t *testing.T) {
 			},
 		},
 		{
+			// Some packages (e.g. gravitational/teleport) define url and files
+			// only inside per-OS overrides.
+			name: "url and files override",
+			info: &PackageInfo{
+				Type: "http",
+				Files: []FileSpec{
+					{Name: "server"},
+					{Name: "client"},
+				},
+				Overrides: []Override{
+					{
+						GOOS:   "linux",
+						URL:    "https://cdn.example.com/multitool-{{.Version}}-linux-{{.Arch}}-bin.{{.Format}}",
+						Format: "tar.gz",
+						Files: []FileSpec{
+							{Name: "server", Src: "multitool/server"},
+							{Name: "client", Src: "multitool/client"},
+						},
+					},
+				},
+			},
+			goos:   "linux",
+			goarch: "amd64",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "https://cdn.example.com/multitool-{{.Version}}-linux-{{.Arch}}-bin.{{.Format}}", result.URL)
+				assert.Equal(t, "tar.gz", result.Format)
+				assert.Equal(t, []FileSpec{
+					{Name: "server", Src: "multitool/server"},
+					{Name: "client", Src: "multitool/client"},
+				}, result.Files)
+			},
+		},
+		{
+			name: "url and files unset in override keeps base values",
+			info: &PackageInfo{
+				Type:   "http",
+				URL:    "https://example.com/tool-{{.Version}}.tar.gz",
+				Format: "tar.gz",
+				Files: []FileSpec{
+					{Name: "tool", Src: "bin/tool"},
+				},
+				Overrides: []Override{
+					{
+						GOOS:   "windows",
+						Format: "zip",
+					},
+				},
+			},
+			goos:   "windows",
+			goarch: "amd64",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, "https://example.com/tool-{{.Version}}.tar.gz", result.URL)
+				assert.Equal(t, "zip", result.Format)
+				assert.Equal(t, []FileSpec{{Name: "tool", Src: "bin/tool"}}, result.Files)
+			},
+		},
+		{
 			name: "replacements override",
 			info: &PackageInfo{
 				Type:   "github_release",

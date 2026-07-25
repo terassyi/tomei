@@ -16,13 +16,7 @@ func applyOSOverrides(info *PackageInfo, goos, goarch string) *PackageInfo {
 
 	for _, override := range info.Overrides {
 		if matchesOS(override, goos, goarch) {
-			// Apply override fields if they are set
-			if override.Asset != "" {
-				result.Asset = override.Asset
-			}
-			if override.Format != "" {
-				result.Format = override.Format
-			}
+			applyCommonOverrideFields(&result, override.Asset, override.URL, override.Format, override.Files)
 			if override.Replacements != nil {
 				// Merge replacements: start with base, then override
 				merged := make(map[string]string)
@@ -36,6 +30,25 @@ func applyOSOverrides(info *PackageInfo, goos, goarch string) *PackageInfo {
 	}
 
 	return &result
+}
+
+// applyCommonOverrideFields copies the override fields shared by Override and
+// VersionOverride onto result, applying only the values that are set.
+// Replacements is excluded: the two override kinds have different policies
+// (OS overrides merge with the base map, version overrides replace it).
+func applyCommonOverrideFields(result *PackageInfo, asset, url, format string, files []FileSpec) {
+	if asset != "" {
+		result.Asset = asset
+	}
+	if url != "" {
+		result.URL = url
+	}
+	if format != "" {
+		result.Format = format
+	}
+	if files != nil {
+		result.Files = files
+	}
 }
 
 // matchesOS checks if the override matches the given GOOS and GOARCH.

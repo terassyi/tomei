@@ -307,6 +307,29 @@ func TestApplyVersionOverrides(t *testing.T) {
 			},
 		},
 		{
+			name: "files override",
+			info: &PackageInfo{
+				Type:              "http",
+				URL:               "https://cdn.example.com/tool-{{.Version}}.tar.gz",
+				VersionConstraint: `semver(">= 2.0.0")`,
+				Files: []FileSpec{
+					{Name: "tool", Src: "tool"},
+				},
+				VersionOverrides: []VersionOverride{
+					{
+						VersionConstraint: `semver("< 2.0.0")`,
+						Files: []FileSpec{
+							{Name: "tool", Src: "legacy/tool"},
+						},
+					},
+				},
+			},
+			version: "v1.0.0",
+			check: func(t *testing.T, result *PackageInfo) {
+				assert.Equal(t, []FileSpec{{Name: "tool", Src: "legacy/tool"}}, result.Files)
+			},
+		},
+		{
 			name: "version_prefix override",
 			info: &PackageInfo{
 				Type:              "github_release",

@@ -181,6 +181,16 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 	// 4. Apply OS overrides (e.g., Windows uses .zip instead of .tar.gz)
 	info = applyOSOverrides(info, goos, goarch)
 
+	// A definition whose URL/asset lives only in fields tomei does not support
+	// would otherwise resolve to a broken download URL and surface as a
+	// confusing failure at download time.
+	if missingDownloadSource(info) {
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("package %s has no download source for %s/%s (the registry definition may use fields tomei does not support yet)",
+				pkg, goos, goarch))
+		return result, nil
+	}
+
 	// 5. Apply replacements (e.g., amd64 → x86_64, darwin → macOS)
 	osName := applyReplacement(info.Replacements, goos)
 	archName := applyReplacement(info.Replacements, goarch)
@@ -253,6 +263,20 @@ func (r *Resolver) ResolveWithOS(ctx context.Context, ref RegistryRef, pkg, vers
 	result.Files = info.Files
 
 	return result, nil
+}
+
+// missingDownloadSource reports whether info lacks the source field its
+// package type needs to build a download URL. Mirrors buildURL's type
+// dispatch below — extend both together when adding a package type.
+func missingDownloadSource(info *PackageInfo) bool {
+	switch info.Type {
+	case PackageTypeHTTP:
+		return info.URL == ""
+	case PackageTypeGitHubRelease:
+		return info.Asset == ""
+	default:
+		return false
+	}
 }
 
 // buildURL constructs the download URL based on package type.

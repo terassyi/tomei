@@ -8,8 +8,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -338,6 +340,80 @@ func TestToolInstaller_Install_GzFormat_SpecBinaryNameOverride(t *testing.T) {
 	info, err := os.Stat(binPath)
 	require.NoError(t, err)
 	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "placed gz binary must be executable")
+}
+
+// TestToolInstaller_Install_MultiFilePackage_SelectsMatchingBinary covers
+// multi-binary packages (e.g. gravitational/teleport): one archive ships
+// several binaries and the registry files[] entry matching the tool name must
+// be selected (not files[0]) and extracted via its src basename.
+func TestToolInstaller_Install_MultiFilePackage_SelectsMatchingBinary(t *testing.T) {
+	t.Parallel()
+	clientContent := []byte("#!/bin/sh\necho client")
+	archive := createMultiFileTarGzContent(t, map[string][]byte{
+		"multitool/agent":     []byte("#!/bin/sh\necho agent"),
+		"multitool/server":    []byte("#!/bin/sh\necho server"),
+		"multitool/multitool": []byte("#!/bin/sh\necho multitool"),
+		"multitool/client":    clientContent,
+	})
+
+	tmpDir := t.TempDir()
+	toolsDir := filepath.Join(tmpDir, "tools")
+	userBinDir := filepath.Join(tmpDir, "bin")
+	cacheDir := t.TempDir()
+	ref := aqua.RegistryRef("v4.465.0")
+	pkg := "example/multitool"
+
+	registryYAML := `packages:
+  - type: http
+    repo_owner: example
+    repo_name: multitool
+    url: https://cdn.example.com/multitool-{{.Version}}-{{.OS}}-{{.Arch}}-bin.{{.Format}}
+    format: tar.gz
+    files:
+      - name: agent
+        src: multitool/agent
+      - name: server
+        src: multitool/server
+      - name: multitool
+        src: multitool/multitool
+      - name: client
+        src: multitool/client
+`
+	cacheFile := filepath.Join(cacheDir, ref.String(), "pkgs", pkg, "registry.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(cacheFile), 0o755))
+	require.NoError(t, os.WriteFile(cacheFile, []byte(registryYAML), 0o644))
+
+	dl := &mockDownloader{archiveData: archive}
+	inst := NewInstaller(dl, place.NewPlacer(toolsDir), userBinDir, "/system-bin")
+	inst.SetResolver(aqua.NewResolver(cacheDir, nil), ref)
+
+	tool := &resource.Tool{
+		BaseResource: resource.BaseResource{
+			Metadata: resource.Metadata{Name: "client"},
+		},
+		ToolSpec: &resource.ToolSpec{
+			InstallerRef: "aqua",
+			Version:      "v1.0.0",
+			Package: &resource.Package{
+				Owner: "example",
+				Repo:  "multitool",
+			},
+		},
+	}
+
+	state, err := inst.Install(context.Background(), tool, tool.Name())
+	require.NoError(t, err)
+	require.NotNil(t, state)
+
+	// The client entry (not files[0] = agent) must be selected and placed.
+	binPath := filepath.Join(toolsDir, "client", "v1.0.0", "client")
+	got, err := os.ReadFile(binPath)
+	require.NoError(t, err)
+	assert.Equal(t, clientContent, got)
+
+	info, err := os.Stat(binPath)
+	require.NoError(t, err)
+	assert.NotEqual(t, os.FileMode(0), info.Mode()&0o111, "placed binary must be executable")
 }
 
 // TestBuildResolvedTool_PreservesPrivileged pins SUB5 #228: the registry
@@ -893,20 +969,31 @@ func TestToolInstaller_InstallFromRegistry_NoRegistryRef(t *testing.T) {
 
 func createTarGzContent(t *testing.T, binaryName string, content []byte) []byte {
 	t.Helper()
+	return createMultiFileTarGzContent(t, map[string][]byte{binaryName: content})
+}
+
+// createMultiFileTarGzContent builds a tar.gz archive containing multiple files,
+// keyed by their in-archive path — the shape of multi-binary packages like
+// gravitational/teleport (teleport/tbot, teleport/tsh, ...).
+func createMultiFileTarGzContent(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	hdr := &tar.Header{
-		Name: binaryName,
-		Mode: 0755,
-		Size: int64(len(content)),
+	// Sort paths for deterministic archive layout.
+	for _, p := range slices.Sorted(maps.Keys(files)) {
+		content := files[p]
+		hdr := &tar.Header{
+			Name: p,
+			Mode: 0755,
+			Size: int64(len(content)),
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write(content)
+		require.NoError(t, err)
 	}
-	err := tw.WriteHeader(hdr)
-	require.NoError(t, err)
-	_, err = tw.Write(content)
-	require.NoError(t, err)
 
 	require.NoError(t, tw.Close())
 	require.NoError(t, gw.Close())
@@ -1790,23 +1877,33 @@ func TestInstallFromRegistry_ChecksumAlgorithmPropagation(t *testing.T) {
 
 func TestExtractBinaryMapping(t *testing.T) {
 	t.Parallel()
+	// Multi-binary package shape (e.g. gravitational/teleport ships
+	// tbot/tctl/teleport/tsh in one archive).
+	multiToolFiles := []aqua.FileSpec{
+		{Name: "agent", Src: "multitool/agent"},
+		{Name: "server", Src: "multitool/server"},
+		{Name: "multitool", Src: "multitool/multitool"},
+		{Name: "client", Src: "multitool/client"},
+	}
+
 	tests := []struct {
 		name              string
-		defaultName       string
+		desiredName       string
 		files             []aqua.FileSpec
 		wantBinaryName    string
 		wantSrcBinaryName string
+		wantErr           bool
 	}{
 		{
-			name:              "empty files uses default name",
-			defaultName:       "mytool",
+			name:              "empty files uses desired name",
+			desiredName:       "mytool",
 			files:             nil,
 			wantBinaryName:    "mytool",
 			wantSrcBinaryName: "",
 		},
 		{
 			name:        "files[].name overrides binary name",
-			defaultName: "krew",
+			desiredName: "krew",
 			files: []aqua.FileSpec{
 				{Name: "krew", Src: "krew-linux_arm64"},
 			},
@@ -1815,7 +1912,7 @@ func TestExtractBinaryMapping(t *testing.T) {
 		},
 		{
 			name:        "files[].src with path prefix extracts base name",
-			defaultName: "helm",
+			desiredName: "helm",
 			files: []aqua.FileSpec{
 				{Name: "helm", Src: "linux-arm64/helm"},
 			},
@@ -1824,7 +1921,7 @@ func TestExtractBinaryMapping(t *testing.T) {
 		},
 		{
 			name:        "files[].src with deep path extracts base name",
-			defaultName: "gh",
+			desiredName: "gh",
 			files: []aqua.FileSpec{
 				{Name: "gh", Src: "gh_2.86.0_linux_amd64/bin/gh"},
 			},
@@ -1832,8 +1929,8 @@ func TestExtractBinaryMapping(t *testing.T) {
 			wantSrcBinaryName: "gh",
 		},
 		{
-			name:        "files[].name without src",
-			defaultName: "cli",
+			name:        "single unmatched file keeps registry name mapping",
+			desiredName: "cli",
 			files: []aqua.FileSpec{
 				{Name: "gh"},
 			},
@@ -1841,21 +1938,53 @@ func TestExtractBinaryMapping(t *testing.T) {
 			wantSrcBinaryName: "",
 		},
 		{
-			name:        "multiple files uses first entry only",
-			defaultName: "multi",
+			// Installing files[0] would silently place the wrong binary.
+			name:        "multiple files without match is an error",
+			desiredName: "multi",
 			files: []aqua.FileSpec{
 				{Name: "first", Src: "first-bin"},
 				{Name: "second", Src: "second-bin"},
 			},
-			wantBinaryName:    "first",
-			wantSrcBinaryName: "first-bin",
+			wantErr: true,
+		},
+		{
+			// The entry matching the desired name must be selected, not files[0].
+			name:              "multiple files selects entry matching desired name",
+			desiredName:       "client",
+			files:             multiToolFiles,
+			wantBinaryName:    "client",
+			wantSrcBinaryName: "client",
+		},
+		{
+			name:              "multiple files selects non-first match",
+			desiredName:       "server",
+			files:             multiToolFiles,
+			wantBinaryName:    "server",
+			wantSrcBinaryName: "server",
+		},
+		{
+			name:        "multiple files match without src",
+			desiredName: "client",
+			files: []aqua.FileSpec{
+				{Name: "agent"},
+				{Name: "server"},
+				{Name: "client"},
+			},
+			wantBinaryName:    "client",
+			wantSrcBinaryName: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := extractBinaryMapping(tt.defaultName, tt.files)
+			cfg, err := extractBinaryMapping(tt.desiredName, tt.files)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "binaryName")
+				return
+			}
+			require.NoError(t, err)
 			assert.Equal(t, tt.wantBinaryName, cfg.BinaryName)
 			assert.Equal(t, tt.wantSrcBinaryName, cfg.SrcBinaryName)
 		})
