@@ -11,13 +11,14 @@ import (
 	"github.com/terassyi/tomei/cuemodule"
 )
 
-// compileSchema compiles the schema CUE source.
-func compileSchema(t *testing.T) cue.Value {
+// compileSchema compiles the schema CUE source and returns the context it was
+// compiled in, so callers can compile test values in the same context.
+func compileSchema(t *testing.T) (*cue.Context, cue.Value) {
 	t.Helper()
 	ctx := cuecontext.New()
 	v := ctx.CompileString(cuemodule.SchemaCUE)
 	require.NoError(t, v.Err(), "schema must compile without error")
-	return v
+	return ctx, v
 }
 
 func TestSchema_Compiles(t *testing.T) {
@@ -25,7 +26,7 @@ func TestSchema_Compiles(t *testing.T) {
 }
 
 func TestSchema_Definitions_Exist(t *testing.T) {
-	v := compileSchema(t)
+	_, v := compileSchema(t)
 
 	definitions := []string{
 		"#APIVersion",
@@ -56,10 +57,9 @@ func TestSchema_Definitions_Exist(t *testing.T) {
 }
 
 func TestSchema_ValidResources(t *testing.T) {
-	v := compileSchema(t)
+	ctx, v := compileSchema(t)
 	resourceDef := v.LookupPath(cue.ParsePath("#Resource"))
 	require.True(t, resourceDef.Exists())
-	ctx := v.Context()
 
 	tests := []struct {
 		name string
@@ -536,10 +536,9 @@ func TestSchema_ValidResources(t *testing.T) {
 }
 
 func TestSchema_InvalidResources(t *testing.T) {
-	v := compileSchema(t)
+	ctx, v := compileSchema(t)
 	resourceDef := v.LookupPath(cue.ParsePath("#Resource"))
 	require.True(t, resourceDef.Exists())
-	ctx := v.Context()
 
 	tests := []struct {
 		name string
