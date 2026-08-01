@@ -42,7 +42,7 @@ runs:
     # Container mode: setup-go is safe (tests run inside Docker, no PATH conflict)
     - name: Setup Go (Container Mode)
       if: inputs.mode == 'container'
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: '1.26.0'
         cache: true
