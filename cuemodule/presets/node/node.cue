@@ -10,7 +10,6 @@ import "tomei.terassyi.net/schema"
 //   pnpmRuntime: #PnpmRuntime & {spec: version: "10.29.3"}
 #PnpmRuntime: schema.#Runtime & {
 	let _pnpmHome = "~/.local/share/pnpm"
-	let _pnpm = _pnpmHome + "/pnpm"
 
 	apiVersion: "tomei.terassyi.net/v1beta1"
 	kind:       "Runtime"
@@ -19,28 +18,40 @@ import "tomei.terassyi.net/schema"
 		description: string | *"Node.js package manager (standalone, manages Node.js via pnpm env)"
 	}
 	spec: {
+		// pnpm 11 moved standalone and global binaries into PNPM_HOME/bin.
+		_binSuffix: string
+		if version =~ "^v?([0-9]|10)(\\.|$)" {
+			_binSuffix: ""
+		}
+		if version !~ "^v?([0-9]|10)(\\.|$)" {
+			_binSuffix: "/bin"
+		}
+		let _pnpmBinDir = _pnpmHome + _binSuffix
+		let _pnpm = _pnpmBinDir + "/pnpm"
+
 		type:    "delegation"
 		version: string | *"latest"
 		bootstrap: {
 			install: [
 				"curl -fsSL https://get.pnpm.io/install.sh | SHELL=/bin/bash PNPM_VERSION={{.Version}} sh -",
 				"export PNPM_HOME=$HOME/.local/share/pnpm",
-				"export PATH=$PNPM_HOME:$PATH",
-				"$PNPM_HOME/pnpm env use --global lts",
+				"export PATH=$PNPM_HOME\(_binSuffix):$PATH",
+				"$PNPM_HOME\(_binSuffix)/pnpm env use --global lts",
 			]
 			update: [
 				"export PNPM_HOME=$HOME/.local/share/pnpm",
-				"export PATH=$PNPM_HOME:$PATH",
-				"$PNPM_HOME/pnpm self-update{{if ne .Version \"latest\"}} {{.Version}}{{end}}",
-				"$PNPM_HOME/pnpm env use --global lts",
+				"export PATH=$PNPM_HOME/bin:$PNPM_HOME:$PATH",
+				"pnpm=\"$PNPM_HOME/bin/pnpm\"; if [ ! -x \"$pnpm\" ]; then pnpm=\"$PNPM_HOME/pnpm\"; fi",
+				"\"$pnpm\" self-update{{if ne .Version \"latest\"}} {{.Version}}{{end}}",
+				"$PNPM_HOME\(_binSuffix)/pnpm env use --global lts",
 			]
 			check: ["\(_pnpm) --version"]
 			remove: ["rm -rf \(_pnpmHome)"]
-			resolveVersion: ["\(_pnpm) --version 2>/dev/null || echo ''"]
+			resolveVersion: ["\(_pnpmHome)/bin/pnpm --version 2>/dev/null || \(_pnpmHome)/pnpm --version 2>/dev/null || echo ''"]
 		}
 		binaries: ["pnpm", "pnpx"]
-		binDir:      _pnpmHome
-		toolBinPath: _pnpmHome
+		binDir:      _pnpmBinDir
+		toolBinPath: _pnpmBinDir
 		env: {
 			PNPM_HOME: _pnpmHome
 		}

@@ -3,13 +3,17 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
+	"text/template"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -996,46 +1000,112 @@ goRuntime: gopreset.#GoRuntime & {
 // can be imported via the mock OCI registry and #PnpmRuntime resolves correctly.
 func TestCueEcosystem_MockRegistry_NodePresetImport(t *testing.T) {
 	reg := startMockRegistry(t)
-	dir := setupMockRegistryDir(t, reg)
-
-	manifest := `package tomei
-
+	for _, tc := range []struct{ version, suffix string }{
+		{"10.29.3", ""}, {"11.0.0", "/bin"}, {"12.14.0", "/bin"}, {"latest", "/bin"}, {"", "/bin"},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			dir := setupMockRegistryDir(t, reg)
+			constraint := ""
+			if tc.version != "" {
+				constraint = fmt.Sprintf(" & {spec: version: %q}", tc.version)
+			}
+			manifest := `package tomei
 import "tomei.terassyi.net/presets/node"
+pnpmRuntime: node.#PnpmRuntime` + constraint
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+			resources, err := config.NewLoader(nil).Load(dir)
+			require.NoError(t, err)
+			require.Len(t, resources, 1)
+			rt, ok := resources[0].(*resource.Runtime)
+			require.True(t, ok)
+			spec := rt.RuntimeSpec
+			version := tc.version
+			if version == "" {
+				version = "latest"
+			}
+			assert.Equal(t, version, spec.Version)
+			home := "~/.local/share/pnpm"
+			bin := home + tc.suffix
+			assert.Equal(t, "pnpm", rt.Name())
+			assert.Equal(t, resource.InstallTypeDelegation, spec.Type)
+			assert.Equal(t, []string{"pnpm", "pnpx"}, spec.Binaries)
+			assert.Equal(t, home, spec.Env["PNPM_HOME"])
+			assert.Equal(t, bin, spec.BinDir)
+			assert.Equal(t, bin, spec.ToolBinPath)
+			require.NotNil(t, spec.Bootstrap)
+			assert.Equal(t, "export PATH=$PNPM_HOME"+tc.suffix+":$PATH", spec.Bootstrap.Install[2])
+			assert.Equal(t, "$PNPM_HOME"+tc.suffix+"/pnpm env use --global lts", spec.Bootstrap.Install[3])
+			assert.Equal(t, []string{bin + "/pnpm --version"}, spec.Bootstrap.Check)
+			assert.Equal(t, []string{"rm -rf " + home}, spec.Bootstrap.Remove)
+			require.NotNil(t, spec.Commands)
+			assert.Equal(t, []string{bin + "/pnpm add -g {{.Package}}{{if .Version}}@{{.Version}}{{end}}"}, spec.Commands.Install)
+			assert.Equal(t, []string{bin + "/pnpm remove -g {{.Package}}"}, spec.Commands.Remove)
 
-pnpmRuntime: node.#PnpmRuntime & {
-	spec: version: "10.29.3"
-}
+			// Only local shell stubs run: never download or invoke a real installer.
+			sandbox := t.TempDir()
+			pnpmHome := filepath.Join(sandbox, ".local", "share", "pnpm")
+			require.NoError(t, os.MkdirAll(pnpmHome, 0755))
+			old := `#!/bin/sh
+case "$1" in
+--version) echo 10.29.3;;
+self-update)
+  mkdir -p "$PNPM_HOME/bin"
+  cp "$HOME/new-pnpm" "$PNPM_HOME/bin/pnpm"
+  rm "$0"
+  echo old-self-update "$2";;
+*) exit 1;;
+esac
 `
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "tools.cue"), []byte(manifest), 0644))
+			fresh := `#!/bin/sh
+case "$1" in
+--version) echo 12.14.0;;
+self-update) echo current-self-update "$2";;
+env) echo new-env "$*";;
+*) exit 1;;
+esac
+`
+			installedVersion := version
+			if version == "latest" {
+				installedVersion = "12.14.0"
+			}
+			fresh = strings.ReplaceAll(fresh, "12.14.0", installedVersion)
+			if tc.suffix == "" {
+				old = fresh
+			}
 
-	loader := config.NewLoader(nil)
-	resources, err := loader.Load(dir)
-	require.NoError(t, err)
-	require.Len(t, resources, 1)
-
-	rt, ok := resources[0].(*resource.Runtime)
-	require.True(t, ok)
-	assert.Equal(t, "pnpm", rt.Name())
-	assert.Equal(t, "10.29.3", rt.RuntimeSpec.Version)
-	assert.Equal(t, resource.InstallTypeDelegation, rt.RuntimeSpec.Type)
-
-	// Verify bootstrap []string fields
-	require.NotNil(t, rt.RuntimeSpec.Bootstrap)
-	assert.Len(t, rt.RuntimeSpec.Bootstrap.Install, 4, "bootstrap.install should have 4 steps")
-	assert.Len(t, rt.RuntimeSpec.Bootstrap.Check, 1)
-	assert.Len(t, rt.RuntimeSpec.Bootstrap.Remove, 1)
-	assert.Len(t, rt.RuntimeSpec.Bootstrap.ResolveVersion, 1)
-
-	// Verify binaries
-	assert.Equal(t, []string{"pnpm", "pnpx"}, rt.RuntimeSpec.Binaries)
-
-	// Verify env map
-	assert.Equal(t, "~/.local/share/pnpm", rt.RuntimeSpec.Env["PNPM_HOME"])
-
-	// Verify commands
-	require.NotNil(t, rt.RuntimeSpec.Commands)
-	assert.Len(t, rt.RuntimeSpec.Commands.Install, 1)
-	assert.Len(t, rt.RuntimeSpec.Commands.Remove, 1)
+			require.NoError(t, os.WriteFile(filepath.Join(pnpmHome, "pnpm"), []byte(old), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(sandbox, "new-pnpm"), []byte(fresh), 0755))
+			run := func(commands []string) string {
+				t.Helper()
+				tmpl, err := template.New("bootstrap").Parse(strings.Join(commands, " && "))
+				require.NoError(t, err)
+				var script bytes.Buffer
+				require.NoError(t, tmpl.Execute(&script, map[string]string{"Version": spec.Version}))
+				cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", script.String())
+				cmd.Env = []string{"HOME=" + sandbox, "PATH=/usr/bin:/bin"}
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, string(output))
+				return string(output)
+			}
+			assert.Equal(t, "10.29.3\n", run(spec.Bootstrap.ResolveVersion))
+			output := run(spec.Bootstrap.Update)
+			if tc.suffix == "" {
+				assert.Contains(t, output, "current-self-update 10.29.3")
+			} else {
+				expected := "old-self-update"
+				if version != "latest" {
+					expected += " " + version
+				}
+				assert.Equal(t, expected, strings.TrimSpace(strings.Split(output, "\n")[0]))
+			}
+			assert.Contains(t, output, "new-env env use --global lts")
+			assert.Equal(t, installedVersion+"\n", run(spec.Bootstrap.Check))
+			assert.Equal(t, installedVersion+"\n", run(spec.Bootstrap.ResolveVersion))
+			output = run(spec.Bootstrap.Update)
+			assert.Contains(t, output, "current-self-update")
+			assert.Contains(t, output, "new-env env use --global lts")
+		})
+	}
 }
 
 // TestCueEcosystem_MockRegistry_PythonPresetImport verifies that the python preset
